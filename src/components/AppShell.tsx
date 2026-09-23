@@ -119,7 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="text-[14px] font-semibold">ThinkHealth</span>
             <div className="ml-auto w-48"><SyncStatus /></div>
           </header>
-          <main key={path} className="rise mx-auto max-w-[1280px] px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10">{children}</main>
+          <main key={path} className="rise mx-auto max-w-[1680px] px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10">{children}</main>
         </div>
       </div>
 

@@ -9,9 +9,10 @@ const C = ((globalThis as unknown as { __thMeta?: { v: Meta | null } }).__thMeta
 
 const SAMPLE_TEAM = ["Sumit Shah", "Ashish Dalal", "Baiju Stephen"];
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!zohoConfigured()) return Response.json({ source: "mock", team: SAMPLE_TEAM, customers: [] });
-  if (C.v && Date.now() - C.v.at < TTL_MS) return Response.json({ source: "zoho", team: C.v.team, customers: C.v.customers });
+  const fresh = new URL(request.url).searchParams.has("refresh");
+  if (!fresh && C.v && Date.now() - C.v.at < TTL_MS) return Response.json({ source: "zoho", team: C.v.team, customers: C.v.customers });
   try {
     const [team, customers] = await Promise.all([fetchTeam(), fetchCustomers()]);
     const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));

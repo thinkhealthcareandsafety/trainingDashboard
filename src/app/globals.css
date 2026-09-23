@@ -164,6 +164,10 @@ h1, h2, h3 { letter-spacing: -0.018em; }
 /* Numbers that align in columns (tables, axes). Large standalone figures stay proportional. */
 .num { font-variant-numeric: tabular-nums; }
 
+/* Scrollable but no visible scrollbar (e.g. kanban columns) — still scrolls by wheel/trackpad/touch. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* Ticker: duplicated track animated by -50% for a seamless loop. */
 @keyframes ticker-scroll {
   from { transform: translateX(0); }

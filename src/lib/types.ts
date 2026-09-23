@@ -101,6 +101,58 @@ export interface FollowUp {
   demo?: boolean;
 }
 
+/** A prospective client, entered manually before any quotation exists in Zoho. */
+export interface Lead {
+  id: string;
+  customerName: string;
+  trainingType?: string;
+  source?: string; // e.g. Referral, Website, Cold call, Repeat client
+  contact?: string;
+  owner?: string;
+  notes?: string;
+  createdAt: string;
+  status: "open" | "lost";
+}
+
+/**
+ * One row per client engagement, tracked through the pipeline:
+ * Lead -> Quotation -> Performa Invoice -> Training Date -> Training Completed -> Invoice Sent -> Payment Received.
+ * Built by joining manual Leads with Zoho estimates/salesorders/invoices — see lib/deals.ts.
+ */
+export interface Deal {
+  id: string;
+  customerName: string;
+  trainingType: string;
+  priority?: Priority;
+
+  leadId?: string;
+  leadAt?: string;
+  leadSource?: string;
+
+  quotationDocId?: string;
+  quotationDocNumber?: string;
+  quotationAt?: string;
+  quotationStatus?: string;
+
+  performaDocId?: string;
+  performaDocNumber?: string;
+  performaAt?: string;
+  performaStatus?: string;
+
+  trainingDate?: string;
+  trainingCompleted: boolean;
+
+  invoiceDocId?: string;
+  invoiceDocNumber?: string;
+  invoiceStatus?: ZohoStatus;
+  invoiceSent: boolean;
+  paymentReceived: boolean;
+
+  amount: number;
+  participants: number;
+  updatedAt: string; // most recent date across every stage, for sorting
+}
+
 export interface Announcement {
   id: string;
   text: string;

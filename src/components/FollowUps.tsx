@@ -1,209 +1,105 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { FollowUp, FollowUpStatus, FollowUpType, Priority } from "@/lib/types";
-import { addDays, daysBetween, fmtDate, fmtTime, relativeDue, startOfDay } from "@/lib/dates";
-import { FOLLOWUP_TYPE_LABEL, SOURCE_LABEL, STATUS_LABEL, effectiveStatus, isOpen } from "@/lib/followups";
-import { PRIORITY_RANK } from "@/lib/priority";
+import type { Deal, Lead, Priority } from "@/lib/types";
+import { fmtDate, fmtINR } from "@/lib/dates";
+import { type DealStage, dealCascade, dealStage, dealStageLabel } from "@/lib/deals";
+import { zohoUrl } from "@/lib/zohoLinks";
 import { newId, useStore } from "@/lib/store";
 import { PageHeader } from "./AppShell";
-import { Avatar, Combobox, Field, IconButton, Modal, PriorityBadge, PriorityPicker, Segmented, btn, inputCls, selectCls } from "./ui";
+import { Avatar, Combobox, Field, IconButton, Modal, PriorityBadge, PriorityDot, btn, inputCls, selectCls } from "./ui";
 
-type Row = FollowUp & { eff: FollowUpStatus };
-type SortKey = "due" | "priority" | "client" | "created";
+const LEAD_SOURCES = ["Referral", "Website", "Cold call", "Repeat client", "Exhibition", "Other"];
 
-const STATUS_DOT: Record<FollowUpStatus, string> = {
-  overdue: "bg-high",
-  pending: "bg-faint",
-  in_progress: "bg-brand",
-  snoozed: "bg-medium",
-  completed: "bg-low",
-  cancelled: "bg-faint",
-};
+/* ---------------- Stage cell ---------------- */
 
-function Status({ s }: { s: FollowUpStatus }) {
+function StageCell({ done, date, sub }: { done: boolean; date?: string; sub?: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] ${s === "overdue" ? "font-medium text-high" : "text-ink-2"}`}>
-      <span className={`size-1.5 rounded-full ${STATUS_DOT[s]}`} aria-hidden />
-      {STATUS_LABEL[s]}
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px]">
+      {done ? (
+        <svg viewBox="0 0 20 20" className="size-4 shrink-0 text-low" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+        </svg>
+      ) : (
+        <span className="size-4 shrink-0 text-center leading-none text-faint" aria-hidden>–</span>
+      )}
+      <span className={done ? "text-ink-2" : "text-faint"}>
+        {done ? (date ? fmtDate(date) : sub ?? "Done") : "—"}
+      </span>
     </span>
   );
 }
 
-function toLocalInput(iso: string) {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+/* ---------------- New / edit lead ---------------- */
 
-/* ---------------- Create / edit ---------------- */
-
-function FollowUpModal({ open, onClose, initial, owners, customers, preset }: { open: boolean; onClose: () => void; initial: FollowUp | null; owners: string[]; customers: string[]; preset?: Partial<FollowUp> }) {
-  const { saveFollowUp } = useStore();
+function LeadModal({ open, onClose, initial, customers, owners, trainingTypes }: { open: boolean; onClose: () => void; initial: Lead | null; customers: string[]; owners: string[]; trainingTypes: string[] }) {
+  const { saveLead } = useStore();
   const [customerName, setCustomer] = useState("");
-  const [subject, setSubject] = useState("");
-  const [type, setType] = useState<FollowUpType>("call");
-  const [dueAt, setDue] = useState("");
+  const [trainingType, setTrainingType] = useState("");
+  const [source, setSource] = useState("");
+  const [contact, setContact] = useState("");
   const [owner, setOwner] = useState("");
-  const [priority, setPriority] = useState<Priority | null>(null);
   const [notes, setNotes] = useState("");
   const [touched, setTouched] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    const tomorrow = addDays(startOfDay(new Date()), 1);
-    tomorrow.setHours(10);
-    setCustomer(initial?.customerName ?? preset?.customerName ?? "");
-    setSubject(initial?.subject ?? preset?.subject ?? "");
-    setType(initial?.type ?? "call");
-    setDue(toLocalInput(initial?.dueAt ?? tomorrow.toISOString()));
-    setOwner(initial?.owner ?? preset?.owner ?? "Unassigned");
-    setPriority(initial?.priority ?? null);
+    setCustomer(initial?.customerName ?? "");
+    setTrainingType(initial?.trainingType ?? "");
+    setSource(initial?.source ?? "");
+    setContact(initial?.contact ?? "");
+    setOwner(initial?.owner ?? "");
     setNotes(initial?.notes ?? "");
     setTouched(false);
-  }, [open, initial, owners, preset]);
+  }, [open, initial]);
 
-  const valid = Boolean(customerName.trim() && subject.trim() && dueAt && owner.trim() && priority);
+  const valid = Boolean(customerName.trim());
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
     if (!valid) return;
-    const now = new Date().toISOString();
-    const iso = new Date(dueAt).toISOString();
-    const base: FollowUp = initial ?? {
-      id: newId(), customerName: "", subject: "", type: "call", dueAt: iso, owner: "", priority: priority!, status: "pending", source: "manual", createdAt: now, activities: [],
-    };
-    const rescheduled = initial && initial.dueAt !== iso;
-    saveFollowUp(
-      {
-        ...base,
-        customerName: customerName.trim(),
-        subject: subject.trim(),
-        type,
-        dueAt: iso,
-        owner: owner.trim(),
-        priority: priority!,
-        notes: notes.trim() || undefined,
-        status: rescheduled && base.status === "snoozed" ? "pending" : base.status,
-      },
-      initial
-        ? { kind: rescheduled ? "rescheduled" : "note", body: rescheduled ? `Rescheduled to ${fmtDate(iso)} ${fmtTime(iso)}` : "Details edited" }
-        : { kind: "created", body: "Follow-up created" },
-    );
+    saveLead({
+      id: initial?.id ?? newId(),
+      customerName: customerName.trim(),
+      trainingType: trainingType.trim() || undefined,
+      source: source.trim() || undefined,
+      contact: contact.trim() || undefined,
+      owner: owner.trim() || undefined,
+      notes: notes.trim() || undefined,
+      createdAt: initial?.createdAt ?? new Date().toISOString(),
+      status: initial?.status ?? "open",
+    });
     onClose();
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={initial ? "Edit follow-up" : "New follow-up"}>
+    <Modal open={open} onClose={onClose} title={initial ? "Edit lead" : "New lead"}>
       <form onSubmit={submit} className="space-y-4">
         <Field label="Client">
-          <Combobox value={customerName} onChange={setCustomer} options={customers} placeholder="Search Zoho customers" noun="customers" customLabel="Add" ariaLabel="Client" />
+          <Combobox value={customerName} onChange={setCustomer} options={customers} placeholder="Search or add a client" noun="clients" customLabel="Add" ariaLabel="Client" />
         </Field>
-        <Field label="What needs to happen">
-          <input autoFocus className={inputCls} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Chase quote for BLS batch" />
+        <Field label="Interested in (optional)">
+          <Combobox value={trainingType} onChange={setTrainingType} options={trainingTypes} placeholder="e.g. First Aid Training" noun="training types" customLabel="Add" ariaLabel="Training type" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Type">
-            <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as FollowUpType)}>
-              {(Object.keys(FOLLOWUP_TYPE_LABEL) as FollowUpType[]).map((t) => <option key={t} value={t}>{FOLLOWUP_TYPE_LABEL[t]}</option>)}
-            </select>
+          <Field label="Source">
+            <Combobox value={source} onChange={setSource} options={LEAD_SOURCES} placeholder="How did they find us" noun="sources" customLabel="Add" ariaLabel="Source" />
           </Field>
           <Field label="Owner">
-            <Combobox value={owner} onChange={setOwner} options={owners} placeholder="Who follows up" noun="people" customLabel="Assign to" ariaLabel="Owner" />
+            <Combobox value={owner} onChange={setOwner} options={owners} placeholder="Who's chasing this" noun="people" customLabel="Assign to" ariaLabel="Owner" />
           </Field>
         </div>
-        <Field label="Due">
-          <input type="datetime-local" className={inputCls} value={dueAt} onChange={(e) => setDue(e.target.value)} />
+        <Field label="Contact (optional)">
+          <input className={inputCls} value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Phone or email" />
         </Field>
-        <div>
-          <span className="mb-1.5 block text-[13px] font-medium text-ink-2">Priority</span>
-          <PriorityPicker value={priority} onChange={setPriority} />
-        </div>
         <Field label="Notes (optional)">
           <textarea className={`${inputCls} h-20 py-2`} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
-        {touched && !valid && <p className="text-xs text-high">Add a client, what needs to happen, a due date, an owner and a priority.</p>}
+        {touched && !valid && <p className="text-xs text-high">Add a client name.</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className={btn.ghost} onClick={onClose}>Cancel</button>
-          <button type="submit" className={btn.primary}>{initial ? "Save changes" : "Create follow-up"}</button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-/* ---------------- Complete + schedule next ---------------- */
-
-function CompleteModal({ row, onClose }: { row: FollowUp | null; onClose: () => void }) {
-  const { saveFollowUp } = useStore();
-  const [outcome, setOutcome] = useState("");
-  const [next, setNext] = useState(false);
-  const [nextDays, setNextDays] = useState(3);
-  useEffect(() => {
-    setOutcome("");
-    setNext(false);
-    setNextDays(3);
-  }, [row]);
-  if (!row) return null;
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const now = new Date().toISOString();
-    saveFollowUp({ ...row, status: "completed", outcome: outcome.trim() || undefined, completedAt: now }, { kind: "completed", body: outcome.trim() ? `Completed · ${outcome.trim()}` : "Completed" });
-    if (next) {
-      const due = addDays(startOfDay(new Date()), nextDays);
-      due.setHours(10);
-      saveFollowUp({
-        ...row,
-        id: newId(),
-        triggerKey: undefined,
-        source: "manual",
-        status: "pending",
-        subject: row.subject,
-        dueAt: due.toISOString(),
-        outcome: undefined,
-        completedAt: undefined,
-        createdAt: now,
-        demo: undefined,
-        activities: [{ id: newId(), kind: "created", body: "Scheduled as the next step", at: now }],
-      });
-    }
-    onClose();
-  };
-
-  return (
-    <Modal open={!!row} onClose={onClose} title="Complete follow-up">
-      <form onSubmit={submit} className="space-y-4">
-        <div className="rounded-lg bg-surface-2 px-3.5 py-3 text-[13px]">
-          <div className="font-medium text-ink">{row.subject}</div>
-          <div className="text-muted">{row.customerName}</div>
-        </div>
-        <Field label="Outcome">
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {["Interested", "Left voicemail", "Quote sent", "Payment promised", "Not interested"].map((o) => (
-              <button
-                type="button"
-                key={o}
-                onClick={() => setOutcome(o)}
-                className={`h-7 rounded-md border px-2.5 text-xs font-medium transition ${outcome === o ? "border-ink bg-ink text-surface" : "border-line text-ink-2 hover:border-line-strong"}`}
-              >
-                {o}
-              </button>
-            ))}
-          </div>
-          <input className={inputCls} value={outcome} onChange={(e) => setOutcome(e.target.value)} placeholder="What happened?" />
-        </Field>
-        <label className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
-          <input type="checkbox" checked={next} onChange={(e) => setNext(e.target.checked)} className="size-4 accent-[var(--brand)]" />
-          Schedule the next follow-up in
-          <select className={selectCls} value={nextDays} onChange={(e) => setNextDays(Number(e.target.value))} disabled={!next}>
-            {[1, 2, 3, 7, 14, 30].map((d) => <option key={d} value={d}>{d} day{d > 1 ? "s" : ""}</option>)}
-          </select>
-        </label>
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className={btn.ghost} onClick={onClose}>Cancel</button>
-          <button type="submit" className={btn.primary}>Mark complete</button>
+          <button type="submit" className={btn.primary}>{initial ? "Save changes" : "Create lead"}</button>
         </div>
       </form>
     </Modal>
@@ -212,222 +108,209 @@ function CompleteModal({ row, onClose }: { row: FollowUp | null; onClose: () => 
 
 /* ---------------- Detail drawer ---------------- */
 
-function Drawer({ row, onClose, onEdit, onComplete }: { row: Row | null; onClose: () => void; onEdit: (f: FollowUp) => void; onComplete: (f: FollowUp) => void }) {
-  const { saveFollowUp, deleteFollowUp, now } = useStore();
-  const [note, setNote] = useState("");
-  useEffect(() => setNote(""), [row?.id]);
+function Drawer({ deal, onClose, onEditLead }: { deal: Deal | null; onClose: () => void; onEditLead: (id: string) => void }) {
+  const { leads, deleteLead, data } = useStore();
   useEffect(() => {
-    if (!row) return;
+    if (!deal) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [row, onClose]);
-  if (!row) return null;
-  const addNote = () => {
-    if (!note.trim()) return;
-    saveFollowUp(row, { kind: "note", body: note.trim() });
-    setNote("");
-  };
-  const meta: [string, React.ReactNode][] = [
-    ["Status", <Status key="s" s={row.eff} />],
-    ["Priority", <PriorityBadge key="p" p={row.priority} />],
-    ["Due", <span key="d" className={row.eff === "overdue" ? "font-medium text-high" : ""}>{fmtDate(row.dueAt, { weekday: "short", day: "numeric", month: "short" })}, {fmtTime(row.dueAt)} · {relativeDue(row.dueAt, now)}</span>],
-    ["Owner", <span key="o" className="inline-flex items-center gap-2"><Avatar name={row.owner} />{row.owner}</span>],
-    ["Type", FOLLOWUP_TYPE_LABEL[row.type]],
-    ["Source", SOURCE_LABEL[row.source]],
-    ["Zoho document", row.linkedDoc ?? "—"],
+  }, [deal, onClose]);
+  if (!deal) return null;
+  const lead = leads.find((l) => l.id === deal.leadId);
+  const { hasQuotation, hasPerforma } = dealCascade(deal);
+  const orgId = data?.orgId;
+
+  const stages: [string, boolean, string | undefined, string | undefined][] = [
+    ["Lead", Boolean(deal.leadId), deal.leadAt, undefined],
+    ["Quotation", hasQuotation, deal.quotationAt, deal.quotationDocId ? zohoUrl("estimate", deal.quotationDocId, orgId) : undefined],
+    ["Performa invoice", hasPerforma, deal.performaAt, deal.performaDocId ? zohoUrl("salesorder", deal.performaDocId, orgId) : undefined],
+    ["Training date", Boolean(deal.trainingDate), deal.trainingDate, undefined],
+    ["Training completed", deal.trainingCompleted, deal.trainingCompleted ? deal.trainingDate : undefined, undefined],
+    ["Invoice sent", deal.invoiceSent, undefined, deal.invoiceDocId ? zohoUrl("invoice", deal.invoiceDocId, orgId) : undefined],
+    ["Payment received", deal.paymentReceived, undefined, undefined],
   ];
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-ink/20 backdrop-blur-[1px]" onMouseDown={onClose}>
-      <aside className="rise flex h-full w-full max-w-[440px] flex-col border-l border-line bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()} aria-label="Follow-up details">
+      <aside className="rise flex h-full w-full max-w-[440px] flex-col border-l border-line bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()} aria-label="Deal details">
         <div className="flex items-start justify-between gap-3 px-6 pb-4 pt-5">
           <div className="min-w-0">
-            <div className="text-[13px] text-muted">{row.customerName}</div>
-            <h2 className="mt-0.5 text-[17px] font-semibold leading-snug tracking-tight">{row.subject}</h2>
+            <div className="text-[13px] text-muted">{deal.trainingType || "General enquiry"}</div>
+            <h2 className="mt-0.5 truncate text-[17px] font-semibold leading-snug tracking-tight">{deal.customerName}</h2>
           </div>
           <IconButton label="Close" onClick={onClose}><path d="M5 5l10 10M15 5L5 15" /></IconButton>
         </div>
         <div className="flex-1 overflow-y-auto px-6 pb-6">
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-[13px]">
+            <span className="rounded-full bg-surface-2 px-2.5 py-1 font-medium text-ink-2">{dealStageLabel(deal)}</span>
+            {deal.priority && <PriorityBadge p={deal.priority} />}
+          </div>
           <dl className="divide-y divide-line border-y border-line text-[13px]">
-            {meta.map(([k, v]) => (
-              <div key={k} className="grid grid-cols-[110px_1fr] items-center py-2.5">
-                <dt className="text-muted">{k}</dt>
-                <dd className="text-ink-2">{v}</dd>
+            {stages.map(([label, done, date, href]) => (
+              <div key={label} className="grid grid-cols-[150px_1fr] items-center py-2.5">
+                <dt className="text-muted">{label}</dt>
+                <dd className="flex items-center gap-2 text-ink-2">
+                  <StageCell done={done} date={date} />
+                  {href && (
+                    <a href={href} target="_blank" rel="noreferrer" className="text-brand hover:underline">
+                      View in Zoho
+                    </a>
+                  )}
+                </dd>
               </div>
             ))}
           </dl>
-          {(row.outcome || row.notes) && (
-            <div className="mt-5 space-y-3 text-[13px]">
-              {row.outcome && <div><div className="mb-1 text-muted">Outcome</div><div className="text-ink-2">{row.outcome}</div></div>}
-              {row.notes && <div><div className="mb-1 text-muted">Notes</div><div className="whitespace-pre-wrap text-ink-2">{row.notes}</div></div>}
+          <div className="mt-5 grid grid-cols-2 gap-3 text-[13px]">
+            <div><div className="mb-1 text-muted">Documents</div>
+              <div className="text-ink-2">{[deal.quotationDocNumber, deal.performaDocNumber, deal.invoiceDocNumber].filter(Boolean).join(" · ") || "—"}</div>
+            </div>
+            <div><div className="mb-1 text-muted">Participants</div><div className="text-ink-2">{deal.participants || "—"}</div></div>
+          </div>
+          {lead && (
+            <div className="mt-6">
+              <h3 className="mb-3 text-[13px] font-medium text-ink-2">Lead details</h3>
+              <dl className="space-y-2 text-[13px]">
+                {lead.source && <div className="flex gap-2"><dt className="w-20 shrink-0 text-muted">Source</dt><dd className="text-ink-2">{lead.source}</dd></div>}
+                {lead.contact && <div className="flex gap-2"><dt className="w-20 shrink-0 text-muted">Contact</dt><dd className="text-ink-2">{lead.contact}</dd></div>}
+                {lead.owner && <div className="flex gap-2"><dt className="w-20 shrink-0 text-muted">Owner</dt><dd className="inline-flex items-center gap-2 text-ink-2"><Avatar name={lead.owner} />{lead.owner}</dd></div>}
+                {lead.notes && <div className="flex gap-2"><dt className="w-20 shrink-0 text-muted">Notes</dt><dd className="whitespace-pre-wrap text-ink-2">{lead.notes}</dd></div>}
+              </dl>
             </div>
           )}
-          <h3 className="mb-3 mt-6 text-[13px] font-medium text-ink-2">Activity</h3>
-          <div className="mb-4 flex gap-2">
-            <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addNote()} placeholder="Log a call, email or note…" />
-            <button className={btn.ghost} onClick={addNote}>Log</button>
+        </div>
+        {lead && (
+          <div className="flex items-center gap-2 border-t border-line px-6 py-4">
+            <button className={btn.ghost} onClick={() => onEditLead(lead.id)}>Edit lead</button>
+            <button className={`${btn.danger} ml-auto`} onClick={() => { deleteLead(lead.id); onClose(); }}>Delete lead</button>
           </div>
-          <ol className="relative space-y-4 pl-5 before:absolute before:bottom-1 before:left-[3px] before:top-1 before:w-px before:bg-line">
-            {[...row.activities].reverse().map((a) => (
-              <li key={a.id} className="relative text-[13px]">
-                <span className="absolute -left-5 top-1.5 size-[7px] rounded-full bg-line-strong ring-2 ring-surface" />
-                <div className="text-ink-2">{a.body}</div>
-                <div className="text-xs text-faint">{fmtDate(a.at)}, {fmtTime(a.at)}</div>
-              </li>
-            ))}
-          </ol>
-        </div>
-        <div className="flex items-center gap-2 border-t border-line px-6 py-4">
-          {isOpen(row.eff) && <button className={btn.primary} onClick={() => onComplete(row)}>Complete</button>}
-          <button className={btn.ghost} onClick={() => onEdit(row)}>Edit</button>
-          <button className={`${btn.danger} ml-auto`} onClick={() => { deleteFollowUp(row.id); onClose(); }}>Delete</button>
-        </div>
+        )}
       </aside>
     </div>
   );
 }
 
-/* ---------------- Page ---------------- */
+/* ---------------- Board ---------------- */
 
-type Group = { key: string; label: string; rows: Row[] };
+type SortKey = "recent" | "amount";
 
-export function FollowUpBoard({ initialQuery = "", initialOpen = null }: { initialQuery?: string; initialOpen?: string | null }) {
-  const { followUps, now, patchFollowUps, data, team, customers: zohoCustomers } = useStore();
-  const [preset, setPreset] = useState<Partial<FollowUp> | undefined>(undefined);
-  const [q, setQ] = useState(initialQuery);
-  const [scope, setScope] = useState<"open" | "overdue" | "today" | "week" | "completed">("open");
-  const [priority, setPriority] = useState<Priority | "all">("all");
-  const [owner, setOwner] = useState("all");
-  const [type, setType] = useState<FollowUpType | "all">("all");
-  const [sort, setSort] = useState<SortKey>("due");
-  const [view, setView] = useState<"list" | "board">("list");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [drawerId, setDrawerId] = useState<string | null>(initialOpen);
-  const [edit, setEdit] = useState<{ open: boolean; row: FollowUp | null }>({ open: false, row: null });
-  const openNew = (p?: Partial<FollowUp>) => {
-    setPreset(p);
-    setEdit({ open: true, row: null });
-  };
-  const [completing, setCompleting] = useState<FollowUp | null>(null);
+const STAGE_ORDER: DealStage[] = ["lead", "quotation", "performa", "training", "training_completed", "invoiced", "paid"];
 
-  useEffect(() => {
-    try {
-      const v = localStorage.getItem("th.fuView");
-      if (v === "board" || v === "list") setView(v);
-    } catch {}
-  }, []);
-  const changeView = (v: "list" | "board") => {
-    setView(v);
-    try { localStorage.setItem("th.fuView", v); } catch {}
-  };
+const STAGE_META: Record<DealStage, { label: string; header: string; dot: string }> = {
+  lead: { label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
+  quotation: { label: "Quotations", header: "bg-brand-soft", dot: "bg-brand-2" },
+  performa: { label: "Performa invoice", header: "bg-medium-bg", dot: "bg-medium" },
+  training: { label: "Training scheduled", header: "bg-brand-soft", dot: "bg-brand" },
+  training_completed: { label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
+  invoiced: { label: "Invoice sent", header: "bg-medium-bg", dot: "bg-medium" },
+  paid: { label: "Payment received", header: "bg-low-bg", dot: "bg-low" },
+};
 
-  const rows: Row[] = useMemo(() => followUps.map((f) => ({ ...f, eff: effectiveStatus(f, now) })), [followUps, now]);
-  const uniqSorted = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  // Owners: Zoho Books users + anyone already assigned; "Unassigned" always available.
-  const owners = useMemo(() => ["Unassigned", ...uniqSorted([...team, ...rows.map((r) => r.owner)]).filter((o) => o !== "Unassigned")], [team, rows]);
-  const customers = useMemo(
-    () => uniqSorted([...zohoCustomers, ...(data?.trainings ?? []).map((t) => t.customerName), ...rows.map((r) => r.customerName)]),
-    [zohoCustomers, data, rows],
+function cardDetail(d: Deal, stage: DealStage): string {
+  switch (stage) {
+    case "lead": return d.leadSource ? `via ${d.leadSource}` : "New lead";
+    case "quotation": return d.quotationDocNumber ? `Quote ${d.quotationDocNumber}` : "Quotation sent";
+    case "performa": return d.performaDocNumber ? `PI ${d.performaDocNumber}` : "Performa invoice";
+    case "training": return d.trainingDate ? `Scheduled ${fmtDate(d.trainingDate)}` : "Awaiting date";
+    case "training_completed": return d.trainingDate ? `Delivered ${fmtDate(d.trainingDate)}` : "Delivered";
+    case "invoiced": return d.invoiceDocNumber ? `${d.invoiceDocNumber} · ${d.invoiceStatus}` : "Invoice sent";
+    case "paid": return d.invoiceDocNumber ? `${d.invoiceDocNumber} · Paid` : "Paid";
+  }
+}
+
+function DealCard({ deal, stage, onClick }: { deal: Deal; stage: DealStage; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="card-hover block w-full rounded-xl border border-line bg-surface p-3 text-left shadow-card transition"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-semibold text-ink">{deal.customerName}</div>
+          <div className="truncate text-[12px] text-muted">{deal.trainingType || "General enquiry"}</div>
+        </div>
+        {deal.priority && <PriorityDot p={deal.priority} className="mt-1.5 shrink-0" />}
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-2 text-[12px]">
+        <span className="num font-medium text-ink-2">{deal.amount ? fmtINR(deal.amount, true) : "—"}</span>
+        <span className="truncate text-faint">{cardDetail(deal, stage)}</span>
+      </div>
+    </button>
   );
+}
 
-  const endToday = addDays(startOfDay(now), 1);
-  const endWeek = addDays(startOfDay(now), 7);
-  const inScope = (r: Row, s: typeof scope) =>
-    s === "open" ? isOpen(r.eff)
-    : s === "overdue" ? r.eff === "overdue"
-    : s === "today" ? isOpen(r.eff) && r.eff !== "overdue" && new Date(r.dueAt) < endToday
-    : s === "week" ? isOpen(r.eff) && r.eff !== "overdue" && new Date(r.dueAt) < endWeek
-    : r.eff === "completed";
+// Roughly 6 card-heights tall — the rest scrolls within the column, independent of the page.
+const VISIBLE_ROWS_HEIGHT = "520px";
 
-  const counts = {
-    overdue: rows.filter((r) => inScope(r, "overdue")).length,
-    today: rows.filter((r) => inScope(r, "today")).length,
-    week: rows.filter((r) => inScope(r, "week")).length,
-    done: rows.filter((r) => r.eff === "completed" && r.completedAt && daysBetween(new Date(r.completedAt), now) <= 30).length,
-  };
-  const closed = rows.filter((r) => r.eff === "completed" && r.completedAt);
-  const onTime = closed.length ? Math.round((closed.filter((r) => new Date(r.completedAt!) <= new Date(r.dueAt)).length / closed.length) * 100) : null;
+function StageColumn({ stage, items, onOpen }: { stage: DealStage; items: Deal[]; onOpen: (id: string) => void }) {
+  const meta = STAGE_META[stage];
+  const total = items.reduce((s, d) => s + d.amount, 0);
+
+  return (
+    <div className="flex min-w-0 flex-col rounded-xl bg-surface-2/60">
+      <div className={`flex items-center justify-between gap-2 rounded-t-xl px-3 py-2.5 ${meta.header}`}>
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <span className={`size-2 shrink-0 rounded-full ${meta.dot}`} aria-hidden />
+          <span className="truncate text-[13px] font-semibold text-ink">{meta.label}</span>
+        </span>
+        <span className="shrink-0 rounded-full bg-surface px-1.5 text-[12px] num text-muted">{items.length}</span>
+      </div>
+      <div className="px-3 pb-2 pt-1.5 text-[12px] num text-muted">{total ? fmtINR(total, true) : "—"}</div>
+      <div className={`no-scrollbar overflow-y-auto px-3 pb-3 ${items.length === 0 ? "flex" : "space-y-2"}`} style={{ height: VISIBLE_ROWS_HEIGHT }}>
+        {items.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-center text-[12px] text-faint">No deals</div>
+        ) : (
+          items.map((d) => <DealCard key={d.id} deal={d} stage={stage} onClick={() => onOpen(d.id)} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function FollowUpBoard({ initialQuery = "" }: { initialQuery?: string; initialOpen?: string | null }) {
+  const { deals, leads, data, team, customers: zohoCustomers } = useStore();
+  const [q, setQ] = useState(initialQuery);
+  const [priority, setPriority] = useState<Priority | "all">("all");
+  const [sort, setSort] = useState<SortKey>("recent");
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [leadModal, setLeadModal] = useState<{ open: boolean; row: Lead | null }>({ open: false, row: null });
+
+  const uniqSorted = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const owners = useMemo(() => uniqSorted([...team, ...leads.map((l) => l.owner ?? "")]), [team, leads]);
+  const customers = useMemo(
+    () => uniqSorted([...zohoCustomers, ...(data?.trainings ?? []).map((t) => t.customerName), ...deals.map((d) => d.customerName)]),
+    [zohoCustomers, data, deals],
+  );
+  const trainingTypes = useMemo(() => uniqSorted(deals.map((d) => d.trainingType)), [deals]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return rows
-      .filter((r) => inScope(r, scope))
-      .filter((r) => priority === "all" || r.priority === priority)
-      .filter((r) => owner === "all" || r.owner === owner)
-      .filter((r) => type === "all" || r.type === type)
-      .filter((r) => !needle || [r.customerName, r.subject, r.notes, r.linkedDoc, r.owner].some((v) => v?.toLowerCase().includes(needle)))
-      .sort((a, b) => {
-        if (sort === "priority") return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.dueAt.localeCompare(b.dueAt);
-        if (sort === "client") return a.customerName.localeCompare(b.customerName);
-        if (sort === "created") return b.createdAt.localeCompare(a.createdAt);
-        return a.dueAt.localeCompare(b.dueAt);
-      });
-  }, [rows, q, scope, priority, owner, type, sort, endToday, endWeek]);
+    return deals
+      .filter((d) => priority === "all" || d.priority === priority)
+      .filter((d) => !needle || [d.customerName, d.trainingType, d.quotationDocNumber, d.performaDocNumber, d.invoiceDocNumber].some((v) => v?.toLowerCase().includes(needle)))
+      .sort((a, b) => (sort === "amount" ? b.amount - a.amount : b.updatedAt.localeCompare(a.updatedAt)));
+  }, [deals, q, priority, sort]);
 
-  // Group by due window when sorted by due date (Overdue / Today / Next 7 days / Later / Done).
-  const groups: Group[] = useMemo(() => {
-    if (sort !== "due") return [{ key: "all", label: "", rows: filtered }];
-    const g: Record<string, Row[]> = { overdue: [], today: [], week: [], later: [], done: [] };
-    for (const r of filtered) {
-      if (!isOpen(r.eff)) g.done.push(r);
-      else if (r.eff === "overdue") g.overdue.push(r);
-      else if (new Date(r.dueAt) < endToday) g.today.push(r);
-      else if (new Date(r.dueAt) < endWeek) g.week.push(r);
-      else g.later.push(r);
-    }
-    const labels: Record<string, string> = { overdue: "Overdue", today: "Today", week: "Next 7 days", later: "Later", done: "Completed" };
-    return Object.entries(g).filter(([, v]) => v.length).map(([k, v]) => ({ key: k, label: labels[k], rows: v }));
-  }, [filtered, sort, endToday, endWeek]);
+  const columns = useMemo(
+    () => STAGE_ORDER.map((stage) => ({ stage, items: filtered.filter((d) => dealStage(d) === stage) })),
+    [filtered],
+  );
 
-  const drawerRow = rows.find((r) => r.id === drawerId) ?? null;
-  const allSel = filtered.length > 0 && filtered.every((r) => selected.includes(r.id));
-  const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-
-  const snooze = (r: FollowUp, days = 1) => {
-    const until = addDays(startOfDay(new Date()), days);
-    until.setHours(9);
-    patchFollowUps([r.id], { status: "snoozed", snoozedUntil: until.toISOString(), dueAt: until > new Date(r.dueAt) ? until.toISOString() : r.dueAt }, { kind: "snoozed", body: `Snoozed until ${fmtDate(until)}` });
-  };
-
-  const tabs: { k: typeof scope; label: string; n: number | null; dot?: string }[] = [
-    { k: "open", label: "All open", n: rows.filter((r) => isOpen(r.eff)).length },
-    { k: "overdue", label: "Overdue", n: counts.overdue, dot: "bg-high" },
-    { k: "today", label: "Due today", n: counts.today },
-    { k: "week", label: "Next 7 days", n: counts.week },
-    { k: "completed", label: "Completed", n: counts.done },
-  ];
+  const drawerDeal = filtered.find((d) => d.id === drawerId) ?? deals.find((d) => d.id === drawerId) ?? null;
+  const totalValue = filtered.reduce((s, d) => s + d.amount, 0);
 
   return (
     <>
       <PageHeader
         title="Follow-ups"
-        sub={`Calls and emails to clients. Unpaid invoices, quotes without a reply and new bookings are added for you automatically${onTime !== null ? ` · ${onTime}% done on time` : ""}.`}
-        actions={<button className={btn.primary} onClick={() => openNew()}>New follow-up</button>}
+        sub={`Every client engagement, tracked from lead to payment received · ${filtered.length} deals · ${fmtINR(totalValue, true)}`}
+        actions={<button className={btn.primary} onClick={() => setLeadModal({ open: true, row: null })}>New lead</button>}
       />
       <div className="card overflow-hidden">
-        {/* Scope tabs double as the summary */}
-        <div className="flex gap-1 overflow-x-auto border-b border-line px-3" role="tablist">
-          {tabs.map((t) => (
-            <button
-              key={t.k}
-              role="tab"
-              aria-selected={scope === t.k}
-              onClick={() => { setScope(t.k); setSelected([]); }}
-              className={`relative flex h-12 shrink-0 items-center gap-2 px-3 text-[13.5px] font-medium transition ${scope === t.k ? "text-ink" : "text-muted hover:text-ink"}`}
-            >
-              {t.dot && t.n ? <span className={`size-1.5 rounded-full ${t.dot}`} /> : null}
-              {t.label}
-              <span className={`rounded-md px-1.5 text-[12px] num ${scope === t.k ? "bg-surface-2 text-ink" : "text-faint"}`}>{t.n}</span>
-              {scope === t.k && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-ink" />}
-            </button>
-          ))}
-        </div>
-
-        {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
           <div className="relative w-full sm:w-64">
             <svg viewBox="0 0 20 20" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
-            <input className={`${inputCls} !h-9 pl-8 text-[13px]`} placeholder="Search client, subject, invoice" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input className={`${inputCls} !h-9 pl-8 text-[13px]`} placeholder="Search client, training, invoice" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <select className={selectCls} value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)} aria-label="Priority">
             <option value="all">Any priority</option>
@@ -435,182 +318,43 @@ export function FollowUpBoard({ initialQuery = "", initialOpen = null }: { initi
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
-          <select className={selectCls} value={owner} onChange={(e) => setOwner(e.target.value)} aria-label="Owner">
-            <option value="all">Any owner</option>
-            {owners.map((o) => <option key={o}>{o}</option>)}
-          </select>
-          <select className={selectCls} value={type} onChange={(e) => setType(e.target.value as typeof type)} aria-label="Type">
-            <option value="all">Any type</option>
-            {(Object.keys(FOLLOWUP_TYPE_LABEL) as FollowUpType[]).map((t) => <option key={t} value={t}>{FOLLOWUP_TYPE_LABEL[t]}</option>)}
-          </select>
           <select className={selectCls} value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort">
-            <option value="due">Sort by due date</option>
-            <option value="priority">Sort by priority</option>
-            <option value="client">Sort by client</option>
-            <option value="created">Newest first</option>
+            <option value="recent">Most recent activity</option>
+            <option value="amount">Sort by amount</option>
           </select>
-          <div className="ml-auto">
-            <Segmented value={view} onChange={changeView} options={[{ value: "list", label: "List" }, { value: "board", label: "Board" }]} />
-          </div>
         </div>
 
-        {selected.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-2/60 px-4 py-2 text-[13px]">
-            <span className="font-medium text-ink">{selected.length} selected</span>
-            <button className={btn.quiet} onClick={() => { patchFollowUps(selected, { status: "completed", completedAt: new Date().toISOString() }, { kind: "completed", body: "Completed (bulk)" }); setSelected([]); }}>Mark complete</button>
-            <select className={selectCls} value="" onChange={(e) => { if (e.target.value) { patchFollowUps(selected, { priority: e.target.value as Priority }, { kind: "status", body: `Priority set to ${e.target.value}` }); setSelected([]); } }}>
-              <option value="" disabled>Set priority</option>
-              <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
-            </select>
-            <select className={selectCls} value="" onChange={(e) => { if (e.target.value) { patchFollowUps(selected, { owner: e.target.value }, { kind: "status", body: `Reassigned to ${e.target.value}` }); setSelected([]); } }}>
-              <option value="" disabled>Reassign</option>
-              {owners.map((o) => <option key={o}>{o}</option>)}
-            </select>
-            <button className={`${btn.quiet} ml-auto`} onClick={() => setSelected([])}>Clear</button>
+        {filtered.length === 0 ? (
+          <div className="px-6 py-16 text-center">
+            <div className="text-[14px] font-medium text-ink">Nothing here</div>
+            <p className="mt-1 text-[13px] text-muted">No deals match this view.</p>
           </div>
-        )}
-
-        {view === "list" ? (
-          filtered.length === 0 ? (
-            <div className="px-6 py-16 text-center">
-              <div className="text-[14px] font-medium text-ink">Nothing here</div>
-              <p className="mt-1 text-[13px] text-muted">No follow-ups match this view.</p>
-            </div>
-          ) : (
-            <table className="w-full table-fixed text-[13.5px]">
-              <colgroup>
-                <col className="hidden w-11 md:table-column" />
-                <col />
-                <col className="hidden w-40 md:table-column" />
-                <col className="hidden w-44 md:table-column" />
-                <col className="hidden w-28 md:table-column" />
-                <col className="hidden w-32 md:table-column" />
-                <col className="w-28" />
-              </colgroup>
-              <thead className="hidden text-left text-[12px] font-medium text-muted md:table-header-group">
-                <tr className="border-b border-line">
-                  <th className="w-11 py-2.5 pl-4">
-                    <input type="checkbox" aria-label="Select all" checked={allSel} onChange={() => setSelected(allSel ? [] : filtered.map((r) => r.id))} className="size-3.5 accent-[var(--brand)]" />
-                  </th>
-                  <th className="py-2.5 font-medium">Follow-up</th>
-                  <th className="py-2.5 font-medium">Due</th>
-                  <th className="py-2.5 font-medium">Owner</th>
-                  <th className="py-2.5 font-medium">Priority</th>
-                  <th className="py-2.5 font-medium">Status</th>
-                  <th className="w-28 py-2.5 pr-4" />
-                </tr>
-              </thead>
-              {groups.map((g) => (
-                <tbody key={g.key}>
-                  {g.label && (
-                    <tr>
-                      <td colSpan={7} className="border-b border-line bg-surface-2/50 px-4 py-1.5 text-[12px] font-medium text-muted">
-                        {g.label} <span className="text-faint">· {g.rows.length}</span>
-                      </td>
-                    </tr>
-                  )}
-                  {g.rows.map((r) => (
-                    <tr key={r.id} onClick={() => setDrawerId(r.id)} className="group cursor-pointer border-b border-line last:border-b-0 hover:bg-surface-2/50">
-                      <td className="hidden py-3 pl-4 align-top md:table-cell" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${r.subject}`}
-                          checked={selected.includes(r.id)}
-                          onChange={() => toggle(r.id)}
-                          className={`mt-1 size-3.5 accent-[var(--brand)] transition ${selected.length ? "" : "opacity-0 group-hover:opacity-100 focus:opacity-100"}`}
-                        />
-                      </td>
-                      <td className="py-3 pl-4 pr-6 md:pl-0">
-                        <div className="truncate font-medium text-ink">{r.subject}</div>
-                        <div className="truncate text-[12.5px] text-muted">
-                          {r.customerName} · {FOLLOWUP_TYPE_LABEL[r.type]}{r.linkedDoc ? ` · ${r.linkedDoc}` : ""}
-                        </div>
-                        {/* Mobile meta */}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 md:hidden">
-                          <span className={`text-[12.5px] num ${r.eff === "overdue" ? "font-medium text-high" : "text-muted"}`}>{isOpen(r.eff) ? relativeDue(r.dueAt, now) : fmtDate(r.dueAt)}</span>
-                          <PriorityBadge p={r.priority} compact />
-                          <span className="text-[12.5px] text-muted">{r.owner}</span>
-                        </div>
-                      </td>
-                      <td className="hidden whitespace-nowrap py-3 pr-4 md:table-cell">
-                        <div className={`num ${r.eff === "overdue" ? "font-medium text-high" : "text-ink-2"}`}>{fmtDate(r.dueAt)}, {fmtTime(r.dueAt)}</div>
-                        {isOpen(r.eff) && <div className="text-[12px] text-muted">{relativeDue(r.dueAt, now)}</div>}
-                      </td>
-                      <td className="hidden py-3 pr-4 md:table-cell">
-                        <span className="inline-flex items-center gap-2 whitespace-nowrap text-ink-2"><Avatar name={r.owner} />{r.owner}</span>
-                      </td>
-                      <td className="hidden py-3 pr-4 md:table-cell"><PriorityBadge p={r.priority} /></td>
-                      <td className="hidden py-3 pr-4 md:table-cell"><Status s={r.eff} /></td>
-                      <td className="py-3 pr-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        {isOpen(r.eff) && (
-                          <span className="inline-flex gap-0.5 opacity-100 transition md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
-                            <IconButton label="Complete" onClick={() => setCompleting(r)}><path d="M4.5 10.5l3.5 3.5 7.5-8" /></IconButton>
-                            <IconButton label="Snooze until tomorrow 9:00" onClick={() => snooze(r)}><circle cx="10" cy="10.5" r="6" /><path d="M10 7.5v3l2 1.5" /></IconButton>
-                            <IconButton label="Edit or reschedule" onClick={() => setEdit({ open: true, row: r })}><path d="M13.5 4.5l2 2-8 8H5.5v-2z" /></IconButton>
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              ))}
-            </table>
-          )
         ) : (
-          <div className="grid gap-3 overflow-x-auto p-4 md:grid-cols-4">
-            {(["overdue", "pending", "in_progress", "completed"] as FollowUpStatus[]).map((col) => {
-              // Same list as the List view (tab, priority, owner, type, search) — just bucketed by status.
-              const items = filtered.filter((r) => (col === "pending" ? r.eff === "pending" || r.eff === "snoozed" : r.eff === col));
-              return (
-                <div
-                  key={col}
-                  className="min-h-48 rounded-xl bg-surface-2/60 p-2"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    const id = e.dataTransfer.getData("text/fu");
-                    const r = rows.find((x) => x.id === id);
-                    if (!r || col === "overdue") return;
-                    if (col === "completed") setCompleting(r);
-                    else patchFollowUps([id], { status: col as FollowUp["status"] }, { kind: "status", body: `Moved to ${STATUS_LABEL[col]}` });
-                  }}
-                >
-                  <div className="flex items-center justify-between px-2 pb-2 pt-1 text-[12.5px] font-medium text-ink-2">
-                    <span className="inline-flex items-center gap-1.5"><span className={`size-1.5 rounded-full ${STATUS_DOT[col]}`} />{STATUS_LABEL[col]}</span>
-                    <span className="text-faint num">{items.length}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {items.map((r) => (
-                      <div
-                        key={r.id}
-                        draggable
-                        onDragStart={(e) => e.dataTransfer.setData("text/fu", r.id)}
-                        onClick={() => setDrawerId(r.id)}
-                        className="cursor-grab rounded-lg border border-line bg-surface p-3 shadow-card transition hover:border-line-strong"
-                      >
-                        <div className="line-clamp-2 text-[13px] font-medium text-ink">{r.subject}</div>
-                        <div className="mt-0.5 truncate text-[12px] text-muted">{r.customerName}</div>
-                        <div className="mt-2.5 flex items-center justify-between">
-                          <PriorityBadge p={r.priority} compact />
-                          <span className={`text-[12px] num ${r.eff === "overdue" ? "font-medium text-high" : "text-muted"}`}>{relativeDue(r.dueAt, now)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="grid grid-cols-7 gap-2 p-4">
+            {columns.map(({ stage, items }) => (
+              <StageColumn key={stage} stage={stage} items={items} onOpen={setDrawerId} />
+            ))}
           </div>
         )}
       </div>
 
       <Drawer
-        row={drawerRow}
+        deal={drawerDeal}
         onClose={() => setDrawerId(null)}
-        onEdit={(f) => { setDrawerId(null); setEdit({ open: true, row: f }); }}
-        onComplete={(f) => { setDrawerId(null); setCompleting(f); }}
+        onEditLead={(id) => {
+          const row = leads.find((l) => l.id === id) ?? null;
+          setDrawerId(null);
+          setLeadModal({ open: true, row });
+        }}
       />
-      <FollowUpModal open={edit.open} onClose={() => { setEdit({ open: false, row: null }); setPreset(undefined); }} initial={edit.row} owners={owners} customers={customers} preset={preset} />
-      <CompleteModal row={completing} onClose={() => setCompleting(null)} />
+      <LeadModal
+        open={leadModal.open}
+        onClose={() => setLeadModal({ open: false, row: null })}
+        initial={leadModal.row}
+        customers={customers}
+        owners={owners}
+        trainingTypes={trainingTypes}
+      />
     </>
   );
 }

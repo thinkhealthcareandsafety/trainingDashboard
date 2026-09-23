@@ -1,8 +1,9 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { Announcement, CalendarEntry, FollowUp, FollowUpActivity, TickerItem, TrainingsResponse } from "./types";
+import type { Announcement, CalendarEntry, Deal, FollowUp, FollowUpActivity, Lead, TickerItem, TrainingsResponse } from "./types";
 import { addDays, ymd } from "./dates";
+import { buildDeals } from "./deals";
 import { followUpsFromPipeline, followUpsFromTrainings, seedManualFollowUps } from "./followups";
 import { buildTickerItems } from "./ticker";
 
@@ -14,6 +15,7 @@ const KEYS = {
   followUps: "th.followups.v2",
   removedTriggers: "th.removedTriggers.v2",
   announcements: "th.announcements.v2",
+  leads: "th.leads.v1",
   tickerSnooze: "th.tickerSnooze.v1",
 };
 
@@ -33,9 +35,14 @@ function save(key: string, value: unknown) {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-type SharedName = "entries" | "followUps" | "removedTriggers" | "announcements";
+/** Deterministic slug so re-syncing the same Zoho customer never creates a second lead. */
+function zohoLeadSlug(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+type SharedName = "entries" | "followUps" | "removedTriggers" | "announcements" | "leads";
 type SharedDoc = { id: string } & Record<string, unknown>;
-const SHARED: SharedName[] = ["entries", "followUps", "removedTriggers", "announcements"];
+const SHARED: SharedName[] = ["entries", "followUps", "removedTriggers", "announcements", "leads"];
 const PULL_MS = 60_000;
 
 function seedEntries(today: Date): CalendarEntry[] {
@@ -91,6 +98,11 @@ interface Store {
   deleteFollowUp: (id: string) => void;
   patchFollowUps: (ids: string[], patch: Partial<FollowUp>, activity?: Omit<FollowUpActivity, "id" | "at">) => void;
 
+  leads: Lead[];
+  deals: Deal[];
+  saveLead: (l: Lead) => void;
+  deleteLead: (id: string) => void;
+
   announcements: Announcement[];
 
   ticker: TickerItem[];
@@ -120,6 +132,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [syncing, setSyncing] = useState(false);
   const [entries, setEntries] = useState<CalendarEntry[]>([]);
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [removedTriggers, setRemovedTriggers] = useState<string[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [tickerSnooze, setTickerSnooze] = useState<Record<string, string>>({});
@@ -134,6 +147,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const today = new Date();
     setEntries(load(KEYS.entries, () => seedEntries(today)));
     setFollowUps(load(KEYS.followUps, () => seedManualFollowUps(today)));
+    setLeads(load(KEYS.leads, () => []));
     setRemovedTriggers(load(KEYS.removedTriggers, () => []));
     setAnnouncements(load(KEYS.announcements, () => seedAnnouncements(today)));
     setTickerSnooze(load(KEYS.tickerSnooze, () => ({})));
@@ -145,7 +159,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const inflight = useRef(0);
   const lastLocalChange = useRef(0);
   const synced = useRef<Record<SharedName, Map<string, string>>>({
-    entries: new Map(), followUps: new Map(), removedTriggers: new Map(), announcements: new Map(),
+    entries: new Map(), followUps: new Map(), removedTriggers: new Map(), announcements: new Map(), leads: new Map(),
   });
   const applyServer = useCallback((json: Record<string, unknown>) => {
     const docsOf = (c: SharedName): SharedDoc[] =>
@@ -155,7 +169,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setFollowUps((json.followUps as FollowUp[]) ?? []);
     setRemovedTriggers((json.removedTriggers as string[]) ?? []);
     setAnnouncements((json.announcements as Announcement[]) ?? []);
+    setLeads((json.leads as Lead[]) ?? []);
   }, []);
+
+  // Set once the first /api/store round-trip resolves (whichever way) — gates actions that must
+  // never fire before we know whether server-persisted leads exist, or they'd get clobbered.
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -174,7 +193,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           applyServer(json);
           setRemote(true);
         }
-      } catch {}
+      } catch {
+      } finally {
+        if (first) setSettled(true);
+      }
     };
     pull(true);
     const t = setInterval(() => pull(false), PULL_MS);
@@ -209,12 +231,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (remote) push("followUps", followUps as unknown as SharedDoc[]); }, [remote, followUps, push]);
   useEffect(() => { if (remote) push("removedTriggers", removedTriggers.map((id) => ({ id }))); }, [remote, removedTriggers, push]);
   useEffect(() => { if (remote) push("announcements", announcements as unknown as SharedDoc[]); }, [remote, announcements, push]);
+  useEffect(() => { if (remote) push("leads", leads as unknown as SharedDoc[]); }, [remote, leads, push]);
 
   // Browser cache (also the only storage when MongoDB isn't configured).
   useEffect(() => { if (hydrated) save(KEYS.entries, entries); }, [hydrated, entries]);
   useEffect(() => { if (hydrated) save(KEYS.followUps, followUps); }, [hydrated, followUps]);
   useEffect(() => { if (hydrated) save(KEYS.removedTriggers, removedTriggers); }, [hydrated, removedTriggers]);
   useEffect(() => { if (hydrated) save(KEYS.announcements, announcements); }, [hydrated, announcements]);
+  useEffect(() => { if (hydrated) save(KEYS.leads, leads); }, [hydrated, leads]);
   useEffect(() => { if (hydrated) save(KEYS.tickerSnooze, tickerSnooze); }, [hydrated, tickerSnooze]);
 
   const refresh = useCallback(async (force = false) => {
@@ -242,11 +266,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    fetch("/api/zoho/meta", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => setMeta({ team: j.team ?? [], customers: j.customers ?? [] }))
-      .catch(() => {});
+    const pullMeta = () =>
+      fetch("/api/zoho/meta", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j) => setMeta({ team: j.team ?? [], customers: j.customers ?? [] }))
+        .catch(() => {});
+    pullMeta();
+    const t = setInterval(pullMeta, 5 * 60_000);
+    return () => clearInterval(t);
   }, []);
+
+  // Every active Zoho Books customer is a lead. New customers created in Zoho are picked up on
+  // the next meta refresh and added here automatically — gated on `settled` so this never races
+  // ahead of the server's own copy of leads on load. The id is derived from the customer name
+  // (not random) so re-running this — another tab, a reload mid-sync, a repeated poll — is a
+  // no-op upsert instead of creating a second lead for the same customer.
+  useEffect(() => {
+    if (!hydrated || !settled || meta.customers.length === 0) return;
+    setLeads((cur) => {
+      const existingIds = new Set(cur.map((l) => l.id));
+      const now = new Date().toISOString();
+      const additions = meta.customers
+        .map((name): Lead => ({ id: `zoho:${zohoLeadSlug(name)}`, customerName: name, source: "Zoho Books", createdAt: now, status: "open" }))
+        .filter((l) => !existingIds.has(l.id));
+      return additions.length ? [...cur, ...additions] : cur;
+    });
+  }, [meta.customers, hydrated, settled]);
 
   // Initial load + near-real-time polling every 5 minutes; clock ticks every minute.
   useEffect(() => {
@@ -348,6 +393,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [followUps, toast],
   );
 
+  const saveLead = useCallback((l: Lead) => {
+    setLeads((cur) => (cur.some((x) => x.id === l.id) ? cur.map((x) => (x.id === l.id ? l : x)) : [...cur, l]));
+  }, []);
+
+  const deleteLead = useCallback(
+    (id: string) => {
+      const victim = leads.find((x) => x.id === id);
+      if (!victim) return;
+      setLeads((cur) => cur.filter((x) => x.id !== id));
+      toast({ text: `Deleted lead "${victim.customerName}"`, actionLabel: "Undo", onAction: () => setLeads((c) => [...c, victim]) });
+    },
+    [leads, toast],
+  );
+
+  // Paused: the Follow-ups board no longer auto-populates from Zoho trainings/pipeline until
+  // told what data and mapping to use — for now it only reflects manually created leads.
+  const deals = useMemo(() => buildDeals([], [], leads, now), [leads, now]);
+
   const snoozeTicker = useCallback((id: string, hours: number) => {
     setTickerSnooze((s) => ({ ...s, [id]: new Date(Date.now() + hours * 3_600_000).toISOString() }));
   }, []);
@@ -375,6 +438,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     saveFollowUp,
     deleteFollowUp,
     patchFollowUps,
+    leads,
+    deals,
+    saveLead,
+    deleteLead,
     announcements,
     ticker,
     snoozeTicker,
