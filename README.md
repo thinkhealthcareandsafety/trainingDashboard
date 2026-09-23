@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ThinkHealth Training Dashboard
 
-## Getting Started
+Training KPIs (10/month, 120/fiscal year), priority calendar, urgent-items ticker and a Follow-Up
+page, built on Zoho Books data filtered to items where **Item Identifier = "Training Services"**.
 
-First, run the development server:
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Without Zoho credentials the app runs on sample data (header badge shows "Sample data").
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Connect Zoho Books
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. In https://api-console.zoho.in create a **Server-based Application**.
+2. Generate a refresh token with scopes
+   `ZohoBooks.invoices.READ,ZohoBooks.salesorders.READ,ZohoBooks.estimates.READ,ZohoBooks.contacts.READ,ZohoBooks.settings.READ`.
+3. Copy `.env.example` to `.env.local` and fill in `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`.
+4. Restart `npm run dev`. The badge turns green ("Zoho live").
 
-## Learn More
+## Where things are
 
-To learn more about Next.js, take a look at the following resources:
+| Path | What |
+| --- | --- |
+| `src/lib/zoho.ts` | Zoho Books client: token refresh, Training Services item filter, invoice → training mapping |
+| `src/app/api/trainings/route.ts` | API the UI calls; 5-minute cache, falls back to sample data |
+| `src/lib/kpi.ts` | Targets, pace, forecast, monthly series, breakdowns |
+| `src/lib/followups.ts` | Follow-up statuses and auto-triggers (overdue invoice, delivered training, certificate expiry) |
+| `src/lib/ticker.ts` | Ticker items and priority ordering |
+| `src/lib/store.tsx` | Client state; calendar entries and follow-ups are saved in the browser for now |
+| `src/components/*` | Ticker, KPI cards/chart, calendar, follow-up page |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Calendar entries and follow-ups are cached in the browser and, when `MONGODB_URI` is set (see
+`.env.example`), shared with the whole team through `/api/store` — everyone sees the same data.
+Without it, they stay in that one browser only.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This dashboard is Zoho Books only — no Zoho CRM connection.

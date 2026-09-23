@@ -1,26 +1,206 @@
 @import "tailwindcss";
 
+/*
+ * ThinkHealth design tokens.
+ * One neutral canvas + one brand accent for data. Priority colours (High/Medium/Low) are
+ * reserved for priority only and always ship with a glyph + label.
+ * Light priority set validated (CVD + normal-vision + contrast) against #ffffff.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f2f2f5;
+  --line: #e6e6eb;
+  --line-strong: #d2d2d7;
+  --ink: #1d1d1f;
+  --ink-2: #3a3a3c;
+  --muted: #6e6e73;
+  --faint: #a1a1a6;
+  --brand: #0f766e;
+  --brand-2: #9fd6cd; /* lighter step of the brand ramp: scheduled / tracks */
+  --brand-ink: #ffffff;
+  --brand-soft: #ecf6f4;
+  --ticker: #111113;
+  --ticker-ink: #f5f5f7;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --high: #d92d20;
+  --high-bg: #fdf1f0;
+  --medium: #d4820b;
+  --medium-bg: #fdf6ea;
+  --low: #15803d;
+  --low-bg: #eff8f2;
+
+  --shadow: 0 0 0 1px rgb(0 0 0 / 0.035), 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 20px -12px rgb(0 0 0 / 0.12);
+  --shadow-lg: 0 0 0 1px rgb(0 0 0 / 0.05), 0 24px 60px -20px rgb(0 0 0 / 0.28);
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-2: #2c2c2e;
+    --line: #2f2f33;
+    --line-strong: #3a3a3e;
+    --ink: #f5f5f7;
+    --ink-2: #d1d1d6;
+    --muted: #98989d;
+    --faint: #636366;
+    --brand: #30d5c0;
+    --brand-2: #1e5f58;
+    --brand-ink: #032320;
+    --brand-soft: #0f2c2a;
+    --ticker: #0a0a0b;
+    --ticker-ink: #f5f5f7;
+    --high: #f97066;
+    --high-bg: #2a1616;
+    --medium: #fdb022;
+    --medium-bg: #2a2112;
+    --low: #47cd89;
+    --low-bg: #11261c;
+    --shadow: 0 0 0 1px rgb(255 255 255 / 0.05), 0 8px 24px -16px rgb(0 0 0 / 0.8);
+    --shadow-lg: 0 0 0 1px rgb(255 255 255 / 0.07), 0 28px 70px -20px rgb(0 0 0 / 0.9);
+    color-scheme: dark;
   }
 }
 
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --line: #2f2f33;
+  --line-strong: #3a3a3e;
+  --ink: #f5f5f7;
+  --ink-2: #d1d1d6;
+  --muted: #98989d;
+  --faint: #636366;
+  --brand: #30d5c0;
+  --brand-2: #1e5f58;
+  --brand-ink: #032320;
+  --brand-soft: #0f2c2a;
+  --ticker: #0a0a0b;
+  --ticker-ink: #f5f5f7;
+  --high: #f97066;
+  --high-bg: #2a1616;
+  --medium: #fdb022;
+  --medium-bg: #2a2112;
+  --low: #47cd89;
+  --low-bg: #11261c;
+  --shadow: 0 0 0 1px rgb(255 255 255 / 0.05), 0 8px 24px -16px rgb(0 0 0 / 0.8);
+  --shadow-lg: 0 0 0 1px rgb(255 255 255 / 0.07), 0 28px 70px -20px rgb(0 0 0 / 0.9);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-brand: var(--brand);
+  --color-brand-2: var(--brand-2);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-ticker: var(--ticker);
+  --color-ticker-ink: var(--ticker-ink);
+  --color-high: var(--high);
+  --color-high-bg: var(--high-bg);
+  --color-medium: var(--medium);
+  --color-medium-bg: var(--medium-bg);
+  --color-low: var(--low);
+  --color-low-bg: var(--low-bg);
+  --font-sans: var(--font-inter);
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-lg);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), system-ui, sans-serif;
+  font-size: 14px;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3 { letter-spacing: -0.018em; }
+
+/* Surfaces: a hairline ring + soft depth instead of heavy borders. */
+.card {
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.25s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow), 0 16px 32px -20px rgb(0 0 0 / 0.25);
+}
+
+/* Tactile buttons. */
+.press { transition: transform 0.12s ease, background-color 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease; }
+.press:active { transform: scale(0.97); }
+
+/* Frosted chrome (sidebar, top bar). */
+.glass {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.modal-in { animation: modal-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.fade-in { animation: fade-in 0.2s ease-out both; }
+
+/* Numbers that align in columns (tables, axes). Large standalone figures stay proportional. */
+.num { font-variant-numeric: tabular-nums; }
+
+/* Ticker: duplicated track animated by -50% for a seamless loop. */
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.ticker-track {
+  animation: ticker-scroll var(--ticker-duration, 60s) linear infinite;
+}
+.ticker-paused .ticker-track {
+  animation-play-state: paused;
+}
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--high) 60%, transparent); }
+  50% { box-shadow: 0 0 0 4px transparent; }
+}
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@keyframes flash-border {
+  0%, 100% { box-shadow: inset 0 -2px 0 transparent; }
+  50% { box-shadow: inset 0 -2px 0 var(--high); }
+}
+.flash { animation: flash-border 0.6s ease-in-out 2; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.rise { animation: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track, .pulse-dot, .flash, .rise, .modal-in, .fade-in { animation: none !important; }
+  .card-hover:hover { transform: none; }
+  * { transition-duration: 0s !important; }
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
