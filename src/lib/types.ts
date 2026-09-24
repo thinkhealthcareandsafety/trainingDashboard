@@ -101,56 +101,83 @@ export interface FollowUp {
   demo?: boolean;
 }
 
-/** A prospective client, entered manually before any quotation exists in Zoho. */
-export interface Lead {
-  id: string;
-  customerName: string;
-  trainingType?: string;
-  source?: string; // e.g. Referral, Website, Cold call, Repeat client
-  contact?: string;
-  owner?: string;
-  notes?: string;
-  createdAt: string;
-  status: "open" | "lost";
+/* ---------------- Follow-ups pipeline ---------------- */
+
+/** An active Zoho Books customer — every customer is a lead. */
+export interface ZohoLead {
+  contactId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  createdAt: string; // ISO, when the customer was created in Zoho
+  lastModified: string;
+  type?: string; // cf_type: New Customer / New Reseller / Old Reseller
+  sector?: string; // cf_sector
 }
 
-/**
- * One row per client engagement, tracked through the pipeline:
- * Lead -> Quotation -> Performa Invoice -> Training Date -> Training Completed -> Invoice Sent -> Payment Received.
- * Built by joining manual Leads with Zoho estimates/salesorders/invoices — see lib/deals.ts.
- */
-export interface Deal {
-  id: string;
+/** A Zoho quotation (estimate) containing at least one of the tracked training items. */
+export interface ZohoQuote {
+  estimateId: string;
+  number: string;
+  date: string; // YYYY-MM-DD
+  createdAt: string;
+  status: string;
+  customerId: string;
   customerName: string;
-  trainingType: string;
-  priority?: Priority;
+  salesperson?: string;
+  contacts: { name?: string; email?: string; phone?: string; mobile?: string }[];
+  items: { name: string; qty: number }[]; // tracked training items only
+}
 
-  leadId?: string;
-  leadAt?: string;
-  leadSource?: string;
+export interface PipelineResponse {
+  source: "zoho" | "mock";
+  syncedAt: string;
+  leads: ZohoLead[];
+  quotes: ZohoQuote[];
+  typeOptions: string[];
+  sectorOptions: string[];
+  orgId?: string;
+  error?: string;
+}
 
-  quotationDocId?: string;
-  quotationDocNumber?: string;
-  quotationAt?: string;
-  quotationStatus?: string;
+/** Someone using the Follow-ups board; every change is recorded under their name. */
+export interface Member {
+  id: string;
+  name: string;
+  createdAt: string;
+}
 
-  performaDocId?: string;
-  performaDocNumber?: string;
-  performaAt?: string;
-  performaStatus?: string;
+export type Phase = "Lead" | "Quote" | "PI" | "Invoice" | "Payment";
 
-  trainingDate?: string;
-  trainingCompleted: boolean;
+export type CardEventKind =
+  | "set_name"
+  | "set_type"
+  | "set_sector"
+  | "add_alias"
+  | "remove_alias"
+  | "add_email"
+  | "remove_email"
+  | "add_phone"
+  | "remove_phone"
+  | "delete"
+  | "merge";
 
-  invoiceDocId?: string;
-  invoiceDocNumber?: string;
-  invoiceStatus?: ZohoStatus;
-  invoiceSent: boolean;
-  paymentReceived: boolean;
-
-  amount: number;
-  participants: number;
-  updatedAt: string; // most recent date across every stage, for sorting
+/**
+ * One user change to a pipeline card. Cards are Zoho data plus the replay of every
+ * non-reverted event, so any change can be undone by marking it reverted.
+ */
+export interface CardEvent {
+  id: string;
+  cardIds: string[]; // merge: [leadCardId, quoteCardId]
+  kind: CardEventKind;
+  value?: string;
+  before?: string; // previous value, for the change log
+  phase?: Phase; // where an email/phone was added
+  at: string;
+  by: string;
+  revertedAt?: string;
+  revertedBy?: string;
 }
 
 export interface Announcement {

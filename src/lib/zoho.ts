@@ -1,5 +1,5 @@
 import "server-only";
-import type { PipelineDoc, Priority, Training, ZohoStatus } from "./types";
+import type { PipelineDoc, Priority, Training, ZohoLead, ZohoQuote, ZohoStatus } from "./types";
 import { fiscalYearStart, ymd } from "./dates";
 import { tidyName } from "./format";
 import { db, mongoConfigured } from "./db";
@@ -25,14 +25,14 @@ type ZohoState = {
   token: { value: string; expiresAt: number } | null;
   refreshing: Promise<string> | null;
   cooldownUntil: number;
-  itemsCache: { at: number; ids: Set<string> } | null;
+  itemsList?: { at: number; items: { id: string; name: string; identifier?: string }[] } | null;
   detailCache: Map<string, { lmt: string; doc: Record<string, unknown> }>;
 };
 const G: ZohoState = ((globalThis as unknown as { __thZoho?: ZohoState }).__thZoho ??= {
   token: null,
   refreshing: null,
   cooldownUntil: 0,
-  itemsCache: null,
+  itemsList: null,
   detailCache: new Map(),
 });
 
@@ -107,9 +107,9 @@ async function zget<T = Record<string, unknown>>(path: string, params: Record<st
       headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` },
       cache: "no-store",
     });
-    // Back off on rate limit / transient errors.
+    // Back off on rate limit / transient errors. Zoho's limit is per minute, so 429s wait longer.
     if ((res.status === 429 || res.status >= 500) && attempt < 3) {
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      await new Promise((r) => setTimeout(r, (res.status === 429 ? 5000 : 1000) * 2 ** attempt));
       continue;
     }
     const json = await res.json();
@@ -153,13 +153,18 @@ async function pagedParallel(path: string, key: string, params: Record<string, s
   }
 }
 
-/** Step 1 of the sync: ids of items whose Item Identifier = "Training Services" (cached for an hour). */
+/** Every Zoho item (id, name, Item Identifier), cached for an hour. */
+async function allItems() {
+  if (G.itemsList && Date.now() - G.itemsList.at < ITEMS_TTL_MS) return G.itemsList.items;
+  const rows = await paged("/items", "items", { filter_by: "Status.All" });
+  const items = rows.map((i) => ({ id: String(i.item_id), name: String(i.name), identifier: cf(i, ITEM_IDENTIFIER_FIELD) }));
+  G.itemsList = { at: Date.now(), items };
+  return items;
+}
+
+/** Step 1 of the sync: ids of items whose Item Identifier = "Training Services". */
 export async function trainingItemIds(): Promise<Set<string>> {
-  if (G.itemsCache && Date.now() - G.itemsCache.at < ITEMS_TTL_MS) return G.itemsCache.ids;
-  const items = await paged("/items", "items", { filter_by: "Status.All" });
-  const ids = new Set(items.filter((i) => cf(i, ITEM_IDENTIFIER_FIELD) === TRAINING_SERVICES).map((i) => String(i.item_id)));
-  G.itemsCache = { at: Date.now(), ids };
-  return ids;
+  return new Set((await allItems()).filter((i) => i.identifier === TRAINING_SERVICES).map((i) => i.id));
 }
 
 async function pool<T, R>(xs: T[], n: number, fn: (x: T) => Promise<R>): Promise<R[]> {
@@ -299,8 +304,99 @@ export async function fetchTeam(): Promise<string[]> {
   return users.filter((u) => String(u.status) === "active").map((u) => tidyName(String(u.name)));
 }
 
+// Zoho ignores contact_type when filter_by is set and returns vendors too, so we also filter each row.
+const LEAD_FILTER = { contact_type: "customer", filter_by: "Status.Active" };
+const isCustomer = (c: ZRecord) => c.contact_type === "customer";
+
 /** Active Zoho Books customers — used to pick the client on follow-ups and calendar entries. */
 export async function fetchCustomers(): Promise<string[]> {
-  const contacts = await pagedParallel("/contacts", "contacts", { contact_type: "customer", filter_by: "Status.Active" });
-  return contacts.map((c) => tidyName(String(c.contact_name)));
+  const contacts = await pagedParallel("/contacts", "contacts", LEAD_FILTER);
+  return contacts.filter(isCustomer).map((c) => tidyName(String(c.contact_name)));
+}
+
+/* ---------------- Follow-ups pipeline: leads (customers) and training quotations ---------------- */
+
+const str = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : String(v));
+
+/** Zoho's "2026-09-24T12:14:04+0530" -> UTC ISO, so it sorts alongside our own timestamps. */
+function isoTime(v: unknown, fallback = ""): string {
+  const s = str(v);
+  if (!s) return fallback;
+  const d = new Date(s.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+  return Number.isNaN(d.getTime()) ? fallback : d.toISOString();
+}
+
+function toLead(c: ZRecord): ZohoLead {
+  return {
+    contactId: String(c.contact_id),
+    name: tidyName(String(c.contact_name)),
+    email: str(c.email),
+    phone: str(c.phone),
+    mobile: str(c.mobile),
+    createdAt: isoTime(c.created_time),
+    lastModified: isoTime(c.last_modified_time ?? c.created_time),
+    type: cf(c, "cf_type"),
+    sector: cf(c, "cf_sector"),
+  };
+}
+
+/** Every active customer (~22 list calls for ~4k contacts; no per-contact detail calls). */
+export async function fetchAllLeads(): Promise<ZohoLead[]> {
+  return (await pagedParallel("/contacts", "contacts", LEAD_FILTER)).filter(isCustomer).map(toLead);
+}
+
+/** The 200 most recently created/edited active customers — cheap way to pick up new ones between full syncs. */
+export async function fetchRecentLeads(): Promise<ZohoLead[]> {
+  const json = await zget<Record<string, unknown>>("/contacts", { ...LEAD_FILTER, sort_column: "last_modified_time", sort_order: "D", per_page: 200 });
+  return ((json.contacts as ZRecord[]) ?? []).filter(isCustomer).map(toLead);
+}
+
+/** Quotations are picked up when they contain one of these items (all have Item Identifier "Training Services"). */
+export const QUOTE_TRAINING_ITEMS = [
+  "Fire Safety Evacuation Training and Drill",
+  "THCAS BLS Training 2025 (I)",
+  "THCAS CPR Training 2026 (I)",
+  "THCAS First Aid Training (I)",
+];
+
+/** Every quotation (any status) containing one of QUOTE_TRAINING_ITEMS; details are re-downloaded only when changed. */
+export async function fetchTrainingQuotes(): Promise<ZohoQuote[]> {
+  const wanted = (await allItems()).filter((i) => QUOTE_TRAINING_ITEMS.includes(i.name));
+  const wantedIds = new Set(wanted.map((i) => i.id));
+  const listed = new Map<string, ZRecord>();
+  const lists = await pool(wanted, 4, (i) => paged("/estimates", "estimates", { item_id: i.id }));
+  for (const e of lists.flat()) listed.set(String(e.estimate_id), e);
+  const docs = await pool([...listed.values()], 5, async (e) => {
+    const id = String(e.estimate_id);
+    const lmt = String(e.last_modified_time ?? "");
+    const key = `estimates:${id}`;
+    const hit = detailCache.get(key);
+    if (hit && lmt && hit.lmt === lmt) return hit.doc;
+    const doc = (await zget<Record<string, ZRecord>>(`/estimates/${id}`)).estimate;
+    detailCache.set(key, { lmt, doc });
+    return doc;
+  });
+  return docs.map((d): ZohoQuote => {
+    const selected = new Set(((d.contact_persons as unknown[]) ?? []).map(String));
+    const people = ((d.contact_persons_details as ZRecord[]) ?? []).filter((p) => selected.size === 0 ? p.is_primary_contact : selected.has(String(p.contact_person_id)));
+    return {
+      estimateId: String(d.estimate_id),
+      number: String(d.estimate_number),
+      date: String(d.date),
+      createdAt: isoTime(d.created_time, `${d.date}T00:00:00.000Z`),
+      status: String(d.status),
+      customerId: String(d.customer_id),
+      customerName: tidyName(String(d.customer_name)),
+      salesperson: str(d.salesperson_name),
+      contacts: people.map((p) => ({
+        name: [p.first_name, p.last_name].filter(Boolean).join(" ") || undefined,
+        email: str(p.email),
+        phone: str(p.phone),
+        mobile: str(p.mobile),
+      })),
+      items: ((d.line_items as ZRecord[]) ?? [])
+        .filter((li) => wantedIds.has(String(li.item_id)))
+        .map((li) => ({ name: String(li.name), qty: Number(li.quantity) || 0 })),
+    };
+  });
 }
