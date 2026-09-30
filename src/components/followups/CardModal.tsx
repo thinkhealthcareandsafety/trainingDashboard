@@ -1,10 +1,10 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { CardEvent, CardEventKind, Member, Phase } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
-  busyTrainers, cardLabel, describeEvent, mergeNotApplied, normEmail, normPhone, phaseOf, salespersonLabel,
+  busyTrainers, cardLabel, columnQuotes, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -19,6 +19,7 @@ const dateLong = (s: string) => fmtDate(s, { day: "numeric", month: "short", yea
 
 /** Colour per stage, matching the board's column headers. */
 export const STAGE_TONE: Record<CardKind, { chip: string; head: string; ring: string }> = {
+  potential: { chip: "bg-surface-2 text-brand", head: "bg-surface-2", ring: "border-brand/30" },
   lead: { chip: "bg-surface-2 text-ink-2", head: "bg-surface-2", ring: "border-line-strong" },
   quote: { chip: "bg-brand-soft text-brand", head: "bg-brand-soft", ring: "border-brand/40" },
   pi: { chip: "bg-medium-bg text-medium", head: "bg-medium-bg", ring: "border-medium/40" },
@@ -118,6 +119,52 @@ function ContactSection({ card }: { card: CardView }) {
         <Row label="Email"><Entries entries={card.emails} empty="—" /></Row>
         <Row label="Contact number" required><Entries entries={card.phones} empty="Missing — add one" missing /></Row>
       </dl>
+    </Section>
+  );
+}
+
+const thisMonth = () => new Date().toLocaleDateString("en-CA").slice(0, 7);
+
+/** Month picker for the rough training date ("vague": a month, not a day). */
+function MonthInput({ value, onChange, autoFocus }: { value: string; onChange: (v: string) => void; autoFocus?: boolean }) {
+  return <input type="month" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={value} min={thisMonth()} onChange={(e) => onChange(e.target.value)} aria-label="Expected training month" autoFocus={autoFocus} />;
+}
+
+/** Potential training: the rough month the training might happen, changeable any time. */
+function PotentialSection({ card, onChange }: { card: CardView; onChange?: (month: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [month, setMonth] = useState("");
+  const expected = card.potential?.expected;
+  const save = () => {
+    onChange?.(month);
+    setEditing(false);
+  };
+  return (
+    <Section title="Potential training">
+      <div className="rounded-xl bg-brand-soft px-4 py-3">
+        <div className="text-[12px] font-bold uppercase tracking-wide text-brand">Expected training (approx.)</div>
+        <div className={`mt-0.5 text-[20px] font-semibold ${expected ? "text-ink" : "text-faint"}`}>{expected ? fmtMonth(expected) : "Not set"}</div>
+        {onChange && !card.deleted && !card.mergedInto && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {editing ? (
+              <>
+                <MonthInput value={month} onChange={setMonth} autoFocus />
+                <button className={btn.primary} onClick={save} disabled={month === (expected ?? "")}>Save</button>
+                <button className={btn.quiet} onClick={() => setEditing(false)}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <button className={btn.ghost} onClick={() => { setMonth(expected ?? ""); setEditing(true); }}>{expected ? "Change month" : "Set month"}</button>
+                {expected && <button className={btn.quiet} onClick={() => onChange("")}>Clear</button>}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      <p className="mt-2 text-[13px] text-muted">
+        {card.potential && <>Added by {card.potential.addedBy} on {dateLong(card.potential.addedAt)}. </>}
+        Stays here until it&apos;s merged into one of this customer&apos;s quotations — you choose which. A new quotation (dated on or after the day it was added) flags it automatically.
+      </p>
     </Section>
   );
 }
@@ -240,12 +287,22 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
             <>
               <button className={postponing ? btn.ghost : btn.primary} onClick={open}>{postponing ? "Postpone" : "Schedule training"}</button>
               {s?.status !== "tbd" && <button className={btn.ghost} onClick={() => onSchedule("TBD")}>To be decided</button>}
-              {s?.date && onComplete && (
+              {s?.date && onComplete && (card.kind === "quote" ? (
+                <button disabled title="Create the PI first" className="inline-flex h-9 cursor-not-allowed items-center justify-center gap-1.5 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-muted">
+                  <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden><rect x="4.5" y="9" width="11" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
+                  Training completed
+                </button>
+              ) : (
                 <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={onComplete}>
                   Training completed
                 </button>
-              )}
+              ))}
             </>
+          )}
+          {!picking && s?.date && card.kind === "quote" && (
+            <p className="w-full text-[13px] font-medium text-medium">
+              Create the PI in Zoho Books for {card.docNumber} before marking the training completed — then merge Quote → PI here.
+            </p>
           )}
         </div>
       )}
@@ -346,11 +403,11 @@ function DocsSection({ card, options }: { card: CardView; options: BoardOptions 
   const p = card.pi ?? card.linkedPI;
   const inv = card.invoice ?? card.linkedInvoice;
   const pay = card.payment;
-  const NA = "Not applicable";
+  const PENDING = "To be created";
   const rows: [string, string | undefined, string | undefined, string | undefined][] = [
     ["Quote", q?.number, q?.date, q ? zohoUrl("estimate", q.estimateId, options.orgId) : undefined],
-    card.piSkipped
-      ? ["Sales Order / PI", NA, NA, undefined]
+    card.piSkipped && card.kind === "quote"
+      ? ["Sales Order / PI", PENDING, PENDING, undefined]
       : ["Sales Order / PI", p?.number, p?.date, p ? zohoUrl("salesorder", p.salesorderId, options.orgId) : undefined],
     ["Invoice", inv?.number, inv?.date, inv ? zohoUrl("invoice", inv.invoiceId, options.orgId) : undefined],
     ["Payment Received", pay?.number, pay?.date, pay ? zohoUrl("payment", pay.paymentId, options.orgId) : undefined],
@@ -367,9 +424,9 @@ function DocsSection({ card, options }: { card: CardView; options: BoardOptions 
             <tr key={k} className="border-b border-line last:border-b-0">
               <td className="py-2.5 pr-3 font-medium text-muted">{k}</td>
               <td className="py-2.5 pr-3 text-ink-2">
-                {no === NA ? <span className="italic text-muted">{NA}</span> : no ? (href ? <a href={href} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">{no}</a> : no) : <span className="text-faint">—</span>}
+                {no === PENDING ? <span className="italic text-muted">{no}</span> : no ? (href ? <a href={href} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">{no}</a> : no) : <span className="text-faint">—</span>}
               </td>
-              <td className="num py-2.5 text-ink-2">{date === NA ? <span className="italic text-muted">{NA}</span> : date ? dateLong(date) : <span className="text-faint">—</span>}</td>
+              <td className="num py-2.5 text-ink-2">{date === PENDING ? <span className="italic text-muted">{date}</span> : date ? dateLong(date) : <span className="text-faint">—</span>}</td>
             </tr>
           ))}
         </tbody>
@@ -399,7 +456,17 @@ function NotesSection({ card, options }: { card: CardView; options: BoardOptions
             for further reference.
           </p>
         )}
-        {card.piMissing && q && (
+        {card.piMissing && q && card.piSkipped && (
+          <p className="rounded-lg border border-high/30 bg-high-bg px-3 py-2.5">
+            <b className="text-high">PI required.</b> The training was scheduled straight from the quotation. Create and save a PI in Zoho Books for{" "}
+            <a href={zohoUrl("estimate", q.estimateId, options.orgId)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">
+              {q.number}
+            </a>{" "}
+            before marking the training completed.
+            <span className="block text-[12.5px] text-muted">Put {q.number} in the PI&apos;s reference field; once it syncs, merge Quote → PI here and complete the training on the PI.</span>
+          </p>
+        )}
+        {card.piMissing && q && !card.piSkipped && (
           <p className="rounded-lg border border-high/30 bg-high-bg px-3 py-2.5">
             <b className="text-high">PI missing.</b> A Performa Invoice is required for the proper functioning of the cycle. Please create and save a PI in Zoho Books for this quotation:{" "}
             <a href={zohoUrl("estimate", q.estimateId, options.orgId)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">
@@ -411,11 +478,6 @@ function NotesSection({ card, options }: { card: CardView; options: BoardOptions
         {card.waitingOn && (
           <p className="rounded-lg border border-medium/40 bg-medium-bg px-3 py-2.5">
             <b className="text-medium">Not linked yet.</b> {card.waitingOn}
-          </p>
-        )}
-        {card.piSkipped && (
-          <p>
-            Moved directly from <b>Quotation</b> to <b>Training scheduled</b> — the Performa Invoice stage was skipped, so PI is not applicable for this card.
           </p>
         )}
       </div>
@@ -432,15 +494,16 @@ function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards
       <div className="flex flex-wrap items-center gap-2">
         {chain.map((c, i) => (
           <span key={c.id} className="inline-flex items-center gap-2">
-            {i > 0 && <span className="text-faint">→</span>}
-            <span className={`rounded-lg px-2.5 py-1 text-[13px] font-medium ${STAGE_TONE[c.kind].chip}`}>{KIND_LABEL[c.kind]} · {c.kind === "lead" ? c.lead?.name : c.docNumber}</span>
+            {/* Lead and Potential training sit side by side (+); later stages follow (→). */}
+            {i > 0 && <span className="text-faint">{STAGE_RANK[c.kind] === STAGE_RANK[chain[i - 1].kind] ? "+" : "→"}</span>}
+            <span className={`rounded-lg px-2.5 py-1 text-[13px] font-medium ${STAGE_TONE[c.kind].chip}`}>{KIND_LABEL[c.kind]} · {isCustomerCard(c.kind) ? c.lead?.name : c.docNumber}</span>
           </span>
         ))}
       </div>
       {onUnmerge && card.mergedFrom.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {card.mergedFrom.map((id) => (
-            <button key={id} className={btn.quiet} onClick={() => onUnmerge(id)}>Unmerge {cardLabel(cards.get(id))}</button>
+            <button key={id} className={btn.quiet} onClick={() => onUnmerge(id)}>Unmerge {isCustomerCard(kindOfId(id)) ? KIND_LABEL[kindOfId(id)] : cardLabel(cards.get(id))}</button>
           ))}
         </div>
       )}
@@ -468,6 +531,9 @@ export function ChangeLog({ cardIds, cards, member }: { cardIds: string[]; cards
             return (
               <li key={e.id} className={`rounded-xl border p-3 text-[13px] ${zoho ? "border-medium/40 bg-medium-bg" : "border-line bg-surface"} ${e.revertedAt ? "opacity-60" : ""}`}>
                 <div className={e.revertedAt ? "text-muted line-through" : "text-ink-2"}>{describeEvent(e, labelOf)}</div>
+                {completionNotApplied(e) && (
+                  <div className="mt-1 text-[12px] font-medium text-medium">Not applied — training is completed on the PI. Create the PI in Zoho Books, merge Quote → PI, then mark it completed.</div>
+                )}
                 {mergeNotApplied(e, cards) && (
                   <div className="mt-1 text-[12px] font-medium text-medium">Not applied — the invoice wasn&apos;t merged with its completed training first. Merge step by step, then merge it with the payment again.</div>
                 )}
@@ -680,12 +746,15 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
     const before = s ? (s.status === "tbd" ? "TBD" : s.date) : undefined;
     const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers } : {}) }]);
     if (!s) {
-      const skip = card.kind === "quote" ? " (PI not applicable)" : "";
+      const skip = card.kind === "quote" ? " — create its PI before completing" : "";
       toast({ text: `${card.name} moved to Training scheduled${skip}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
     }
     setPrompt(false);
   };
   const busyOn = (date: string) => busyTrainers(date, cards, card.id);
+  const setExpected = (month: string) => {
+    addCardEvents([{ cardIds: [card.id], kind: "set_potential_date", value: month, before: card.potential?.expected ?? "", by: member.name }]);
+  };
   const complete = () => {
     const [ev] = addCardEvents([{ cardIds: [card.id], kind: "complete_training", by: member.name }]);
     toast({ text: `${card.name} moved to Training completed`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
@@ -709,7 +778,8 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const del = () => {
     // Recorded on everything merged into this card too, so the lead that returns to Leads shows why.
     const [ev] = addCardEvents([{ cardIds: [...new Set([card.id, ...card.historyIds])], kind: "delete", by: member.name }]);
-    toast({ text: `Deleted ${cardLabel(card)} — ${card.name} is back in Leads`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+    const text = card.kind === "potential" ? `Removed ${card.name} from Potential training` : `Deleted ${cardLabel(card)} — ${card.name} is back in Leads`;
+    toast({ text, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
     onClose();
   };
   const ownDelete = cardEvents.some((e) => !e.revertedAt && e.kind === "delete" && e.cardIds.includes(card.id));
@@ -724,6 +794,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
 
   const sub = card.kind === "lead"
     ? "Zoho customer"
+    : card.kind === "potential" ? `Zoho customer${card.potential?.expected ? ` · training expected around ${fmtMonth(card.potential.expected)}` : ""}`
     : `${card.docNumber} · ${card.docDate ? dateLong(card.docDate) : ""}${
         !card.schedule ? ""
         : card.schedule.completed ? ` · Training completed ${scheduleText(card.schedule)}`
@@ -741,7 +812,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       {/* Leads are the Zoho customers themselves, so only quote/PI cards can be deleted. */}
       {card.kind !== "lead" && !card.deleted && (confirmDelete ? (
         <span className="ml-auto inline-flex items-center gap-2 text-[13px] text-muted">
-          Delete this card? The customer goes back to Leads (Zoho is not changed).
+          {card.kind === "potential" ? "Remove from Potential training? (Zoho is not changed.)" : "Delete this card? The customer goes back to Leads (Zoho is not changed)."}
           <button className={btn.danger} onClick={del}>Delete</button>
           <button className={btn.quiet} onClick={() => setConfirmDelete(false)}>Keep</button>
         </span>
@@ -763,10 +834,19 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       <div className="space-y-3 p-4">
         {card.deleted && (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-high-bg px-4 py-3 text-[14px] text-high">
-            {ownDelete ? "This card is deleted; the customer is back in Leads." : "Hidden because the card it was merged into was deleted — restore that card to bring it back."}
+            {ownDelete ? (card.kind === "potential" ? "Removed from Potential training." : "This card is deleted; the customer is back in Leads.") : "Hidden because the card it was merged into was deleted — restore that card to bring it back."}
             {ownDelete && <button className="font-semibold underline" onClick={restore}>Restore</button>}
           </div>
         )}
+        {card.kind === "potential" && !card.flaggedWith.length && !card.mergedInto && !card.deleted && (() => {
+          const n = columnQuotes(card.customerId, cards).length;
+          return n > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-brand/30 bg-surface px-4 py-3 text-[14px] text-ink-2">
+              <span>{card.name} has {n} quotation{n > 1 ? "s" : ""} in Quotations — choose which one this card merges into.</span>
+              <button className="shrink-0 font-semibold text-brand hover:underline" onClick={onReviewMerge}>Choose &amp; merge</button>
+            </div>
+          );
+        })()}
         {card.flaggedWith.length > 0 && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-high/30 bg-surface px-4 py-3 text-[14px] text-ink-2">
             <span className="inline-flex items-center gap-2"><FlagBadge /> This client is also in {flagText(card, cards)}.</span>
@@ -780,7 +860,11 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
             <ChainSection card={card} cards={cards} onUnmerge={unmerge} />
           </div>
           <div className="space-y-3">
-            <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} busyOn={busyOn} />
+            {card.kind === "potential" ? (
+              <PotentialSection card={card} onChange={setExpected} />
+            ) : (
+              <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} busyOn={busyOn} />
+            )}
             <SalesSection card={card} />
             <DocsSection card={card} options={options} />
           </div>
@@ -806,6 +890,7 @@ function PhasePanel({ kind, list, selected, onSelect, cards, onOpen }: {
           {list.map((c) => (
             <button key={c.id} onClick={() => onSelect(c.id)} className={`rounded-full px-2.5 py-1 text-[12.5px] font-medium ${c.id === selected.id ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:bg-line"}`}>
               {c.docNumber ?? c.name}
+              {c.docDate && <span className="ml-1 opacity-70">· {fmtDate(c.docDate, { day: "numeric", month: "short" })}</span>}
             </button>
           ))}
         </div>
@@ -820,8 +905,9 @@ function PhasePanel({ kind, list, selected, onSelect, cards, onOpen }: {
         )}
         <CustomerSection card={selected} />
         <ContactSection card={selected} />
-        {kind !== "lead" && <TrainingSection card={selected} compact />}
-        {kind !== "lead" && <SalesSection card={selected} />}
+        {kind === "potential" && <PotentialSection card={selected} />}
+        {!isCustomerCard(kind) && <TrainingSection card={selected} compact />}
+        {!isCustomerCard(kind) && <SalesSection card={selected} />}
         <ChainSection card={selected} cards={cards} />
       </div>
       </Compact.Provider>
@@ -835,18 +921,22 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   const { addCardEvents, revertCardEvent, toast } = useStore();
   const members = group.map((id) => cards.get(id)).filter((c): c is CardView => !!c);
   const byKind = Object.fromEntries(STAGE_ORDER.map((k) => [k, members.filter((c) => c.kind === k)])) as Record<CardKind, CardView[]>;
+  byKind.quote.sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""));
   const kinds = STAGE_ORDER.filter((k) => byKind[k].length);
+  // Opened from a Potential training card: just pick the quotation it goes into (see mergeCandidates).
+  const potentialMode = cards.get(initialId)?.kind === "potential";
 
   const linked = (a?: CardView, b?: CardView) => Boolean(a && b && a.flaggedWith.includes(b.id));
   // Start from the clicked card and pick its linked partners: a quote's PI is the one referencing it.
   const [sel, setSel] = useState<Record<CardKind, string | undefined>>(() => {
     const clicked = cards.get(initialId);
-    const s: Record<CardKind, string | undefined> = { lead: undefined, quote: undefined, pi: undefined, invoice: undefined, payment: undefined };
+    const s: Record<CardKind, string | undefined> = { potential: undefined, lead: undefined, quote: undefined, pi: undefined, invoice: undefined, payment: undefined };
     if (clicked) s[clicked.kind] = clicked.id;
     const partner = (k: CardKind, of?: string) => byKind[k].find((c) => of && c.flaggedWith.includes(of))?.id;
-    s.quote ??= partner("quote", s.pi) ?? partner("quote", s.lead) ?? byKind.quote[0]?.id;
+    s.quote ??= partner("quote", s.potential) ?? partner("quote", s.pi) ?? partner("quote", s.lead) ?? byKind.quote[0]?.id;
     s.pi ??= partner("pi", s.quote) ?? partner("pi", s.lead) ?? byKind.pi[0]?.id;
     s.lead ??= partner("lead", s.quote) ?? partner("lead", s.pi) ?? byKind.lead[0]?.id;
+    s.potential ??= partner("potential", s.quote) ?? partner("potential", s.pi) ?? byKind.potential[0]?.id;
     s.invoice ??= partner("invoice", s.pi) ?? partner("invoice", s.quote) ?? byKind.invoice[0]?.id;
     s.pi ??= partner("pi", s.invoice);
     s.payment ??= partner("payment", s.invoice) ?? byKind.payment[0]?.id;
@@ -855,6 +945,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   });
   const chosen = (k: CardKind) => byKind[k].find((c) => c.id === sel[k]) ?? byKind[k][0];
   const lead = chosen("lead");
+  const potential = chosen("potential");
   const quote = chosen("quote");
   const pi = chosen("pi");
   const invoice = chosen("invoice");
@@ -883,23 +974,32 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   };
 
   // Only linked pairs can merge: Lead ↔ Quote by customer; Quote ↔ PI and completed PI ↔ Invoice by reference.
-  const lq = linked(lead, quote);
+  // The customer's lead and Potential training card (either or both) merge in together.
+  // A Potential training card can go into any of its customer's quotations in the Quotations column (the one you pick).
+  const potentialFits = (to?: CardView) => Boolean(potential && to && (linked(potential, to)
+    || (to.kind === "quote" && to.customerId === potential.customerId && !to.mergedInto && !to.deleted && !to.lost && !to.schedule)));
+  const firsts = (to?: CardView) => [lead, potential].filter((c): c is CardView => Boolean(c) && (c!.kind === "potential" ? potentialFits(to) : linked(c, to)));
+  const who = (list: CardView[]) => list.map((c) => (c.kind === "lead" ? "Lead" : "Potential")).join(" + ");
+  const intoQuote = firsts(quote);
+  const intoPI = firsts(pi);
+  const lq = intoQuote.length > 0;
   const qp = linked(quote, pi);
-  const lp = linked(lead, pi);
+  const lp = intoPI.length > 0;
   const actions: { label: string; steps: [CardView, CardView][]; primary?: boolean }[] = [];
-  if (lq && qp) actions.push({ label: "Merge Lead → Quote → PI", steps: [[lead!, quote!], [quote!, pi!]], primary: true });
-  if (lq) actions.push({ label: "Merge Lead → Quote", steps: [[lead!, quote!]], primary: !qp });
+  if (lq && qp) actions.push({ label: `Merge ${who(intoQuote)} → Quote → PI`, steps: [...intoQuote.map((c): [CardView, CardView] => [c, quote!]), [quote!, pi!]], primary: true });
+  if (lq) actions.push({ label: `Merge ${who(intoQuote)} → Quote`, steps: intoQuote.map((c): [CardView, CardView] => [c, quote!]), primary: !qp });
   if (qp) actions.push({ label: "Merge Quote → PI", steps: [[quote!, pi!]], primary: !lq });
-  if (lp) actions.push({ label: "Merge Lead → PI", steps: [[lead!, pi!]], primary: !lq && !qp });
+  if (lp) actions.push({ label: `Merge ${who(intoPI)} → PI`, steps: intoPI.map((c): [CardView, CardView] => [c, pi!]), primary: !lq && !qp });
   // Step by step: the invoice joins its payment only after (or together with) its completed training.
   const invPay = linked(invoice, payment);
-  const invoiceReady = Boolean(invoice?.mergedFrom.some((id) => cards.get(id)?.kind !== "lead"));
+  const invoiceReady = Boolean(invoice?.mergedFrom.some((id) => { const k = cards.get(id)?.kind; return k && !isCustomerCard(k); }));
   if (linked(pi, invoice) && invPay) actions.push({ label: "Merge PI → Invoice → Payment Received", steps: [[pi!, invoice!], [invoice!, payment!]], primary: true });
   if (linked(quote, invoice) && invPay) actions.push({ label: "Merge Quote → Invoice → Payment Received", steps: [[quote!, invoice!], [invoice!, payment!]], primary: true });
   if (linked(pi, invoice)) actions.push({ label: "Merge PI → Invoice", steps: [[pi!, invoice!]], primary: !invPay });
   if (linked(quote, invoice)) actions.push({ label: "Merge Quote → Invoice", steps: [[quote!, invoice!]], primary: !invPay });
   if (invPay && invoiceReady) actions.push({ label: "Merge Invoice → Payment Received", steps: [[invoice!, payment!]], primary: true });
-  const unlinked = invoice && payment && !linked(invoice, payment)
+  // PI / invoice links don't apply when a Potential training card is only choosing its quotation.
+  const unlinked = potentialMode ? "" : invoice && payment && !linked(invoice, payment)
     ? payment.payment?.invoiceId === invoice.invoice?.invoiceId
       ? `Merge ${invoice.docNumber} with its completed training first — step by step, the invoice can only be merged with ${payment.docNumber} after that.`
       : `${payment.docNumber} is applied to invoice ${payment.payment?.invoiceNumber}, not ${invoice.docNumber} — only the invoice a payment is recorded against can be merged with it.`
@@ -907,7 +1007,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
     ? `${invoice.docNumber} references ${invoice.invoice?.reference || "no PI"}, not ${pi.docNumber} — only an invoice that references a PI (with completed training) can be merged with it.`
     : quote && pi && !qp ? `${pi.docNumber} references ${pi.pi?.reference || "no quotation"}, not ${quote.docNumber} — only a PI that references a quotation can be merged with it.` : "";
 
-  const name = lead?.name ?? quote?.name ?? pi?.name ?? invoice?.name ?? payment?.name ?? "";
+  const name = lead?.name ?? potential?.name ?? quote?.name ?? pi?.name ?? invoice?.name ?? payment?.name ?? "";
   const footer = (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="max-w-xl text-[12.5px] text-muted">
@@ -937,3 +1037,138 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   );
 }
 
+
+/* ---------------- Potential training: add a Zoho customer by hand ---------------- */
+
+/** Search over every active Zoho customer (the list Leads is built from); name, alias, phone or email. */
+function CustomerSearch({ customers, taken, onPick }: { customers: CardView[]; taken: Set<string>; onPick: (c: CardView) => void }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const results = useMemo(() => {
+    if (!needle) return [];
+    const hits = customers.filter((c) => c.search.includes(needle));
+    const starts = (c: CardView) => c.name.toLowerCase().startsWith(needle);
+    return [...hits.filter(starts), ...hits.filter((c) => !starts(c))].slice(0, 40);
+  }, [customers, needle]);
+  const first = results.find((c) => !taken.has(c.customerId));
+  return (
+    <div>
+      <div className="relative">
+        <svg viewBox="0 0 20 20" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
+        <input
+          className={`${inputCls} !h-9 pl-8 text-[14px]`}
+          placeholder={`Search ${customers.length.toLocaleString("en-IN")} Zoho customers — name, phone or email`}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && first && (e.preventDefault(), onPick(first))}
+          aria-label="Search customer"
+          autoFocus
+        />
+      </div>
+      {needle && (
+        <ul className="no-scrollbar mt-2 max-h-[44vh] overflow-y-auto rounded-xl border border-line bg-surface">
+          {results.length === 0 && <li className="px-3 py-3 text-[13px] text-muted">No Zoho customer matches “{q.trim()}”.</li>}
+          {results.map((c) => {
+            const already = taken.has(c.customerId);
+            return (
+              <li key={c.id} className="border-b border-line last:border-b-0">
+                <button
+                  type="button"
+                  disabled={already}
+                  onClick={() => onPick(c)}
+                  className="block w-full px-3 py-2 text-left hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-transparent"
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-[14px] font-semibold text-ink">{c.name}</span>
+                    {already && <span className="shrink-0 rounded bg-surface-2 px-1.5 py-px text-[11px] font-medium text-muted">Already in Potential training</span>}
+                  </span>
+                  <span className="block truncate text-[12.5px] text-muted">
+                    {[c.phones[0]?.value, c.emails[0]?.value, c.customerSince && `Created ${dateLong(c.customerSince)}`].filter(Boolean).join(" · ")}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+
+export function AddPotentialModal({ cards, member, onClose }: { cards: Cards; member: Member; onClose: () => void }) {
+  const { addCardEvents, revertCardEvent, toast } = useStore();
+  const [picked, setPicked] = useState<CardView | null>(null);
+  const [month, setMonth] = useState("");
+  const customers = useMemo(() => [...cards.values()].filter((c) => c.kind === "lead").sort((a, b) => a.name.localeCompare(b.name)), [cards]);
+  // One open Potential training card per customer.
+  const taken = useMemo(() => new Set([...cards.values()].filter((c) => c.kind === "potential" && !c.deleted && !c.mergedInto).map((c) => c.customerId)), [cards]);
+
+  const add = () => {
+    if (!picked || taken.has(picked.customerId)) return;
+    const [ev] = addCardEvents([{ cardIds: [potentialCardId(newId())], kind: "add_potential", ref: picked.customerId, value: month || undefined, by: member.name }]);
+    toast({ text: `Added ${picked.name} to Potential training`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+    onClose();
+  };
+
+  const footer = (
+    <div className="flex flex-wrap items-center gap-2">
+      <button className={btn.primary} onClick={add} disabled={!picked}>Add to Potential training</button>
+      <button className={btn.ghost} onClick={onClose}>Cancel</button>
+      {!picked && <span className="text-[13px] text-muted">Pick a customer to continue.</span>}
+    </div>
+  );
+  const side = (
+    <div className="p-5">
+      <h3 className="text-[16px] font-bold tracking-tight text-ink">Changes</h3>
+      <p className="text-[12.5px] text-muted">Once the card is added, every change to it shows here and can be reverted.</p>
+    </div>
+  );
+
+  return (
+    <Shell label="Add potential training" onClose={onClose} footer={footer} side={side}>
+      <Header kind="potential" sub="New card · pick a Zoho customer" title={picked?.name ?? "Add a customer"} onClose={onClose} />
+      <div className="grid gap-3 p-4 xl:grid-cols-2">
+        <div className="space-y-3">
+          <Section title="Customer">
+            <dl>
+              <Row label="Customer name" required>
+                {picked ? (
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-[15px] font-semibold text-ink">{picked.name}</span>
+                    <button className={`${btn.quiet} shrink-0`} onClick={() => setPicked(null)}>Change</button>
+                  </div>
+                ) : (
+                  <CustomerSearch customers={customers} taken={taken} onPick={setPicked} />
+                )}
+              </Row>
+              {picked && (
+                <>
+                  <Row label="Customer type">{picked.type ?? <span className="text-faint">—</span>}</Row>
+                  <Row label="Sector">{picked.sector ?? <span className="text-faint">—</span>}</Row>
+                  <Row label="Created in Zoho" locked>{picked.customerSince ? dateLong(picked.customerSince) : "—"}</Row>
+                </>
+              )}
+            </dl>
+          </Section>
+          {picked && <ContactSection card={picked} />}
+        </div>
+        <div className="space-y-3">
+          <Section title="Potential training">
+            <div className="rounded-xl bg-brand-soft px-4 py-3">
+              <div className="mb-1.5 text-[12px] font-bold uppercase tracking-wide text-brand">Expected training (approx.)</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <MonthInput value={month} onChange={setMonth} />
+                {month && <button className={btn.quiet} onClick={() => setMonth("")}>Clear</button>}
+              </div>
+            </div>
+            <p className="mt-2 text-[13px] text-muted">
+              Optional — a rough month, kept for reminders later; change it any time. The card stays in Potential training until a new quotation for this customer syncs from Zoho Books, then it can be merged into it like a lead.
+            </p>
+          </Section>
+        </div>
+      </div>
+    </Shell>
+  );
+}

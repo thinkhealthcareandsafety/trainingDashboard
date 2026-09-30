@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Member, PipelineResponse } from "@/lib/types";
-import { type CardView, buildBoard, flagGroup, zohoNotices } from "@/lib/pipeline";
+import { type CardView, buildBoard, fmtMonth, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
 import { Avatar, Modal, btn, inputCls } from "./ui";
 import { MembersScreen } from "./followups/MembersScreen";
-import { CardModal, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
+import { AddPotentialModal, CardModal, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential";
 
@@ -174,6 +174,24 @@ function LeadItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   );
 }
 
+/** A customer added by hand to Potential training: when the training might happen. */
+function PotentialItem({ card, onClick }: { card: CardView; onClick: () => void }) {
+  const expected = card.potential?.expected;
+  return (
+    <ItemShell card={card} onClick={onClick}>
+      <div className="flex items-start justify-between gap-2">
+        <span>
+          Expected <span className={`num font-semibold ${expected ? "text-ink" : "text-faint"}`}>{expected ? fmtMonth(expected) : "not set"}</span>
+        </span>
+        {flagged(card) && <FlagBadge />}
+        {card.deleted && <DeletedTag />}
+      </div>
+      <div className="mt-0.5 truncate text-ink-2">{card.phones[0]?.value ?? <span className="text-high">No contact number</span>}</div>
+      {card.potential && <div className="truncate text-[11px]">Added by {card.potential.addedBy.split(" ")[0]}</div>}
+    </ItemShell>
+  );
+}
+
 /** A quotation, PI, invoice or payment: number, training, date. */
 function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   const pay = card.payment;
@@ -202,7 +220,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
           )}
         </div>
         {card.schedule.trainers.length > 0 && <div className="mt-0.5 truncate text-[11px] text-ink-2">{card.schedule.trainers.map((t) => t.split(" ")[0]).join(", ")}</div>}
-        {card.piSkipped && <div className="mt-0.5 text-[11px] italic">PI not applicable</div>}
+        {card.piSkipped && card.kind === "quote" && <div className="mt-0.5 text-[11px] font-semibold text-medium">PI needed</div>}
         </>
       ) : (
         !pay && card.docDate && <div className="num text-ink-2">{dateLong(card.docDate)}</div>
@@ -223,7 +241,11 @@ function CustomerBox({ cards, onOpen }: { cards: CardView[]; onOpen: (c: CardVie
         {cards.length > 1 && <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-[11px] num text-muted">{cards.length}</span>}
       </div>
       <div className="space-y-1.5 rounded-lg bg-surface-2/70 p-1.5">
-        {cards.map((c) => (c.kind === "lead" ? <LeadItem key={c.id} card={c} onClick={() => onOpen(c)} /> : <DocItem key={c.id} card={c} onClick={() => onOpen(c)} />))}
+        {cards.map((c) =>
+          c.kind === "lead" ? <LeadItem key={c.id} card={c} onClick={() => onOpen(c)} />
+          : c.kind === "potential" ? <PotentialItem key={c.id} card={c} onClick={() => onOpen(c)} />
+          : <DocItem key={c.id} card={c} onClick={() => onOpen(c)} />,
+        )}
       </div>
     </div>
   );
@@ -233,7 +255,7 @@ function CustomerBox({ cards, onOpen }: { cards: CardView[]; onOpen: (c: CardVie
 
 const BATCH = 40;
 
-function Column({ stage, cards, onOpen, loading }: { stage: (typeof STAGES)[number]; cards: CardView[]; onOpen: (c: CardView) => void; loading: boolean }) {
+function Column({ stage, cards, onOpen, onAdd, loading }: { stage: (typeof STAGES)[number]; cards: CardView[]; onOpen: (c: CardView) => void; onAdd?: () => void; loading: boolean }) {
   const [shown, setShown] = useState(BATCH);
   const [flaggedFirst, setFlaggedFirst] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -272,12 +294,17 @@ function Column({ stage, cards, onOpen, loading }: { stage: (typeof STAGES)[numb
             </button>
           )}
           <span className="rounded-full bg-surface px-1.5 text-[12px] num text-muted">{cards.length}</span>
+          {onAdd && (
+            <button onClick={onAdd} aria-label={`Add to ${stage.label}`} title={`Add a customer to ${stage.label}`} className="grid size-6 place-items-center rounded-md bg-brand text-brand-ink shadow-card hover:brightness-110">
+              <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M10 4.5v11M4.5 10h11" /></svg>
+            </button>
+          )}
         </span>
       </div>
       <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} data-col-body style={{ height: "var(--fu-col-h)" }}>
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-center text-[12px] text-faint">
-            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost"].includes(stage.key) ? "Syncing with Zoho Books…" : stage.key === "potential" ? "Coming soon" : "No cards"}
+            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost"].includes(stage.key) ? "Syncing with Zoho Books…" : stage.key === "potential" ? "Add customers who might train later with +" : "No cards"}
           </div>
         ) : (
           groups.slice(0, shown).map((g) => <CustomerBox key={g[0].customerId} cards={g} onOpen={onOpen} />)
@@ -332,7 +359,7 @@ function ClearLogs({ member }: { member: Member }) {
       <Modal open={open} onClose={close} title="Clear all logs">
         <form onSubmit={submit}>
           <p className="text-[13.5px] text-ink-2">
-            This removes all <b>{cardEvents.length}</b> entries in the Changes log for everyone — every edit, merge, deletion and training date. Cards go back to exactly what Zoho Books shows.
+            This removes all <b>{cardEvents.length}</b> entries in the Changes log for everyone — every edit, merge, deletion and training date. Cards go back to exactly what Zoho Books shows; customers added to Potential training stay.
           </p>
           <label className="mt-4 block">
             <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Enter PIN</span>
@@ -365,6 +392,7 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
   const [open, setOpen] = useState<{ id: string; merge: boolean } | null>(null);
+  const [adding, setAdding] = useState(false);
   const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(STAGES.length);
   const { pageRef, colH } = useFitHeight();
 
@@ -388,13 +416,15 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
   const invoiced = useMemo(() => board.invoiceCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
   const paid = useMemo(() => board.paymentCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
   const lost = useMemo(() => board.lostCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential: [] };
+  const potential = useMemo(() => board.potentialCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });
   const current = open ? board.cards.get(open.id) : undefined;
-  const mergeGroup = current && open?.merge && current.flaggedWith.length ? flagGroup(current.id, board.cards) : null;
+  const candidates = current && open?.merge ? mergeCandidates(current.id, board.cards) : [];
+  const mergeGroup = candidates.length > 1 ? candidates : null;
 
   return (
     <div ref={pageRef} className="fu-page" style={colH ? ({ "--fu-col-h": `${colH}px` } as React.CSSProperties) : undefined}>
@@ -402,7 +432,7 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
         <div className="min-w-0">
           <h1 className="text-[20px] font-semibold leading-tight tracking-tight">Follow-ups</h1>
           <p className="text-[12.5px] text-muted">
-            {leads.length.toLocaleString("en-IN")} leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments · {lost.length} lost
+            {leads.length.toLocaleString("en-IN")} leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments · {lost.length} lost · {potential.length} potential
             {data?.windowStart && <> · documents since {fmtDate(data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
           </p>
         </div>
@@ -448,7 +478,7 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
             >
               {STAGES.map((s, i) => (
                 <div key={s.key} className="grid min-w-0" inert={i < offset || i >= offset + perView}>
-                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} loading={loading && !data} />
+                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} onAdd={s.key === "potential" && data ? () => setAdding(true) : undefined} loading={loading && !data} />
                 </div>
               ))}
             </div>
@@ -456,6 +486,7 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
         </div>
       </div>
 
+      {adding && <AddPotentialModal cards={board.cards} member={member} onClose={() => setAdding(false)} />}
       {current && mergeGroup && (
         <MergeModal
           key={`merge:${current.id}`}

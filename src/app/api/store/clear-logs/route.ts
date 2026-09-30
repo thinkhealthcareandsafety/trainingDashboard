@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 // POST { pin, by }: wipes the Follow-ups change log (every card event) for the whole team.
 // The PIN lives in CLEAR_LOGS_PIN on the server; cleared events are copied to cardEventsArchive first.
+// Cards added by hand to Potential training (add_potential) are kept — they aren't in Zoho to come back from.
 export async function POST(request: Request) {
   if (!mongoConfigured()) return Response.json({ error: "Shared storage isn't configured" }, { status: 400 });
   const expected = process.env.CLEAR_LOGS_PIN;
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
   }
   try {
     const d = await db();
-    const events = await d.collection("cardEvents").find({}).toArray();
+    const events = await d.collection("cardEvents").find({ kind: { $ne: "add_potential" } }).toArray();
     if (events.length) {
       const clearedAt = new Date().toISOString();
       const clearedBy = typeof by === "string" ? by : "";

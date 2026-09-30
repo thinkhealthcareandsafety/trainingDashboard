@@ -66,7 +66,7 @@ npx tsc --noEmit -p tsconfig.json   # typecheck (no test suite exists)
 | 20 | "postponed stays green; postpone date not before today; after TBD it's *Schedule training*, not postpone" | Done. |
 | 21 | "schedule training from quotations too → straight to Training scheduled, PI = *Not applicable* + note; add **Training completed** button" | Done. |
 | 22 | "move Notes and Merged to the left half so no scroll; note disappears when reverted" | Done (note is derived, so revert removes it). |
-| 23 | "in the column card just write *PI not applicable*" | Done. |
+| 23 | "in the column card just write *PI not applicable*" | Done (superseded by #37). |
 | 24 | "resize the inner elements so I don't have to scroll" | Compact spacing; all modal types measured at 0px overflow at 1728×958. |
 | 25 | "deleted card should revert back to Leads… REFRESH THE BOARD, RESET ALL CHANGES, reset logs, check all customers… if PI missing, note: *a PI is required… create one for this quotation: <clickable quote no>*" | Delete = customer back to Leads; leads can't be deleted. Cleared 24 events, full resync, **3939 Zoho active customers = 3939 leads** (0 missing/extra). PI-missing note with Zoho link. (Shikha made new changes minutes after the reset — left intact.) |
 | 26 | **Invoice phase**: invoices whose reference cites their PI → Invoice sent, merged with **Training completed** cards specifically | Built. |
@@ -79,6 +79,10 @@ npx tsc --noEmit -p tsconfig.json   # typecheck (no test suite exists)
 | 33 | "Invoice → Payment shouldn’t merge before the card went Lead → Quote → PI → Training completed → Invoice" (sagealpha: 2026-01-429 was merged into Payment #1910 first) | Invoice ↔ Payment flag only when the invoice already absorbed its completed PI/quote; out-of-order merges ignored (no DB writes), so the stuck card fixed itself. |
 | 34 | "when the payment has the reference invoice, allow merging straight through to Payment received" | Payment flagged with an invoice that is flagged with its completed training; one-click *Merge PI → Invoice → Payment Received*. |
 | 35 | Hide the sidebar with an X; 9th column **Potential training** (empty for now — "we will work on this later"); make the board fit any device (enterprise grade) | Sidebar X → slim icon rail (menu button reopens; remembered in `localStorage th.sidebar`). Board width uncapped on /follow-up. Columns per view = as many as fit at `MIN_COL_W` 184px (names wrap to 2 lines, never cut); ◀ ▶, ←/→ keys and swipe slide the window; column height fitted to the window by `useFitHeight`. Checked at 1728×958 (7, or 8 without sidebar), 2560×1440 (9), 1280×800 (5), 768 tablet (3), 390 phone (1): no page scroll, no clipped names. |
+| 36 | Potential training: **+** on the column opens a Leads-style modal — search the Zoho customers, pick one, optional vague training date; the card stays until a quote for it arrives, then merges like a lead | `add_potential` event (cardIds `[potential:<id>]`, `ref` = contact id, `value` = expected month `YYYY-MM`); `set_potential_date` changes it; Delete removes it. Kind `potential` (rank 0, like a lead) flags with the customer’s quotation / PI-without-quote **dated on or after the day it was added**; merge view offers *Merge Lead + Potential → Quote*. Clear logs keeps `add_potential` events. |
+| 37 | "lock the Training completed button and tell the user to create the PI before marking training complete" + "remove the *PI not applicable* note — we can’t skip the PI" | Locked button + message on quotation cards in training; *PI required* note; *PI needed* on the board card; completions already recorded on a quotation ignored (*Not applied*), so sagealpha’s Quotation-24-002591 went back to Training scheduled. |
+| 38 | "when merging the potential lead, show all the quotes currently in the column for that customer so I can choose which one to map it to" | `mergeCandidates` adds the customer’s Potential card + every quotation of theirs in the Quotations column (`columnQuotes`: not merged, not in training, not lost/deleted) to the merge view; chips show number + date, newest first; *Merge Potential → Quote* goes into the chosen one. An unflagged potential card with such quotations shows *Choose & merge*. The red F still only comes from quotations dated on/after the card was added. |
+| 39 | "only the option to select the quotation is enough here, the quote might not have the PI yet" | Merge view opened **from a Potential card** = Potential + the customer’s open Lead + their quotations only (plus anything flagged directly with the card, e.g. a PI citing no quotation); no PI panel or PI-link message. Quote → PI is merged later from the quotation. Opened from the lead/quote, the view is the full flag chain as before. |
 
 ---
 
@@ -121,7 +125,7 @@ The merge view shows one panel per phase present (Lead → Quote → PI …) wit
 *"Ready for training — schedule now?"* (Enter date / Later). With a date it moves to **Training scheduled**:
 first date = *Scheduled*; changing a date = *Postponed*; *To be decided* = TBD; a date after TBD = *Scheduled* again.
 **Border:** green for any date (postponed keeps a yellow badge), red for TBD. Dates can't be in the past.
-Scheduling a **quote** directly skips the PI: PI row shows *Not applicable* + a Notes line; column card says *PI not applicable*.
+A **quote** can be scheduled directly, but **the PI can’t be skipped** (#37): its *Training completed* button is locked with “Create the PI in Zoho Books for <quote> before marking the training completed — then merge Quote → PI here”; Notes show *PI required* (link to the quote); the PI row says *To be created*; the column card says *PI needed*. Training is completed on the PI after *Merge Quote → PI* (the date travels). A `complete_training` recorded on a quotation is ignored (`completionNotApplied`) and shown as *Not applied* in Changes. No “not applicable” wording anywhere.
 **Training completed** (only with a date) moves the card to Training completed. Dates stay in the dashboard (not written to Zoho).
 
 **Invoice / payment (phases 6–7).** Invoices sit in *Invoice sent*; flagged only with the Training-completed card they reference;
@@ -141,7 +145,7 @@ archives every `cardEvents` doc into `cardEventsArchive` (with `clearedAt`/`clea
 **returns to Leads**; logged on the lead too; undo from the toast or Changes. Leads have no Delete (they are the Zoho customers).
 
 **Notes shown in the modal:** *PI missing* (quote with no PI referencing it) with a clickable quotation number;
-*PI not applicable* (quote scheduled directly); *Not linked yet* (invoice/payment with the reason);
+*PI required* (quote scheduled directly, no PI yet); *Not linked yet* (invoice/payment with the reason);
 Zoho removals: *"… is no longer in Zoho Books … The card moved due to changes in Zoho Books."* (automatic, non-revertable).
 
 ---
@@ -192,7 +196,7 @@ exist in Zoho and neither is deleted; training dates are read across a card's wh
 - Columns **side by side** in one row, as a sliding window: as many as fit (min 184px, full column name), the rest reached with ◀ ▶ / ←→ / swipe; big screens show all 9. **No horizontal page scrolling**; the board must fit the screen (owner's viewport ≈ 1728×958 → 7 columns, 8 with the sidebar hidden).
 - Each column **scrolls on its own**; **no visible scrollbars** anywhere (`.no-scrollbar`).
 - Modals: wide, **no inner scrolling** at that viewport, background scroll locked, bold section headings, training info prominent.
-- Keep wording short on board cards (e.g. just "PI not applicable").
+- Keep wording short on board cards (e.g. just "PI needed").
 - The owner writes specs in bursts with screenshots; confirm counts against Zoho when they question numbers.
 
 ---

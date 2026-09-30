@@ -414,9 +414,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/store/clear-logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, by }) });
       const json = (await res.json()) as { ok?: boolean; cleared?: number; error?: string };
       if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Couldn't clear the logs" };
-      // The server copy is gone; forget it here too so nothing is pushed back.
-      synced.current.cardEvents = new Map();
-      setCardEvents([]);
+      // The server copy is gone (except cards added to Potential training); match it here so nothing is pushed back.
+      setCardEvents((cur) => {
+        const kept = cur.filter((e) => e.kind === "add_potential");
+        synced.current.cardEvents = new Map(kept.map((e) => [e.id, JSON.stringify(e)]));
+        return kept;
+      });
       return { ok: true, cleared: json.cleared };
     } catch (e) {
       return { ok: false, error: String(e) };

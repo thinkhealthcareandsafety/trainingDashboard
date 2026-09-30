@@ -200,7 +200,7 @@ export interface Member {
   createdAt: string;
 }
 
-export type Phase = "Lead" | "Quote" | "PI" | "Invoice" | "Payment";
+export type Phase = "Potential" | "Lead" | "Quote" | "PI" | "Invoice" | "Payment";
 
 export type CardEventKind =
   | "set_name"
@@ -216,7 +216,9 @@ export type CardEventKind =
   | "merge"
   | "set_training_date" // value: YYYY-MM-DD or "TBD"; the first date schedules, later ones postpone
   | "complete_training" // moves the card to Training completed
-  | "zoho_change"; // recorded automatically when a Zoho document disappears and a card moves because of it
+  | "zoho_change" // recorded automatically when a Zoho document disappears and a card moves because of it
+  | "add_potential" // creates a Potential training card: cardIds [potential:<id>], ref = Zoho contact id, value = expected month (YYYY-MM) or none
+  | "set_potential_date"; // value: new expected month (YYYY-MM) or "" for not set; before: previous
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every
