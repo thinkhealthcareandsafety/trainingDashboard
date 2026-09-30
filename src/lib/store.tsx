@@ -101,6 +101,8 @@ interface Store {
   /** Adds ready-made events (e.g. Zoho notices with deterministic ids), skipping ids already recorded. */
   recordCardEvents: (events: CardEvent[]) => void;
   revertCardEvent: (id: string, by: string) => void;
+  /** Wipes every card event for the whole team (PIN-locked on the server). */
+  clearCardEvents: (pin: string, by: string) => Promise<{ ok: boolean; cleared?: number; error?: string }>;
 
   announcements: Announcement[];
 
@@ -407,6 +409,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCardEvents((cur) => cur.map((e) => (e.id === id && !e.revertedAt ? { ...e, revertedAt: new Date().toISOString(), revertedBy: by } : e)));
   }, []);
 
+  const clearCardEvents = useCallback(async (pin: string, by: string) => {
+    try {
+      const res = await fetch("/api/store/clear-logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, by }) });
+      const json = (await res.json()) as { ok?: boolean; cleared?: number; error?: string };
+      if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Couldn't clear the logs" };
+      // The server copy is gone; forget it here too so nothing is pushed back.
+      synced.current.cardEvents = new Map();
+      setCardEvents([]);
+      return { ok: true, cleared: json.cleared };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }, []);
+
   const snoozeTicker = useCallback((id: string, hours: number) => {
     setTickerSnooze((s) => ({ ...s, [id]: new Date(Date.now() + hours * 3_600_000).toISOString() }));
   }, []);
@@ -440,6 +456,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addCardEvents,
     recordCardEvents,
     revertCardEvent,
+    clearCardEvents,
     announcements,
     ticker,
     snoozeTicker,

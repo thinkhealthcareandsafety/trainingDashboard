@@ -72,6 +72,13 @@ npx tsc --noEmit -p tsconfig.json   # typecheck (no test suite exists)
 | 26 | **Invoice phase**: invoices whose reference cites their PI → Invoice sent, merged with **Training completed** cards specifically | Built. |
 | 27 | **Payment received phase**: reference is the invoice number; merge with invoice; card stays in the last column | Built (read via `/invoices/{id}/payments` — see §6). |
 | 28 | "get all my prompts, bundle them up… full handoff" | This file. |
+| 29 | "◀ ▶ triangles next to *Synced* to move the whole board; one more column at the end, **Deal lost**: quotations whose Zoho status turns rejected move there and stay" | 8th column; board shows 7 at a time and slides one column per click. Declined quotes (Zoho API status `declined`) go to Deal lost. |
+| 30 | Deal lost note: "declined in Zoho Books. Please click <quote no. linking to Zoho> for further reference" | Done. |
+| 31 | "Clear logs" option left of the member pill, locked behind a PIN (the owner knows it; it lives only in `.env.local` as `CLEAR_LOGS_PIN` — never write it in tracked files) | Button + PIN dialog; `POST /api/store/clear-logs` checks `CLEAR_LOGS_PIN` (in `.env.local`), copies events to Mongo `cardEventsArchive`, then deletes them. |
+| 32 | Trainers when scheduling: checkboxes for **Shikha Dixit, Ashish Dalal, Sumit A Shah** (several per training); a trainer can’t be on two trainings the same date | `TRAINERS` + `busyTrainers` in `pipeline.ts`; `set_training_date` events carry `trainers`; picker in the schedule/postpone row and the Ready-for-training popup. |
+| 33 | "Invoice → Payment shouldn’t merge before the card went Lead → Quote → PI → Training completed → Invoice" (sagealpha: 2026-01-429 was merged into Payment #1910 first) | Invoice ↔ Payment flag only when the invoice already absorbed its completed PI/quote; out-of-order merges ignored (no DB writes), so the stuck card fixed itself. |
+| 34 | "when the payment has the reference invoice, allow merging straight through to Payment received" | Payment flagged with an invoice that is flagged with its completed training; one-click *Merge PI → Invoice → Payment Received*. |
+| 35 | Hide the sidebar with an X; 9th column **Potential training** (empty for now — "we will work on this later"); make the board fit any device (enterprise grade) | Sidebar X → slim icon rail (menu button reopens; remembered in `localStorage th.sidebar`). Board width uncapped on /follow-up. Columns per view = as many as fit at `MIN_COL_W` 184px (names wrap to 2 lines, never cut); ◀ ▶, ←/→ keys and swipe slide the window; column height fitted to the window by `useFitHeight`. Checked at 1728×958 (7, or 8 without sidebar), 2560×1440 (9), 1280×800 (5), 768 tablet (3), 390 phone (1): no page scroll, no clipped names. |
 
 ---
 
@@ -104,7 +111,7 @@ the earlier card's name, aliases, emails, numbers, type, sector, sales people an
 | Quote ↔ PI | **only** the PI's `reference_number` citing that quotation number |
 | Lead ↔ PI | same customer, only for a PI whose reference cites no synced quotation |
 | Completed training ↔ Invoice | invoice `reference_number` cites that card's PI (or, for a PI-skipped quote, the quotation number) |
-| Invoice ↔ Payment | the invoice the payment is applied to in Zoho (or a Reference# containing the invoice number) |
+| Invoice ↔ Payment | the invoice the payment is applied to in Zoho (or a Reference# containing the invoice number) — **only once that invoice holds its completed training, or is flagged with it**; in the latter case the merge view offers *Merge PI (or Quote) → Invoice → Payment Received* in one click, and the lone *Invoice → Payment Received* button appears only after the invoice holds its training. An Invoice → Payment merge made before that is ignored by `liveMerges` and shown as *Not applied* in Changes (`mergeNotApplied`). |
 
 Customers can have several quotes/PIs/invoices: only the linked one merges forward, the rest stay put.
 The merge view shows one panel per phase present (Lead → Quote → PI …) with buttons such as *Merge Lead → Quote → PI*,
@@ -119,6 +126,16 @@ Scheduling a **quote** directly skips the PI: PI row shows *Not applicable* + a 
 
 **Invoice / payment (phases 6–7).** Invoices sit in *Invoice sent*; flagged only with the Training-completed card they reference;
 unlinked ones explain why in Notes. Payments sit in *Payment received*; merging the invoice in is the final step — the card stays there.
+
+**Deal lost (8th column).** Every quotation still syncs into Quotations; once its Zoho status is `declined` (Rejected) it moves
+to **Deal lost** for good — out of Quotations/Training columns, no flags, can't be scheduled, no *PI missing* note, a *Deal lost* note instead.
+The board shows 7 columns at a time; ◀ ▶ next to *Synced …* slide it one column (`VISIBLE` in `FollowUps.tsx`).
+
+**Clear logs.** Button left of the member pill → PIN dialog. Server checks `CLEAR_LOGS_PIN` (unset = disabled; wrong PIN waits 0.8 s),
+archives every `cardEvents` doc into `cardEventsArchive` (with `clearedAt`/`clearedBy`), then deletes them. Other browsers pick up the empty log on their next pull.
+**Never test with the real PIN against the server** — mock the `/api/store/clear-logs` response in the browser instead.
+
+**Trainers.** Scheduling needs ≥1 trainer (`TRAINERS` in `pipeline.ts`). A trainer booked on a date by any other live card (not merged-away, deleted or lost) is greyed out for that date, with the other customer named. Postpone opens pre-filled with the current date + trainers; keeping the date and changing trainers = *Save trainers* (status unchanged). TBD drops trainers. Board cards show first names; schedules made before this have *Trainers: not set*.
 
 **Delete.** Deleting a quote/PI/invoice/payment card hides it (and everything merged into it) and the customer's lead
 **returns to Leads**; logged on the lead too; undo from the toast or Changes. Leads have no Delete (they are the Zoho customers).
@@ -172,7 +189,7 @@ exist in Zoho and neither is deleted; training dates are read across a card's wh
 
 ## 7. Owner's standing UI preferences
 
-- All 7 columns **side by side** in one row; **no horizontal scrolling**; the board must fit the screen (owner's viewport ≈ 1728×958).
+- Columns **side by side** in one row, as a sliding window: as many as fit (min 184px, full column name), the rest reached with ◀ ▶ / ←→ / swipe; big screens show all 9. **No horizontal page scrolling**; the board must fit the screen (owner's viewport ≈ 1728×958 → 7 columns, 8 with the sidebar hidden).
 - Each column **scrolls on its own**; **no visible scrollbars** anywhere (`.no-scrollbar`).
 - Modals: wide, **no inner scrolling** at that viewport, background scroll locked, bold section headings, training info prominent.
 - Keep wording short on board cards (e.g. just "PI not applicable").

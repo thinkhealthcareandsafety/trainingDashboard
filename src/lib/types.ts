@@ -230,6 +230,7 @@ export interface CardEvent {
   before?: string; // previous value, for the change log; merge: label of the card merged from
   ref?: string; // zoho_change: the merge event it reports on
   phase?: Phase; // where an email/phone was added
+  trainers?: string[]; // set_training_date: who gives the training on that date
   at: string;
   by: string;
   revertedAt?: string;

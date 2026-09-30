@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useStore } from "@/lib/store";
@@ -67,8 +68,26 @@ function StorageStatus() {
   );
 }
 
+/** Desktop sidebar can be hidden (X) down to a slim icon rail; remembered per browser. */
+function useSidebar() {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    try {
+      setHidden(localStorage.getItem("th.sidebar") === "hidden");
+    } catch {}
+  }, []);
+  const set = (v: boolean) => {
+    setHidden(v);
+    try {
+      localStorage.setItem("th.sidebar", v ? "hidden" : "shown");
+    } catch {}
+  };
+  return { hidden, hide: () => set(true), show: () => set(false) };
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const sidebar = useSidebar();
   const { now, followUps, toasts, dismissToast, storage, ready } = useStore();
   // Only mention storage when something is wrong (team database not reachable).
   const storageWarn = ready && storage !== "team";
@@ -79,12 +98,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <Ticker />
       <div className="flex min-h-[calc(100vh-36px)]">
-        {/* Sidebar (desktop) */}
-        <aside className="glass sticky top-9 hidden h-[calc(100vh-36px)] w-60 shrink-0 flex-col border-r border-line/70 px-3 py-5 lg:flex">
-          <Link href="/" className="mb-6 flex items-center gap-2.5 px-2.5">
-            <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
-            <span className="text-[14px] font-semibold tracking-tight">ThinkHealth</span>
-          </Link>
+        {/* Sidebar (desktop): hidden to a slim rail with the X, reopened from the rail's menu button */}
+        {sidebar.hidden && (
+          <aside className="glass sticky top-9 hidden h-[calc(100vh-36px)] w-14 shrink-0 flex-col items-center gap-1 border-r border-line/70 py-5 lg:flex">
+            <button onClick={sidebar.show} aria-label="Show sidebar" title="Show sidebar" className="mb-5 grid size-9 place-items-center rounded-[10px] text-muted hover:bg-ink/[0.04] hover:text-ink">
+              <Icon><path d="M4 5.5h12M4 10h12M4 14.5h12" /></Icon>
+            </button>
+            {NAV.map((n) => (
+              <Link
+                key={n.href}
+                href={n.href}
+                aria-label={n.label}
+                title={n.label}
+                className={`press relative grid size-9 place-items-center rounded-[10px] ${isOn(n.href) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"}`}
+              >
+                <Icon>{n.icon}</Icon>
+                {n.href === "/follow-up" && overdue > 0 && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-high" />}
+              </Link>
+            ))}
+            <button onClick={toggleTheme} aria-label="Appearance" title="Appearance" className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
+              <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
+            </button>
+          </aside>
+        )}
+        <aside className={`glass sticky top-9 hidden h-[calc(100vh-36px)] w-60 shrink-0 flex-col border-r border-line/70 px-3 py-5 ${sidebar.hidden ? "" : "lg:flex"}`}>
+          <div className="mb-6 flex items-center justify-between gap-2">
+            <Link href="/" className="flex items-center gap-2.5 px-2.5">
+              <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
+              <span className="text-[14px] font-semibold tracking-tight">ThinkHealth</span>
+            </Link>
+            <button onClick={sidebar.hide} aria-label="Hide sidebar" title="Hide sidebar" className="grid size-7 place-items-center rounded-lg text-faint hover:bg-ink/[0.04] hover:text-ink">
+              <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
+            </button>
+          </div>
           <nav className="space-y-0.5">
             {NAV.map((n) => (
               <Link
@@ -119,7 +165,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="text-[14px] font-semibold">ThinkHealth</span>
             <div className="ml-auto w-48"><SyncStatus /></div>
           </header>
-          <main key={path} className="rise mx-auto max-w-[1680px] px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10">{children}</main>
+          <main key={path} className={`rise mx-auto px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10 ${path.startsWith("/follow-up") ? "max-w-none" : "max-w-[1680px]"}`}>{children}</main>
         </div>
       </div>
 

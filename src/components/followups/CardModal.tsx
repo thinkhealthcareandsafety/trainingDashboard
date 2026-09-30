@@ -3,8 +3,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { CardEvent, CardEventKind, Member, Phase } from "@/lib/types";
 import {
-  type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK,
-  cardLabel, describeEvent, normEmail, normPhone, phaseOf, salespersonLabel,
+  type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
+  busyTrainers, cardLabel, describeEvent, mergeNotApplied, normEmail, normPhone, phaseOf, salespersonLabel,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -132,19 +132,69 @@ export const SCHEDULE_TONE: Record<ScheduleStatus, { border: string; chip: strin
 export const scheduleText = (s: TrainingSchedule) => (s.status === "tbd" || !s.date ? "To be decided" : dateLong(s.date));
 const todayYmd = () => new Date().toLocaleDateString("en-CA");
 
-/** Training date next to "No. of People", with postpone (calendar) and to-be-decided. */
-function ScheduleBlock({ card, onSchedule, onComplete, compact }: { card: CardView; onSchedule?: (value: string) => void; onComplete?: () => void; compact?: boolean }) {
+type ScheduleFn = (value: string, trainers?: string[]) => void;
+type BusyFn = (date: string) => Map<string, CardView>;
+
+/** Trainer checkboxes; anyone already running another training that day is greyed out. */
+function TrainerPicker({ selected, onChange, busy }: { selected: string[]; onChange: (t: string[]) => void; busy: Map<string, CardView> }) {
+  const taken = TRAINERS.filter((t) => busy.has(t));
+  return (
+    <div>
+      <div role="group" aria-label="Trainers" className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-[12px] font-bold uppercase tracking-wide text-brand">Trainers</span>
+        {TRAINERS.map((t) => {
+          const other = busy.get(t);
+          const on = selected.includes(t) && !other;
+          return (
+            <label
+              key={t}
+              title={other ? `Already training ${other.name} on this date` : undefined}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-full border bg-surface px-2.5 text-[13px] ${other ? "cursor-not-allowed border-line text-faint" : on ? "cursor-pointer border-brand font-medium text-ink" : "cursor-pointer border-line text-ink-2 hover:border-line-strong"}`}
+            >
+              <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={on} disabled={Boolean(other)} onChange={(e) => onChange(e.target.checked ? [...selected, t] : selected.filter((x) => x !== t))} />
+              {t}
+            </label>
+          );
+        })}
+      </div>
+      {taken.length > 0 && (
+        <p className="mt-1 text-[12.5px] text-muted">
+          {taken.map((t) => `${t} is already training ${busy.get(t)!.name}`).join("; ")} on this date.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Training date next to "No. of People", with postpone (calendar), trainers and to-be-decided. */
+function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card: CardView; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn; compact?: boolean }) {
   const [picking, setPicking] = useState(false);
   const [date, setDate] = useState("");
+  const [trainers, setTrainers] = useState<string[]>([]);
   const s = card.schedule;
   // Changing an existing date is postponing; from nothing or TBD it's scheduling.
   const postponing = Boolean(s && s.status !== "tbd");
   const big = compact ? "text-[16px]" : "text-[20px]";
-  const save = () => {
-    if (!date) return;
-    onSchedule?.(date);
+  const busy = busyOn?.(date) ?? new Map<string, CardView>();
+  const chosen = trainers.filter((t) => !busy.has(t));
+  // Same date as now: only the trainers change.
+  const sameDate = postponing && date === s?.date;
+  const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t));
+  const valid = Boolean(date) && date >= todayYmd() && chosen.length > 0 && !unchanged;
+  const open = () => {
+    setDate(postponing ? s!.date ?? "" : "");
+    setTrainers(s?.trainers ?? []);
+    setPicking(true);
+  };
+  const close = () => {
     setPicking(false);
     setDate("");
+    setTrainers([]);
+  };
+  const save = () => {
+    if (!valid) return;
+    onSchedule?.(date, TRAINERS.filter((t) => chosen.includes(t)));
+    close();
   };
   // Two grid cells: the date sits next to "No. of People"; the buttons get their own full-width row.
   return (
@@ -163,6 +213,11 @@ function ScheduleBlock({ card, onSchedule, onComplete, compact }: { card: CardVi
       ) : (
         <div className={`mt-0.5 font-semibold text-faint ${big}`}>Not set</div>
       )}
+      {s?.date && (
+        <p className="mt-1 text-[13px] text-ink-2">
+          <span className="font-semibold">Trainers:</span> {s.trainers.length ? s.trainers.join(", ") : <span className="text-muted">not set</span>}
+        </p>
+      )}
       {s?.completed && (
         <p className="mt-1.5 text-[13px] text-muted">Completed · marked by {s.completed.by} on {dateLong(s.completed.at)}</p>
       )}
@@ -173,14 +228,17 @@ function ScheduleBlock({ card, onSchedule, onComplete, compact }: { card: CardVi
       {onSchedule && card.canSchedule && !s?.completed && (
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
           {picking ? (
-            <>
-              <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} aria-label={postponing ? "New training date" : "Training date"} autoFocus />
-              <button className={btn.primary} onClick={save} disabled={!date || date < todayYmd()}>{postponing ? "Postpone" : "Schedule"}</button>
-              <button className={btn.quiet} onClick={() => { setPicking(false); setDate(""); }}>Cancel</button>
-            </>
+            <div className="w-full space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} aria-label={postponing ? "New training date" : "Training date"} autoFocus />
+                <button className={btn.primary} onClick={save} disabled={!valid}>{sameDate ? "Save trainers" : postponing ? "Postpone" : "Schedule"}</button>
+                <button className={btn.quiet} onClick={close}>Cancel</button>
+              </div>
+              <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} />
+            </div>
           ) : (
             <>
-              <button className={postponing ? btn.ghost : btn.primary} onClick={() => setPicking(true)}>{postponing ? "Postpone" : "Schedule training"}</button>
+              <button className={postponing ? btn.ghost : btn.primary} onClick={open}>{postponing ? "Postpone" : "Schedule training"}</button>
               {s?.status !== "tbd" && <button className={btn.ghost} onClick={() => onSchedule("TBD")}>To be decided</button>}
               {s?.date && onComplete && (
                 <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={onComplete}>
@@ -195,7 +253,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, compact }: { card: CardVi
   );
 }
 
-function TrainingSection({ card, compact, onSchedule, onComplete }: { card: CardView; compact?: boolean; onSchedule?: (value: string) => void; onComplete?: () => void }) {
+function TrainingSection({ card, compact, onSchedule, onComplete, busyOn }: { card: CardView; compact?: boolean; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn }) {
   const quoted = card.kind === "pi" ? card.linkedQuote : undefined;
   const showSchedule = card.kind !== "lead" && Boolean(card.schedule || onSchedule);
   return (
@@ -234,7 +292,7 @@ function TrainingSection({ card, compact, onSchedule, onComplete }: { card: Card
                       {expected !== undefined && expected !== t.qty && <span className="ml-2 text-[13px] font-medium text-muted">({expected} expected at quotation)</span>}
                     </div>
                   </div>
-                  {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} compact={compact} />}
+                  {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} busyOn={busyOn} compact={compact} />}
                 </div>
               </div>
             );
@@ -246,8 +304,11 @@ function TrainingSection({ card, compact, onSchedule, onComplete }: { card: Card
 }
 
 /** Pops up over a merged, unflagged PI that has no training date yet. */
-function SchedulePrompt({ card, onSchedule, onLater }: { card: CardView; onSchedule: (date: string) => void; onLater: () => void }) {
+function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView; onSchedule: ScheduleFn; onLater: () => void; busyOn: BusyFn }) {
   const [date, setDate] = useState("");
+  const [trainers, setTrainers] = useState<string[]>([]);
+  const busy = busyOn(date);
+  const chosen = TRAINERS.filter((t) => trainers.includes(t) && !busy.has(t));
   return (
     <div className="fade-in absolute inset-0 z-20 grid place-items-center bg-black/25 p-4 backdrop-blur-[2px]" onMouseDown={onLater}>
       <div role="alertdialog" aria-label="Ready for training" className="modal-in w-full max-w-md rounded-2xl border-2 border-low bg-surface p-6 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
@@ -260,9 +321,12 @@ function SchedulePrompt({ card, onSchedule, onLater }: { card: CardView; onSched
           <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Enter date:</span>
           <input type="date" className={inputCls} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} autoFocus />
         </label>
+        <div className="mt-3">
+          <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} />
+        </div>
         <div className="mt-5 flex justify-end gap-2">
           <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!date || date < todayYmd()} onClick={() => onSchedule(date)}>Schedule training</button>
+          <button className={btn.primary} disabled={!date || date < todayYmd() || !chosen.length} onClick={() => onSchedule(date, chosen)}>Schedule training</button>
         </div>
       </div>
     </div>
@@ -322,10 +386,19 @@ function DocsSection({ card, options }: { card: CardView; options: BoardOptions 
 
 function NotesSection({ card, options }: { card: CardView; options: BoardOptions }) {
   const q = card.quote;
-  if (!card.piSkipped && !card.piMissing && !card.waitingOn) return null;
+  if (!card.piSkipped && !card.piMissing && !card.waitingOn && !card.lost) return null;
   return (
     <Section title="Notes">
       <div className="space-y-2.5 text-[14px] text-ink-2">
+        {card.lost && q && (
+          <p className="rounded-lg border border-high/30 bg-high-bg px-3 py-2.5">
+            <b className="text-high">Deal lost.</b> This quotation was declined in Zoho Books. Please click{" "}
+            <a href={zohoUrl("estimate", q.estimateId, options.orgId)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">
+              {q.number}
+            </a>{" "}
+            for further reference.
+          </p>
+        )}
         {card.piMissing && q && (
           <p className="rounded-lg border border-high/30 bg-high-bg px-3 py-2.5">
             <b className="text-high">PI missing.</b> A Performa Invoice is required for the proper functioning of the cycle. Please create and save a PI in Zoho Books for this quotation:{" "}
@@ -395,6 +468,9 @@ export function ChangeLog({ cardIds, cards, member }: { cardIds: string[]; cards
             return (
               <li key={e.id} className={`rounded-xl border p-3 text-[13px] ${zoho ? "border-medium/40 bg-medium-bg" : "border-line bg-surface"} ${e.revertedAt ? "opacity-60" : ""}`}>
                 <div className={e.revertedAt ? "text-muted line-through" : "text-ink-2"}>{describeEvent(e, labelOf)}</div>
+                {mergeNotApplied(e, cards) && (
+                  <div className="mt-1 text-[12px] font-medium text-medium">Not applied — the invoice wasn&apos;t merged with its completed training first. Merge step by step, then merge it with the payment again.</div>
+                )}
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-muted">
                     <Avatar name={e.by} />
@@ -599,16 +675,17 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const [prompt, setPrompt] = useState(card.readyToSchedule);
   useEffect(() => { setDraft(null); setError(""); setConfirmDelete(false); setPrompt(card.readyToSchedule); }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const schedule = (value: string) => {
+  const schedule = (value: string, trainers?: string[]) => {
     const s = card.schedule;
     const before = s ? (s.status === "tbd" ? "TBD" : s.date) : undefined;
-    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name }]);
+    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers } : {}) }]);
     if (!s) {
       const skip = card.kind === "quote" ? " (PI not applicable)" : "";
       toast({ text: `${card.name} moved to Training scheduled${skip}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
     }
     setPrompt(false);
   };
+  const busyOn = (date: string) => busyTrainers(date, cards, card.id);
   const complete = () => {
     const [ev] = addCardEvents([{ cardIds: [card.id], kind: "complete_training", by: member.name }]);
     toast({ text: `${card.name} moved to Training completed`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
@@ -680,7 +757,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       onClose={onClose}
       footer={footer}
       side={<ChangeLog cardIds={card.historyIds} cards={cards} member={member} />}
-      overlay={prompt && card.readyToSchedule && <SchedulePrompt card={card} onSchedule={schedule} onLater={() => setPrompt(false)} />}
+      overlay={prompt && card.readyToSchedule && <SchedulePrompt card={card} onSchedule={schedule} onLater={() => setPrompt(false)} busyOn={busyOn} />}
     >
       <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} onClose={onClose} />
       <div className="space-y-3 p-4">
@@ -703,7 +780,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
             <ChainSection card={card} cards={cards} onUnmerge={unmerge} />
           </div>
           <div className="space-y-3">
-            <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} />
+            <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} busyOn={busyOn} />
             <SalesSection card={card} />
             <DocsSection card={card} options={options} />
           </div>
@@ -814,11 +891,18 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   if (lq) actions.push({ label: "Merge Lead → Quote", steps: [[lead!, quote!]], primary: !qp });
   if (qp) actions.push({ label: "Merge Quote → PI", steps: [[quote!, pi!]], primary: !lq });
   if (lp) actions.push({ label: "Merge Lead → PI", steps: [[lead!, pi!]], primary: !lq && !qp });
-  if (linked(pi, invoice)) actions.push({ label: "Merge PI → Invoice", steps: [[pi!, invoice!]], primary: true });
-  if (linked(quote, invoice)) actions.push({ label: "Merge Quote → Invoice", steps: [[quote!, invoice!]], primary: true });
-  if (linked(invoice, payment)) actions.push({ label: "Merge Invoice → Payment Received", steps: [[invoice!, payment!]], primary: true });
+  // Step by step: the invoice joins its payment only after (or together with) its completed training.
+  const invPay = linked(invoice, payment);
+  const invoiceReady = Boolean(invoice?.mergedFrom.some((id) => cards.get(id)?.kind !== "lead"));
+  if (linked(pi, invoice) && invPay) actions.push({ label: "Merge PI → Invoice → Payment Received", steps: [[pi!, invoice!], [invoice!, payment!]], primary: true });
+  if (linked(quote, invoice) && invPay) actions.push({ label: "Merge Quote → Invoice → Payment Received", steps: [[quote!, invoice!], [invoice!, payment!]], primary: true });
+  if (linked(pi, invoice)) actions.push({ label: "Merge PI → Invoice", steps: [[pi!, invoice!]], primary: !invPay });
+  if (linked(quote, invoice)) actions.push({ label: "Merge Quote → Invoice", steps: [[quote!, invoice!]], primary: !invPay });
+  if (invPay && invoiceReady) actions.push({ label: "Merge Invoice → Payment Received", steps: [[invoice!, payment!]], primary: true });
   const unlinked = invoice && payment && !linked(invoice, payment)
-    ? `${payment.docNumber} is applied to invoice ${payment.payment?.invoiceNumber}, not ${invoice.docNumber} — only the invoice a payment is recorded against can be merged with it.`
+    ? payment.payment?.invoiceId === invoice.invoice?.invoiceId
+      ? `Merge ${invoice.docNumber} with its completed training first — step by step, the invoice can only be merged with ${payment.docNumber} after that.`
+      : `${payment.docNumber} is applied to invoice ${payment.payment?.invoiceNumber}, not ${invoice.docNumber} — only the invoice a payment is recorded against can be merged with it.`
     : pi && invoice && !linked(pi, invoice)
     ? `${invoice.docNumber} references ${invoice.invoice?.reference || "no PI"}, not ${pi.docNumber} — only an invoice that references a PI (with completed training) can be merged with it.`
     : quote && pi && !qp ? `${pi.docNumber} references ${pi.pi?.reference || "no quotation"}, not ${quote.docNumber} — only a PI that references a quotation can be merged with it.` : "";

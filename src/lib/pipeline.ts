@@ -26,6 +26,7 @@ export type ScheduleStatus = "scheduled" | "postponed" | "tbd";
 export interface TrainingSchedule {
   status: ScheduleStatus;
   date?: string; // YYYY-MM-DD; none when TBD
+  trainers: string[]; // who gives it (none when TBD)
   at: string;
   by: string;
   completed?: { at: string; by: string }; // "Training completed" pressed
@@ -76,6 +77,8 @@ export interface CardView {
   piSkipped: boolean;
   /** A quotation that no PI in Zoho references yet. */
   piMissing: boolean;
+  /** A quotation declined (rejected) in Zoho Books — the deal is lost; it sits in Deal lost for good. */
+  lost: boolean;
 }
 
 /** A new date only counts as postponed when it replaces a date; after TBD (or first time) it's scheduling. */
@@ -87,10 +90,25 @@ function scheduleOf(events: CardEvent[]): TrainingSchedule | undefined {
       continue;
     }
     if (e.kind !== "set_training_date" || !e.value) continue;
-    if (e.value === "TBD") s = { status: "tbd", at: e.at, by: e.by };
-    else s = { status: s && s.status !== "tbd" ? "postponed" : "scheduled", date: e.value, at: e.at, by: e.by };
+    if (e.value === "TBD") s = { status: "tbd", trainers: [], at: e.at, by: e.by };
+    else if (s?.date === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, at: e.at, by: e.by }; // same date: trainers changed
+    else s = { status: s && s.status !== "tbd" ? "postponed" : "scheduled", date: e.value, trainers: e.trainers ?? [], at: e.at, by: e.by };
   }
   return s;
+}
+
+/** People who give the trainings. Several can run one training; each runs at most one training a day. */
+export const TRAINERS = ["Shikha Dixit", "Ashish Dalal", "Sumit A Shah"];
+
+/** Trainers already booked on `date` by another live training, with the card that booked them. */
+export function busyTrainers(date: string, cards: Map<string, CardView>, selfId: string): Map<string, CardView> {
+  const busy = new Map<string, CardView>();
+  if (!date) return busy;
+  for (const c of cards.values()) {
+    if (c.id === selfId || c.mergedInto || c.deleted || c.lost || c.schedule?.date !== date) continue;
+    for (const t of c.schedule.trainers) if (!busy.has(t)) busy.set(t, c);
+  }
+  return busy;
 }
 
 export const leadCardId = (contactId: string) => `lead:${contactId}`;
@@ -192,12 +210,26 @@ export function salespersonLabel(people: { phase: string; name: string }[]): str
 /** Merge events that still apply: not reverted, and both documents still exist in Zoho. */
 function liveMerges(active: CardEvent[], exists: Set<string>) {
   const into = new Map<string, string>();
+  const at = new Map<string, string>(); // from → when it was merged
   for (const e of active) {
     if (e.kind !== "merge") continue;
     const [from, to] = e.cardIds;
-    if (exists.has(from) && exists.has(to) && STAGE_RANK[kindOfId(from)] < STAGE_RANK[kindOfId(to)]) into.set(from, to);
+    if (exists.has(from) && exists.has(to) && STAGE_RANK[kindOfId(from)] < STAGE_RANK[kindOfId(to)]) (into.set(from, to), at.set(from, e.at));
+  }
+  // Step by step: an invoice joins its payment only if its completed training was merged into it first.
+  for (const [from, to] of [...into]) {
+    if (kindOfId(to) !== "payment") continue;
+    const ready = [...into].some(([f, t]) => t === from && kindOfId(f) !== "lead" && at.get(f)! < at.get(from)!);
+    if (!ready) into.delete(from);
   }
   return into;
+}
+
+/** An Invoice → Payment merge the board ignores because the invoice didn't hold its completed training yet. */
+export function mergeNotApplied(e: CardEvent, cards: Map<string, CardView>): boolean {
+  if (e.kind !== "merge" || e.revertedAt || kindOfId(e.cardIds[1]) !== "payment") return false;
+  const from = cards.get(e.cardIds[0]);
+  return Boolean(from && cards.has(e.cardIds[1]) && from.mergedInto !== e.cardIds[1]);
 }
 
 export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[]) {
@@ -252,7 +284,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
     const card: CardView = {
       id, kind, name: draft.name, aliases: draft.aliases, emails, phones, type: draft.type, sector: draft.sector,
       salespeople: [], training: [], peopleLabel: "", mergedFrom: from, mergedInto: mergedInto.get(id), deleted: deleted.has(id),
-      flaggedWith: [], historyIds: [], search: "", canSchedule: false, readyToSchedule: false, piSkipped: false, piMissing: false, ...extra,
+      flaggedWith: [], historyIds: [], search: "", canSchedule: false, readyToSchedule: false, piSkipped: false, piMissing: false, lost: false, ...extra,
     };
     card.search = [card.name, ...card.aliases, ...emails.map((e) => e.value), ...phones.map((p) => p.value), ...phones.map((p) => normPhone(p.value)),
       card.docNumber, card.linkedQuote?.number, card.linkedPI?.number, ...card.training.map((t) => t.name)].filter(Boolean).join(" ").toLowerCase();
@@ -268,7 +300,8 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
       customerId: q.customerId, quote: q, linkedQuote: q, customerSince: contacts.get(q.customerId)?.createdAt,
       salespeople: q.salesperson ? [{ phase: "Quotation", name: q.salesperson }] : [],
       training: q.items, peopleLabel: "No. of People expected", docNumber: q.number, docDate: q.date,
-      piMissing: !pisByRef.has(q.number),
+      lost: q.status === "declined",
+      piMissing: q.status !== "declined" && !pisByRef.has(q.number),
     });
   }
   for (const p of pis) {
@@ -327,7 +360,8 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   //  - Lead ↔ Quote: same customer (a lead has no document to reference).
   //  - Quote ↔ PI: only when the PI's Zoho reference cites that quotation number.
   //  - Lead ↔ PI: same customer, only for a PI whose reference cites no synced quotation.
-  const open = [...cards.values()].filter((c) => !c.mergedInto && !c.deleted);
+  // A lost deal (quote declined in Zoho) is final: it links to nothing.
+  const open = [...cards.values()].filter((c) => !c.mergedInto && !c.deleted && !c.lost);
   const link = (a: CardView, b: CardView) => {
     a.flaggedWith.push(b.id);
     b.flaggedWith.push(a.id);
@@ -372,7 +406,8 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   }
 
   //  - Invoice ↔ Payment received: the invoice the payment is applied to in Zoho
-  //    (or whose number the payment's Reference# cites).
+  //    (or whose number the payment's Reference# cites) — only once that invoice holds its completed training,
+  //    or is flagged with it (then the merge view offers Training completed → Invoice → Payment received in one go).
   const openInvoiceById = new Map(open.filter((c) => c.kind === "invoice").map((c) => [c.invoice!.invoiceId, c]));
   const openInvoiceByNumber = new Map([...openInvoiceById.values()].map((c) => [c.docNumber, c]));
   for (const pay of open.filter((c) => c.kind === "payment")) {
@@ -380,8 +415,13 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
     const p = pay.payment!;
     const cited = [...openInvoiceByNumber.keys()].find((n) => n && p.reference?.includes(n));
     const target = openInvoiceById.get(p.invoiceId) ?? (cited ? openInvoiceByNumber.get(cited) : undefined);
-    if (target) {
+    const hasTraining = (ids: string[]) => ids.some((id) => kindOfId(id) === "pi" || kindOfId(id) === "quote");
+    if (target && (hasTraining(target.mergedFrom) || hasTraining(target.flaggedWith))) {
       link(target, pay);
+      continue;
+    }
+    if (target) {
+      pay.waitingOn = `Invoice ${target.docNumber} isn't merged with its completed training yet — merge Training completed → Invoice first (step by step), then this payment can be merged.`;
       continue;
     }
     const invCard = cards.get(invoiceCardId(p.invoiceId));
@@ -398,7 +438,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   // quote keeps the quote's training date.
   for (const c of cards.values()) {
     if (c.kind === "lead") continue;
-    c.canSchedule = (c.kind === "quote" || c.kind === "pi") && !c.deleted && !c.mergedInto && c.flaggedWith.length === 0;
+    c.canSchedule = (c.kind === "quote" || c.kind === "pi") && !c.deleted && !c.mergedInto && !c.lost && c.flaggedWith.length === 0;
     c.readyToSchedule = c.kind === "pi" && c.canSchedule && !c.schedule && c.mergedFrom.length > 0;
     c.piSkipped = c.kind === "quote" ? Boolean(c.schedule)
       : c.kind === "invoice" ? c.mergedFrom.some((id) => kindOfId(id) === "quote")
@@ -406,8 +446,8 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   }
 
   const live = [...cards.values()].filter((c) => !c.mergedInto);
-  const inTraining = (c: CardView) => (c.kind === "quote" || c.kind === "pi") && Boolean(c.schedule);
-  const column = (k: CardKind) => live.filter((c) => c.kind === k && !inTraining(c));
+  const inTraining = (c: CardView) => (c.kind === "quote" || c.kind === "pi") && Boolean(c.schedule) && !c.lost;
+  const column = (k: CardKind) => live.filter((c) => c.kind === k && !inTraining(c) && !c.lost);
   // Soonest training first; to-be-decided at the end.
   const scheduledCards = live
     .filter((c) => inTraining(c) && !c.schedule!.completed)
@@ -419,6 +459,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   return {
     cards, exists, leadCards: column("lead"), quoteCards: column("quote"), piCards: column("pi"),
     scheduledCards, completedCards, invoiceCards: column("invoice"), paymentCards: column("payment"),
+    lostCards: live.filter((c) => c.lost),
   };
 }
 
@@ -489,11 +530,13 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     }
     case "set_training_date": {
       const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDay(x));
+      const who = e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "";
+      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)} changed to ${e.trainers?.join(", ") || "none"}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
-      if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)`;
-      if (e.before) return `Training postponed from ${show(e.before)} to ${show(v)}`;
+      if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)${who}`;
+      if (e.before) return `Training postponed from ${show(e.before)} to ${show(v)}${who}`;
       const skip = kindOfId(e.cardIds[0]) === "quote" ? " — moved directly from Quotation to Training scheduled, Performa Invoice not applicable" : "";
-      return `Training scheduled for ${show(v)}${skip}`;
+      return `Training scheduled for ${show(v)}${skip}${who}`;
     }
     case "complete_training": return "Training marked completed — moved to Training completed";
     case "zoho_change": return v;

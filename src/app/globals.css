@@ -164,10 +164,11 @@ h1, h2, h3 { letter-spacing: -0.018em; }
 /* Numbers that align in columns (tables, axes). Large standalone figures stay proportional. */
 .num { font-variant-numeric: tabular-nums; }
 
-/* Follow-ups board fills exactly one screen: pulled up into the page's top padding and cancelling
-   its bottom padding; columns get the height that's left (ticker, header, toolbar, column headers). */
-.fu-page { margin-top: -0.75rem; --fu-col-h: calc(100vh - 244px); }
-@media (min-width: 1024px) { .fu-page { margin-top: -1.5rem; margin-bottom: -3.5rem; } }
+/* Follow-ups board fills exactly one screen: pulled up into the page's top padding, and its bottom padding
+   trimmed to a 1rem margin under the board (above the bottom tab bar on small screens). Columns get the
+   height that's left — useFitHeight in FollowUps.tsx measures it; the calc is only the first-paint fallback. */
+.fu-page { margin-top: -0.75rem; margin-bottom: -2.25rem; --fu-col-h: calc(100vh - 260px); }
+@media (min-width: 1024px) { .fu-page { margin-top: -1.5rem; margin-bottom: -2.5rem; } }
 
 /* Scrollable but no visible scrollbar (e.g. kanban columns) — still scrolls by wheel/trackpad/touch. */
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }

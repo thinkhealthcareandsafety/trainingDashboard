@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Member, PipelineResponse } from "@/lib/types";
 import { type CardView, buildBoard, flagGroup, zohoNotices } from "@/lib/pipeline";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
-import { Avatar, btn, inputCls } from "./ui";
+import { Avatar, Modal, btn, inputCls } from "./ui";
 import { MembersScreen } from "./followups/MembersScreen";
 import { CardModal, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
-type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid";
+type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential";
 
 const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "lead", label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
@@ -19,7 +19,95 @@ const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "training_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
   { key: "invoiced", label: "Invoice sent", header: "bg-medium-bg", dot: "bg-medium" },
   { key: "paid", label: "Payment received", header: "bg-low-bg", dot: "bg-low" },
+  { key: "lost", label: "Deal lost", header: "bg-high-bg", dot: "bg-high" },
+  { key: "potential", label: "Potential training", header: "bg-surface-2", dot: "bg-brand" },
 ];
+
+// As many columns as fit at MIN_COL_W (enough for the column name); the rest slide in with ◀ ▶,
+// the arrow keys or a swipe. A wide screen shows every column.
+const MIN_COL_W = 184;
+const GAP_PX = 8; // gap-2
+const MIN_COL_H = 280;
+
+/** How many columns fit in the board's width, and which one is first on screen. */
+function useColumnWindow(total: number) {
+  const viewRef = useRef<HTMLDivElement>(null);
+  const [perView, setPerView] = useState(Math.min(7, total));
+  const [offset, setOffset] = useState(0);
+  const maxOffset = total - perView;
+
+  useLayoutEffect(() => {
+    const el = viewRef.current;
+    if (!el) return;
+    const measure = () => setPerView(Math.max(1, Math.min(total, Math.floor((el.clientWidth + GAP_PX) / (MIN_COL_W + GAP_PX)))));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [total]);
+  useEffect(() => setOffset((o) => Math.min(o, maxOffset)), [maxOffset]);
+
+  const move = useCallback((step: number) => setOffset((o) => Math.max(0, Math.min(maxOffset, o + step))), [maxOffset]);
+
+  // ← / → move the board, unless someone is typing or a dialog is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable=true]") || document.querySelector("[role=dialog], [role=alertdialog]")) return;
+      e.preventDefault();
+      move(e.key === "ArrowLeft" ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [move]);
+
+  // Horizontal swipe on touch screens; vertical swipes keep scrolling the column.
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const swipe = {
+    onTouchStart: (e: React.TouchEvent) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; },
+    onTouchEnd: (e: React.TouchEvent) => {
+      const start = touch.current;
+      touch.current = null;
+      if (!start) return;
+      const dx = e.changedTouches[0].clientX - start.x;
+      const dy = e.changedTouches[0].clientY - start.y;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > 1.5 * Math.abs(dy)) move(dx < 0 ? 1 : -1);
+    },
+  };
+  return { viewRef, perView, offset, maxOffset, move, swipe };
+}
+
+/** Column height that makes the board end at the bottom of the window, whatever the header wraps to. */
+function useFitHeight() {
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [colH, setColH] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    if (!page) return;
+    const fit = () => {
+      const body = page.querySelector<HTMLElement>("[data-col-body]");
+      const main = page.parentElement;
+      if (!body || !main) return;
+      // Space the layout keeps below the page (bottom tab bar on small screens), net of the page's own margin.
+      const reserve = parseFloat(getComputedStyle(main).paddingBottom) + parseFloat(getComputedStyle(page).marginBottom);
+      const bottom = page.getBoundingClientRect().bottom + window.scrollY;
+      const next = Math.max(MIN_COL_H, Math.floor(body.clientHeight + window.innerHeight - reserve - bottom));
+      setColH((h) => (h === next ? h : next));
+    };
+    fit();
+    const late = setTimeout(fit, 600); // after the page's entry animation
+    const ro = new ResizeObserver(fit);
+    ro.observe(page);
+    window.addEventListener("resize", fit);
+    return () => {
+      clearTimeout(late);
+      ro.disconnect();
+      window.removeEventListener("resize", fit);
+    };
+  }, []);
+  return { pageRef, colH };
+}
 
 const dateLong = (s: string) => fmtDate(s, { day: "numeric", month: "short", year: "numeric" });
 
@@ -113,6 +201,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
             card.schedule.status !== "tbd" && <span className={`rounded px-1 text-[10.5px] font-bold ${SCHEDULE_TONE[card.schedule.status].chip}`}>{SCHEDULE_TONE[card.schedule.status].label}</span>
           )}
         </div>
+        {card.schedule.trainers.length > 0 && <div className="mt-0.5 truncate text-[11px] text-ink-2">{card.schedule.trainers.map((t) => t.split(" ")[0]).join(", ")}</div>}
         {card.piSkipped && <div className="mt-0.5 text-[11px] italic">PI not applicable</div>}
         </>
       ) : (
@@ -165,10 +254,11 @@ function Column({ stage, cards, onOpen, loading }: { stage: (typeof STAGES)[numb
   };
   return (
     <div className="flex min-w-0 flex-col rounded-xl bg-surface-2/60">
-      <div className={`flex items-center justify-between gap-1.5 rounded-t-xl px-3 py-2.5 ${stage.header}`}>
+      {/* Fixed two-line height: a long name wraps instead of being cut off on narrow columns. */}
+      <div className={`flex min-h-[52px] items-center justify-between gap-1.5 rounded-t-xl px-3 py-1.5 ${stage.header}`}>
         <span className="inline-flex min-w-0 items-center gap-2">
           <span className={`size-2 shrink-0 rounded-full ${stage.dot}`} aria-hidden />
-          <span className="truncate text-[13px] font-semibold text-ink">{stage.label}</span>
+          <span data-col-name className="line-clamp-2 text-[13px] font-semibold leading-tight text-ink">{stage.label}</span>
         </span>
         <span className="inline-flex shrink-0 items-center gap-1">
           {flaggedCount > 0 && (
@@ -184,16 +274,86 @@ function Column({ stage, cards, onOpen, loading }: { stage: (typeof STAGES)[numb
           <span className="rounded-full bg-surface px-1.5 text-[12px] num text-muted">{cards.length}</span>
         </span>
       </div>
-      <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} style={{ height: "var(--fu-col-h)", minHeight: 360 }}>
+      <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} data-col-body style={{ height: "var(--fu-col-h)" }}>
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-center text-[12px] text-faint">
-            {loading && ["lead", "quotation", "performa", "invoiced", "paid"].includes(stage.key) ? "Syncing with Zoho Books…" : "No cards"}
+            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost"].includes(stage.key) ? "Syncing with Zoho Books…" : stage.key === "potential" ? "Coming soon" : "No cards"}
           </div>
         ) : (
           groups.slice(0, shown).map((g) => <CustomerBox key={g[0].customerId} cards={g} onOpen={onOpen} />)
         )}
       </div>
     </div>
+  );
+}
+
+/** ◀ / ▶ — slides the board one column left or right. */
+function SlideButton({ dir, disabled, onClick }: { dir: "left" | "right"; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={dir === "left" ? "Show columns to the left" : "Show columns to the right"}
+      title={dir === "left" ? "Previous column" : "Next column"}
+      className="grid size-7 place-items-center rounded-md border border-line bg-surface text-ink-2 transition hover:border-line-strong hover:text-ink disabled:cursor-default disabled:opacity-35 disabled:hover:border-line disabled:hover:text-ink-2"
+    >
+      <svg viewBox="0 0 10 10" className="size-2.5" fill="currentColor" aria-hidden>
+        {dir === "left" ? <path d="M7.5 1 2 5l5.5 4z" /> : <path d="M2.5 1 8 5 2.5 9z" />}
+      </svg>
+    </button>
+  );
+}
+
+/** "Clear logs": wipes every change, merge and training date for the whole team — PIN-locked. */
+function ClearLogs({ member }: { member: Member }) {
+  const { cardEvents, clearCardEvents, toast } = useStore();
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const close = useCallback(() => { setOpen(false); setPin(""); setError(""); }, []);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pin || busy) return;
+    setBusy(true);
+    setError("");
+    const res = await clearCardEvents(pin, member.name);
+    setBusy(false);
+    if (!res.ok) return void (setError(res.error ?? "Couldn't clear the logs"), setPin(""));
+    close();
+    toast({ text: `Logs cleared — ${res.cleared ?? 0} changes removed` });
+  };
+  return (
+    <>
+      <button className={`${btn.danger} !h-8 !px-3`} onClick={() => setOpen(true)} title="Clear every change log (PIN required)">
+        <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden><rect x="4.5" y="9" width="11" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
+        Clear logs
+      </button>
+      <Modal open={open} onClose={close} title="Clear all logs">
+        <form onSubmit={submit}>
+          <p className="text-[13.5px] text-ink-2">
+            This removes all <b>{cardEvents.length}</b> entries in the Changes log for everyone — every edit, merge, deletion and training date. Cards go back to exactly what Zoho Books shows.
+          </p>
+          <label className="mt-4 block">
+            <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Enter PIN</span>
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              className={`${inputCls} num tracking-[0.3em]`}
+              value={pin}
+              onChange={(e) => { setPin(e.target.value.replace(/D/g, "")); setError(""); }}
+              autoFocus
+            />
+          </label>
+          {error && <p className="mt-2 text-[13px] font-medium text-high">{error}</p>}
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" className={btn.ghost} onClick={close}>Cancel</button>
+            <button type="submit" className={`${btn.primary} !bg-high !text-white`} disabled={!pin || busy}>{busy ? "Clearing…" : "Clear logs"}</button>
+          </div>
+        </form>
+      </Modal>
+    </>
   );
 }
 
@@ -205,6 +365,8 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
   const [open, setOpen] = useState<{ id: string; merge: boolean } | null>(null);
+  const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(STAGES.length);
+  const { pageRef, colH } = useFitHeight();
 
   const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents), [data, cardEvents]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
@@ -225,7 +387,8 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
   const completed = useMemo(() => board.completedCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
   const invoiced = useMemo(() => board.invoiceCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
   const paid = useMemo(() => board.paymentCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid };
+  const lost = useMemo(() => board.lostCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential: [] };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
@@ -234,20 +397,23 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
   const mergeGroup = current && open?.merge && current.flaggedWith.length ? flagGroup(current.id, board.cards) : null;
 
   return (
-    <div className="fu-page">
+    <div ref={pageRef} className="fu-page" style={colH ? ({ "--fu-col-h": `${colH}px` } as React.CSSProperties) : undefined}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-[20px] font-semibold leading-tight tracking-tight">Follow-ups</h1>
           <p className="text-[12.5px] text-muted">
-            {leads.length.toLocaleString("en-IN")} leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments
+            {leads.length.toLocaleString("en-IN")} leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments · {lost.length} lost
             {data?.windowStart && <> · documents since {fmtDate(data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
           </p>
         </div>
-        <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
-          <Avatar name={member.name} />
-          <span className="font-medium text-ink">{member.name}</span>
-          <button className={btn.quiet} onClick={onSwitch}>Switch</button>
-        </span>
+        <div className="flex items-center gap-2">
+          <ClearLogs member={member} />
+          <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
+            <Avatar name={member.name} />
+            <span className="font-medium text-ink">{member.name}</span>
+            <button className={btn.quiet} onClick={onSwitch}>Switch</button>
+          </span>
+        </div>
       </div>
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
@@ -263,11 +429,30 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
           )}
           <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
             {data?.error ? <span className="text-high">Zoho sync issue: {data.error}</span> : data?.syncedAt && <span>Synced {fmtDate(data.syncedAt)}, {new Date(data.syncedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
+            <span className="inline-flex items-center gap-1">
+              <SlideButton dir="left" disabled={offset === 0} onClick={() => move(-1)} />
+              <SlideButton dir="right" disabled={offset >= maxOffset} onClick={() => move(1)} />
+            </span>
             <button className={btn.quiet} onClick={refresh} disabled={loading}>{loading ? "Syncing…" : "Sync now"}</button>
           </div>
         </div>
-        <div className="grid grid-cols-7 gap-2 p-3">
-          {STAGES.map((s) => <Column key={s.key} stage={s} cards={byStage[s.key]} onOpen={openCard} loading={loading && !data} />)}
+        {/* perView columns fill the width; the track slides one column (width + gap) per step. */}
+        <div className="p-3">
+          <div ref={viewRef} className="overflow-clip" {...swipe}>
+            <div
+              className="grid grid-flow-col gap-2 transition-transform duration-300 ease-out motion-reduce:transition-none"
+              style={{
+                gridAutoColumns: `calc((100% - ${perView - 1} * ${GAP_PX}px) / ${perView})`,
+                transform: `translateX(calc(-${offset} * ((100% - ${perView - 1} * ${GAP_PX}px) / ${perView} + ${GAP_PX}px)))`,
+              }}
+            >
+              {STAGES.map((s, i) => (
+                <div key={s.key} className="grid min-w-0" inert={i < offset || i >= offset + perView}>
+                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} loading={loading && !data} />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
