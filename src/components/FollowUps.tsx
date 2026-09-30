@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Member, PipelineResponse } from "@/lib/types";
-import { type CardView, buildBoard } from "@/lib/pipeline";
-import { fmtDate } from "@/lib/dates";
+import { type CardView, buildBoard, flagGroup, zohoNotices } from "@/lib/pipeline";
+import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
-import { PageHeader } from "./AppShell";
 import { Avatar, btn, inputCls } from "./ui";
 import { MembersScreen } from "./followups/MembersScreen";
-import { CardModal, FlagBadge, MergeModal } from "./followups/CardModal";
+import { CardModal, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid";
 
@@ -50,29 +49,32 @@ function usePipeline() {
   return { data, loading, refresh: () => load(true) };
 }
 
-/* ---------------- Cards ---------------- */
+/* ---------------- Cards: one box per customer, their documents inside ---------------- */
 
-function CardShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
+const flagged = (c: CardView) => c.flaggedWith.length > 0;
+
+function ItemShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
+  // Training scheduled: green = date, yellow = postponed, red = to be decided.
+  const border = card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
   return (
     <button
       onClick={onClick}
-      className={`card-hover relative block w-full rounded-xl border bg-surface p-3 text-left shadow-card transition ${card.flaggedWith.length ? "border-high/40" : "border-line"} ${card.deleted ? "opacity-50" : ""}`}
+      className={`block w-full rounded-lg bg-surface px-2.5 py-2 text-left text-[12px] text-muted transition hover:shadow-card ${border} ${card.deleted ? "opacity-50" : ""}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="line-clamp-2 min-w-0 text-[13px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]" title={card.name}>{card.name}</div>
-        {card.flaggedWith.length > 0 && <FlagBadge />}
-        {card.deleted && <span className="shrink-0 rounded bg-high-bg px-1 text-[10.5px] font-medium text-high">Deleted</span>}
-      </div>
-      <div className="mt-1 space-y-0.5 text-[12px] text-muted">{children}</div>
+      {children}
     </button>
   );
 }
 
-function LeadCard({ card, onClick }: { card: CardView; onClick: () => void }) {
+function LeadItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   return (
-    <CardShell card={card} onClick={onClick}>
-      {card.customerSince && <div>Created {dateLong(card.customerSince)}</div>}
-      <div className="truncate text-ink-2">{card.phones[0]?.value ?? <span className="text-high">No contact number</span>}</div>
+    <ItemShell card={card} onClick={onClick}>
+      <div className="flex items-start justify-between gap-2">
+        <span>{card.customerSince ? `Created ${dateLong(card.customerSince)}` : "Lead"}</span>
+        {flagged(card) && <FlagBadge />}
+        {card.deleted && <DeletedTag />}
+      </div>
+      <div className="mt-0.5 truncate text-ink-2">{card.phones[0]?.value ?? <span className="text-high">No contact number</span>}</div>
       {card.emails[0] && <div className="truncate">{card.emails[0].value}</div>}
       {(card.type || card.sector) && (
         <div className="flex flex-wrap gap-1 pt-1">
@@ -80,51 +82,115 @@ function LeadCard({ card, onClick }: { card: CardView; onClick: () => void }) {
           {card.sector && <span className="rounded bg-surface-2 px-1.5 py-px text-[11px] text-ink-2">{card.sector}</span>}
         </div>
       )}
-    </CardShell>
+    </ItemShell>
   );
 }
 
-function QuoteCard({ card, onClick }: { card: CardView; onClick: () => void }) {
-  const q = card.quote!;
+/** A quotation, PI, invoice or payment: number, training, date. */
+function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
+  const pay = card.payment;
   return (
-    <CardShell card={card} onClick={onClick}>
-      <div className="font-medium text-ink-2">{q.number}</div>
-      <div className="line-clamp-2">Training: <span className="text-ink-2">{q.items.map((i) => i.name).join(", ")}</span></div>
-      <div>Quote date: <span className="num text-ink-2">{dateLong(q.date)}</span></div>
-    </CardShell>
+    <ItemShell card={card} onClick={onClick}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-semibold text-ink">{card.docNumber}</span>
+        {flagged(card) && <FlagBadge />}
+        {card.deleted && <DeletedTag />}
+      </div>
+      {pay && (
+        <div className="mt-0.5">
+          <span className="num font-semibold text-low">{fmtINR(pay.amount)}</span> · {dateLong(pay.date)}
+          <div className="truncate">Invoice {pay.invoiceNumber}</div>
+        </div>
+      )}
+      <div className="mt-0.5 line-clamp-2">{card.training.map((t) => t.name).join(", ")}</div>
+      {card.schedule ? (
+        <>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <span className={`num font-semibold ${card.schedule.status === "tbd" ? "text-high" : "text-ink"}`}>{scheduleText(card.schedule)}</span>
+          {card.schedule.completed ? (
+            <span className="rounded bg-low px-1 text-[10.5px] font-bold text-white">Completed</span>
+          ) : (
+            card.schedule.status !== "tbd" && <span className={`rounded px-1 text-[10.5px] font-bold ${SCHEDULE_TONE[card.schedule.status].chip}`}>{SCHEDULE_TONE[card.schedule.status].label}</span>
+          )}
+        </div>
+        {card.piSkipped && <div className="mt-0.5 text-[11px] italic">PI not applicable</div>}
+        </>
+      ) : (
+        !pay && card.docDate && <div className="num text-ink-2">{dateLong(card.docDate)}</div>
+      )}
+      {card.readyToSchedule && <div className="mt-1 text-[11px] font-semibold text-low">Ready to schedule</div>}
+    </ItemShell>
   );
 }
 
-/* ---------------- Column: scrolls on its own; renders more cards as you scroll ---------------- */
+const DeletedTag = () => <span className="shrink-0 rounded bg-high-bg px-1 text-[10.5px] font-medium text-high">Deleted</span>;
+
+function CustomerBox({ cards, onOpen }: { cards: CardView[]; onOpen: (c: CardView) => void }) {
+  const any = cards.some(flagged);
+  return (
+    <div className={`rounded-xl border bg-surface p-2 shadow-card ${any ? "border-high/40" : "border-line"}`}>
+      <div className="flex items-start justify-between gap-2 px-1 pb-1.5 pt-0.5">
+        <div className="line-clamp-2 min-w-0 text-[13px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]" title={cards[0].name}>{cards[0].name}</div>
+        {cards.length > 1 && <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-[11px] num text-muted">{cards.length}</span>}
+      </div>
+      <div className="space-y-1.5 rounded-lg bg-surface-2/70 p-1.5">
+        {cards.map((c) => (c.kind === "lead" ? <LeadItem key={c.id} card={c} onClick={() => onOpen(c)} /> : <DocItem key={c.id} card={c} onClick={() => onOpen(c)} />))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Column: scrolls on its own; renders more boxes as you scroll ---------------- */
 
 const BATCH = 40;
 
 function Column({ stage, cards, onOpen, loading }: { stage: (typeof STAGES)[number]; cards: CardView[]; onOpen: (c: CardView) => void; loading: boolean }) {
   const [shown, setShown] = useState(BATCH);
+  const [flaggedFirst, setFlaggedFirst] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => setShown(BATCH), [cards.length]);
+  useEffect(() => setShown(BATCH), [cards.length, flaggedFirst]);
+
+  // One box per customer, in the column's order (newest first); flagged boxes on top when asked.
+  const groups = useMemo(() => {
+    const byCustomer = new Map<string, CardView[]>();
+    for (const c of cards) byCustomer.set(c.customerId, [...(byCustomer.get(c.customerId) ?? []), c]);
+    const list = [...byCustomer.values()];
+    return flaggedFirst ? [...list.filter((g) => g.some(flagged)), ...list.filter((g) => !g.some(flagged))] : list;
+  }, [cards, flaggedFirst]);
+  const flaggedCount = cards.filter(flagged).length;
+
   const onScroll = () => {
     const el = ref.current;
-    if (el && el.scrollTop + el.clientHeight > el.scrollHeight - 400 && shown < cards.length) setShown((n) => n + BATCH);
+    if (el && el.scrollTop + el.clientHeight > el.scrollHeight - 400 && shown < groups.length) setShown((n) => n + BATCH);
   };
   return (
     <div className="flex min-w-0 flex-col rounded-xl bg-surface-2/60">
-      <div className={`flex items-center justify-between gap-2 rounded-t-xl px-3 py-2.5 ${stage.header}`}>
+      <div className={`flex items-center justify-between gap-1.5 rounded-t-xl px-3 py-2.5 ${stage.header}`}>
         <span className="inline-flex min-w-0 items-center gap-2">
           <span className={`size-2 shrink-0 rounded-full ${stage.dot}`} aria-hidden />
           <span className="truncate text-[13px] font-semibold text-ink">{stage.label}</span>
         </span>
-        <span className="shrink-0 rounded-full bg-surface px-1.5 text-[12px] num text-muted">{cards.length}</span>
+        <span className="inline-flex shrink-0 items-center gap-1">
+          {flaggedCount > 0 && (
+            <button
+              onClick={() => { setFlaggedFirst((v) => !v); ref.current?.scrollTo({ top: 0 }); }}
+              aria-pressed={flaggedFirst}
+              title={flaggedFirst ? "Back to newest first" : "Show flagged first"}
+              className={`inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[11px] font-bold transition ${flaggedFirst ? "bg-high text-white" : "bg-high-bg text-high hover:brightness-95"}`}
+            >
+              F <span className="num font-semibold">{flaggedCount}</span>
+            </button>
+          )}
+          <span className="rounded-full bg-surface px-1.5 text-[12px] num text-muted">{cards.length}</span>
+        </span>
       </div>
-      <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} style={{ height: "calc(100vh - 290px)", minHeight: 420 }}>
+      <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} style={{ height: "var(--fu-col-h)", minHeight: 360 }}>
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-center text-[12px] text-faint">
-            {loading && (stage.key === "lead" || stage.key === "quotation") ? "Syncing with Zoho Books…" : "No cards"}
+            {loading && ["lead", "quotation", "performa", "invoiced", "paid"].includes(stage.key) ? "Syncing with Zoho Books…" : "No cards"}
           </div>
         ) : (
-          cards.slice(0, shown).map((c) =>
-            c.kind === "lead" ? <LeadCard key={c.id} card={c} onClick={() => onOpen(c)} /> : <QuoteCard key={c.id} card={c} onClick={() => onOpen(c)} />,
-          )
+          groups.slice(0, shown).map((g) => <CustomerBox key={g[0].customerId} cards={g} onOpen={onOpen} />)
         )}
       </div>
     </div>
@@ -134,44 +200,55 @@ function Column({ stage, cards, onOpen, loading }: { stage: (typeof STAGES)[numb
 /* ---------------- Board ---------------- */
 
 function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: () => void; initialQuery: string }) {
-  const { cardEvents } = useStore();
+  const { cardEvents, recordCardEvents } = useStore();
   const { data, loading, refresh } = usePipeline();
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
   const [open, setOpen] = useState<{ id: string; merge: boolean } | null>(null);
 
-  const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], cardEvents), [data, cardEvents]);
+  const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents), [data, cardEvents]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
+
+  // A merged quote/PI that disappeared from Zoho moves its cards apart — log why, once.
+  // Only trust a complete, error-free Zoho snapshot so a failed sync never looks like a deletion.
+  useEffect(() => {
+    if (!data || data.source !== "zoho" || data.error || !data.leads.length) return;
+    recordCardEvents(zohoNotices(cardEvents, board.exists, board.cards));
+  }, [data, board, cardEvents, recordCardEvents]);
 
   const needle = q.trim().toLowerCase();
   const visible = (c: CardView) => (showDeleted || !c.deleted) && (!needle || c.search.includes(needle));
   const leads = useMemo(() => board.leadCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
   const quotes = useMemo(() => board.quoteCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: [], training: [], training_completed: [], invoiced: [], paid: [] };
+  const pis = useMemo(() => board.piCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scheduled = useMemo(() => board.scheduledCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const completed = useMemo(() => board.completedCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const invoiced = useMemo(() => board.invoiceCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paid = useMemo(() => board.paymentCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });
   const current = open ? board.cards.get(open.id) : undefined;
-  let merge: { leadId: string; quoteIds: string[]; initial?: string } | null = null;
-  if (current && open?.merge && current.flaggedWith.length) {
-    const leadId = current.kind === "lead" ? current.id : current.flaggedWith[0];
-    merge = { leadId, quoteIds: board.cards.get(leadId)?.flaggedWith ?? [], initial: current.kind === "quote" ? current.id : undefined };
-  }
+  const mergeGroup = current && open?.merge && current.flaggedWith.length ? flagGroup(current.id, board.cards) : null;
 
   return (
-    <>
-      <PageHeader
-        title="Follow-ups"
-        sub={`Every client engagement, from lead to payment received · ${leads.length.toLocaleString("en-IN")} leads · ${quotes.length} quotations`}
-        actions={
-          <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
-            <Avatar name={member.name} />
-            <span className="font-medium text-ink">{member.name}</span>
-            <button className={btn.quiet} onClick={onSwitch}>Switch</button>
-          </span>
-        }
-      />
+    <div className="fu-page">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">Follow-ups</h1>
+          <p className="text-[12.5px] text-muted">
+            {leads.length.toLocaleString("en-IN")} leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments
+            {data?.windowStart && <> · documents since {fmtDate(data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
+          <Avatar name={member.name} />
+          <span className="font-medium text-ink">{member.name}</span>
+          <button className={btn.quiet} onClick={onSwitch}>Switch</button>
+        </span>
+      </div>
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
           <div className="relative w-full sm:w-72">
@@ -194,12 +271,11 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
         </div>
       </div>
 
-      {current && merge && (
+      {current && mergeGroup && (
         <MergeModal
-          key={`merge:${merge.leadId}`}
-          leadId={merge.leadId}
-          quoteIds={merge.quoteIds}
-          initialQuoteId={merge.initial}
+          key={`merge:${current.id}`}
+          group={mergeGroup}
+          initialId={current.id}
           cards={board.cards}
           member={member}
           options={options}
@@ -207,7 +283,7 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
           onOpen={(id) => setOpen({ id, merge: false })}
         />
       )}
-      {current && !merge && (
+      {current && !mergeGroup && (
         <CardModal
           card={current}
           cards={board.cards}
@@ -217,7 +293,7 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
           onReviewMerge={() => setOpen({ id: current.id, merge: true })}
         />
       )}
-    </>
+    </div>
   );
 }
 

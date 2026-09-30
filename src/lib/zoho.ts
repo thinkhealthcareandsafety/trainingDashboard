@@ -1,5 +1,5 @@
 import "server-only";
-import type { PipelineDoc, Priority, Training, ZohoLead, ZohoQuote, ZohoStatus } from "./types";
+import type { PipelineDoc, Priority, Training, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote, ZohoStatus } from "./types";
 import { fiscalYearStart, ymd } from "./dates";
 import { tidyName } from "./format";
 import { db, mongoConfigured } from "./db";
@@ -359,44 +359,109 @@ export const QUOTE_TRAINING_ITEMS = [
   "THCAS First Aid Training (I)",
 ];
 
-/** Every quotation (any status) containing one of QUOTE_TRAINING_ITEMS; details are re-downloaded only when changed. */
-export async function fetchTrainingQuotes(): Promise<ZohoQuote[]> {
+/** Quotations / sales orders (any status but void) since `from` containing a tracked item; details re-downloaded only when changed. */
+async function trainingDocs(kind: Kind, from: Date) {
   const wanted = (await allItems()).filter((i) => QUOTE_TRAINING_ITEMS.includes(i.name));
   const wantedIds = new Set(wanted.map((i) => i.id));
+  const since = ymd(from);
   const listed = new Map<string, ZRecord>();
-  const lists = await pool(wanted, 4, (i) => paged("/estimates", "estimates", { item_id: i.id }));
-  for (const e of lists.flat()) listed.set(String(e.estimate_id), e);
+  const lists = await pool(wanted, 4, (i) => paged(`/${kind}`, kind, { item_id: i.id, date_start: since }));
+  for (const e of lists.flat()) if (String(e.status) !== "void" && String(e.date) >= since) listed.set(String(e[ID_KEY[kind]]), e);
   const docs = await pool([...listed.values()], 5, async (e) => {
-    const id = String(e.estimate_id);
+    const id = String(e[ID_KEY[kind]]);
     const lmt = String(e.last_modified_time ?? "");
-    const key = `estimates:${id}`;
+    const key = `${kind}:${id}`;
     const hit = detailCache.get(key);
     if (hit && lmt && hit.lmt === lmt) return hit.doc;
-    const doc = (await zget<Record<string, ZRecord>>(`/estimates/${id}`)).estimate;
+    const doc = (await zget<Record<string, ZRecord>>(`/${kind}/${id}`))[DETAIL_KEY[kind]];
     detailCache.set(key, { lmt, doc });
     return doc;
   });
-  return docs.map((d): ZohoQuote => {
+  return docs.map((d) => {
+    // Quotes call it contact_persons_details, sales orders contact_person_details.
     const selected = new Set(((d.contact_persons as unknown[]) ?? []).map(String));
-    const people = ((d.contact_persons_details as ZRecord[]) ?? []).filter((p) => selected.size === 0 ? p.is_primary_contact : selected.has(String(p.contact_person_id)));
+    const details = ((d.contact_persons_details ?? d.contact_person_details) as ZRecord[]) ?? [];
+    const people = details.filter((p) => (selected.size === 0 ? p.is_primary_contact : selected.has(String(p.contact_person_id))));
     return {
-      estimateId: String(d.estimate_id),
-      number: String(d.estimate_number),
-      date: String(d.date),
-      createdAt: isoTime(d.created_time, `${d.date}T00:00:00.000Z`),
-      status: String(d.status),
-      customerId: String(d.customer_id),
-      customerName: tidyName(String(d.customer_name)),
-      salesperson: str(d.salesperson_name),
-      contacts: people.map((p) => ({
-        name: [p.first_name, p.last_name].filter(Boolean).join(" ") || undefined,
-        email: str(p.email),
-        phone: str(p.phone),
-        mobile: str(p.mobile),
-      })),
-      items: ((d.line_items as ZRecord[]) ?? [])
-        .filter((li) => wantedIds.has(String(li.item_id)))
-        .map((li) => ({ name: String(li.name), qty: Number(li.quantity) || 0 })),
+      doc: d,
+      common: {
+        date: String(d.date),
+        createdAt: isoTime(d.created_time, `${d.date}T00:00:00.000Z`),
+        status: String(d.status),
+        customerId: String(d.customer_id),
+        customerName: tidyName(String(d.customer_name)),
+        salesperson: str(d.salesperson_name),
+        contacts: people.map((p) => ({
+          name: [p.first_name, p.last_name].filter(Boolean).join(" ") || undefined,
+          email: str(p.email),
+          phone: str(p.phone),
+          mobile: str(p.mobile),
+        })),
+        items: ((d.line_items as ZRecord[]) ?? [])
+          .filter((li) => wantedIds.has(String(li.item_id)))
+          .map((li) => ({ name: String(li.name), qty: Number(li.quantity) || 0 })),
+      },
     };
   });
+}
+
+/** Phase 2: quotations with a tracked training item. */
+export async function fetchTrainingQuotes(from: Date): Promise<ZohoQuote[]> {
+  return (await trainingDocs("estimates", from)).map(({ doc, common }) => ({ ...common, estimateId: String(doc.estimate_id), number: String(doc.estimate_number) }));
+}
+
+/** Phase 3: sales orders — the org's Performa Invoices (numbered Performa-…) — with a tracked training item. */
+export async function fetchTrainingPIs(from: Date): Promise<ZohoPI[]> {
+  return (await trainingDocs("salesorders", from)).map(({ doc, common }) => ({
+    ...common,
+    salesorderId: String(doc.salesorder_id),
+    number: String(doc.salesorder_number),
+    reference: str(doc.reference_number),
+  }));
+}
+
+/** Phase 6: invoices with a tracked training item; the reference cites the PI (Performa-…) they came from. */
+export async function fetchTrainingInvoices(from: Date): Promise<ZohoInvoice[]> {
+  return (await trainingDocs("invoices", from)).map(({ doc, common }) => ({
+    ...common,
+    invoiceId: String(doc.invoice_id),
+    number: String(doc.invoice_number),
+    reference: str(doc.reference_number),
+    lastModified: String(doc.last_modified_time ?? ""),
+  }));
+}
+
+// Payments per invoice, keyed by the invoice's last-modified time: recording a payment changes the
+// invoice, so each sync only asks Zoho about invoices that changed.
+const paymentCache = ((globalThis as unknown as { __thPayments?: Map<string, { lmt: string; rows: ZRecord[] }> }).__thPayments ??= new Map());
+
+/**
+ * Phase 7: payments received against the tracked invoices. Read through the invoice
+ * (/invoices/{id}/payments), which is also how Zoho links a payment to its invoice.
+ */
+export async function fetchInvoicePayments(invoices: ZohoInvoice[]): Promise<ZohoPayment[]> {
+  const paid = invoices.filter((i) => i.status === "paid" || i.status === "partially_paid");
+  const lists = await pool(paid, 4, async (inv) => {
+    const hit = paymentCache.get(inv.invoiceId);
+    if (hit && inv.lastModified && hit.lmt === inv.lastModified) return { inv, rows: hit.rows };
+    const rows = ((await zget<Record<string, unknown>>(`/invoices/${inv.invoiceId}/payments`)).payments as ZRecord[]) ?? [];
+    paymentCache.set(inv.invoiceId, { lmt: inv.lastModified, rows });
+    return { inv, rows };
+  });
+  return lists.flatMap(({ inv, rows }) =>
+    rows.map((p: ZRecord): ZohoPayment => ({
+      paymentId: String(p.payment_id),
+      number: String(p.payment_number),
+      date: String(p.date),
+      createdAt: `${p.date}T00:00:00.000Z`,
+      amount: Number(p.amount) || 0,
+      mode: str(p.payment_mode),
+      reference: str(p.reference_number),
+      invoiceId: inv.invoiceId,
+      invoiceNumber: inv.number,
+      customerId: inv.customerId,
+      customerName: inv.customerName,
+      items: inv.items,
+    })),
+  );
 }

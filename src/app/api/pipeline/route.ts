@@ -1,20 +1,24 @@
-import type { PipelineResponse, ZohoLead, ZohoQuote } from "@/lib/types";
-import { ZOHO_ORG_ID, fetchAllLeads, fetchRecentLeads, fetchTrainingQuotes, zohoConfigured } from "@/lib/zoho";
+import type { PipelineResponse, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "@/lib/types";
+import { syncWindowStart, ymd } from "@/lib/dates";
+import { ZOHO_ORG_ID, fetchAllLeads, fetchInvoicePayments, fetchRecentLeads, fetchTrainingInvoices, fetchTrainingPIs, fetchTrainingQuotes, zohoConfigured } from "@/lib/zoho";
 
 export const dynamic = "force-dynamic";
 
-// Zoho Books has a daily API budget, so customers are fully re-listed only every 6 hours (~21 calls);
+// Zoho Books has a daily API budget, so customers are fully re-listed only every 6 hours (~22 calls);
 // in between, one call for the most recently created/edited customers picks up new ones.
 const FULL_MS = 6 * 60 * 60_000;
 const RECENT_MS = 2 * 60_000;
-const QUOTES_MS = 3 * 60_000;
+const DOCS_MS = 3 * 60_000;
 
 type State = {
   leads: Map<string, ZohoLead>;
   fullAt: number;
   recentAt: number;
   quotes: ZohoQuote[];
-  quotesAt: number;
+  pis: ZohoPI[];
+  invoices: ZohoInvoice[];
+  payments: ZohoPayment[];
+  docsAt: number;
   syncedAt: string;
   running: Promise<void> | null;
   error?: string;
@@ -24,13 +28,21 @@ const S: State = ((globalThis as unknown as { __thPipeline?: State }).__thPipeli
   fullAt: 0,
   recentAt: 0,
   quotes: [],
-  quotesAt: 0,
+  pis: [],
+  invoices: [],
+  payments: [],
+  docsAt: 0,
   syncedAt: "",
   running: null,
 });
+// State created before PIs/invoices/payments existed survives dev hot-reloads.
+S.pis ??= [];
+S.invoices ??= [];
+S.payments ??= [];
 
 async function sync(force: boolean) {
   const now = Date.now();
+  const from = syncWindowStart(new Date());
   const tasks: (() => Promise<void>)[] = [];
   if (force || now - S.fullAt > FULL_MS) {
     tasks.push(async () => {
@@ -44,14 +56,24 @@ async function sync(force: boolean) {
       S.recentAt = Date.now();
     });
   }
-  if (force || now - S.quotesAt > QUOTES_MS) {
+  if (force || now - S.docsAt > DOCS_MS) {
+    // Each list is replaced only when its fetch succeeds, so a failed sync never looks like deleted documents.
     tasks.push(async () => {
-      S.quotes = await fetchTrainingQuotes();
-      S.quotesAt = Date.now();
+      S.quotes = await fetchTrainingQuotes(from);
+    });
+    tasks.push(async () => {
+      S.pis = await fetchTrainingPIs(from);
+    });
+    tasks.push(async () => {
+      S.invoices = await fetchTrainingInvoices(from);
+    });
+    tasks.push(async () => {
+      S.payments = await fetchInvoicePayments(S.invoices);
+      S.docsAt = Date.now();
     });
   }
   if (!tasks.length) return;
-  // One after the other: the first sync is ~100 calls and Zoho allows ~100 per minute.
+  // One after the other: the first sync is ~200 calls and Zoho allows ~100 per minute.
   let error: string | undefined;
   for (const t of tasks) {
     try {
@@ -65,10 +87,12 @@ async function sync(force: boolean) {
 }
 
 const distinct = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => Boolean(x)))].sort((a, b) => a.localeCompare(b));
+const newestFirst = <T extends { date: string; createdAt: string }>(xs: T[]) => [...xs].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 
 export async function GET(request: Request) {
+  const windowStart = ymd(syncWindowStart(new Date()));
   if (!zohoConfigured()) {
-    const empty: PipelineResponse = { source: "mock", syncedAt: new Date().toISOString(), leads: [], quotes: [], typeOptions: [], sectorOptions: [] };
+    const empty: PipelineResponse = { source: "mock", syncedAt: new Date().toISOString(), windowStart, leads: [], quotes: [], pis: [], invoices: [], payments: [], typeOptions: [], sectorOptions: [] };
     return Response.json(empty);
   }
   const force = new URL(request.url).searchParams.has("refresh");
@@ -76,12 +100,16 @@ export async function GET(request: Request) {
   await S.running;
 
   const leads = [...S.leads.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  if (!leads.length && S.error) return Response.json({ source: "zoho", error: S.error, leads: [], quotes: [] }, { status: 502 });
+  if (!leads.length && S.error) return Response.json({ source: "zoho", error: S.error, leads: [], quotes: [], pis: [], invoices: [], payments: [] }, { status: 502 });
   const body: PipelineResponse = {
     source: "zoho",
     syncedAt: S.syncedAt || new Date().toISOString(),
+    windowStart,
     leads,
-    quotes: [...S.quotes].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)),
+    quotes: newestFirst(S.quotes),
+    pis: newestFirst(S.pis),
+    invoices: newestFirst(S.invoices),
+    payments: newestFirst(S.payments),
     typeOptions: distinct(leads.map((l) => l.type)),
     sectorOptions: distinct(leads.map((l) => l.sector)),
     orgId: ZOHO_ORG_ID,

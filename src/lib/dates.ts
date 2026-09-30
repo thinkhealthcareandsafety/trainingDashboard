@@ -38,6 +38,12 @@ export function fiscalYearStart(d: Date): Date {
   return new Date(y, FY_START_MONTH, 1);
 }
 
+/** Documents are synced for the current and previous fiscal year (e.g. 1 Apr 2025 onwards during FY 2026-27). */
+export function syncWindowStart(d: Date): Date {
+  const s = fiscalYearStart(d);
+  return new Date(s.getFullYear() - 1, s.getMonth(), 1);
+}
+
 export function fiscalYearLabel(d: Date): string {
   const s = fiscalYearStart(d).getFullYear();
   return `FY ${s}-${String((s + 1) % 100).padStart(2, "0")}`;

@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import type { CardEvent, CardEventKind, Member, Phase } from "@/lib/types";
-import { type CardView, type ContactEntry, describeEvent, normEmail, normPhone, salespersonLabel } from "@/lib/pipeline";
-import { fmtDate, fmtTime } from "@/lib/dates";
+import {
+  type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK,
+  cardLabel, describeEvent, normEmail, normPhone, phaseOf, salespersonLabel,
+} from "@/lib/pipeline";
+import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
 import { Avatar, IconButton, btn, inputCls, selectCls } from "../ui";
@@ -11,19 +14,23 @@ import { Avatar, IconButton, btn, inputCls, selectCls } from "../ui";
 export type BoardOptions = { typeOptions: string[]; sectorOptions: string[]; orgId?: string };
 type Cards = Map<string, CardView>;
 
-const phaseOf = (c: CardView): Phase => (c.kind === "lead" ? "Lead" : "Quote");
-const nameFor = (cards: Cards) => (id: string) => {
-  const c = cards.get(id);
-  if (!c) return "a card";
-  return c.kind === "quote" ? `quote ${c.quote?.number}` : c.name;
-};
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const dateLong = (s: string) => fmtDate(s, { day: "numeric", month: "short", year: "numeric" });
+
+/** Colour per stage, matching the board's column headers. */
+export const STAGE_TONE: Record<CardKind, { chip: string; head: string; ring: string }> = {
+  lead: { chip: "bg-surface-2 text-ink-2", head: "bg-surface-2", ring: "border-line-strong" },
+  quote: { chip: "bg-brand-soft text-brand", head: "bg-brand-soft", ring: "border-brand/40" },
+  pi: { chip: "bg-medium-bg text-medium", head: "bg-medium-bg", ring: "border-medium/40" },
+  invoice: { chip: "bg-medium-bg text-medium", head: "bg-medium-bg", ring: "border-medium/40" },
+  payment: { chip: "bg-low-bg text-low", head: "bg-low-bg", ring: "border-low/40" },
+};
 
 /* ---------------- Small pieces ---------------- */
 
 export function FlagBadge() {
   return (
-    <span title="Flagged: this client is both a lead and a quote — open to merge" className="grid size-5 shrink-0 place-items-center rounded-md bg-high-bg text-[11px] font-bold text-high">
+    <span title="Flagged: this client is in more than one column — open to merge" className="grid size-5 shrink-0 place-items-center rounded-md bg-high-bg text-[11px] font-bold text-high">
       F
     </span>
   );
@@ -38,21 +45,38 @@ function Lock() {
   );
 }
 
-function Row({ label, required, locked, children }: { label: string; required?: boolean; locked?: boolean; children: React.ReactNode }) {
+/** Inside the narrow merge panels, sections go flat and labels sit above values. */
+const Compact = createContext(false);
+
+function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+  const compact = useContext(Compact);
   return (
-    <div className="grid grid-cols-[140px_1fr] gap-3 border-b border-line py-2.5 last:border-b-0">
-      <dt className="flex items-start gap-1 pt-0.5 text-[13px] text-muted">
+    <section className={compact ? "border-t border-line px-1 pt-2.5 first:border-t-0 first:pt-0" : "rounded-2xl border border-line bg-surface px-4 py-3.5"}>
+      <div className={`flex items-center justify-between gap-2 ${compact ? "mb-1.5" : "mb-2"}`}>
+        <h3 className={`font-bold tracking-tight text-ink ${compact ? "text-[14px]" : "text-[16px]"}`}>{title}</h3>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Row({ label, required, locked, children }: { label: string; required?: boolean; locked?: boolean; children: React.ReactNode }) {
+  const compact = useContext(Compact);
+  return (
+    <div className={`grid border-b border-line first:pt-0 last:border-b-0 last:pb-0 ${compact ? "grid-cols-[118px_1fr] gap-2 py-1.5" : "grid-cols-[150px_1fr] gap-4 py-2"}`}>
+      <dt className={`flex items-start gap-1 pt-0.5 font-medium text-muted ${compact ? "text-[12px]" : "text-[13px]"}`}>
         {label}
         {required && <span className="text-high">*</span>}
         {locked && <Lock />}
       </dt>
-      <dd className="min-w-0 text-[13px] text-ink-2 [overflow-wrap:anywhere]">{children}</dd>
+      <dd className={`min-w-0 text-ink-2 [overflow-wrap:anywhere] ${compact ? "text-[13px]" : "text-[14px]"}`}>{children}</dd>
     </div>
   );
 }
 
 function SourceTag({ phases }: { phases: Phase[] }) {
-  return <span className="rounded-full bg-surface-2 px-1.5 py-px text-[11px] text-muted">from {phases.join(" · ")}</span>;
+  return <span className="rounded-full bg-surface-2 px-2 py-px text-[11px] font-medium text-muted">from {phases.join(" · ")}</span>;
 }
 
 function Entries({ entries, empty, missing }: { entries: ContactEntry[]; empty: string; missing?: boolean }) {
@@ -61,7 +85,7 @@ function Entries({ entries, empty, missing }: { entries: ContactEntry[]; empty: 
     <ul className="space-y-1">
       {entries.map((e, i) => (
         <li key={e.value} className="flex flex-wrap items-center gap-2">
-          <span className={`min-w-0 [overflow-wrap:anywhere] ${i === 0 ? "font-medium text-ink" : ""}`}>{e.value}</span>
+          <span className={`min-w-0 [overflow-wrap:anywhere] ${i === 0 ? "font-semibold text-ink" : ""}`}>{e.value}</span>
           <SourceTag phases={e.phases} />
         </li>
       ))}
@@ -69,89 +93,285 @@ function Entries({ entries, empty, missing }: { entries: ContactEntry[]; empty: 
   );
 }
 
-const PHASE_DOCS = ["Quote", "Sales Order / PI", "Invoice", "Payment Received"] as const;
+/* ---------------- Read-only sections (the same for every phase) ---------------- */
 
-/** Read-only view of a card: the same fields for every phase; later phases fill in as they're connected. */
-export function CardDetails({ card, cards, options, onUnmerge }: { card: CardView; cards: Cards; options: BoardOptions; onUnmerge?: (leadId: string) => void }) {
-  const q = card.quote;
-  const docs: Record<(typeof PHASE_DOCS)[number], { no?: string; date?: string; href?: string }> = {
-    Quote: { no: q?.number, date: q?.date, href: q ? zohoUrl("estimate", q.estimateId, options.orgId) : undefined },
-    "Sales Order / PI": {},
-    Invoice: {},
-    "Payment Received": {},
-  };
+function CustomerSection({ card }: { card: CardView }) {
   return (
-    <div className="space-y-5">
+    <Section title="Customer">
       <dl>
         <Row label="Customer name" required>
-          <div className="font-medium text-ink">{card.name}</div>
-          {card.aliases.length > 0 && <div className="mt-0.5 text-[12px] text-muted">Also known as {card.aliases.join(", ")}</div>}
-        </Row>
-        <Row label="Email">
-          <Entries entries={card.emails} empty="—" />
-        </Row>
-        <Row label="Contact number" required>
-          <Entries entries={card.phones} empty="Missing — add one" missing />
+          <div className="text-[15px] font-semibold text-ink">{card.name}</div>
+          {card.aliases.length > 0 && <div className="mt-0.5 text-[13px] text-muted">Also known as {card.aliases.join(", ")}</div>}
         </Row>
         <Row label="Customer type">{card.type ?? <span className="text-faint">—</span>}</Row>
         <Row label="Sector">{card.sector ?? <span className="text-faint">—</span>}</Row>
-        <Row label="Created in Zoho" locked>{card.customerSince ? fmtDate(card.customerSince, { day: "numeric", month: "short", year: "numeric" }) : "—"}</Row>
-        <Row label="Sales person" locked>{card.salespeople.length ? salespersonLabel(card.salespeople) : <span className="text-faint">—</span>}</Row>
+        <Row label="Created in Zoho" locked>{card.customerSince ? dateLong(card.customerSince) : "—"}</Row>
       </dl>
+    </Section>
+  );
+}
 
-      {q && (
-        <div>
-          <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted">Training</h3>
-          <table className="w-full text-[13px]">
-            <thead className="text-left text-[12px] text-muted">
-              <tr className="border-b border-line"><th className="py-1.5 font-medium">Item</th><th className="w-20 py-1.5 text-right font-medium">QTY</th></tr>
-            </thead>
-            <tbody>
-              {q.items.map((i, n) => (
-                <tr key={n} className="border-b border-line last:border-b-0">
-                  <td className="py-1.5 text-ink-2">{i.name}</td>
-                  <td className="num py-1.5 text-right text-ink-2">{i.qty}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-1.5 text-[12px] text-muted">Zoho status: <span className="capitalize text-ink-2">{q.status}</span></div>
+function ContactSection({ card }: { card: CardView }) {
+  return (
+    <Section title="Contact">
+      <dl>
+        <Row label="Email"><Entries entries={card.emails} empty="—" /></Row>
+        <Row label="Contact number" required><Entries entries={card.phones} empty="Missing — add one" missing /></Row>
+      </dl>
+    </Section>
+  );
+}
+
+/** Border: green whenever there's a date (postponed keeps its yellow badge), red when to be decided. */
+export const SCHEDULE_TONE: Record<ScheduleStatus, { border: string; chip: string; label: string }> = {
+  scheduled: { border: "border-low", chip: "bg-low-bg text-low", label: "Scheduled" },
+  postponed: { border: "border-low", chip: "bg-medium-bg text-medium", label: "Postponed" },
+  tbd: { border: "border-high", chip: "bg-high-bg text-high", label: "To be decided" },
+};
+
+export const scheduleText = (s: TrainingSchedule) => (s.status === "tbd" || !s.date ? "To be decided" : dateLong(s.date));
+const todayYmd = () => new Date().toLocaleDateString("en-CA");
+
+/** Training date next to "No. of People", with postpone (calendar) and to-be-decided. */
+function ScheduleBlock({ card, onSchedule, onComplete, compact }: { card: CardView; onSchedule?: (value: string) => void; onComplete?: () => void; compact?: boolean }) {
+  const [picking, setPicking] = useState(false);
+  const [date, setDate] = useState("");
+  const s = card.schedule;
+  // Changing an existing date is postponing; from nothing or TBD it's scheduling.
+  const postponing = Boolean(s && s.status !== "tbd");
+  const big = compact ? "text-[16px]" : "text-[20px]";
+  const save = () => {
+    if (!date) return;
+    onSchedule?.(date);
+    setPicking(false);
+    setDate("");
+  };
+  // Two grid cells: the date sits next to "No. of People"; the buttons get their own full-width row.
+  return (
+    <>
+    <div>
+      <div className="text-[12px] font-bold uppercase tracking-wide text-brand">Training date</div>
+      {s ? (
+        <div className={`mt-0.5 flex flex-wrap items-center gap-2 font-semibold ${s.status === "tbd" ? "text-high" : "text-ink"} ${big}`}>
+          <span className="num">{scheduleText(s)}</span>
+          {s.completed ? (
+            <span className="rounded-md bg-low px-1.5 py-0.5 text-[11.5px] font-bold text-white">Completed</span>
+          ) : (
+            s.status !== "tbd" && <span className={`rounded-md px-1.5 py-0.5 text-[11.5px] font-bold ${SCHEDULE_TONE[s.status].chip}`}>{SCHEDULE_TONE[s.status].label}</span>
+          )}
+        </div>
+      ) : (
+        <div className={`mt-0.5 font-semibold text-faint ${big}`}>Not set</div>
+      )}
+      {s?.completed && (
+        <p className="mt-1.5 text-[13px] text-muted">Completed · marked by {s.completed.by} on {dateLong(s.completed.at)}</p>
+      )}
+      {onSchedule && !s && !card.canSchedule && card.flaggedWith.length > 0 && (
+        <p className="mt-1.5 text-[13px] text-muted">Merge the flagged cards first, then the training can be scheduled.</p>
+      )}
+    </div>
+      {onSchedule && card.canSchedule && !s?.completed && (
+        <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+          {picking ? (
+            <>
+              <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} aria-label={postponing ? "New training date" : "Training date"} autoFocus />
+              <button className={btn.primary} onClick={save} disabled={!date || date < todayYmd()}>{postponing ? "Postpone" : "Schedule"}</button>
+              <button className={btn.quiet} onClick={() => { setPicking(false); setDate(""); }}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <button className={postponing ? btn.ghost : btn.primary} onClick={() => setPicking(true)}>{postponing ? "Postpone" : "Schedule training"}</button>
+              {s?.status !== "tbd" && <button className={btn.ghost} onClick={() => onSchedule("TBD")}>To be decided</button>}
+              {s?.date && onComplete && (
+                <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={onComplete}>
+                  Training completed
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
+    </>
+  );
+}
 
-      <div>
-        <h3 className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted">
-          IDs &amp; dates <Lock /> <span className="font-normal normal-case tracking-normal text-faint">from Zoho Books — read only</span>
-        </h3>
-        <table className="w-full text-[13px]">
-          <thead className="text-left text-[12px] text-muted">
-            <tr className="border-b border-line"><th className="py-1.5 font-medium">Document</th><th className="py-1.5 font-medium">Number</th><th className="py-1.5 font-medium">Date</th></tr>
-          </thead>
-          <tbody>
-            {PHASE_DOCS.map((k) => (
-              <tr key={k} className="border-b border-line last:border-b-0">
-                <td className="py-1.5 text-muted">{k}</td>
-                <td className="py-1.5 text-ink-2">
-                  {docs[k].no ? (docs[k].href ? <a href={docs[k].href} target="_blank" rel="noreferrer" className="text-brand hover:underline">{docs[k].no}</a> : docs[k].no) : <span className="text-faint">—</span>}
-                </td>
-                <td className="num py-1.5 text-ink-2">{docs[k].date ? fmtDate(docs[k].date!, { day: "numeric", month: "short", year: "numeric" }) : <span className="text-faint">—</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+function TrainingSection({ card, compact, onSchedule, onComplete }: { card: CardView; compact?: boolean; onSchedule?: (value: string) => void; onComplete?: () => void }) {
+  const quoted = card.kind === "pi" ? card.linkedQuote : undefined;
+  const showSchedule = card.kind !== "lead" && Boolean(card.schedule || onSchedule);
+  return (
+    <Section title="Training">
+      {card.training.length === 0 ? (
+        <p className="text-[14px] text-muted">No training yet — it appears once a quotation is sent.</p>
+      ) : (
+        <div className="space-y-3">
+          {card.training.map((t, i) => {
+            const expected = quoted?.items.find((x) => x.name === t.name)?.qty;
+            const tone = card.schedule ? SCHEDULE_TONE[card.schedule.status].border : "border-transparent";
+            // Narrow merge panels: training and head-count side by side on one line.
+            if (compact) {
+              return (
+                <div key={i} className={`grid grid-cols-[1fr_auto] items-end gap-3 rounded-xl border-2 bg-brand-soft px-3 py-2 ${tone}`}>
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-brand">Type of Training</div>
+                    <div className="text-[14px] font-semibold leading-snug text-ink">{t.name}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-brand">{card.peopleLabel.replace("No. of People", "People")}</div>
+                    <div className="num text-[16px] font-semibold text-ink">{t.qty}</div>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={i} className={`rounded-xl border-2 bg-brand-soft ${tone} ${compact ? "px-3 py-2.5" : "px-4 py-3"}`}>
+                <div className="text-[12px] font-bold uppercase tracking-wide text-brand">Type of Training</div>
+                <div className={`mt-0.5 font-semibold leading-snug text-ink ${compact ? "text-[16px]" : "text-[20px]"}`}>{t.name}</div>
+                <div className={`mt-2 grid gap-x-4 gap-y-2.5 ${showSchedule && i === 0 ? "sm:grid-cols-2" : ""}`}>
+                  <div>
+                    <div className="text-[12px] font-bold uppercase tracking-wide text-brand">{card.peopleLabel}</div>
+                    <div className={`num mt-0.5 font-semibold text-ink ${compact ? "text-[16px]" : "text-[20px]"}`}>
+                      {t.qty}
+                      {expected !== undefined && expected !== t.qty && <span className="ml-2 text-[13px] font-medium text-muted">({expected} expected at quotation)</span>}
+                    </div>
+                  </div>
+                  {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} compact={compact} />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/** Pops up over a merged, unflagged PI that has no training date yet. */
+function SchedulePrompt({ card, onSchedule, onLater }: { card: CardView; onSchedule: (date: string) => void; onLater: () => void }) {
+  const [date, setDate] = useState("");
+  return (
+    <div className="fade-in absolute inset-0 z-20 grid place-items-center bg-black/25 p-4 backdrop-blur-[2px]" onMouseDown={onLater}>
+      <div role="alertdialog" aria-label="Ready for training" className="modal-in w-full max-w-md rounded-2xl border-2 border-low bg-surface p-6 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="text-[12px] font-bold uppercase tracking-wide text-low">Ready for training</div>
+        <h3 className="mt-1 text-[18px] font-bold leading-snug tracking-tight text-ink">{card.name} is ready</h3>
+        <p className="mt-1.5 text-[14px] text-muted">
+          Everything is merged into {card.docNumber}{card.training[0] ? ` for ${card.training[0].name} (${card.training[0].qty} people)` : ""}. Would you like to schedule their training right now?
+        </p>
+        <label className="mt-4 block">
+          <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Enter date:</span>
+          <input type="date" className={inputCls} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} autoFocus />
+        </label>
+        <div className="mt-5 flex justify-end gap-2">
+          <button className={btn.ghost} onClick={onLater}>Later</button>
+          <button className={btn.primary} disabled={!date || date < todayYmd()} onClick={() => onSchedule(date)}>Schedule training</button>
+        </div>
       </div>
+    </div>
+  );
+}
 
-      {card.mergedLeadIds.length > 0 && (
-        <div className="rounded-lg bg-surface-2/70 px-3 py-2 text-[12.5px] text-muted">
-          {card.mergedLeadIds.map((id) => (
-            <div key={id} className="flex items-center justify-between gap-2">
-              <span>Merged from lead <b className="font-medium text-ink-2">{cards.get(id)?.lead?.name ?? id}</b></span>
-              {onUnmerge && <button className="text-[12px] font-medium text-brand hover:underline" onClick={() => onUnmerge(id)}>Unmerge</button>}
-            </div>
+function SalesSection({ card }: { card: CardView }) {
+  return (
+    <Section title="Sales person" aside={<Lock />}>
+      <p className="text-[15px] font-medium text-ink">{card.salespeople.length ? salespersonLabel(card.salespeople) : <span className="font-normal text-faint">—</span>}</p>
+    </Section>
+  );
+}
+
+function DocsSection({ card, options }: { card: CardView; options: BoardOptions }) {
+  const q = card.linkedQuote;
+  const p = card.pi ?? card.linkedPI;
+  const inv = card.invoice ?? card.linkedInvoice;
+  const pay = card.payment;
+  const NA = "Not applicable";
+  const rows: [string, string | undefined, string | undefined, string | undefined][] = [
+    ["Quote", q?.number, q?.date, q ? zohoUrl("estimate", q.estimateId, options.orgId) : undefined],
+    card.piSkipped
+      ? ["Sales Order / PI", NA, NA, undefined]
+      : ["Sales Order / PI", p?.number, p?.date, p ? zohoUrl("salesorder", p.salesorderId, options.orgId) : undefined],
+    ["Invoice", inv?.number, inv?.date, inv ? zohoUrl("invoice", inv.invoiceId, options.orgId) : undefined],
+    ["Payment Received", pay?.number, pay?.date, pay ? zohoUrl("payment", pay.paymentId, options.orgId) : undefined],
+  ];
+  const status = pay ? undefined : card.invoice?.status ?? card.pi?.status ?? card.quote?.status;
+  return (
+    <Section title="IDs & dates" aside={<span className="inline-flex items-center gap-1 text-[12px] text-faint"><Lock /> from Zoho Books — read only</span>}>
+      <table className="w-full text-[14px]">
+        <thead className="text-left text-[12px] font-medium text-muted">
+          <tr className="border-b border-line"><th className="pb-2 font-medium">Document</th><th className="pb-2 font-medium">Number</th><th className="pb-2 font-medium">Date</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(([k, no, date, href]) => (
+            <tr key={k} className="border-b border-line last:border-b-0">
+              <td className="py-2.5 pr-3 font-medium text-muted">{k}</td>
+              <td className="py-2.5 pr-3 text-ink-2">
+                {no === NA ? <span className="italic text-muted">{NA}</span> : no ? (href ? <a href={href} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">{no}</a> : no) : <span className="text-faint">—</span>}
+              </td>
+              <td className="num py-2.5 text-ink-2">{date === NA ? <span className="italic text-muted">{NA}</span> : date ? dateLong(date) : <span className="text-faint">—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {status && <p className="mt-3 text-[12.5px] text-muted">Zoho status: <span className="font-medium capitalize text-ink-2">{status.replace(/_/g, " ")}</span></p>}
+      {pay && (
+        <p className="mt-3 text-[12.5px] text-muted">
+          Amount received: <span className="num font-semibold text-ink-2">{fmtINR(pay.amount)}</span>{pay.mode && <> · {pay.mode}</>}{pay.reference && <> · Ref# {pay.reference}</>}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function NotesSection({ card, options }: { card: CardView; options: BoardOptions }) {
+  const q = card.quote;
+  if (!card.piSkipped && !card.piMissing && !card.waitingOn) return null;
+  return (
+    <Section title="Notes">
+      <div className="space-y-2.5 text-[14px] text-ink-2">
+        {card.piMissing && q && (
+          <p className="rounded-lg border border-high/30 bg-high-bg px-3 py-2.5">
+            <b className="text-high">PI missing.</b> A Performa Invoice is required for the proper functioning of the cycle. Please create and save a PI in Zoho Books for this quotation:{" "}
+            <a href={zohoUrl("estimate", q.estimateId, options.orgId)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">
+              {q.number}
+            </a>
+            <span className="block text-[12.5px] text-muted">Put {q.number} in the PI&apos;s reference field so it links back to this card.</span>
+          </p>
+        )}
+        {card.waitingOn && (
+          <p className="rounded-lg border border-medium/40 bg-medium-bg px-3 py-2.5">
+            <b className="text-medium">Not linked yet.</b> {card.waitingOn}
+          </p>
+        )}
+        {card.piSkipped && (
+          <p>
+            Moved directly from <b>Quotation</b> to <b>Training scheduled</b> — the Performa Invoice stage was skipped, so PI is not applicable for this card.
+          </p>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+/** Lead → Quote → PI trail of what was merged into this card, with unmerge on each direct merge. */
+function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards; onUnmerge?: (fromId: string) => void }) {
+  if (card.historyIds.length < 2) return null;
+  const chain = [...card.historyIds].map((id) => cards.get(id)).filter((c): c is CardView => !!c).sort((a, b) => STAGE_RANK[a.kind] - STAGE_RANK[b.kind]);
+  return (
+    <Section title="Merged">
+      <div className="flex flex-wrap items-center gap-2">
+        {chain.map((c, i) => (
+          <span key={c.id} className="inline-flex items-center gap-2">
+            {i > 0 && <span className="text-faint">→</span>}
+            <span className={`rounded-lg px-2.5 py-1 text-[13px] font-medium ${STAGE_TONE[c.kind].chip}`}>{KIND_LABEL[c.kind]} · {c.kind === "lead" ? c.lead?.name : c.docNumber}</span>
+          </span>
+        ))}
+      </div>
+      {onUnmerge && card.mergedFrom.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {card.mergedFrom.map((id) => (
+            <button key={id} className={btn.quiet} onClick={() => onUnmerge(id)}>Unmerge {cardLabel(cards.get(id))}</button>
           ))}
         </div>
       )}
-    </div>
+    </Section>
   );
 }
 
@@ -161,69 +381,86 @@ export function ChangeLog({ cardIds, cards, member }: { cardIds: string[]; cards
   const { cardEvents, revertCardEvent } = useStore();
   const ids = new Set(cardIds);
   const list = cardEvents.filter((e) => e.cardIds.some((id) => ids.has(id))).sort((a, b) => b.at.localeCompare(a.at));
-  const nameOf = nameFor(cards);
+  const labelOf = (id: string) => cardLabel(cards.get(id));
   return (
     <div className="p-5">
-      <h3 className="text-[13px] font-semibold text-ink">Changes</h3>
-      <p className="mb-4 text-[12px] text-muted">Who changed what. Every change can be reverted.</p>
+      <h3 className="text-[16px] font-bold tracking-tight text-ink">Changes</h3>
+      <p className="mb-4 text-[12.5px] text-muted">Who changed what. Every change can be reverted.</p>
       {list.length === 0 ? (
-        <p className="text-[12.5px] text-faint">No changes yet.</p>
+        <p className="text-[13px] text-faint">No changes yet.</p>
       ) : (
-        <ol className="space-y-3">
-          {list.map((e) => (
-            <li key={e.id} className={`rounded-lg border border-line bg-surface p-2.5 text-[12.5px] ${e.revertedAt ? "opacity-60" : ""}`}>
-              <div className={e.revertedAt ? "text-muted line-through" : "text-ink-2"}>{describeEvent(e, nameOf)}</div>
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                <span className="inline-flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
-                  <Avatar name={e.by} />
-                  <span className="truncate">{e.by} · {fmtDate(e.at)}, {fmtTime(e.at)}</span>
-                </span>
-                {!e.revertedAt && (
-                  <button className="shrink-0 rounded-md px-1.5 py-0.5 text-[11.5px] font-medium text-brand hover:bg-brand-soft" onClick={() => revertCardEvent(e.id, member.name)}>
-                    Revert
-                  </button>
-                )}
-              </div>
-              {e.revertedAt && <div className="mt-1 text-[11.5px] text-muted">Reverted by {e.revertedBy} · {fmtDate(e.revertedAt)}, {fmtTime(e.revertedAt)}</div>}
-            </li>
-          ))}
+        <ol className="space-y-2.5">
+          {list.map((e) => {
+            const zoho = e.kind === "zoho_change";
+            return (
+              <li key={e.id} className={`rounded-xl border p-3 text-[13px] ${zoho ? "border-medium/40 bg-medium-bg" : "border-line bg-surface"} ${e.revertedAt ? "opacity-60" : ""}`}>
+                <div className={e.revertedAt ? "text-muted line-through" : "text-ink-2"}>{describeEvent(e, labelOf)}</div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-muted">
+                    <Avatar name={e.by} />
+                    <span className="truncate">{e.by} · {fmtDate(e.at)}, {fmtTime(e.at)}</span>
+                  </span>
+                  {!e.revertedAt && !zoho && (
+                    <button className="shrink-0 rounded-md px-2 py-0.5 text-[12px] font-semibold text-brand hover:bg-brand-soft" onClick={() => revertCardEvent(e.id, member.name)}>
+                      Revert
+                    </button>
+                  )}
+                </div>
+                {e.revertedAt && <div className="mt-1 text-[12px] text-muted">Reverted by {e.revertedBy} · {fmtDate(e.revertedAt)}, {fmtTime(e.revertedAt)}</div>}
+              </li>
+            );
+          })}
         </ol>
       )}
     </div>
   );
 }
 
-/* ---------------- Modal shell: details on the left, change log on the right ---------------- */
+/* ---------------- Modal shell: wide; locks the page behind it ---------------- */
 
-function Shell({ label, onClose, side, children }: { label: string; onClose: () => void; side: React.ReactNode; children: React.ReactNode }) {
+function Shell({ label, onClose, side, footer, overlay, children }: { label: string; onClose: () => void; side: React.ReactNode; footer?: React.ReactNode; overlay?: React.ReactNode; children: React.ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  useEffect(() => {
+    // No background scrolling (and no page scrollbar) while a card is open.
+    const root = document.documentElement;
+    const prev = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => { root.style.overflow = prev; };
+  }, []);
   return (
-    <div className="fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/25 backdrop-blur-md sm:items-center sm:p-4" onMouseDown={onClose}>
+    <div className="fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-2 backdrop-blur-md sm:p-4" onMouseDown={onClose}>
       <div
         role="dialog"
         aria-modal
         aria-label={label}
-        className="modal-in flex max-h-[92vh] w-full max-w-[1120px] flex-col overflow-hidden rounded-t-[22px] bg-surface shadow-pop sm:rounded-[22px] md:flex-row"
+        className="modal-in relative flex h-[94vh] w-[min(1720px,98vw)] flex-col overflow-hidden rounded-[24px] bg-surface-2 shadow-pop md:flex-row"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
-        <aside className="max-h-[35vh] shrink-0 overflow-y-auto border-t border-line bg-surface-2/40 md:max-h-none md:w-[320px] md:border-l md:border-t-0">{side}</aside>
+        {overlay}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">{children}</div>
+          {footer && <div className="border-t border-line bg-surface px-6 py-3.5">{footer}</div>}
+        </div>
+        <aside className="no-scrollbar max-h-[30vh] shrink-0 overflow-y-auto border-t border-line bg-surface md:max-h-none md:w-[360px] md:border-l md:border-t-0">{side}</aside>
       </div>
     </div>
   );
 }
 
-function Header({ kind, title, flagged, onClose }: { kind: string; title: string; flagged?: boolean; onClose: () => void }) {
+function Header({ kind, sub, title, flagged, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; onClose: () => void }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-6 pb-3 pt-5">
+    <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-line bg-surface px-6 pb-3 pt-4">
       <div className="min-w-0">
-        <div className="text-[12px] font-medium uppercase tracking-wide text-muted">{kind}</div>
-        <h2 className="mt-0.5 flex items-center gap-2 text-[18px] font-semibold leading-snug tracking-tight">
-          <span className="truncate">{title}</span>
+        <div className="flex items-center gap-2">
+          {kind && <span className={`rounded-md px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide ${STAGE_TONE[kind].chip}`}>{KIND_LABEL[kind]}</span>}
+          <span className="text-[13px] font-medium text-muted">{sub}</span>
+        </div>
+        <h2 className="mt-1 flex items-center gap-2 text-[22px] font-bold leading-tight tracking-tight text-ink">
+          <span className="[overflow-wrap:anywhere]">{title}</span>
           {flagged && <FlagBadge />}
         </h2>
       </div>
@@ -254,12 +491,12 @@ function EntryEditor({ label, required, entries, onChange, keyOf, validate, phas
   };
   return (
     <Row label={label} required={required}>
-      <ul className="mb-2 space-y-1">
+      <ul className="mb-2 space-y-1.5">
         {entries.map((e) => (
           <li key={e.value} className="flex flex-wrap items-center gap-2">
             <span className="min-w-0 text-ink [overflow-wrap:anywhere]">{e.value}</span>
             <SourceTag phases={e.phases} />
-            <button type="button" aria-label={`Remove ${e.value}`} className="ml-auto rounded px-1 text-faint hover:bg-surface-2 hover:text-high" onClick={() => onChange(entries.filter((x) => x !== e))}>×</button>
+            <button type="button" aria-label={`Remove ${e.value}`} className="ml-auto rounded px-1.5 text-faint hover:bg-surface-2 hover:text-high" onClick={() => onChange(entries.filter((x) => x !== e))}>×</button>
           </li>
         ))}
         {entries.length === 0 && <li className={required ? "text-high" : "text-faint"}>{required ? "At least one is required" : "None"}</li>}
@@ -281,39 +518,47 @@ function Editor({ card, draft, setDraft, options }: { card: CardView; draft: Dra
     setAlias("");
   };
   const withCurrent = (opts: string[], cur: string) => (cur && !opts.includes(cur) ? [cur, ...opts] : opts);
+  const phase = phaseOf(card.kind);
   return (
-    <dl>
-      <Row label="Customer name" required>
-        <input className={`${inputCls} !h-9 text-[13px]`} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label="Customer name" />
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {draft.aliases.map((a) => (
-            <span key={a} className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[12px] text-ink-2">
-              {a}
-              <button type="button" aria-label={`Remove alias ${a}`} className="text-faint hover:text-high" onClick={() => setDraft({ ...draft, aliases: draft.aliases.filter((x) => x !== a) })}>×</button>
-            </span>
-          ))}
-          <input className="h-7 min-w-[140px] flex-1 rounded-md border border-dashed border-line bg-transparent px-2 text-[12px] focus:border-brand focus:outline-none" placeholder="+ Add alias (optional)" value={alias} onChange={(e) => setAlias(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addAlias())} onBlur={addAlias} />
-        </div>
-      </Row>
-      <EntryEditor label="Email" entries={draft.emails} onChange={(emails) => setDraft({ ...draft, emails })} keyOf={normEmail} phase={phaseOf(card)} placeholder="name@company.com"
-        validate={(x) => (EMAIL_RE.test(x) ? null : "Enter a valid email.")} />
-      <EntryEditor label="Contact number" required entries={draft.phones} onChange={(phones) => setDraft({ ...draft, phones })} keyOf={normPhone} phase={phaseOf(card)} placeholder="+91 98765 43210"
-        validate={(x) => (/^[+\d\s()-]+$/.test(x) && x.replace(/\D/g, "").length >= 7 ? null : "Enter a valid number.")} />
-      <Row label="Customer type">
-        <select className={`${selectCls} w-full`} value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} aria-label="Customer type">
-          <option value="">—</option>
-          {withCurrent(options.typeOptions, draft.type).map((o) => <option key={o}>{o}</option>)}
-        </select>
-      </Row>
-      <Row label="Sector">
-        <select className={`${selectCls} w-full`} value={draft.sector} onChange={(e) => setDraft({ ...draft, sector: e.target.value })} aria-label="Sector">
-          <option value="">—</option>
-          {withCurrent(options.sectorOptions, draft.sector).map((o) => <option key={o}>{o}</option>)}
-        </select>
-      </Row>
-      <Row label="Created in Zoho" locked>{card.customerSince ? fmtDate(card.customerSince, { day: "numeric", month: "short", year: "numeric" }) : "—"}</Row>
-      <Row label="Sales person" locked>{card.salespeople.length ? salespersonLabel(card.salespeople) : "—"}</Row>
-    </dl>
+    <>
+      <Section title="Customer">
+        <dl>
+          <Row label="Customer name" required>
+            <input className={`${inputCls} !h-9 text-[14px]`} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label="Customer name" />
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {draft.aliases.map((a) => (
+                <span key={a} className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2.5 py-0.5 text-[12.5px] text-ink-2">
+                  {a}
+                  <button type="button" aria-label={`Remove alias ${a}`} className="text-faint hover:text-high" onClick={() => setDraft({ ...draft, aliases: draft.aliases.filter((x) => x !== a) })}>×</button>
+                </span>
+              ))}
+              <input className="h-8 min-w-[160px] flex-1 rounded-md border border-dashed border-line bg-transparent px-2 text-[13px] focus:border-brand focus:outline-none" placeholder="+ Add alias (optional)" value={alias} onChange={(e) => setAlias(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addAlias())} onBlur={addAlias} />
+            </div>
+          </Row>
+          <Row label="Customer type">
+            <select className={`${selectCls} w-full`} value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} aria-label="Customer type">
+              <option value="">—</option>
+              {withCurrent(options.typeOptions, draft.type).map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </Row>
+          <Row label="Sector">
+            <select className={`${selectCls} w-full`} value={draft.sector} onChange={(e) => setDraft({ ...draft, sector: e.target.value })} aria-label="Sector">
+              <option value="">—</option>
+              {withCurrent(options.sectorOptions, draft.sector).map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </Row>
+          <Row label="Created in Zoho" locked>{card.customerSince ? dateLong(card.customerSince) : "—"}</Row>
+        </dl>
+      </Section>
+      <Section title="Contact">
+        <dl>
+          <EntryEditor label="Email" entries={draft.emails} onChange={(emails) => setDraft({ ...draft, emails })} keyOf={normEmail} phase={phase} placeholder="name@company.com"
+            validate={(x) => (EMAIL_RE.test(x) ? null : "Enter a valid email.")} />
+          <EntryEditor label="Contact number" required entries={draft.phones} onChange={(phones) => setDraft({ ...draft, phones })} keyOf={normPhone} phase={phase} placeholder="+91 98765 43210"
+            validate={(x) => (/^[+\d\s()-]+$/.test(x) && x.replace(/\D/g, "").length >= 7 ? null : "Enter a valid number.")} />
+        </dl>
+      </Section>
+    </>
   );
 }
 
@@ -337,7 +582,12 @@ function diff(card: CardView, d: Draft, by: string): Omit<CardEvent, "id" | "at"
   return out;
 }
 
-/* ---------------- Card modal (same modal for every phase) ---------------- */
+const flagText = (card: CardView, cards: Cards) => {
+  const kinds = [...new Set(card.flaggedWith.map((id) => cards.get(id)?.kind).filter(Boolean))] as CardKind[];
+  return kinds.map((k) => `${KIND_LABEL[k]}s`).join(" and ");
+};
+
+/* ---------------- Card modal (the same modal for every phase) ---------------- */
 
 export function CardModal({ card, cards, member, options, onClose, onReviewMerge }: {
   card: CardView; cards: Cards; member: Member; options: BoardOptions; onClose: () => void; onReviewMerge: () => void;
@@ -346,7 +596,23 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => { setDraft(null); setError(""); setConfirmDelete(false); }, [card.id]);
+  const [prompt, setPrompt] = useState(card.readyToSchedule);
+  useEffect(() => { setDraft(null); setError(""); setConfirmDelete(false); setPrompt(card.readyToSchedule); }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const schedule = (value: string) => {
+    const s = card.schedule;
+    const before = s ? (s.status === "tbd" ? "TBD" : s.date) : undefined;
+    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name }]);
+    if (!s) {
+      const skip = card.kind === "quote" ? " (PI not applicable)" : "";
+      toast({ text: `${card.name} moved to Training scheduled${skip}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+    }
+    setPrompt(false);
+  };
+  const complete = () => {
+    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "complete_training", by: member.name }]);
+    toast({ text: `${card.name} moved to Training completed`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+  };
 
   const startEdit = () => setDraft({
     name: card.name, aliases: [...card.aliases], emails: card.emails.map((e) => ({ ...e })), phones: card.phones.map((p) => ({ ...p })),
@@ -364,117 +630,226 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
 
   const activeEvent = (pred: (e: CardEvent) => boolean) => cardEvents.find((e) => !e.revertedAt && pred(e));
   const del = () => {
-    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "delete", by: member.name }]);
-    toast({ text: `Deleted ${card.name}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+    // Recorded on everything merged into this card too, so the lead that returns to Leads shows why.
+    const [ev] = addCardEvents([{ cardIds: [...new Set([card.id, ...card.historyIds])], kind: "delete", by: member.name }]);
+    toast({ text: `Deleted ${cardLabel(card)} — ${card.name} is back in Leads`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
     onClose();
   };
+  const ownDelete = cardEvents.some((e) => !e.revertedAt && e.kind === "delete" && e.cardIds.includes(card.id));
   const restore = () => {
     const ev = activeEvent((e) => e.kind === "delete" && e.cardIds.includes(card.id));
     if (ev) revertCardEvent(ev.id, member.name);
   };
-  const unmerge = (leadId: string) => {
-    const ev = activeEvent((e) => e.kind === "merge" && e.cardIds[0] === leadId && e.cardIds[1] === card.id);
+  const unmerge = (fromId: string) => {
+    const ev = activeEvent((e) => e.kind === "merge" && e.cardIds[0] === fromId && e.cardIds[1] === card.id);
     if (ev) revertCardEvent(ev.id, member.name);
   };
 
+  const sub = card.kind === "lead"
+    ? "Zoho customer"
+    : `${card.docNumber} · ${card.docDate ? dateLong(card.docDate) : ""}${
+        !card.schedule ? ""
+        : card.schedule.completed ? ` · Training completed ${scheduleText(card.schedule)}`
+        : card.schedule.status === "tbd" ? " · Training to be decided"
+        : ` · Training ${scheduleText(card.schedule)} (${SCHEDULE_TONE[card.schedule.status].label})`}`;
+  const footer = draft ? (
+    <div className="flex flex-wrap items-center gap-2">
+      <button className={btn.primary} onClick={save}>Save changes</button>
+      <button className={btn.ghost} onClick={() => { setDraft(null); setError(""); }}>Cancel</button>
+      {error && <span className="text-[13px] font-medium text-high">{error}</span>}
+    </div>
+  ) : (
+    <div className="flex flex-wrap items-center gap-2">
+      <button className={btn.primary} onClick={startEdit} disabled={card.deleted}>Edit</button>
+      {/* Leads are the Zoho customers themselves, so only quote/PI cards can be deleted. */}
+      {card.kind !== "lead" && !card.deleted && (confirmDelete ? (
+        <span className="ml-auto inline-flex items-center gap-2 text-[13px] text-muted">
+          Delete this card? The customer goes back to Leads (Zoho is not changed).
+          <button className={btn.danger} onClick={del}>Delete</button>
+          <button className={btn.quiet} onClick={() => setConfirmDelete(false)}>Keep</button>
+        </span>
+      ) : (
+        <button className={`${btn.danger} ml-auto`} onClick={() => setConfirmDelete(true)}>Delete</button>
+      ))}
+    </div>
+  );
+
   return (
-    <Shell label={`${card.name} details`} onClose={onClose} side={<ChangeLog cardIds={card.historyIds} cards={cards} member={member} />}>
-      <Header kind={card.kind === "lead" ? "Lead" : `Quotation · ${card.quote?.number}`} title={card.name} flagged={card.flaggedWith.length > 0} onClose={onClose} />
-      <div className="px-6 pb-6">
+    <Shell
+      label={`${card.name} details`}
+      onClose={onClose}
+      footer={footer}
+      side={<ChangeLog cardIds={card.historyIds} cards={cards} member={member} />}
+      overlay={prompt && card.readyToSchedule && <SchedulePrompt card={card} onSchedule={schedule} onLater={() => setPrompt(false)} />}
+    >
+      <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} onClose={onClose} />
+      <div className="space-y-3 p-4">
         {card.deleted && (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">
-            This card is deleted from the board.
-            <button className="font-medium underline" onClick={restore}>Restore</button>
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-high-bg px-4 py-3 text-[14px] text-high">
+            {ownDelete ? "This card is deleted; the customer is back in Leads." : "Hidden because the card it was merged into was deleted — restore that card to bring it back."}
+            {ownDelete && <button className="font-semibold underline" onClick={restore}>Restore</button>}
           </div>
         )}
         {card.flaggedWith.length > 0 && (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2 text-[13px] text-ink-2">
-            <span className="inline-flex items-center gap-2"><FlagBadge /> This client is in both Leads and Quotations.</span>
-            <button className="font-medium text-brand hover:underline" onClick={onReviewMerge}>Review &amp; merge</button>
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-high/30 bg-surface px-4 py-3 text-[14px] text-ink-2">
+            <span className="inline-flex items-center gap-2"><FlagBadge /> This client is also in {flagText(card, cards)}.</span>
+            <button className="font-semibold text-brand hover:underline" onClick={onReviewMerge}>Review &amp; merge</button>
           </div>
         )}
-        {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <CardDetails card={card} cards={cards} options={options} onUnmerge={unmerge} />}
-        {error && <p className="mt-3 text-[12.5px] text-high">{error}</p>}
-        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-line pt-4">
-          {draft ? (
-            <>
-              <button className={btn.primary} onClick={save}>Save changes</button>
-              <button className={btn.ghost} onClick={() => { setDraft(null); setError(""); }}>Cancel</button>
-            </>
-          ) : (
-            <>
-              <button className={btn.primary} onClick={startEdit} disabled={card.deleted}>Edit</button>
-              {!card.deleted && (confirmDelete ? (
-                <span className="ml-auto inline-flex items-center gap-2 text-[13px] text-muted">
-                  Delete from the board? (Zoho is not changed)
-                  <button className={btn.danger} onClick={del}>Delete</button>
-                  <button className={btn.quiet} onClick={() => setConfirmDelete(false)}>Keep</button>
-                </span>
-              ) : (
-                <button className={`${btn.danger} ml-auto`} onClick={() => setConfirmDelete(true)}>Delete</button>
-              ))}
-            </>
-          )}
+        <div className="grid gap-3 xl:grid-cols-2">
+          <div className="space-y-3">
+            {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
+            <NotesSection card={card} options={options} />
+            <ChainSection card={card} cards={cards} onUnmerge={unmerge} />
+          </div>
+          <div className="space-y-3">
+            <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} />
+            <SalesSection card={card} />
+            <DocsSection card={card} options={options} />
+          </div>
         </div>
       </div>
     </Shell>
   );
 }
 
-/* ---------------- Merge: the same client in Leads and Quotations ---------------- */
+/* ---------------- Review & merge: the same client across Lead → Quote → PI ---------------- */
 
-export function MergeModal({ leadId, quoteIds, initialQuoteId, cards, member, options, onClose, onOpen }: {
-  leadId: string; quoteIds: string[]; initialQuoteId?: string; cards: Cards; member: Member; options: BoardOptions;
-  onClose: () => void; onOpen: (cardId: string) => void;
+function PhasePanel({ kind, list, selected, onSelect, cards, onOpen }: {
+  kind: CardKind; list: CardView[]; selected: CardView; onSelect: (id: string) => void; cards: Cards; onOpen: (id: string) => void;
+}) {
+  return (
+    <section className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-surface ${STAGE_TONE[kind].ring}`}>
+      <div className={`flex items-center justify-between gap-2 px-4 py-3 ${STAGE_TONE[kind].head}`}>
+        <h3 className="text-[16px] font-bold tracking-tight text-ink">{KIND_LABEL[kind]}</h3>
+        <button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => onOpen(selected.id)}>Open &amp; edit</button>
+      </div>
+      {list.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 border-b border-line px-4 py-2.5">
+          {list.map((c) => (
+            <button key={c.id} onClick={() => onSelect(c.id)} className={`rounded-full px-2.5 py-1 text-[12.5px] font-medium ${c.id === selected.id ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:bg-line"}`}>
+              {c.docNumber ?? c.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <Compact.Provider value={true}>
+      <div className="space-y-2.5 p-3">
+        {selected.docNumber && (
+          <div className="px-1 text-[14px] text-muted">
+            <span className="font-semibold text-ink">{selected.docNumber}</span>{selected.docDate && ` · ${dateLong(selected.docDate)}`}
+            {selected.pi?.reference && <span className="block text-[12.5px]">References {selected.pi.reference}</span>}
+          </div>
+        )}
+        <CustomerSection card={selected} />
+        <ContactSection card={selected} />
+        {kind !== "lead" && <TrainingSection card={selected} compact />}
+        {kind !== "lead" && <SalesSection card={selected} />}
+        <ChainSection card={selected} cards={cards} />
+      </div>
+      </Compact.Provider>
+    </section>
+  );
+}
+
+export function MergeModal({ group, initialId, cards, member, options, onClose, onOpen }: {
+  group: string[]; initialId: string; cards: Cards; member: Member; options: BoardOptions; onClose: () => void; onOpen: (cardId: string) => void;
 }) {
   const { addCardEvents, revertCardEvent, toast } = useStore();
-  const [sel, setSel] = useState(initialQuoteId ?? quoteIds[0]);
-  const lead = cards.get(leadId);
-  const quote = cards.get(sel);
-  if (!lead || !quote) return null;
+  const members = group.map((id) => cards.get(id)).filter((c): c is CardView => !!c);
+  const byKind = Object.fromEntries(STAGE_ORDER.map((k) => [k, members.filter((c) => c.kind === k)])) as Record<CardKind, CardView[]>;
+  const kinds = STAGE_ORDER.filter((k) => byKind[k].length);
 
-  const merge = () => {
-    const [ev] = addCardEvents([{ cardIds: [lead.id, quote.id], kind: "merge", by: member.name }]);
-    toast({ text: `Merged ${lead.name} into ${quote.quote?.number}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
-    onOpen(quote.id);
+  const linked = (a?: CardView, b?: CardView) => Boolean(a && b && a.flaggedWith.includes(b.id));
+  // Start from the clicked card and pick its linked partners: a quote's PI is the one referencing it.
+  const [sel, setSel] = useState<Record<CardKind, string | undefined>>(() => {
+    const clicked = cards.get(initialId);
+    const s: Record<CardKind, string | undefined> = { lead: undefined, quote: undefined, pi: undefined, invoice: undefined, payment: undefined };
+    if (clicked) s[clicked.kind] = clicked.id;
+    const partner = (k: CardKind, of?: string) => byKind[k].find((c) => of && c.flaggedWith.includes(of))?.id;
+    s.quote ??= partner("quote", s.pi) ?? partner("quote", s.lead) ?? byKind.quote[0]?.id;
+    s.pi ??= partner("pi", s.quote) ?? partner("pi", s.lead) ?? byKind.pi[0]?.id;
+    s.lead ??= partner("lead", s.quote) ?? partner("lead", s.pi) ?? byKind.lead[0]?.id;
+    s.invoice ??= partner("invoice", s.pi) ?? partner("invoice", s.quote) ?? byKind.invoice[0]?.id;
+    s.pi ??= partner("pi", s.invoice);
+    s.payment ??= partner("payment", s.invoice) ?? byKind.payment[0]?.id;
+    s.invoice ??= partner("invoice", s.payment);
+    return s;
+  });
+  const chosen = (k: CardKind) => byKind[k].find((c) => c.id === sel[k]) ?? byKind[k][0];
+  const lead = chosen("lead");
+  const quote = chosen("quote");
+  const pi = chosen("pi");
+  const invoice = chosen("invoice");
+  const payment = chosen("payment");
+  const selectCard = (k: CardKind, id: string) =>
+    setSel((s) => {
+      const next = { ...s, [k]: id };
+      // Choosing a quotation brings up the PI that references it (if any).
+      if (k === "quote") next.pi = byKind.pi.find((p) => p.flaggedWith.includes(id))?.id ?? next.pi;
+      // Choosing a PI brings up the invoice that references it.
+      if (k === "pi") next.invoice = byKind.invoice.find((v) => v.flaggedWith.includes(id))?.id ?? next.invoice;
+      // Choosing an invoice brings up the payment received against it.
+      if (k === "invoice") next.payment = byKind.payment.find((v) => v.flaggedWith.includes(id))?.id ?? next.payment;
+      return next;
+    });
+
+  const merge = (steps: [CardView, CardView][]) => {
+    const evs = addCardEvents(steps.map(([from, to]) => ({ cardIds: [from.id, to.id], kind: "merge", before: cardLabel(from), value: cardLabel(to), by: member.name })));
+    const target = steps[steps.length - 1][1];
+    toast({
+      text: steps.map(([f, t]) => `${KIND_LABEL[f.kind]} → ${KIND_LABEL[t.kind]}`).join(", ") + ` merged into ${cardLabel(target)}`,
+      actionLabel: "Undo",
+      onAction: () => evs.forEach((e) => revertCardEvent(e.id, member.name)),
+    });
+    onOpen(target.id);
   };
 
+  // Only linked pairs can merge: Lead ↔ Quote by customer; Quote ↔ PI and completed PI ↔ Invoice by reference.
+  const lq = linked(lead, quote);
+  const qp = linked(quote, pi);
+  const lp = linked(lead, pi);
+  const actions: { label: string; steps: [CardView, CardView][]; primary?: boolean }[] = [];
+  if (lq && qp) actions.push({ label: "Merge Lead → Quote → PI", steps: [[lead!, quote!], [quote!, pi!]], primary: true });
+  if (lq) actions.push({ label: "Merge Lead → Quote", steps: [[lead!, quote!]], primary: !qp });
+  if (qp) actions.push({ label: "Merge Quote → PI", steps: [[quote!, pi!]], primary: !lq });
+  if (lp) actions.push({ label: "Merge Lead → PI", steps: [[lead!, pi!]], primary: !lq && !qp });
+  if (linked(pi, invoice)) actions.push({ label: "Merge PI → Invoice", steps: [[pi!, invoice!]], primary: true });
+  if (linked(quote, invoice)) actions.push({ label: "Merge Quote → Invoice", steps: [[quote!, invoice!]], primary: true });
+  if (linked(invoice, payment)) actions.push({ label: "Merge Invoice → Payment Received", steps: [[invoice!, payment!]], primary: true });
+  const unlinked = invoice && payment && !linked(invoice, payment)
+    ? `${payment.docNumber} is applied to invoice ${payment.payment?.invoiceNumber}, not ${invoice.docNumber} — only the invoice a payment is recorded against can be merged with it.`
+    : pi && invoice && !linked(pi, invoice)
+    ? `${invoice.docNumber} references ${invoice.invoice?.reference || "no PI"}, not ${pi.docNumber} — only an invoice that references a PI (with completed training) can be merged with it.`
+    : quote && pi && !qp ? `${pi.docNumber} references ${pi.pi?.reference || "no quotation"}, not ${quote.docNumber} — only a PI that references a quotation can be merged with it.` : "";
+
+  const name = lead?.name ?? quote?.name ?? pi?.name ?? invoice?.name ?? payment?.name ?? "";
+  const footer = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="max-w-xl text-[12.5px] text-muted">
+        {unlinked && <span className="mb-1 block font-medium text-high">{unlinked}</span>}
+        Merging carries the name, aliases, emails and numbers forward into the later card; the earlier card leaves its column. Each merge is recorded in Changes and can be reverted (unmerged) any time.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {actions.map((a) => (
+          <button key={a.label} className={a.primary ? btn.primary : btn.ghost} onClick={() => merge(a.steps)}>{a.label}</button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <Shell label="Review and merge" onClose={onClose} side={<ChangeLog cardIds={[lead.id, ...quoteIds]} cards={cards} member={member} />}>
-      <Header kind="Same client in Leads and Quotations" title={lead.name} flagged onClose={onClose} />
-      <div className="px-6 pb-6">
-        <div className="grid gap-4 lg:grid-cols-2">
-          <section className="rounded-xl border border-line p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-[13px] font-semibold text-ink">Lead</h3>
-              <button className="text-[12.5px] font-medium text-brand hover:underline" onClick={() => onOpen(lead.id)}>Open &amp; edit</button>
-            </div>
-            <CardDetails card={lead} cards={cards} options={options} />
-          </section>
-          <section className="rounded-xl border border-line p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-[13px] font-semibold text-ink">Quotation</h3>
-              <button className="text-[12.5px] font-medium text-brand hover:underline" onClick={() => onOpen(quote.id)}>Open &amp; edit</button>
-            </div>
-            {quoteIds.length > 1 && (
-              <div className="mb-3 flex flex-wrap gap-1.5">
-                {quoteIds.map((id) => (
-                  <button key={id} onClick={() => setSel(id)} className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${id === sel ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:bg-line"}`}>
-                    {cards.get(id)?.quote?.number}
-                  </button>
-                ))}
-              </div>
-            )}
-            <CardDetails card={quote} cards={cards} options={options} />
-          </section>
-        </div>
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-          <p className="max-w-lg text-[12.5px] text-muted">
-            Merging moves the lead&apos;s name, aliases, emails and numbers into the quotation card, and the lead leaves the Leads column. It&apos;s recorded in Changes and can be reverted (unmerged) any time.
-          </p>
-          <button className={btn.primary} onClick={merge}>Merge lead into {quote.quote?.number}</button>
-        </div>
+    <Shell label="Review and merge" onClose={onClose} footer={footer} side={<ChangeLog cardIds={members.flatMap((c) => c.historyIds)} cards={cards} member={member} />}>
+      <Header sub={`Same client in ${kinds.map((k) => KIND_LABEL[k]).join(", ")}`} title={name} flagged onClose={onClose} />
+      <div className="flex items-stretch gap-2 p-3">
+        {kinds.map((k, i) => (
+          <div key={k} className="flex min-w-0 flex-1 items-stretch gap-2">
+            {i > 0 && <div className="grid w-6 shrink-0 place-items-center text-[20px] font-bold text-faint" aria-hidden>→</div>}
+            <PhasePanel kind={k} list={byKind[k]} selected={chosen(k)!} onSelect={(id) => selectCard(k, id)} cards={cards} onOpen={onOpen} />
+          </div>
+        ))}
       </div>
     </Shell>
   );
 }
+

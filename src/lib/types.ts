@@ -130,11 +130,63 @@ export interface ZohoQuote {
   items: { name: string; qty: number }[]; // tracked training items only
 }
 
+/** A Zoho sales order — this org's Performa Invoice (numbered Performa-…) — with a tracked training item. */
+export interface ZohoPI {
+  salesorderId: string;
+  number: string;
+  date: string; // YYYY-MM-DD
+  createdAt: string;
+  status: string;
+  customerId: string;
+  customerName: string;
+  salesperson?: string;
+  reference?: string; // usually the quotation number it came from
+  contacts: { name?: string; email?: string; phone?: string; mobile?: string }[];
+  items: { name: string; qty: number }[];
+}
+
+/** A Zoho invoice with a tracked training item; its reference usually cites the PI it came from. */
+export interface ZohoInvoice {
+  invoiceId: string;
+  number: string;
+  date: string; // YYYY-MM-DD
+  createdAt: string;
+  status: string;
+  customerId: string;
+  customerName: string;
+  salesperson?: string;
+  reference?: string; // usually "Performa-25-…"
+  lastModified: string;
+  contacts: { name?: string; email?: string; phone?: string; mobile?: string }[];
+  items: { name: string; qty: number }[];
+}
+
+/** A Zoho customer payment recorded against one of the tracked invoices. */
+export interface ZohoPayment {
+  paymentId: string;
+  number: string; // Payment #
+  date: string; // YYYY-MM-DD
+  createdAt: string;
+  amount: number;
+  mode?: string;
+  reference?: string; // Reference# (usually the bank / UTR reference)
+  invoiceId: string; // the invoice it's applied to
+  invoiceNumber: string;
+  customerId: string;
+  customerName: string;
+  items: { name: string; qty: number }[]; // from the invoice, for the Training section
+}
+
 export interface PipelineResponse {
   source: "zoho" | "mock";
   syncedAt: string;
+  /** Quotes/PIs are synced from this date (start of the previous fiscal year). */
+  windowStart: string;
   leads: ZohoLead[];
   quotes: ZohoQuote[];
+  pis: ZohoPI[];
+  invoices: ZohoInvoice[];
+  payments: ZohoPayment[];
   typeOptions: string[];
   sectorOptions: string[];
   orgId?: string;
@@ -161,7 +213,10 @@ export type CardEventKind =
   | "add_phone"
   | "remove_phone"
   | "delete"
-  | "merge";
+  | "merge"
+  | "set_training_date" // value: YYYY-MM-DD or "TBD"; the first date schedules, later ones postpone
+  | "complete_training" // moves the card to Training completed
+  | "zoho_change"; // recorded automatically when a Zoho document disappears and a card moves because of it
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every
@@ -169,10 +224,11 @@ export type CardEventKind =
  */
 export interface CardEvent {
   id: string;
-  cardIds: string[]; // merge: [leadCardId, quoteCardId]
+  cardIds: string[]; // merge: [fromCardId, intoCardId] — lead → quote → PI
   kind: CardEventKind;
-  value?: string;
-  before?: string; // previous value, for the change log
+  value?: string; // merge: label of the card merged into
+  before?: string; // previous value, for the change log; merge: label of the card merged from
+  ref?: string; // zoho_change: the merge event it reports on
   phase?: Phase; // where an email/phone was added
   at: string;
   by: string;

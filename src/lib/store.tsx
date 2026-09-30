@@ -98,6 +98,8 @@ interface Store {
   addMember: (name: string) => Member;
   cardEvents: CardEvent[];
   addCardEvents: (events: Omit<CardEvent, "id" | "at">[]) => CardEvent[];
+  /** Adds ready-made events (e.g. Zoho notices with deterministic ids), skipping ids already recorded. */
+  recordCardEvents: (events: CardEvent[]) => void;
   revertCardEvent: (id: string, by: string) => void;
 
   announcements: Announcement[];
@@ -392,6 +394,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return created;
   }, []);
 
+  const recordCardEvents = useCallback((events: CardEvent[]) => {
+    if (!events.length) return;
+    setCardEvents((cur) => {
+      const have = new Set(cur.map((e) => e.id));
+      const add = events.filter((e) => !have.has(e.id));
+      return add.length ? [...cur, ...add] : cur;
+    });
+  }, []);
+
   const revertCardEvent = useCallback((id: string, by: string) => {
     setCardEvents((cur) => cur.map((e) => (e.id === id && !e.revertedAt ? { ...e, revertedAt: new Date().toISOString(), revertedBy: by } : e)));
   }, []);
@@ -427,6 +438,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addMember,
     cardEvents,
     addCardEvents,
+    recordCardEvents,
     revertCardEvent,
     announcements,
     ticker,
