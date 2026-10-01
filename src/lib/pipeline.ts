@@ -109,6 +109,27 @@ export function completionNotApplied(e: CardEvent): boolean {
   return e.kind === "complete_training" && !e.revertedAt && e.cardIds[0]?.startsWith("quote:");
 }
 
+/** Invoice payment status, as Zoho Books shows it: red overdue, blue due, green paid. */
+export type DueTone = "overdue" | "due" | "paid";
+export interface DueStatus { tone: DueTone; label: string; partlyPaid?: boolean }
+export function dueStatus(inv?: ZohoInvoice, today = new Date().toLocaleDateString("en-CA")): DueStatus | undefined {
+  if (!inv) return undefined;
+  if (inv.status === "paid" || (inv.balance !== undefined && inv.balance <= 0 && (inv.total ?? 0) > 0)) return { tone: "paid", label: "Paid" };
+  if (!inv.dueDate) return undefined;
+  const days = Math.round((Date.parse(inv.dueDate) - Date.parse(today)) / 86_400_000);
+  const partlyPaid = inv.status === "partially_paid";
+  const n = (d: number) => `${d} day${d === 1 ? "" : "s"}`;
+  if (days < 0) return { tone: "overdue", label: `Overdue by ${n(-days)}`, partlyPaid };
+  return { tone: "due", label: days === 0 ? "Due today" : `Due in ${n(days)}`, partlyPaid };
+}
+
+/** The payment status shown on invoice and payment cards (a payment is paid unless its invoice still has a balance). */
+export function cardDue(c: CardView): DueStatus | undefined {
+  if (c.kind === "invoice") return dueStatus(c.invoice);
+  if (c.kind === "payment") return dueStatus(c.linkedInvoice) ?? { tone: "paid", label: "Paid" };
+  return undefined;
+}
+
 /** People who give the trainings. Several can run one training; each runs at most one training a day. */
 export const TRAINERS = ["Shikha Dixit", "Ashish Dalal", "Sumit A Shah"];
 
@@ -507,11 +528,15 @@ export function flagGroup(id: string, cards: Map<string, CardView>): string[] {
   return [...seen];
 }
 
+/** Newest document first: by date, then by when it was created in Zoho (several can share a date). */
+export const newestFirst = (a: CardView, b: CardView) =>
+  (b.docDate ?? "").localeCompare(a.docDate ?? "") || (b.quote?.createdAt ?? "").localeCompare(a.quote?.createdAt ?? "") || (b.docNumber ?? "").localeCompare(a.docNumber ?? "");
+
 /** A customer's quotations sitting in the Quotations column (not merged on, not in training, not lost or deleted), newest first. */
 export function columnQuotes(customerId: string, cards: Map<string, CardView>): CardView[] {
   return [...cards.values()]
     .filter((c) => c.kind === "quote" && c.customerId === customerId && !c.mergedInto && !c.deleted && !c.lost && !c.schedule)
-    .sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""));
+    .sort(newestFirst);
 }
 
 /**

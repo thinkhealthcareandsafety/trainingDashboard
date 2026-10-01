@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Member, PipelineResponse } from "@/lib/types";
-import { type CardView, buildBoard, fmtMonth, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { type CardView, STAGE_RANK, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
-import { Avatar, Modal, btn, inputCls } from "./ui";
+import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { MembersScreen } from "./followups/MembersScreen";
-import { AddPotentialModal, CardModal, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
+import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential";
 
@@ -142,8 +142,9 @@ function usePipeline() {
 const flagged = (c: CardView) => c.flaggedWith.length > 0;
 
 function ItemShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
-  // Training scheduled: green = date, yellow = postponed, red = to be decided.
-  const border = card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
+  // Invoices / payments: red overdue, blue due, green paid. Training scheduled: green = date, red = to be decided.
+  const due = cardDue(card);
+  const border = due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
   return (
     <button
       onClick={onClick}
@@ -195,6 +196,7 @@ function PotentialItem({ card, onClick }: { card: CardView; onClick: () => void 
 /** A quotation, PI, invoice or payment: number, training, date. */
 function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   const pay = card.payment;
+  const due = cardDue(card);
   return (
     <ItemShell card={card} onClick={onClick}>
       <div className="flex items-start justify-between gap-2">
@@ -214,7 +216,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <span className={`num font-semibold ${card.schedule.status === "tbd" ? "text-high" : "text-ink"}`}>{scheduleText(card.schedule)}</span>
           {card.schedule.completed ? (
-            <span className="rounded bg-low px-1 text-[10.5px] font-bold text-white">Completed</span>
+            !due && <span className="rounded bg-low px-1 text-[10.5px] font-bold text-white">Completed</span>
           ) : (
             card.schedule.status !== "tbd" && <span className={`rounded px-1 text-[10.5px] font-bold ${SCHEDULE_TONE[card.schedule.status].chip}`}>{SCHEDULE_TONE[card.schedule.status].label}</span>
           )}
@@ -225,6 +227,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
       ) : (
         !pay && card.docDate && <div className="num text-ink-2">{dateLong(card.docDate)}</div>
       )}
+      {due && <div className="mt-1"><DueChip due={due} /></div>}
       {card.readyToSchedule && <div className="mt-1 text-[11px] font-semibold text-low">Ready to schedule</div>}
     </ItemShell>
   );
@@ -331,52 +334,153 @@ function SlideButton({ dir, disabled, onClick }: { dir: "left" | "right"; disabl
   );
 }
 
-/** "Clear logs": wipes every change, merge and training date for the whole team — PIN-locked. */
-function ClearLogs({ member }: { member: Member }) {
+/** "Clear logs" (Admin only): wipe the Changes log for everything, one customer, or one deal cycle — PIN confirmed. */
+type ClearTarget = { key: string; label: string; sub?: string; ids: string[]; count: number };
+
+function ClearLogs({ member, cards }: { member: Member; cards: Map<string, CardView> }) {
   const { cardEvents, clearCardEvents, toast } = useStore();
   const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<"all" | "customer" | "cycle">("all");
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState<string | null>(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const close = useCallback(() => { setOpen(false); setPin(""); setError(""); }, []);
+  const close = useCallback(() => { setOpen(false); setPin(""); setError(""); setQuery(""); setPicked(null); setScope("all"); }, []);
+
+  // Cards added to Potential training are never cleared, so they don't count.
+  const clearable = useMemo(() => cardEvents.filter((e) => e.kind !== "add_potential"), [cardEvents]);
+  const countFor = (ids: string[]) => {
+    const set = new Set(ids);
+    return clearable.filter((e) => e.cardIds.some((id) => set.has(id))).length;
+  };
+
+  // Customers with entries in the log: every card of theirs (lead, potential, documents).
+  const customers = useMemo((): ClearTarget[] => {
+    if (!open) return [];
+    const ids = new Map<string, string[]>();
+    for (const c of cards.values()) ids.set(c.customerId, [...(ids.get(c.customerId) ?? []), c.id]);
+    const withLog = new Set(clearable.flatMap((e) => e.cardIds.map((id) => cards.get(id)?.customerId)).filter((x): x is string => !!x));
+    return [...withLog]
+      .map((cid) => {
+        const own = ids.get(cid) ?? [];
+        const name = cards.get(`lead:${cid}`)?.name ?? cards.get(own[0])?.name ?? cid;
+        return { key: cid, label: name, ids: own, count: countFor(own) };
+      })
+      .filter((t) => t.count > 0)
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [open, cards, clearable]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deal cycles with entries: the documents merged into one chain (quote → PI → invoice → payment), found from any of them.
+  const cycles = useMemo((): ClearTarget[] => {
+    if (!open) return [];
+    const top = (c: CardView) => {
+      let x = c;
+      while (x.mergedInto && cards.get(x.mergedInto)) x = cards.get(x.mergedInto)!;
+      return x;
+    };
+    const holders = new Map<string, CardView>();
+    for (const e of clearable) for (const id of e.cardIds) {
+      const c = cards.get(id);
+      if (c && !isCustomerCard(c.kind)) holders.set(top(c).id, top(c));
+    }
+    return [...holders.values()]
+      .map((h) => {
+        // Documents only: the customer's lead/potential card keeps its own edits.
+        const docs = h.historyIds.map((id) => cards.get(id)).filter((c): c is CardView => !!c && !isCustomerCard(c.kind)).sort((a, b) => STAGE_RANK[a.kind] - STAGE_RANK[b.kind]);
+        const ids = docs.map((c) => c.id);
+        return { key: h.id, label: docs.map((c) => c.docNumber).join(" → "), sub: h.name, ids, count: countFor(ids) };
+      })
+      .filter((t) => t.count > 0)
+      .sort((a, b) => a.sub!.localeCompare(b.sub!) || a.label.localeCompare(b.label));
+  }, [open, cards, clearable]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const list = scope === "customer" ? customers : scope === "cycle" ? cycles : [];
+  const needle = query.trim().toLowerCase();
+  const shown = needle ? list.filter((t) => `${t.label} ${t.sub ?? ""}`.toLowerCase().includes(needle)) : list;
+  const target = list.find((t) => t.key === picked);
+  const total = scope === "all" ? clearable.length : target?.count ?? 0;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pin || busy) return;
+    if (!pin || busy || total === 0) return;
     setBusy(true);
     setError("");
-    const res = await clearCardEvents(pin, member.name);
+    const res = await clearCardEvents(pin, member.name, scope === "all" ? undefined : target!.ids);
     setBusy(false);
     if (!res.ok) return void (setError(res.error ?? "Couldn't clear the logs"), setPin(""));
+    const what = scope === "all" ? "Logs cleared" : scope === "customer" ? `Logs cleared for ${target!.label}` : `Logs cleared for ${target!.label}`;
     close();
-    toast({ text: `Logs cleared — ${res.cleared ?? 0} changes removed` });
+    toast({ text: `${what} — ${res.cleared ?? 0} changes removed` });
   };
+
   return (
     <>
-      <button className={`${btn.danger} !h-8 !px-3`} onClick={() => setOpen(true)} title="Clear every change log (PIN required)">
+      <button className={`${btn.danger} !h-8 !px-3`} onClick={() => setOpen(true)} title="Clear the change log (admin, PIN required)">
         <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden><rect x="4.5" y="9" width="11" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
         Clear logs
       </button>
-      <Modal open={open} onClose={close} title="Clear all logs">
+      <Modal open={open} onClose={close} title="Clear logs" wide>
         <form onSubmit={submit}>
-          <p className="text-[13.5px] text-ink-2">
-            This removes all <b>{cardEvents.length}</b> entries in the Changes log for everyone — every edit, merge, deletion and training date. Cards go back to exactly what Zoho Books shows; customers added to Potential training stay.
-          </p>
+          <Segmented
+            value={scope}
+            onChange={(v) => { setScope(v); setPicked(null); setQuery(""); setError(""); }}
+            options={[{ value: "all", label: "Everything" }, { value: "customer", label: "One customer" }, { value: "cycle", label: "One deal cycle" }]}
+          />
+          {scope === "all" ? (
+            <p className="mt-4 text-[13.5px] text-ink-2">
+              Removes all <b>{clearable.length}</b> entries in the Changes log for everyone — every edit, merge, deletion and training date. Cards go back to exactly what Zoho Books shows; customers added to Potential training stay.
+            </p>
+          ) : (
+            <div className="mt-4">
+              <p className="mb-2 text-[13px] text-muted">
+                {scope === "customer"
+                  ? "Removes every change on this customer's cards — lead, quotations, PIs, invoices and payments."
+                  : "Removes every change on one deal's documents (quotation → PI → invoice → payment): merges, training dates, edits. The documents go back to separate cards as Zoho shows them; the lead's own edits stay."}
+              </p>
+              <input
+                className={`${inputCls} !h-9 text-[13px]`}
+                placeholder={scope === "customer" ? `Search ${customers.length} customer${customers.length === 1 ? "" : "s"} with changes` : `Search ${cycles.length} deal cycle${cycles.length === 1 ? "" : "s"} — customer, quote, PI or invoice no.`}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                autoFocus
+              />
+              <ul className="no-scrollbar mt-2 max-h-[240px] overflow-y-auto rounded-xl border border-line">
+                {shown.length === 0 && <li className="px-3 py-3 text-[13px] text-muted">{list.length ? "No match." : "Nothing in the log yet."}</li>}
+                {shown.map((t) => (
+                  <li key={t.key} className="border-b border-line last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => { setPicked(t.key); setError(""); }}
+                      className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-surface-2 ${picked === t.key ? "bg-high-bg" : ""}`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13.5px] font-semibold text-ink">{t.label}</span>
+                        {t.sub && <span className="block truncate text-[12px] text-muted">{t.sub}</span>}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-surface-2 px-2 text-[12px] num text-muted">{t.count} change{t.count === 1 ? "" : "s"}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <label className="mt-4 block">
-            <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Enter PIN</span>
+            <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Admin PIN</span>
             <input
               type="password"
               inputMode="numeric"
               autoComplete="off"
               className={`${inputCls} num tracking-[0.3em]`}
               value={pin}
-              onChange={(e) => { setPin(e.target.value.replace(/D/g, "")); setError(""); }}
-              autoFocus
+              onChange={(e) => { setPin(e.target.value.replace(/\D/g, "")); setError(""); }}
             />
           </label>
           {error && <p className="mt-2 text-[13px] font-medium text-high">{error}</p>}
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-5 flex items-center justify-end gap-2">
+            {scope !== "all" && <span className="mr-auto text-[13px] text-muted">{target ? <>Clears <b>{target.count}</b> change{target.count === 1 ? "" : "s"}</> : "Pick one above"}</span>}
             <button type="button" className={btn.ghost} onClick={close}>Cancel</button>
-            <button type="submit" className={`${btn.primary} !bg-high !text-white`} disabled={!pin || busy}>{busy ? "Clearing…" : "Clear logs"}</button>
+            <button type="submit" className={`${btn.primary} !bg-high !text-white`} disabled={!pin || busy || total === 0}>{busy ? "Clearing…" : "Clear logs"}</button>
           </div>
         </form>
       </Modal>
@@ -386,7 +490,7 @@ function ClearLogs({ member }: { member: Member }) {
 
 /* ---------------- Board ---------------- */
 
-function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: () => void; initialQuery: string }) {
+function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut: () => void; initialQuery: string }) {
   const { cardEvents, recordCardEvents } = useStore();
   const { data, loading, refresh } = usePipeline();
   const [q, setQ] = useState(initialQuery);
@@ -437,11 +541,11 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ClearLogs member={member} />
+          {member.id === "admin" && <ClearLogs member={member} cards={board.cards} />}
           <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
             <Avatar name={member.name} />
             <span className="font-medium text-ink">{member.name}</span>
-            <button className={btn.quiet} onClick={onSwitch}>Switch</button>
+            <button className={btn.quiet} onClick={onSignOut}>Sign out</button>
           </span>
         </div>
       </div>
@@ -515,8 +619,47 @@ function Board({ member, onSwitch, initialQuery }: { member: Member; onSwitch: (
 
 /* ---------------- Page: pick a member first, every time Follow-ups opens ---------------- */
 
+// Signed in stays signed in — across tabs, pages and browser restarts — until "Sign out". The token is issued by
+// the server at sign-in and checked again whenever the page opens.
+const SESSION_KEY = "th.session";
+type Session = { member: Member; token: string };
+function readSession(): Session | null {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null") as Session | null;
+    return s?.member?.id && s.token ? s : null;
+  } catch {
+    return null;
+  }
+}
+function writeSession(s: Session | null) {
+  try {
+    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {}
+}
+
 export function FollowUpBoard({ initialQuery = "" }: { initialQuery?: string; initialOpen?: string | null }) {
   const [member, setMember] = useState<Member | null>(null);
-  if (!member) return <MembersScreen onPick={setMember} />;
-  return <Board member={member} onSwitch={() => setMember(null)} initialQuery={initialQuery} />;
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const s = readSession();
+    if (s) {
+      setMember(s.member);
+      // A token the server doesn't recognise signs out; being offline doesn't.
+      fetch("/api/members/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: s.token }) })
+        .then(async (r) => {
+          const j = (await r.json().catch(() => ({}))) as { ok?: boolean; memberId?: string };
+          if (r.status === 401 || (j.ok && j.memberId !== s.member.id)) (writeSession(null), setMember(null));
+        })
+        .catch(() => {});
+    }
+    setReady(true);
+    // Signing in or out in another tab applies here too.
+    const onStorage = (e: StorageEvent) => e.key === SESSION_KEY && setMember(readSession()?.member ?? null);
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  if (!ready) return null;
+  if (!member) return <MembersScreen onPick={(m, token) => { writeSession({ member: m, token }); setMember(m); }} />;
+  return <Board member={member} onSignOut={() => { writeSession(null); setMember(null); }} initialQuery={initialQuery} />;
 }

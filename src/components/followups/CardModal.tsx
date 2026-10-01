@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { CardEvent, CardEventKind, Member, Phase } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
-  busyTrainers, cardLabel, columnQuotes, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
+  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, newestFirst, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -164,6 +164,40 @@ function PotentialSection({ card, onChange }: { card: CardView; onChange?: (mont
       <p className="mt-2 text-[13px] text-muted">
         {card.potential && <>Added by {card.potential.addedBy} on {dateLong(card.potential.addedAt)}. </>}
         Stays here until it&apos;s merged into one of this customer&apos;s quotations — you choose which. A new quotation (dated on or after the day it was added) flags it automatically.
+      </p>
+    </Section>
+  );
+}
+
+/** Invoice payment status, coloured like Zoho Books: red overdue, blue due, green paid. The card border matches. */
+export const DUE_TONE: Record<DueTone, { border: string; chip: string }> = {
+  overdue: { border: "border-high", chip: "bg-high-bg text-high" },
+  due: { border: "border-info", chip: "bg-info-bg text-info" },
+  paid: { border: "border-low", chip: "bg-low text-white" },
+};
+export function DueChip({ due, big }: { due: DueStatus; big?: boolean }) {
+  return (
+    <span className={`inline-block rounded font-bold uppercase tracking-wide ${big ? "px-1.5 py-0.5 text-[11.5px]" : "px-1 text-[10.5px]"} ${DUE_TONE[due.tone].chip}`}>
+      {due.partlyPaid ? "Part paid · " : ""}{due.label}
+    </span>
+  );
+}
+
+/** Invoice / payment: when the invoice is due, how much is left, and the payments recorded against it. */
+function PaymentSection({ card, cards }: { card: CardView; cards: Cards }) {
+  const inv = card.kind === "invoice" ? card.invoice : card.kind === "payment" ? card.linkedInvoice : undefined;
+  if (!inv) return null;
+  const due = cardDue(card);
+  const payments = [...cards.values()].filter((c) => c.kind === "payment" && c.payment?.invoiceId === inv.invoiceId).sort((a, b) => a.payment!.date.localeCompare(b.payment!.date));
+  return (
+    <Section title="Payment" aside={due && <DueChip due={due} big />}>
+      {/* One line, so the modal still fits without scrolling. */}
+      <p className="text-[14px] text-ink-2">
+        Due <b className="text-ink">{inv.dueDate ? dateLong(inv.dueDate) : "—"}</b>
+        {inv.balance !== undefined && inv.balance > 0 && <> · <b className="num text-ink">{fmtINR(inv.balance)}</b> still due</>}
+        {payments.length === 0
+          ? <span className="text-muted"> · not paid yet</span>
+          : payments.map((p) => <span key={p.id}> · Paid <b className="text-ink">{dateLong(p.payment!.date)}</b> <span className="text-muted">({fmtINR(p.payment!.amount)}, {p.docNumber})</span></span>)}
       </p>
     </Section>
   );
@@ -858,6 +892,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
             {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
             <NotesSection card={card} options={options} />
             <ChainSection card={card} cards={cards} onUnmerge={unmerge} />
+            <PaymentSection card={card} cards={cards} />
           </div>
           <div className="space-y-3">
             {card.kind === "potential" ? (
@@ -891,6 +926,8 @@ function PhasePanel({ kind, list, selected, onSelect, cards, onOpen }: {
             <button key={c.id} onClick={() => onSelect(c.id)} className={`rounded-full px-2.5 py-1 text-[12.5px] font-medium ${c.id === selected.id ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:bg-line"}`}>
               {c.docNumber ?? c.name}
               {c.docDate && <span className="ml-1 opacity-70">· {fmtDate(c.docDate, { day: "numeric", month: "short" })}</span>}
+              {/* Quotations are listed newest first; tag the newest so the right one is easy to pick. */}
+              {kind === "quote" && c.id === list[0].id && <span className="ml-1.5 rounded bg-low px-1 py-px text-[10.5px] font-bold uppercase tracking-wide text-white">New</span>}
             </button>
           ))}
         </div>
@@ -921,7 +958,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   const { addCardEvents, revertCardEvent, toast } = useStore();
   const members = group.map((id) => cards.get(id)).filter((c): c is CardView => !!c);
   const byKind = Object.fromEntries(STAGE_ORDER.map((k) => [k, members.filter((c) => c.kind === k)])) as Record<CardKind, CardView[]>;
-  byKind.quote.sort((a, b) => (b.docDate ?? "").localeCompare(a.docDate ?? ""));
+  byKind.quote.sort(newestFirst);
   const kinds = STAGE_ORDER.filter((k) => byKind[k].length);
   // Opened from a Potential training card: just pick the quotation it goes into (see mergeCandidates).
   const potentialMode = cards.get(initialId)?.kind === "potential";
@@ -944,17 +981,34 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
     return s;
   });
   const chosen = (k: CardKind) => byKind[k].find((c) => c.id === sel[k]) ?? byKind[k][0];
+  // A quotation and a PI are only ever shown side by side when the PI's Zoho reference cites that quotation.
+  const piOf = (q?: CardView) => (q ? byKind.pi.find((p) => refQuoteNumber(p.pi) === q.docNumber) : undefined);
+  const quoteOf = (p?: CardView) => {
+    const ref = refQuoteNumber(p?.pi);
+    return ref ? byKind.quote.find((q) => q.docNumber === ref) : undefined;
+  };
   const lead = chosen("lead");
   const potential = chosen("potential");
   const quote = chosen("quote");
-  const pi = chosen("pi");
-  const invoice = chosen("invoice");
-  const payment = chosen("payment");
+  const picked = byKind.pi.find((c) => c.id === sel.pi);
+  // A PI citing no quotation on the board stays when clicked; otherwise the PI is the selected quotation's.
+  const orphanPI = picked && !quoteOf(picked) ? picked : undefined;
+  const pi = quote ? piOf(quote) ?? orphanPI : chosen("pi");
+  // No PI references the selected quotation: no PI panel (nor the invoice / payment after it).
+  const shownKinds = kinds.filter((k) => pi || !(k === "pi" || k === "invoice" || k === "payment"));
+  const invoice = pi ? chosen("invoice") : undefined;
+  const payment = pi ? chosen("payment") : undefined;
   const selectCard = (k: CardKind, id: string) =>
     setSel((s) => {
       const next = { ...s, [k]: id };
-      // Choosing a quotation brings up the PI that references it (if any).
-      if (k === "quote") next.pi = byKind.pi.find((p) => p.flaggedWith.includes(id))?.id ?? next.pi;
+      // Choosing a quotation brings up the PI that references it (or hides the PI panel if none does).
+      if (k === "quote") {
+        const p = piOf(byKind.quote.find((q) => q.id === id));
+        next.pi = p?.id;
+        if (p) next.invoice = byKind.invoice.find((v) => v.flaggedWith.includes(p.id))?.id ?? next.invoice;
+      }
+      // Choosing a PI brings up the quotation it references.
+      if (k === "pi") next.quote = quoteOf(byKind.pi.find((p) => p.id === id))?.id ?? next.quote;
       // Choosing a PI brings up the invoice that references it.
       if (k === "pi") next.invoice = byKind.invoice.find((v) => v.flaggedWith.includes(id))?.id ?? next.invoice;
       // Choosing an invoice brings up the payment received against it.
@@ -1024,12 +1078,12 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
 
   return (
     <Shell label="Review and merge" onClose={onClose} footer={footer} side={<ChangeLog cardIds={members.flatMap((c) => c.historyIds)} cards={cards} member={member} />}>
-      <Header sub={`Same client in ${kinds.map((k) => KIND_LABEL[k]).join(", ")}`} title={name} flagged onClose={onClose} />
+      <Header sub={`Same client in ${shownKinds.map((k) => KIND_LABEL[k]).join(", ")}`} title={name} flagged onClose={onClose} />
       <div className="flex items-stretch gap-2 p-3">
-        {kinds.map((k, i) => (
+        {shownKinds.map((k, i) => (
           <div key={k} className="flex min-w-0 flex-1 items-stretch gap-2">
             {i > 0 && <div className="grid w-6 shrink-0 place-items-center text-[20px] font-bold text-faint" aria-hidden>→</div>}
-            <PhasePanel kind={k} list={byKind[k]} selected={chosen(k)!} onSelect={(id) => selectCard(k, id)} cards={cards} onOpen={onOpen} />
+            <PhasePanel kind={k} list={byKind[k]} selected={(k === "pi" ? pi : chosen(k))!} onSelect={(id) => selectCard(k, id)} cards={cards} onOpen={onOpen} />
           </div>
         ))}
       </div>

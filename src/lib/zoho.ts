@@ -427,6 +427,9 @@ export async function fetchTrainingInvoices(from: Date): Promise<ZohoInvoice[]> 
     invoiceId: String(doc.invoice_id),
     number: String(doc.invoice_number),
     reference: str(doc.reference_number),
+    dueDate: str(doc.due_date),
+    total: doc.total === undefined ? undefined : Number(doc.total),
+    balance: doc.balance === undefined ? undefined : Number(doc.balance),
     lastModified: String(doc.last_modified_time ?? ""),
   }));
 }

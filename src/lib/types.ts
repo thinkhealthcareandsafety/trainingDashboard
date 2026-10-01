@@ -156,6 +156,9 @@ export interface ZohoInvoice {
   customerName: string;
   salesperson?: string;
   reference?: string; // usually "Performa-25-…"
+  dueDate?: string; // YYYY-MM-DD, set when the invoice is raised
+  total?: number;
+  balance?: number; // still to be paid
   lastModified: string;
   contacts: { name?: string; email?: string; phone?: string; mobile?: string }[];
   items: { name: string; qty: number }[];

@@ -95,14 +95,15 @@ interface Store {
 
   /** Follow-ups board: people using it, and every change they made to a card (revertable). */
   members: Member[];
-  addMember: (name: string) => Member;
+  /** Adds a member (id given when the server already set their PIN under it). */
+  addMember: (name: string, id?: string) => Member;
   cardEvents: CardEvent[];
   addCardEvents: (events: Omit<CardEvent, "id" | "at">[]) => CardEvent[];
   /** Adds ready-made events (e.g. Zoho notices with deterministic ids), skipping ids already recorded. */
   recordCardEvents: (events: CardEvent[]) => void;
   revertCardEvent: (id: string, by: string) => void;
   /** Wipes every card event for the whole team (PIN-locked on the server). */
-  clearCardEvents: (pin: string, by: string) => Promise<{ ok: boolean; cleared?: number; error?: string }>;
+  clearCardEvents: (pin: string, by: string, cardIds?: string[]) => Promise<{ ok: boolean; cleared?: number; error?: string }>;
 
   announcements: Announcement[];
 
@@ -377,11 +378,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addMember = useCallback(
-    (name: string) => {
+    (name: string, id?: string) => {
       const clean = name.trim();
       const existing = members.find((m) => m.name.toLowerCase() === clean.toLowerCase());
       if (existing) return existing;
-      const m: Member = { id: uid(), name: clean, createdAt: new Date().toISOString() };
+      const m: Member = { id: id ?? uid(), name: clean, createdAt: new Date().toISOString() };
       setMembers((cur) => [...cur, m]);
       return m;
     },
@@ -409,16 +410,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setCardEvents((cur) => cur.map((e) => (e.id === id && !e.revertedAt ? { ...e, revertedAt: new Date().toISOString(), revertedBy: by } : e)));
   }, []);
 
-  const clearCardEvents = useCallback(async (pin: string, by: string) => {
+  const clearCardEvents = useCallback(async (pin: string, by: string, cardIds?: string[]) => {
     try {
-      const res = await fetch("/api/store/clear-logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, by }) });
+      const res = await fetch("/api/store/clear-logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, by, ...(cardIds ? { cardIds } : {}) }) });
       const json = (await res.json()) as { ok?: boolean; cleared?: number; error?: string };
       if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Couldn't clear the logs" };
-      // The server copy is gone (except cards added to Potential training); match it here so nothing is pushed back.
+      // Those events are gone on the server (cards added to Potential training are kept); drop them here too,
+      // and from the synced snapshot, so nothing is pushed back or deleted twice.
+      const scope = cardIds ? new Set(cardIds) : null;
+      const cleared = (e: CardEvent) => e.kind !== "add_potential" && (!scope || e.cardIds.some((id) => scope.has(id)));
       setCardEvents((cur) => {
-        const kept = cur.filter((e) => e.kind === "add_potential");
-        synced.current.cardEvents = new Map(kept.map((e) => [e.id, JSON.stringify(e)]));
-        return kept;
+        for (const e of cur) if (cleared(e)) synced.current.cardEvents.delete(e.id);
+        return cur.filter((e) => !cleared(e));
       });
       return { ok: true, cleared: json.cleared };
     } catch (e) {
