@@ -213,6 +213,12 @@ export const SCHEDULE_TONE: Record<ScheduleStatus, { border: string; chip: strin
 export const scheduleText = (s: TrainingSchedule) => (s.status === "tbd" || !s.date ? "To be decided" : dateLong(s.date));
 const todayYmd = () => new Date().toLocaleDateString("en-CA");
 
+// TEMPORARY (Oct 2026): past training dates are allowed so the team can back-fill old trainings.
+// Set to false to go back to “dates can’t be in the past”.
+const ALLOW_PAST_TRAINING_DATES = true;
+const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
+const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
+
 type ScheduleFn = (value: string, trainers?: string[]) => void;
 type BusyFn = (date: string) => Map<string, CardView>;
 
@@ -261,7 +267,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
   // Same date as now: only the trainers change.
   const sameDate = postponing && date === s?.date;
   const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t));
-  const valid = Boolean(date) && date >= todayYmd() && chosen.length > 0 && !unchanged;
+  const valid = dateAllowed(date) && chosen.length > 0 && !unchanged;
   const open = () => {
     setDate(postponing ? s!.date ?? "" : "");
     setTrainers(s?.trainers ?? []);
@@ -311,7 +317,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
           {picking ? (
             <div className="w-full space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} aria-label={postponing ? "New training date" : "Training date"} autoFocus />
+                <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={minTrainingDate()} onChange={(e) => setDate(e.target.value)} aria-label={postponing ? "New training date" : "Training date"} autoFocus />
                 <button className={btn.primary} onClick={save} disabled={!valid}>{sameDate ? "Save trainers" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={btn.quiet} onClick={close}>Cancel</button>
               </div>
@@ -410,14 +416,14 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
         </p>
         <label className="mt-4 block">
           <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Enter date:</span>
-          <input type="date" className={inputCls} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} autoFocus />
+          <input type="date" className={inputCls} value={date} min={minTrainingDate()} onChange={(e) => setDate(e.target.value)} autoFocus />
         </label>
         <div className="mt-3">
           <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} />
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!date || date < todayYmd() || !chosen.length} onClick={() => onSchedule(date, chosen)}>Schedule training</button>
+          <button className={btn.primary} disabled={!dateAllowed(date) || !chosen.length} onClick={() => onSchedule(date, chosen)}>Schedule training</button>
         </div>
       </div>
     </div>
