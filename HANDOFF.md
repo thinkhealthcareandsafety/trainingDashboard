@@ -148,6 +148,8 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
 - **Potential training**: **+** opens a Leads-style modal (search Zoho customers, optional **month or exact date**). Acts like a lead:
   flagged by a new quotation (dated on/after it was added); *Choose & merge* lists all the customer's quotations in the column; merging
   from a potential card only asks for the quotation (no PI step). Survives Clear logs.
+- **Notes** (above Merged): the board's own warnings (PI missing, Deal lost, Not linked yet), then the team's notes — *+ Add a
+  note* / *All notes* window, author can remove (`add_note` events). Notes typed on a lead or quote carry over when it's merged.
 - **Delete** a document card → hidden, customer back in Leads. Leads can't be deleted.
 - **Clear logs** (Admin only, PIN): Everything / One customer / One deal cycle.
 - **Filter** (next to *Show deleted*, both boards; `DateFilter.tsx`): one or several months, or a from–to range. Each card is
@@ -254,7 +256,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | # | Prompt (paraphrased) | Result |
 |---|---|---|
 | 76 | Read HANDOFF.md, summarise | Summary. |
-| 77 | Training dates: pick several days (range or scattered) in one picker; **External trainer** with typed names + suggestions next time; **Filter** button by Show deleted with a date filter (range, a month, or several months) | Built; verified headless with saves blocked; not pushed. |
+| 77 | Training dates: pick several days (range or scattered) in one picker; **External trainer** with typed names + suggestions next time; **Filter** button by Show deleted with a date filter (range, a month, or several months) | Built; verified headless with saves blocked. |
+| 78 | "push to github" | `d68e636`. |
+| 79 | Notes on training-board cards, above Merged, like the AedSmartx ones | Shared `NotesPanel` (both boards); notes follow merges; latest note on one line, Unmerge moved into the Merged header so the modal still fits. |
 
 ---
 

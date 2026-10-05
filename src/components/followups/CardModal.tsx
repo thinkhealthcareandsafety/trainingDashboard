@@ -565,12 +565,98 @@ function DocsSection({ card, options }: { card: CardView; options: BoardOptions 
   );
 }
 
-function NotesSection({ card, options }: { card: CardView; options: BoardOptions }) {
-  const q = card.quote;
-  if (!card.piSkipped && !card.piMissing && !card.waitingOn && !card.lost) return null;
+const noteWhen = (at: string) => `${fmtDate(at, { day: "numeric", month: "short" })}, ${new Date(at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}`;
+
+/**
+ * Notes typed by the team: the latest one on the card; writing a note and reading all of them happen in a small window
+ * on top of the card, so the card itself always fits without scrolling. Authors can remove their own notes (removal stays
+ * in Changes). Shared by both boards; `children` is what the board shows above the latest note.
+ */
+export function NotesPanel({ card, member, heading, oneLine, children }: { card: CardView; member: Member; heading: string; oneLine?: boolean; children?: React.ReactNode }) {
+  const { addCardEvents, revertCardEvent } = useStore();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  useEffect(() => { setOpen(false); setText(""); }, [card.id]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") (e.stopPropagation(), setOpen(false)); };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+  const notes = card.notes ?? [];
+  const latest = notes[0];
+  const save = () => {
+    const t = text.trim();
+    if (!t) return;
+    addCardEvents([{ cardIds: [card.id], kind: "add_note", value: t, by: member.name }]);
+    setText("");
+  };
   return (
-    <Section title="Notes">
-      <div className="space-y-2.5 text-[14px] text-ink-2">
+    <Section title="Notes" aside={<button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>+ Add a note</button>}>
+      {children}
+      {latest && oneLine ? (
+        // Training board: the latest note on one line (the left column is the tight one); the full text is in All notes.
+        <div className={`${children ? "mt-2" : ""} flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-1.5 text-[13.5px] text-ink-2`}>
+          <span className="min-w-0 flex-1 truncate" title={latest.text}>{latest.text}</span>
+          <span className="shrink-0 text-[11.5px] text-muted">{latest.by.split(" ")[0]} · {noteWhen(latest.at)}</span>
+          <button className="shrink-0 text-[11.5px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>{notes.length > 1 ? `All notes (${notes.length})` : "Open"}</button>
+        </div>
+      ) : latest ? (
+        <div className={`${children ? "mt-2" : ""} rounded-lg bg-surface-2 px-3 py-1.5 text-[13.5px] text-ink-2`}>
+          <div className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{latest.text}</div>
+          <div className="flex items-center justify-between gap-2 text-[11.5px] text-muted">
+            <span>{latest.by} · {noteWhen(latest.at)}</span>
+            <button className="font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>{notes.length > 1 ? `All notes (${notes.length})` : "Open"}</button>
+          </div>
+        </div>
+      ) : (
+        !children && <p className="text-[13.5px] text-faint">No notes yet.</p>
+      )}
+      {open && (
+        <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={() => setOpen(false)}>
+          <div role="alertdialog" aria-label="Notes" className="modal-in flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-[16px] font-bold tracking-tight text-ink">Notes · {heading}</h3>
+              <button className={btn.quiet} onClick={() => setOpen(false)}>Close</button>
+            </div>
+            <textarea
+              className={`${inputCls} mt-3 min-h-[80px] py-2 text-[13.5px]`}
+              placeholder={`Write a note for ${heading}…`}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) save(); }}
+              autoFocus
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <button className={btn.primary} onClick={save} disabled={!text.trim()}>Save note</button>
+              <span className="ml-auto text-[11.5px] text-faint">Ctrl + Enter to save</span>
+            </div>
+            <ul className="no-scrollbar mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto">
+              {notes.length === 0 && <li className="text-[13px] text-faint">No notes yet.</li>}
+              {notes.map((n) => (
+                <li key={n.id} className="rounded-lg bg-surface-2 px-3 py-2 text-[13.5px] text-ink-2">
+                  <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{n.text}</div>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[11.5px] text-muted">
+                    <span>{n.by} · {noteWhen(n.at)}</span>
+                    {n.by === member.name && <button className="font-medium hover:text-high" onClick={() => revertCardEvent(n.id, member.name)}>Remove</button>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/** Notes: what the board itself flags (PI missing, deal lost, not linked yet), then the team's own notes. */
+function NotesSection({ card, member, options }: { card: CardView; member: Member; options: BoardOptions }) {
+  const q = card.quote;
+  const flagged = Boolean(card.piSkipped || card.piMissing || card.waitingOn || card.lost);
+  return (
+    <NotesPanel card={card} member={member} heading={isCustomerCard(card.kind) ? card.name : card.docNumber ?? card.name} oneLine>
+      {flagged && <div className="space-y-2.5 text-[14px] text-ink-2">
         {card.lost && q && (
           <p className="rounded-lg border border-high/30 bg-high-bg px-3 py-2.5">
             <b className="text-high">Deal lost.</b> This quotation was declined in Zoho Books. Please click{" "}
@@ -604,8 +690,8 @@ function NotesSection({ card, options }: { card: CardView; options: BoardOptions
             <b className="text-medium">Not linked yet.</b> {card.waitingOn}
           </p>
         )}
-      </div>
-    </Section>
+      </div>}
+    </NotesPanel>
   );
 }
 
@@ -614,7 +700,17 @@ function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards
   if (card.historyIds.length < 2) return null;
   const chain = [...card.historyIds].map((id) => cards.get(id)).filter((c): c is CardView => !!c).sort((a, b) => STAGE_RANK[a.kind] - STAGE_RANK[b.kind]);
   return (
-    <Section title="Merged">
+    <Section
+      title="Merged"
+      // Unmerge sits in the header so the section takes one row less (Notes sits above it).
+      aside={onUnmerge && card.mergedFrom.length > 0 && (
+        <span className="flex flex-wrap justify-end gap-x-3">
+          {card.mergedFrom.map((id) => (
+            <button key={id} className="text-[13px] font-medium text-muted hover:text-ink hover:underline" onClick={() => onUnmerge(id)}>Unmerge {isCustomerCard(kindOfId(id)) ? KIND_LABEL[kindOfId(id)] : cardLabel(cards.get(id))}</button>
+          ))}
+        </span>
+      )}
+    >
       <div className="flex flex-wrap items-center gap-2">
         {chain.map((c, i) => (
           <span key={c.id} className="inline-flex items-center gap-2">
@@ -624,13 +720,6 @@ function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards
           </span>
         ))}
       </div>
-      {onUnmerge && card.mergedFrom.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {card.mergedFrom.map((id) => (
-            <button key={id} className={btn.quiet} onClick={() => onUnmerge(id)}>Unmerge {isCustomerCard(kindOfId(id)) ? KIND_LABEL[kindOfId(id)] : cardLabel(cards.get(id))}</button>
-          ))}
-        </div>
-      )}
     </Section>
   );
 }
@@ -980,7 +1069,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
         <div className="grid gap-3 xl:grid-cols-2">
           <div className="space-y-3">
             {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
-            <NotesSection card={card} options={options} />
+            <NotesSection card={card} member={member} options={options} />
             <ChainSection card={card} cards={cards} onUnmerge={unmerge} />
             <PaymentSection card={card} cards={cards} />
           </div>

@@ -440,6 +440,12 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   const lineage = (id: string): string[] => [id, ...(mergedFrom.get(id) ?? []).flatMap(lineage)];
   for (const c of cards.values()) c.historyIds = lineage(c.id);
 
+  // Notes travel with merges too: a note typed on the lead shows on the quotation it was merged into, and so on. Newest first.
+  for (const c of cards.values()) {
+    c.notes = c.historyIds.flatMap((id) => byCard.get(id) ?? []).filter((e) => e.kind === "add_note" && e.value)
+      .sort((a, b) => b.at.localeCompare(a.at)).map((e) => ({ id: e.id, text: e.value!, by: e.by, at: e.at }));
+  }
+
   // Training dates (and completion) come from the card's whole lineage, so they travel with merges.
   for (const c of cards.values()) {
     if (isCustomerCard(c.kind)) continue;
