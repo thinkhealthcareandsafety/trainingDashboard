@@ -158,7 +158,9 @@ export function busyTrainers(date: string, cards: Map<string, CardView>, selfId:
 export const leadCardId = (contactId: string) => `lead:${contactId}`;
 export const potentialCardId = (id: string) => `potential:${id}`;
 /** "2026-11" → "Nov 2026". */
-export const fmtMonth = (ym?: string) => (ym ? fmtDate(`${ym}-01`, { month: "short", year: "numeric" }) : "");
+/** Potential training's expected time: a month ("2026-11" → "Nov 2026") or an exact date ("2026-11-05" → "5 Nov 2026"). */
+export const fmtMonth = (v?: string) =>
+  !v ? "" : v.length === 10 ? fmtDate(v, { day: "numeric", month: "short", year: "numeric" }) : fmtDate(`${v}-01`, { month: "short", year: "numeric" });
 export const quoteCardId = (estimateId: string) => `quote:${estimateId}`;
 export const piCardId = (salesorderId: string) => `pi:${salesorderId}`;
 export const invoiceCardId = (invoiceId: string) => `invoice:${invoiceId}`;

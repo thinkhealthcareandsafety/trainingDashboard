@@ -9,7 +9,7 @@ import {
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
-import { Avatar, IconButton, btn, inputCls, selectCls } from "../ui";
+import { Avatar, IconButton, Segmented, btn, inputCls, selectCls } from "../ui";
 
 export type BoardOptions = { typeOptions: string[]; sectorOptions: string[]; orgId?: string };
 type Cards = Map<string, CardView>;
@@ -126,8 +126,25 @@ export function ContactSection({ card }: { card: CardView }) {
 const thisMonth = () => new Date().toLocaleDateString("en-CA").slice(0, 7);
 
 /** Month picker for the rough training date ("vague": a month, not a day). */
+/** Expected training: a rough month, or an exact date when it's known ("YYYY-MM" / "YYYY-MM-DD"). */
 function MonthInput({ value, onChange, autoFocus }: { value: string; onChange: (v: string) => void; autoFocus?: boolean }) {
-  return <input type="month" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={value} min={thisMonth()} onChange={(e) => onChange(e.target.value)} aria-label="Expected training month" autoFocus={autoFocus} />;
+  const [mode, setMode] = useState<"month" | "date">(value.length === 10 ? "date" : "month");
+  const switchTo = (m: "month" | "date") => {
+    setMode(m);
+    // An exact date keeps its month; a month doesn't guess a day.
+    onChange(m === "month" ? value.slice(0, 7) : "");
+  };
+  const cls = `${inputCls} !h-9 !w-auto text-[13px]`;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Segmented value={mode} onChange={switchTo} options={[{ value: "month", label: "Month" }, { value: "date", label: "Exact date" }]} />
+      {mode === "month" ? (
+        <input type="month" className={cls} value={value.slice(0, 7)} min={thisMonth()} onChange={(e) => onChange(e.target.value)} aria-label="Expected training month" autoFocus={autoFocus} />
+      ) : (
+        <input type="date" className={cls} value={value.length === 10 ? value : ""} min={new Date().toLocaleDateString("en-CA")} onChange={(e) => onChange(e.target.value)} aria-label="Expected training date" autoFocus={autoFocus} />
+      )}
+    </div>
+  );
 }
 
 /** Potential training: the rough month the training might happen, changeable any time. */
@@ -154,7 +171,7 @@ function PotentialSection({ card, onChange }: { card: CardView; onChange?: (mont
               </>
             ) : (
               <>
-                <button className={btn.ghost} onClick={() => { setMonth(expected ?? ""); setEditing(true); }}>{expected ? "Change month" : "Set month"}</button>
+                <button className={btn.ghost} onClick={() => { setMonth(expected ?? ""); setEditing(true); }}>{expected ? "Change" : "Set month or date"}</button>
                 {expected && <button className={btn.quiet} onClick={() => onChange("")}>Clear</button>}
               </>
             )}
@@ -1224,7 +1241,7 @@ export function AddPotentialModal({ cards, member, onClose }: { cards: Cards; me
               </div>
             </div>
             <p className="mt-2 text-[13px] text-muted">
-              Optional — a rough month, kept for reminders later; change it any time. The card stays in Potential training until a new quotation for this customer syncs from Zoho Books, then it can be merged into it like a lead.
+              Optional — a rough month, or an exact date if it's known; kept for reminders later and changeable any time. The card stays in Potential training until a new quotation for this customer syncs from Zoho Books, then it can be merged into it like a lead.
             </p>
           </Section>
         </div>
