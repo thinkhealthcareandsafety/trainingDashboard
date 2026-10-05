@@ -29,3 +29,13 @@ const secure = (request: Request) => new URL(request.url).protocol === "https:" 
 export const sessionCookie = (token: string, request: Request) =>
   `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${YEAR}${secure(request) ? "; Secure" : ""}`;
 export const clearedCookie = (request: Request) => `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure(request) ? "; Secure" : ""}`;
+
+/** The signed-in member's id and name (from the server's member list, not from the browser), or null. */
+export async function signedInMember(request: Request): Promise<{ id: string; name: string } | null> {
+  const id = memberIdOf(request);
+  if (!id) return null;
+  if (id === "admin") return { id, name: "Admin" };
+  const { db } = await import("./db");
+  const m = await (await db()).collection<{ _id: string; name?: string }>("members").findOne({ _id: id });
+  return m?.name ? { id, name: m.name } : null;
+}

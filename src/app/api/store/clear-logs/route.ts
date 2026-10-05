@@ -1,5 +1,5 @@
 import { db, mongoConfigured } from "@/lib/db";
-import { memberIdOf } from "@/lib/auth";
+import { memberIdOf, signedInMember } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,8 @@ export async function POST(request: Request) {
   if (!mongoConfigured()) return Response.json({ error: "Shared storage isn't configured" }, { status: 400 });
   const expected = process.env.CLEAR_LOGS_PIN || process.env.ADMIN_PIN;
   if (!expected) return Response.json({ error: "Clearing logs is disabled (no PIN set on the server)" }, { status: 403 });
-  const { pin, by, cardIds } = (await request.json().catch(() => ({}))) as { pin?: unknown; by?: unknown; cardIds?: unknown };
+  const { pin, cardIds } = (await request.json().catch(() => ({}))) as { pin?: unknown; cardIds?: unknown };
+  const by = (await signedInMember(request))?.name ?? "Admin"; // recorded by the server, not the browser
   const scope = Array.isArray(cardIds) ? cardIds.filter((x): x is string => typeof x === "string") : null;
   if (scope && !scope.length) return Response.json({ error: "Nothing selected to clear" }, { status: 400 });
   if (String(pin ?? "") !== expected) {
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     const events = await d.collection("cardEvents").find({ kind: { $ne: "add_potential" }, ...(scope ? { cardIds: { $in: scope } } : {}) }).toArray();
     if (events.length) {
       const clearedAt = new Date().toISOString();
-      const clearedBy = typeof by === "string" ? by : "";
+      const clearedBy = by;
       await d.collection("cardEventsArchive").insertMany(events.map(({ _id, ...e }) => ({ ...e, eventId: _id, clearedAt, clearedBy })));
       await d.collection("cardEvents").deleteMany({ _id: { $in: events.map((e) => e._id) } });
     }

@@ -8,7 +8,7 @@ import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
 import { btn, inputCls } from "../ui";
 import {
-  type BoardOptions, type Draft, ChangeLog, ContactSection, CustomerSection, DueChip, Editor, Header, Lock, Row, SCHEDULE_TONE, SalesSection,
+  type BoardOptions, type Draft, ChangeLog, ContactSection, CustomerSection, DueChip, Editor, Header, Lock, Row, SCHEDULE_TONE,
   Section, Shell, dateAllowed, diff, minTrainingDate,
 } from "./CardModal";
 
@@ -140,6 +140,87 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
   );
 }
 
+const noteWhen = (at: string) => `${fmtDate(at, { day: "numeric", month: "short" })}, ${new Date(at).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}`;
+
+/**
+ * Notes: the clickable invoice and the latest note. Writing a note and reading all of them happen in a small window
+ * on top of the card, so the card itself always fits without scrolling. Authors can remove their own notes
+ * (removal stays in Changes).
+ */
+function NotesSection({ card, member, options }: { card: CardView; member: Member; options: BoardOptions }) {
+  const { addCardEvents, revertCardEvent } = useStore();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  useEffect(() => { setOpen(false); setText(""); }, [card.id]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") (e.stopPropagation(), setOpen(false)); };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+  const inv = card.invoice!;
+  const notes = card.notes ?? [];
+  const latest = notes[0];
+  const save = () => {
+    const t = text.trim();
+    if (!t) return;
+    addCardEvents([{ cardIds: [card.id], kind: "add_note", value: t, by: member.name }]);
+    setText("");
+  };
+  return (
+    <Section title="Notes" aside={<button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>+ Add a note</button>}>
+      <p className="text-[14px] text-ink-2">
+        Invoice{" "}
+        <a href={zohoUrl("invoice", inv.invoiceId, options.orgId)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">{inv.number}</a>
+        {" "}— open it in Zoho Books.
+      </p>
+      {latest && (
+        <div className="mt-2 rounded-lg bg-surface-2 px-3 py-1.5 text-[13.5px] text-ink-2">
+          <div className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{latest.text}</div>
+          <div className="flex items-center justify-between gap-2 text-[11.5px] text-muted">
+            <span>{latest.by} · {noteWhen(latest.at)}</span>
+            <button className="font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>{notes.length > 1 ? `All notes (${notes.length})` : "Open"}</button>
+          </div>
+        </div>
+      )}
+      {open && (
+        <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={() => setOpen(false)}>
+          <div role="alertdialog" aria-label="Notes" className="modal-in flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-[16px] font-bold tracking-tight text-ink">Notes · {inv.number}</h3>
+              <button className={btn.quiet} onClick={() => setOpen(false)}>Close</button>
+            </div>
+            <textarea
+              className={`${inputCls} mt-3 min-h-[80px] py-2 text-[13.5px]`}
+              placeholder="Write a note for this invoice…"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) save(); }}
+              autoFocus
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <button className={btn.primary} onClick={save} disabled={!text.trim()}>Save note</button>
+              <span className="ml-auto text-[11.5px] text-faint">Ctrl + Enter to save</span>
+            </div>
+            <ul className="no-scrollbar mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto">
+              {notes.length === 0 && <li className="text-[13px] text-faint">No notes yet.</li>}
+              {notes.map((n) => (
+                <li key={n.id} className="rounded-lg bg-surface-2 px-3 py-2 text-[13.5px] text-ink-2">
+                  <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{n.text}</div>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[11.5px] text-muted">
+                    <span>{n.by} · {noteWhen(n.at)}</span>
+                    {n.by === member.name && <button className="font-medium hover:text-high" onClick={() => revertCardEvent(n.id, member.name)}>Remove</button>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 /**
  * Resale: this one invoice was bought for resale, or the whole customer is a reseller (every AED invoice of theirs,
  * now and later). Either moves the invoice to Training not required; unticking reverts it.
@@ -264,6 +345,7 @@ function AedDocsSection({ card, options }: { card: CardView; options: BoardOptio
   return (
     <Section title="IDs & dates" aside={<span className="inline-flex items-center gap-1 text-[12px] text-faint"><Lock /> from Zoho Books — read only</span>}>
       <dl>
+        <Row label="Sales person">{card.invoice?.salesperson ?? <span className="text-faint">—</span>}</Row>
         <Row label="Sales Order / PI">{inv.reference ?? <span className="text-faint">—</span>}</Row>
         <Row label="Invoice">
           <a href={zohoUrl("invoice", inv.invoiceId, options.orgId)} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">{inv.number}</a> · {dateLong(inv.date)}
@@ -312,14 +394,7 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
       <div className="grid gap-3 p-4 xl:grid-cols-2">
         <div className="space-y-3">
           {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
-          <Section title="Notes">
-            <p className="text-[14px] text-ink-2">
-              Invoice{" "}
-              <a href={zohoUrl("invoice", inv.invoiceId, options.orgId)} target="_blank" rel="noreferrer" className="font-semibold text-brand underline">{inv.number}</a>
-              {" "}— open it in Zoho Books.
-            </p>
-          </Section>
-          <SalesSection card={card} />
+          <NotesSection card={card} member={member} options={options} />
           <AedDocsSection card={card} options={options} />
         </div>
         <div className="space-y-3">

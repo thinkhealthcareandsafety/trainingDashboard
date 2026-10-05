@@ -94,6 +94,8 @@ export interface CardView {
   resale?: boolean;
   /** AedSmartx board: the AED was delivered (who marked it, when) — the card is ready for scheduling. */
   delivered?: { at: string; by: string };
+  /** Notes typed on the card, newest first. */
+  notes?: { id: string; text: string; by: string; at: string }[];
   /** AedSmartx board: what the invoice's AED lines say (model, serials, expiries) and the extras sold with them. */
   aed?: { lines: AedDetails[]; extras: AedExtra[] };
 }
@@ -645,6 +647,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_potential_date": return `Expected training: ${fmtMonth(e.before) || "not set"} → ${fmtMonth(v) || "not set"}`;
     case "set_not_required": return "Marked Training not required — moved to Training not required";
     case "set_delivered": return "Marked as delivered — ready for scheduling";
+    case "add_note": return `Note: “${v}”`;
     case "set_resale": return `Marked ${e.before ?? "this invoice"} for resale — moved to Training not required`;
     case "set_reseller": return `Marked ${e.before ?? "the customer"} as a Reseller — all their AED invoices moved to Training not required`;
   }
@@ -710,6 +713,7 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
       schedule: scheduleOf(evs), reseller: resellers.has(inv.customerId), resale: evs.some((e) => e.kind === "set_resale"),
       notRequired: resellers.has(inv.customerId) || evs.some((e) => e.kind === "set_not_required" || e.kind === "set_resale"),
       delivered: (() => { const d = evs.filter((e) => e.kind === "set_delivered").at(-1); return d ? { at: d.at, by: d.by } : undefined; })(),
+      notes: evs.filter((e) => e.kind === "add_note" && e.value).map((e) => ({ id: e.id, text: e.value!, by: e.by, at: e.at })).reverse(),
       aed: { lines, extras: aedExtras(inv) },
     };
     card.search = [card.name, ...card.aliases, ...emails.map((e) => e.value), ...phones.map((p) => p.value), ...phones.map((p) => normPhone(p.value)),
