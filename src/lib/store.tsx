@@ -5,6 +5,7 @@ import type { Announcement, CalendarEntry, CardEvent, FollowUp, FollowUpActivity
 import { addDays, ymd } from "./dates";
 import { followUpsFromPipeline, followUpsFromTrainings, seedManualFollowUps } from "./followups";
 import { buildTickerItems } from "./ticker";
+import { useSession } from "./session";
 
 // Calendar entries, follow-ups and announcements are cached in the browser and, when the server has
 // MONGODB_URI configured, shared with the whole team through /api/store (only changed documents are sent).
@@ -128,6 +129,8 @@ export function newId() {
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  // The team data and Zoho data need a signed-in session (the API refuses otherwise).
+  const { verified } = useSession();
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [data, setData] = useState<TrainingsResponse | null>(null);
@@ -179,7 +182,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!verified) setRemote(false); // signed out: stop syncing team data
+  }, [verified]);
+
+  useEffect(() => {
+    if (!hydrated || !verified) return;
     let stop = false;
     const pull = async (first: boolean) => {
       try {
@@ -203,7 +210,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       stop = true;
       clearInterval(t);
     };
-  }, [hydrated, applyServer]);
+  }, [hydrated, verified, applyServer]);
 
   const push = useCallback((c: SharedName, docs: SharedDoc[]) => {
     const prev = synced.current[c];
@@ -267,6 +274,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!verified) return;
     const pullMeta = () =>
       fetch("/api/zoho/meta", { cache: "no-store" })
         .then((r) => r.json())
@@ -275,18 +283,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     pullMeta();
     const t = setInterval(pullMeta, 5 * 60_000);
     return () => clearInterval(t);
-  }, []);
+  }, [verified]);
 
   // Initial load + near-real-time polling every 5 minutes; clock ticks every minute.
   useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(tick);
+  }, []);
+  useEffect(() => {
+    if (!verified) return;
     refresh();
     const poll = setInterval(() => refresh(), 5 * 60_000);
-    const tick = setInterval(() => setNow(new Date()), 60_000);
-    return () => {
-      clearInterval(poll);
-      clearInterval(tick);
-    };
-  }, [refresh]);
+    return () => clearInterval(poll);
+  }, [refresh, verified]);
 
   // Reconcile with the current data source:
   // - once Zoho is live, sample (demo) items disappear;

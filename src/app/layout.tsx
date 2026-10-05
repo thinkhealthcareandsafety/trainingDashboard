@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { StoreProvider } from "@/lib/store";
+import { SessionProvider } from "@/lib/session";
 import { AppShell } from "@/components/AppShell";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -21,9 +22,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-full">
-        <StoreProvider>
-          <AppShell>{children}</AppShell>
-        </StoreProvider>
+        <SessionProvider>
+          <StoreProvider>
+            <AppShell>{children}</AppShell>
+          </StoreProvider>
+        </SessionProvider>
       </body>
     </html>
   );

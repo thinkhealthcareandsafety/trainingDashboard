@@ -1,4 +1,5 @@
 import { db, mongoConfigured } from "@/lib/db";
+import { memberIdOf } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 // The PIN lives in CLEAR_LOGS_PIN (or, if unset, ADMIN_PIN) on the server; cleared events are copied to cardEventsArchive first.
 // Cards added by hand to Potential training (add_potential) are kept — they aren't in Zoho to come back from.
 export async function POST(request: Request) {
+  // Admin only: signed in as Admin, and the PIN again.
+  if (memberIdOf(request) !== "admin") return Response.json({ error: "Only Admin can clear logs" }, { status: 403 });
   if (!mongoConfigured()) return Response.json({ error: "Shared storage isn't configured" }, { status: 400 });
   const expected = process.env.CLEAR_LOGS_PIN || process.env.ADMIN_PIN;
   if (!expected) return Response.json({ error: "Clearing logs is disabled (no PIN set on the server)" }, { status: 403 });

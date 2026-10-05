@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
+import { useSession } from "@/lib/session";
+import { MembersScreen } from "./followups/MembersScreen";
+import { Avatar, btn } from "./ui";
+import type { Member } from "@/lib/types";
 import { Ticker } from "./Ticker";
 import { effectiveStatus } from "@/lib/followups";
 
@@ -85,14 +89,45 @@ function useSidebar() {
   return { hidden, hide: () => set(true), show: () => set(false) };
 }
 
+/** The whole site starts here when nobody is signed in: name + PIN, then the Dashboard. */
+function SignInPage({ onSignIn }: { onSignIn: (m: Member, token: string) => void }) {
+  return (
+    <div className="grid min-h-screen place-items-center px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="mb-6 flex items-center justify-center gap-2.5">
+          <span className="grid size-9 place-items-center rounded-xl bg-brand text-[14px] font-bold text-brand-ink">TH</span>
+          <span className="text-[18px] font-semibold tracking-tight">ThinkHealth Training Dashboard</span>
+        </div>
+        <MembersScreen onPick={onSignIn} />
+      </div>
+    </div>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const sidebar = useSidebar();
+  // Every page needs a signed-in member (the data behind them is protected).
+  const session = useSession();
   const { now, followUps, toasts, dismissToast, storage, ready } = useStore();
   // Only mention storage when something is wrong (team database not reachable).
   const storageWarn = ready && storage !== "team";
   const overdue = followUps.filter((f) => effectiveStatus(f, now) === "overdue").length;
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  const router = useRouter();
+
+  // One sign-in for the whole site, before anything else shows; after it, the Dashboard is the landing page.
+  if (!session.ready) return null;
+  if (!session.member) {
+    return (
+      <SignInPage
+        onSignIn={(m, token) => {
+          session.signIn(m, token);
+          router.replace("/");
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -116,7 +151,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {n.href === "/follow-up" && overdue > 0 && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-high" />}
               </Link>
             ))}
-            <button onClick={toggleTheme} aria-label="Appearance" title="Appearance" className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
+            <button onClick={session.signOut} aria-label="Sign out" title={`Sign out (${session.member.name})`} className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
+              <Icon><path d="M8 4.5H5.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H8M12 13.5 15.5 10 12 6.5M15.5 10H8" /></Icon>
+            </button>
+            <button onClick={toggleTheme} aria-label="Appearance" title="Appearance" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
             </button>
           </aside>
@@ -149,6 +187,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ))}
           </nav>
           <div className="mt-auto space-y-1 border-t border-line pt-3">
+            <div className="flex items-center gap-2.5 px-2.5 py-1.5">
+              <Avatar name={session.member.name} />
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-2">{session.member.name}</span>
+              <button onClick={session.signOut} className="rounded-md px-1.5 py-0.5 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink">Sign out</button>
+            </div>
             <SyncStatus />
             {storageWarn && <StorageStatus />}
             <button onClick={toggleTheme} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
@@ -203,6 +246,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Who is signed in, with Sign out (also how you switch person) — top right of every page. */
+export function MemberPill() {
+  const { member, signOut } = useSession();
+  if (!member) return null;
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
+      <Avatar name={member.name} />
+      <span className="font-medium text-ink">{member.name}</span>
+      <button className={btn.quiet} onClick={signOut} title="Sign out, or switch to someone else">Sign out</button>
+    </span>
+  );
+}
+
 export function PageHeader({ title, sub, actions }: { title: string; sub?: string; actions?: React.ReactNode }) {
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
@@ -210,7 +266,10 @@ export function PageHeader({ title, sub, actions }: { title: string; sub?: strin
         <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.025em]">{title}</h1>
         {sub && <p className="mt-1.5 max-w-2xl text-[14px] text-muted">{sub}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      <div className="flex flex-wrap items-center gap-2">
+        {actions}
+        <MemberPill />
+      </div>
     </div>
   );
 }

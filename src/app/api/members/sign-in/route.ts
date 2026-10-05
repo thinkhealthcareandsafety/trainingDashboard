@@ -1,4 +1,5 @@
 import { mongoConfigured } from "@/lib/db";
+import { sessionCookie } from "@/lib/auth";
 import { ADMIN_ID, adminPinOk, checkMemberPin, lockedFor, noteFailure, noteSuccess, sessionToken } from "@/lib/pins";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,8 @@ export async function POST(request: Request) {
     if (!process.env.ADMIN_PIN) return Response.json({ error: "Admin sign-in is disabled (no ADMIN_PIN on the server)" }, { status: 403 });
     if (!adminPinOk(pin)) return (await noteFailure(memberId), Response.json({ error: "Wrong PIN" }, { status: 403 }));
     noteSuccess(memberId);
-    return Response.json({ ok: true, token: sessionToken(memberId) });
+    const token = sessionToken(memberId);
+    return Response.json({ ok: true, token }, { headers: { "Set-Cookie": sessionCookie(token, request) } });
   }
 
   if (!mongoConfigured()) return Response.json({ error: "Shared storage isn't configured" }, { status: 400 });
@@ -24,7 +26,8 @@ export async function POST(request: Request) {
     if (result === "unset") return Response.json({ error: "No PIN is set for this member yet — ask the admin to set one." }, { status: 409 });
     if (result === "wrong") return (await noteFailure(memberId), Response.json({ error: "Wrong PIN" }, { status: 403 }));
     noteSuccess(memberId);
-    return Response.json({ ok: true, token: sessionToken(memberId) });
+    const token = sessionToken(memberId);
+    return Response.json({ ok: true, token }, { headers: { "Set-Cookie": sessionCookie(token, request) } });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Database error" }, { status: 502 });
   }

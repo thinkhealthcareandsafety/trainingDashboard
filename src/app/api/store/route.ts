@@ -1,11 +1,13 @@
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
+import { memberIdOf, unauthorized } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 type Doc = { id: string } & Record<string, unknown>;
 
 // GET: everything the team shares. Documents are stored with _id = our id.
-export async function GET() {
+export async function GET(request: Request) {
+  if (!memberIdOf(request)) return unauthorized();
   if (!mongoConfigured()) return Response.json({ enabled: false });
   try {
     const d = await db();
@@ -22,6 +24,7 @@ export async function GET() {
 
 // POST: { collection, upserts: Doc[], deletes: string[] } — only what changed.
 export async function POST(request: Request) {
+  if (!memberIdOf(request)) return unauthorized();
   if (!mongoConfigured()) return Response.json({ enabled: false }, { status: 400 });
   const body = (await request.json()) as { collection: CollectionName; upserts?: Doc[]; deletes?: string[] };
   if (!COLLECTIONS.includes(body.collection)) return Response.json({ error: "Unknown collection" }, { status: 400 });

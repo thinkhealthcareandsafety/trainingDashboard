@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Member } from "@/lib/types";
-import { useStore } from "@/lib/store";
 import { Avatar, btn, inputCls } from "../ui";
 
 /** Signs in as the admin (PIN in ADMIN_PIN on the server); changes are recorded as "Admin". */
@@ -43,8 +42,20 @@ const ShieldBadge = () => (
 );
 
 /** Shown every time Follow-ups opens: pick who you are and enter your PIN. Changes are recorded under this name. */
+/** Names for the sign-in screen (a public list: names only). */
+function useMemberNames() {
+  const [members, setMembers] = useState<Member[]>([]);
+  useEffect(() => {
+    fetch("/api/members", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { members?: Member[] }) => setMembers(j.members ?? []))
+      .catch(() => {});
+  }, []);
+  return members;
+}
+
 export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) => void }) {
-  const { members, addMember } = useStore();
+  const members = useMemberNames();
   const [who, setWho] = useState<Member | null>(null);
   const [adding, setAdding] = useState(false);
   const [pin, setPin] = useState("");
@@ -89,18 +100,18 @@ export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) =
     if (adminPin.length !== 4) return setError("Enter the admin PIN to add a member.");
     setBusy(true);
     const id = newId();
-    const r = await post("/api/members/pin", { adminPin, memberId: id, pin: newPin });
+    const r = await post("/api/members/pin", { adminPin, memberId: id, pin: newPin, name: clean });
     if (!r.ok) return (setBusy(false), setError(r.error ?? "Couldn't add the member"));
     // Signed straight in as the new member.
     const s = await post("/api/members/sign-in", { memberId: id, pin: newPin });
     setBusy(false);
-    const m = addMember(clean, id);
+    const m: Member = { id, name: clean, createdAt: new Date().toISOString() };
     if (s.ok && s.token) onPick(m, s.token);
     else setError(s.error ?? "Added — now pick the name to sign in.");
   };
 
   return (
-    <div className="mx-auto mt-10 max-w-md">
+    <div className="mx-auto w-full max-w-md">
       <div className="card p-6">
         {who ? (
           <form onSubmit={(e) => { e.preventDefault(); void signIn(pin); }}>
@@ -148,7 +159,7 @@ export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) =
           </form>
         ) : (
           <>
-            <h1 className="text-[20px] font-semibold tracking-tight">Who&apos;s working on follow-ups?</h1>
+            <h1 className="text-[20px] font-semibold tracking-tight">Sign in</h1>
             <p className="mt-1 text-[13px] text-muted">Pick your name and enter your PIN. Every change you make is recorded under your name.</p>
             {sorted.length > 0 ? (
               <ul className="mt-5 space-y-1.5">

@@ -5,8 +5,8 @@ import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
 import { type CardView, STAGE_RANK, buildAedBoard, isAedBoardUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
+import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
-import { MembersScreen } from "./followups/MembersScreen";
 import { AedCardModal } from "./followups/AedModal";
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
@@ -740,47 +740,9 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
 
 /* ---------------- Page: pick a member first, every time Follow-ups opens ---------------- */
 
-// Signed in stays signed in — across tabs, pages and browser restarts — until "Sign out". The token is issued by
-// the server at sign-in and checked again whenever the page opens.
-const SESSION_KEY = "th.session";
-type Session = { member: Member; token: string };
-function readSession(): Session | null {
-  try {
-    const s = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null") as Session | null;
-    return s?.member?.id && s.token ? s : null;
-  } catch {
-    return null;
-  }
-}
-function writeSession(s: Session | null) {
-  try {
-    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-    else localStorage.removeItem(SESSION_KEY);
-  } catch {}
-}
-
 export function FollowUpBoard({ initialQuery = "" }: { initialQuery?: string; initialOpen?: string | null }) {
-  const [member, setMember] = useState<Member | null>(null);
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    const s = readSession();
-    if (s) {
-      setMember(s.member);
-      // A token the server doesn't recognise signs out; being offline doesn't.
-      fetch("/api/members/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: s.token }) })
-        .then(async (r) => {
-          const j = (await r.json().catch(() => ({}))) as { ok?: boolean; memberId?: string };
-          if (r.status === 401 || (j.ok && j.memberId !== s.member.id)) (writeSession(null), setMember(null));
-        })
-        .catch(() => {});
-    }
-    setReady(true);
-    // Signing in or out in another tab applies here too.
-    const onStorage = (e: StorageEvent) => e.key === SESSION_KEY && setMember(readSession()?.member ?? null);
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-  if (!ready) return null;
-  if (!member) return <MembersScreen onPick={(m, token) => { writeSession({ member: m, token }); setMember(m); }} />;
-  return <Board member={member} onSignOut={() => { writeSession(null); setMember(null); }} initialQuery={initialQuery} />;
+  // The app shell shows the sign-in screen until someone is signed in.
+  const { member, signOut } = useSession();
+  if (!member) return null;
+  return <Board member={member} onSignOut={signOut} initialQuery={initialQuery} />;
 }

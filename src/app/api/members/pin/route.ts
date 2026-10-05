@@ -1,12 +1,13 @@
-import { mongoConfigured } from "@/lib/db";
+import { db, mongoConfigured } from "@/lib/db";
 import { ADMIN_ID, adminPinOk, lockedFor, noteFailure, noteSuccess, setMemberPin, validPin } from "@/lib/pins";
 
 export const dynamic = "force-dynamic";
 
-// POST { adminPin, memberId, pin }: sets (or resets) a member's 4-digit Follow-ups PIN. Admin only.
+// POST { adminPin, memberId, pin, name? }: sets (or resets) a member's 4-digit PIN. Admin only.
+// With a name, it also creates the member (new members are added here, by the admin, not by the browser).
 export async function POST(request: Request) {
   if (!mongoConfigured()) return Response.json({ error: "Shared storage isn't configured" }, { status: 400 });
-  const { adminPin, memberId, pin } = (await request.json().catch(() => ({}))) as { adminPin?: unknown; memberId?: unknown; pin?: unknown };
+  const { adminPin, memberId, pin, name } = (await request.json().catch(() => ({}))) as { adminPin?: unknown; memberId?: unknown; pin?: unknown; name?: unknown };
   if (typeof memberId !== "string" || !memberId || memberId === ADMIN_ID) return Response.json({ error: "Unknown member" }, { status: 400 });
   if (!validPin(pin)) return Response.json({ error: "The PIN must be 4 digits." }, { status: 400 });
   const wait = lockedFor(ADMIN_ID);
@@ -15,6 +16,11 @@ export async function POST(request: Request) {
   noteSuccess(ADMIN_ID);
   try {
     await setMemberPin(memberId, pin);
+    const clean = typeof name === "string" ? name.trim() : "";
+    if (clean.length >= 2) {
+      const members = (await db()).collection<{ _id: string; id: string; name: string; createdAt: string }>("members");
+      if (!(await members.findOne({ _id: memberId }))) await members.insertOne({ _id: memberId, id: memberId, name: clean, createdAt: new Date().toISOString() });
+    }
     return Response.json({ ok: true });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Database error" }, { status: 502 });
