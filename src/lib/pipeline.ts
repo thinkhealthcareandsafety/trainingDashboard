@@ -30,7 +30,8 @@ export interface ContactEntry {
 export type ScheduleStatus = "scheduled" | "postponed" | "tbd";
 export interface TrainingSchedule {
   status: ScheduleStatus;
-  date?: string; // YYYY-MM-DD; none when TBD
+  date?: string; // first training day, YYYY-MM-DD; none when TBD
+  dates: string[]; // every training day, in order — one, a range, or scattered days; none when TBD
   trainers: string[]; // who gives it (none when TBD)
   at: string;
   by: string;
@@ -100,6 +101,10 @@ export interface CardView {
   aed?: { lines: AedDetails[]; extras: AedExtra[] };
 }
 
+/** A set_training_date value: one day, several days ("2026-10-05,2026-10-06,2026-10-09"), or TBD. */
+export const trainingDays = (v?: string): string[] => (!v || v === "TBD" ? [] : v.split(",").filter(Boolean));
+export const daysValue = (days: string[]) => [...new Set(days)].sort().join(",");
+
 /** A new date only counts as postponed when it replaces a date; after TBD (or first time) it's scheduling. */
 function scheduleOf(events: CardEvent[]): TrainingSchedule | undefined {
   let s: TrainingSchedule | undefined;
@@ -110,9 +115,12 @@ function scheduleOf(events: CardEvent[]): TrainingSchedule | undefined {
       continue;
     }
     if (e.kind !== "set_training_date" || !e.value) continue;
-    if (e.value === "TBD") s = { status: "tbd", trainers: [], at: e.at, by: e.by };
-    else if (s?.date === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, at: e.at, by: e.by }; // same date: trainers changed
-    else s = { status: s && s.status !== "tbd" ? "postponed" : "scheduled", date: e.value, trainers: e.trainers ?? [], at: e.at, by: e.by };
+    if (e.value === "TBD") s = { status: "tbd", dates: [], trainers: [], at: e.at, by: e.by };
+    else if (s?.dates.length && s.dates.join(",") === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, at: e.at, by: e.by }; // same dates: trainers changed
+    else {
+      const dates = trainingDays(e.value);
+      s = { status: s && s.status !== "tbd" ? "postponed" : "scheduled", date: dates[0], dates, trainers: e.trainers ?? [], at: e.at, by: e.by };
+    }
   }
   return s;
 }
@@ -145,13 +153,31 @@ export function cardDue(c: CardView): DueStatus | undefined {
 
 /** People who give the trainings. Several can run one training; each runs at most one training a day. */
 export const TRAINERS = ["Shikha Dixit", "Ashish Dalal", "Sumit A Shah"];
+const isOwnTrainer = (name: string) => TRAINERS.some((t) => t.toLowerCase() === name.trim().toLowerCase());
 
-/** Trainers already booked on `date` by another live training, with the card that booked them. */
-export function busyTrainers(date: string, cards: Map<string, CardView>, selfId: string): Map<string, CardView> {
+/** Our trainers first (in the usual order), then external trainers as typed. */
+export const orderTrainers = (names: string[]) => [...TRAINERS.filter((t) => names.includes(t)), ...names.filter((t) => !TRAINERS.includes(t))];
+
+/** External trainers named on any training before, most recently used first — offered as suggestions. */
+export function externalTrainers(events: CardEvent[]): string[] {
+  const seen = new Map<string, string>();
+  for (const e of [...events].sort((a, b) => b.at.localeCompare(a.at))) {
+    if (e.kind !== "set_training_date") continue;
+    for (const t of e.trainers ?? []) {
+      const key = t.trim().toLowerCase();
+      if (key && !isOwnTrainer(t) && !seen.has(key)) seen.set(key, t.trim());
+    }
+  }
+  return [...seen.values()];
+}
+
+/** Trainers already booked on any of `dates` by another live training, with the card that booked them. */
+export function busyTrainers(dates: string[], cards: Map<string, CardView>, selfId: string): Map<string, CardView> {
   const busy = new Map<string, CardView>();
-  if (!date) return busy;
+  const want = new Set(dates);
+  if (!want.size) return busy;
   for (const c of cards.values()) {
-    if (c.id === selfId || c.mergedInto || c.deleted || c.lost || c.schedule?.date !== date) continue;
+    if (c.id === selfId || c.mergedInto || c.deleted || c.lost || !c.schedule?.dates.some((d) => want.has(d))) continue;
     for (const t of c.schedule.trainers) if (!busy.has(t)) busy.set(t, c);
   }
   return busy;
@@ -632,7 +658,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
       return `Merged ${KIND_LABEL[kindOfId(from)].toLowerCase()} “${e.before ?? labelOf(from)}” into ${e.value ?? labelOf(to)}`;
     }
     case "set_training_date": {
-      const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtWhen(x));
+      const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDays(x));
       const who = e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "";
       if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)} changed to ${e.trainers?.join(", ") || "none"}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
@@ -671,6 +697,32 @@ export function fmtWhen(v: string): string {
   if (!time) return d;
   const [h, m] = time.split(":").map(Number);
   return `${d}, ${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+}
+
+const nextDay = (ymd: string) => new Date(Date.parse(ymd) + 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * Training days, with consecutive days shown as one range and the year once when it's the same:
+ * "5 Oct 2026" · "5–7 Oct 2026" · "5–7 Oct, 12 Oct 2026" · "30 Sept – 2 Oct 2026". A single AED date+time goes through fmtWhen.
+ */
+export function fmtDays(v: string): string {
+  const days = trainingDays(v);
+  if (days.length <= 1) return fmtWhen(v);
+  const runs: [string, string][] = [];
+  for (const d of days) {
+    const last = runs[runs.length - 1];
+    if (last && nextDay(last[1]) === d) last[1] = d;
+    else runs.push([d, d]);
+  }
+  const oneYear = days[0].slice(0, 4) === days[days.length - 1].slice(0, 4);
+  const dm = (d: string) => fmtDate(d, { day: "numeric", month: "short" });
+  const run = ([a, b]: [string, string], withYear: boolean) => {
+    const end = withYear ? fmtDay(b) : dm(b);
+    if (a === b) return end;
+    const start = a.slice(0, 7) === b.slice(0, 7) ? String(Number(a.slice(8))) : a.slice(0, 4) === b.slice(0, 4) ? dm(a) : fmtDay(a);
+    return `${start}${start.includes(" ") ? " – " : "–"}${end}`;
+  };
+  return runs.map((r, i) => run(r, !oneYear || i === runs.length - 1)).join(", ");
 }
 
 /**

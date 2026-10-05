@@ -8,6 +8,7 @@ import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
+import { type DateFilterValue, DateFilterButton, matchesDateFilter } from "./followups/DateFilter";
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
@@ -333,7 +334,7 @@ function CustomerBox({ cards, onOpen }: { cards: CardView[]; onOpen: (c: CardVie
 
 const BATCH = 40;
 
-function Column({ stage, cards, onOpen, onAdd, loading }: { stage: (typeof STAGES)[number]; cards: CardView[]; onOpen: (c: CardView) => void; onAdd?: () => void; loading: boolean }) {
+function Column({ stage, cards, onOpen, onAdd, loading, filtered }: { stage: (typeof STAGES)[number]; cards: CardView[]; onOpen: (c: CardView) => void; onAdd?: () => void; loading: boolean; filtered: boolean }) {
   const [shown, setShown] = useState(BATCH);
   const [flaggedFirst, setFlaggedFirst] = useState(false);
   // AedSmartx: "R" shows only the cards that are Ready for Scheduling (delivered, not scheduled yet).
@@ -397,7 +398,7 @@ function Column({ stage, cards, onOpen, onAdd, loading }: { stage: (typeof STAGE
       <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} data-col-body style={{ height: "var(--fu-col-h)" }}>
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-center text-[12px] text-faint">
-            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost", "aed_invoices"].includes(stage.key) ? "Syncing with Zoho Books…" : stage.key === "potential" ? "Add customers who might train later with +" : "No cards"}
+            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost", "aed_invoices"].includes(stage.key) ? "Syncing with Zoho Books…" : filtered ? "No cards in these dates" : stage.key === "potential" ? "Add customers who might train later with +" : "No cards"}
           </div>
         ) : (
           groups.slice(0, shown).map((g) => <CustomerBox key={g[0].customerId} cards={g} onOpen={onOpen} />)
@@ -593,6 +594,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const stages = aedMode ? AED_STAGES : STAGES;
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null);
   const [open, setOpen] = useState<{ id: string; merge: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
   const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(stages.length);
@@ -610,16 +612,16 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   }, [data, board, cardEvents, recordCardEvents]);
 
   const needle = q.trim().toLowerCase();
-  const visible = (c: CardView) => (showDeleted || !c.deleted) && (!needle || c.search.includes(needle));
-  const leads = useMemo(() => board.leadCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const quotes = useMemo(() => board.quoteCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pis = useMemo(() => board.piCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const scheduled = useMemo(() => board.scheduledCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const completed = useMemo(() => board.completedCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const invoiced = useMemo(() => board.invoiceCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const paid = useMemo(() => board.paymentCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lost = useMemo(() => board.lostCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const potential = useMemo(() => board.potentialCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visible = (c: CardView) => (showDeleted || !c.deleted) && (!needle || c.search.includes(needle)) && matchesDateFilter(c, dateFilter);
+  const leads = useMemo(() => board.leadCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const quotes = useMemo(() => board.quoteCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pis = useMemo(() => board.piCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scheduled = useMemo(() => board.scheduledCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const completed = useMemo(() => board.completedCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const invoiced = useMemo(() => board.invoiceCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const paid = useMemo(() => board.paymentCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lost = useMemo(() => board.lostCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const potential = useMemo(() => board.potentialCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const aedCols = useMemo(() => {
     if (!aedBoard) return { aed_invoices: [], aed_training: [], aed_completed: [], aed_not_required: [] };
     return {
@@ -628,7 +630,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
       aed_completed: aedBoard.completedCards.filter(visible),
       aed_not_required: aedBoard.notRequiredCards.filter(visible),
     };
-  }, [aedBoard, needle]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [aedBoard, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
 
@@ -676,6 +678,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
               Show deleted ({deletedCount})
             </label>
           )}
+          <DateFilterButton value={dateFilter} onChange={setDateFilter} />
           <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
             {sync?.error ? <span className="text-high">Zoho sync issue: {sync.error}</span> : sync?.syncedAt && <span>Synced {fmtDate(sync.syncedAt)}, {new Date(sync.syncedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
             <span className="inline-flex items-center gap-1">
@@ -702,7 +705,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
             >
               {stages.map((s, i) => (
                 <div key={s.key} className="grid min-w-0" inert={i < offset || i >= offset + perView}>
-                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} onAdd={s.key === "potential" && data ? () => setAdding(true) : undefined} loading={loading && !sync} />
+                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} onAdd={s.key === "potential" && data ? () => setAdding(true) : undefined} loading={loading && !sync} filtered={Boolean(dateFilter)} />
                 </div>
               ))}
             </div>

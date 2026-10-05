@@ -4,12 +4,13 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { CardEvent, CardEventKind, Member, Phase } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
-  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, fmtWhen, newestFirst, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
+  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, daysValue, externalTrainers, fmtDays, newestFirst, orderTrainers, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
 import { Avatar, IconButton, Segmented, btn, inputCls, selectCls } from "../ui";
+import { DaysPicker } from "./DaysPicker";
 
 export type BoardOptions = { typeOptions: string[]; sectorOptions: string[]; orgId?: string };
 type Cards = Map<string, CardView>;
@@ -227,7 +228,7 @@ export const SCHEDULE_TONE: Record<ScheduleStatus, { border: string; chip: strin
   tbd: { border: "border-high", chip: "bg-high-bg text-high", label: "To be decided" },
 };
 
-export const scheduleText = (s: TrainingSchedule) => (s.status === "tbd" || !s.date ? "To be decided" : fmtWhen(s.date));
+export const scheduleText = (s: TrainingSchedule) => (s.status === "tbd" || !s.dates.length ? "To be decided" : fmtDays(s.dates.join(",")));
 const todayYmd = () => new Date().toLocaleDateString("en-CA");
 
 // TEMPORARY (Oct 2026): past training dates are allowed so the team can back-fill old trainings.
@@ -237,11 +238,40 @@ export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : to
 export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
 type ScheduleFn = (value: string, trainers?: string[]) => void;
-type BusyFn = (date: string) => Map<string, CardView>;
+type BusyFn = (dates: string[]) => Map<string, CardView>;
 
-/** Trainer checkboxes; anyone already running another training that day is greyed out. */
-function TrainerPicker({ selected, onChange, busy }: { selected: string[]; onChange: (t: string[]) => void; busy: Map<string, CardView> }) {
-  const taken = TRAINERS.filter((t) => busy.has(t));
+const chipCls = (on: boolean, off?: boolean) =>
+  `inline-flex h-8 items-center gap-1.5 rounded-full border bg-surface px-2.5 text-[13px] ${off ? "cursor-not-allowed border-line text-faint" : on ? "cursor-pointer border-brand font-medium text-ink" : "cursor-pointer border-line text-ink-2 hover:border-line-strong"}`;
+
+/**
+ * Trainer checkboxes; anyone already running another training on one of the days is greyed out.
+ * "External trainer" takes any name; names typed before (on any card) come back as suggestions.
+ */
+function TrainerPicker({ selected, onChange, busy, days }: { selected: string[]; onChange: (t: string[]) => void; busy: Map<string, CardView>; days: number }) {
+  const { cardEvents } = useStore();
+  const externals = selected.filter((t) => !TRAINERS.includes(t));
+  const [external, setExternal] = useState(externals.length > 0);
+  const [name, setName] = useState("");
+  // The name box closes after a name is added (one row less); "+" opens it again.
+  const [addingMore, setTyping] = useState(false);
+  const typing = addingMore || externals.length === 0;
+  const known = useMemo(() => externalTrainers(cardEvents), [cardEvents]);
+  const needle = name.trim().toLowerCase();
+  const has = (n: string) => selected.some((t) => t.toLowerCase() === n.toLowerCase());
+  const suggestions = known.filter((n) => !has(n) && (!needle || n.toLowerCase().includes(needle))).slice(0, 8);
+  const taken = selected.filter((t) => busy.has(t)).concat(TRAINERS.filter((t) => busy.has(t) && !selected.includes(t)));
+  const add = (raw: string) => {
+    const n = raw.trim().replace(/\s+/g, " ");
+    if (!n) return;
+    const own = TRAINERS.find((t) => t.toLowerCase() === n.toLowerCase()); // typed one of ours: tick them instead
+    if (!has(own ?? n)) onChange([...selected, own ?? n]);
+    setName("");
+    setTyping(false);
+  };
+  const toggleExternal = (on: boolean) => {
+    setExternal(on);
+    if (!on) onChange(selected.filter((t) => TRAINERS.includes(t)));
+  };
   return (
     <div>
       <div role="group" aria-label="Trainers" className="flex flex-wrap items-center gap-1.5">
@@ -250,22 +280,59 @@ function TrainerPicker({ selected, onChange, busy }: { selected: string[]; onCha
           const other = busy.get(t);
           const on = selected.includes(t) && !other;
           return (
-            <label
-              key={t}
-              title={other ? `Already training ${other.name} on this date` : undefined}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-full border bg-surface px-2.5 text-[13px] ${other ? "cursor-not-allowed border-line text-faint" : on ? "cursor-pointer border-brand font-medium text-ink" : "cursor-pointer border-line text-ink-2 hover:border-line-strong"}`}
-            >
+            <label key={t} title={other ? `Already training ${other.name} then` : undefined} className={chipCls(on, Boolean(other))}>
               <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={on} disabled={Boolean(other)} onChange={(e) => onChange(e.target.checked ? [...selected, t] : selected.filter((x) => x !== t))} />
               {t}
             </label>
           );
         })}
+        <label className={chipCls(external)}>
+          <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={external} onChange={(e) => toggleExternal(e.target.checked)} />
+          External trainer
+        </label>
+        {/* Same wrapping row, so the modal grows as little as possible. */}
+        {external && <>
+          {externals.map((t) => {
+            const other = busy.get(t);
+            return (
+              <span key={t} title={other ? `Already training ${other.name} then` : undefined} className={`inline-flex h-8 items-center gap-1 rounded-full border bg-surface pl-2.5 pr-1 text-[13px] ${other ? "border-line text-faint line-through" : "border-brand font-medium text-ink"}`}>
+                {t}
+                <button type="button" className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink" onClick={() => onChange(selected.filter((x) => x !== t))} aria-label={`Remove ${t}`}>
+                  <svg viewBox="0 0 20 20" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M5 5l10 10M15 5L5 15" /></svg>
+                </button>
+              </span>
+            );
+          })}
+          {typing ? (
+            <span className="flex items-center gap-1.5">
+              <input
+                className={`${inputCls} !h-8 !w-48 text-[13px]`}
+                placeholder="External trainer's name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(name); } }}
+                aria-label="External trainer's name"
+                autoFocus
+              />
+              <button type="button" className={`${btn.ghost} !h-8 !px-3`} onClick={() => add(name)} disabled={!name.trim()}>Add</button>
+            </span>
+          ) : (
+            <button type="button" className="grid size-8 place-items-center rounded-full border border-dashed border-line-strong text-muted hover:border-brand hover:text-ink" onClick={() => setTyping(true)} aria-label="Add another external trainer" title="Add another external trainer">
+              <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M10 4.5v11M4.5 10h11" /></svg>
+            </button>
+          )}
+          {typing && suggestions.length > 0 && <span className="text-[12px] text-muted">Used before:</span>}
+          {typing && suggestions.map((n) => (
+            <button key={n} type="button" onClick={() => add(n)} className="h-6 rounded-full border border-line bg-surface px-2 text-[12px] text-ink-2 hover:border-brand hover:text-ink">
+              + {n}
+            </button>
+          ))}
+        </>}
       </div>
-      {taken.length > 0 && (
-        <p className="mt-1 text-[12.5px] text-muted">
-          {taken.map((t) => `${t} is already training ${busy.get(t)!.name}`).join("; ")} on this date.
-        </p>
-      )}
+      {taken.length > 0 && (() => {
+        const text = `${taken.map((t) => `${t} is already training ${busy.get(t)!.name}`).join("; ")} on ${days > 1 ? "one of these dates" : "this date"}.`;
+        return <p className="mt-1 truncate text-[12.5px] text-muted" title={text}>{text}</p>;
+      })()}
     </div>
   );
 }
@@ -273,31 +340,31 @@ function TrainerPicker({ selected, onChange, busy }: { selected: string[]; onCha
 /** Training date next to "No. of People", with postpone (calendar), trainers and to-be-decided. */
 function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card: CardView; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn; compact?: boolean }) {
   const [picking, setPicking] = useState(false);
-  const [date, setDate] = useState("");
+  const [days, setDays] = useState<string[]>([]);
   const [trainers, setTrainers] = useState<string[]>([]);
   const s = card.schedule;
   // Changing an existing date is postponing; from nothing or TBD it's scheduling.
   const postponing = Boolean(s && s.status !== "tbd");
   const big = compact ? "text-[16px]" : "text-[20px]";
-  const busy = busyOn?.(date) ?? new Map<string, CardView>();
+  const busy = busyOn?.(days) ?? new Map<string, CardView>();
   const chosen = trainers.filter((t) => !busy.has(t));
-  // Same date as now: only the trainers change.
-  const sameDate = postponing && date === s?.date;
+  // Same days as now: only the trainers change.
+  const sameDate = postponing && daysValue(days) === s!.dates.join(",");
   const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t));
-  const valid = dateAllowed(date) && chosen.length > 0 && !unchanged;
+  const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && !unchanged;
   const open = () => {
-    setDate(postponing ? s!.date ?? "" : "");
+    setDays(postponing ? s!.dates : []);
     setTrainers(s?.trainers ?? []);
     setPicking(true);
   };
   const close = () => {
     setPicking(false);
-    setDate("");
+    setDays([]);
     setTrainers([]);
   };
   const save = () => {
     if (!valid) return;
-    onSchedule?.(date, TRAINERS.filter((t) => chosen.includes(t)));
+    onSchedule?.(daysValue(days), orderTrainers(chosen));
     close();
   };
   // Two grid cells: the date sits next to "No. of People"; the buttons get their own full-width row.
@@ -333,12 +400,12 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
           {picking ? (
             <div className="w-full space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={minTrainingDate()} onChange={(e) => setDate(e.target.value)} aria-label={postponing ? "New training date" : "Training date"} autoFocus />
-                <button className={btn.primary} onClick={save} disabled={!valid}>{sameDate ? "Save trainers" : postponing ? "Postpone" : "Schedule"}</button>
-                <button className={btn.quiet} onClick={close}>Cancel</button>
+              <div className="flex items-center gap-2">
+                <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={postponing ? "New training dates" : "Training dates"} autoOpen={!postponing} />
+                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid}>{sameDate ? "Save trainers" : postponing ? "Postpone" : "Schedule"}</button>
+                <button className={`${btn.quiet} shrink-0`} onClick={close}>Cancel</button>
               </div>
-              <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} />
+              <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
             </div>
           ) : (
             <>
@@ -419,10 +486,10 @@ function TrainingSection({ card, compact, onSchedule, onComplete, busyOn }: { ca
 
 /** Pops up over a merged, unflagged PI that has no training date yet. */
 function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView; onSchedule: ScheduleFn; onLater: () => void; busyOn: BusyFn }) {
-  const [date, setDate] = useState("");
+  const [days, setDays] = useState<string[]>([]);
   const [trainers, setTrainers] = useState<string[]>([]);
-  const busy = busyOn(date);
-  const chosen = TRAINERS.filter((t) => trainers.includes(t) && !busy.has(t));
+  const busy = busyOn(days);
+  const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
   return (
     <div className="fade-in absolute inset-0 z-20 grid place-items-center bg-black/25 p-4 backdrop-blur-[2px]" onMouseDown={onLater}>
       <div role="alertdialog" aria-label="Ready for training" className="modal-in w-full max-w-md rounded-2xl border-2 border-low bg-surface p-6 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
@@ -431,16 +498,16 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
         <p className="mt-1.5 text-[14px] text-muted">
           Everything is merged into {card.docNumber}{card.training[0] ? ` for ${card.training[0].name} (${card.training[0].qty} people)` : ""}. Would you like to schedule their training right now?
         </p>
-        <label className="mt-4 block">
-          <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Enter date:</span>
-          <input type="date" className={inputCls} value={date} min={minTrainingDate()} onChange={(e) => setDate(e.target.value)} autoFocus />
-        </label>
+        <div className="mt-4">
+          <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Training dates:</span>
+          <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label="Training dates" />
+        </div>
         <div className="mt-3">
-          <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} />
+          <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!dateAllowed(date) || !chosen.length} onClick={() => onSchedule(date, chosen)}>Schedule training</button>
+          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length} onClick={() => onSchedule(daysValue(days), chosen)}>Schedule training</button>
         </div>
       </div>
     </div>
@@ -800,7 +867,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
 
   const schedule = (value: string, trainers?: string[]) => {
     const s = card.schedule;
-    const before = s ? (s.status === "tbd" ? "TBD" : s.date) : undefined;
+    const before = s ? (s.status === "tbd" ? "TBD" : s.dates.join(",")) : undefined;
     const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers } : {}) }]);
     if (!s) {
       const skip = card.kind === "quote" ? " — create its PI before completing" : "";
@@ -808,7 +875,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
     }
     setPrompt(false);
   };
-  const busyOn = (date: string) => busyTrainers(date, cards, card.id);
+  const busyOn = (dates: string[]) => busyTrainers(dates, cards, card.id);
   const setExpected = (month: string) => {
     addCardEvents([{ cardIds: [card.id], kind: "set_potential_date", value: month, before: card.potential?.expected ?? "", by: member.name }]);
   };

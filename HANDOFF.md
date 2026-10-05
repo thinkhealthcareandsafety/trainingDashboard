@@ -1,255 +1,318 @@
-# Handoff — ThinkHealth Training Dashboard (Follow-ups pipeline)
+# Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 30 Sept 2026. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 5 Oct 2026, end of session 2. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this file end to end before touching code. It records what the owner asked for, the business rules
-that came out of it, how the code implements them, what was verified, and what is still open.
-
----
-
-## 1. TL;DR — where things stand
-
-- **App:** Next.js 16 (Turbopack) + React 19 + Tailwind v4 + MongoDB Atlas + Zoho Books (India DC).
-  `AGENTS.md` warns this Next.js differs from training data — read `node_modules/next/dist/docs/` before writing Next-specific code.
-- **The work of this session was the Follow-ups page** (`/follow-up`): a 7-column pipeline board synced from
-  Zoho Books — **Leads → Quotations → Performa Invoice → Training scheduled → Training completed → Invoice sent → Payment received**.
-  All seven phases are built and were verified in a headless browser against live Zoho data.
-- **Git:** `master` is at `ab28adb` (pushed). **Everything from Phase 3 onwards is uncommitted** (10 modified files,
-  ~1,300 lines). Commit + push only when the owner asks (`git status` to see the files).
-- **Shared data is live:** a teammate, **Shikha Dixit**, is actively using the board. Her changes live in MongoDB
-  (`cardEvents`). **Never test by writing to the shared DB** — see §9.
-- **Dev server:** `npm run dev` → http://localhost:3000 (it's not left running between sessions; the owner often says "run it locally").
+Read this end to end before touching code. It records what the owner asked for (every prompt, both sessions), the
+business rules that came out of it, how the code works **now**, what was verified, and what is still open.
 
 ---
 
-## 2. Running it
+## 1. Where things stand
+
+- **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
+  **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard`, branch `master`, last pushed commit `025e1aa`.
+  This rewrite of HANDOFF.md may still be uncommitted — check `git status`.
+- **Database:** MongoDB Atlas cluster **Cluster0** (the cluster in `MONGODB_URI`), database `thinkhealth_dashboard`
+  (free tier, ~1% used). It is **not** the "Directory" cluster the owner sees in their own Atlas project — Cluster0 sits
+  in another project/account; a colleague added `0.0.0.0/0` to its IP access list for Vercel.
+- **Stack:** Next.js **16.3** (Turbopack) + React 19 + Tailwind v4 + MongoDB + Zoho Books (India DC).
+  `AGENTS.md`: this Next.js differs from training data — read `node_modules/next/dist/docs/` before Next-specific code.
+- **People using it (real, live data):** Shikha Dixit, Ashish Dalal, Sumit A Shah (training board), **Priyanka**
+  (AedSmartx trainer), **Arti Sirohi** (AED deliveries), and **Admin** (the owner). Their changes live in MongoDB
+  `cardEvents` — **never write test data to the shared database** (see §9).
+- **Two boards** on `/follow-up`: the **Training follow-ups** board (9 columns) and the **AedSmartx Training** board
+  (4 columns). Plus the Dashboard (`/`, Overview) and Calendar pages from the original app.
+
+---
+
+## 2. Running, deploying, secrets
 
 ```bash
-npm install        # node_modules was missing at first
-npm run dev        # http://localhost:3000, page: /follow-up
-npx tsc --noEmit -p tsconfig.json   # typecheck (no test suite exists)
+npm install
+npm run dev                          # http://localhost:3000 (also http://192.168.1.69:3000 on the office LAN)
+npx tsc --noEmit -p tsconfig.json    # typecheck — there is no test suite
+npx next build                       # production build (passes)
 ```
 
-- Secrets live in **`.env.local`** (gitignored via `.env*` / `!.env.example`): `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`,
-  `ZOHO_REFRESH_TOKEN`, `ZOHO_ORG_ID=60016330017`, `ZOHO_API_BASE=https://www.zohoapis.in/books/v3`,
-  `ZOHO_ACCOUNTS_URL=https://accounts.zoho.in`, `MONGODB_URI`, `MONGODB_DB=thinkhealth_dashboard`.
-  **Never print, copy or commit these values.**
-- Git identity is set **repo-locally**: `user.name=thinkhealthcareandsafety`, `user.email=sshah@thinkhealth.in`.
-  Remote: `https://github.com/thinkhealthcareandsafety/trainingDashboard.git`.
-- Commit trailer used so far: `Co-Authored-By: Claude … <noreply@anthropic.com>` (follow the session's attribution reminder).
+- The owner often says "run it" / "run it locally" → start `npm run dev` in the background and give both links.
+  Background commands are killed after ~10 min, but the Next server usually keeps running (check with curl before restarting;
+  a second `next dev` refuses to start while one is running).
+- **Secrets live only in `.env.local`** (gitignored) and in Vercel's Environment Variables:
+  `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`, `ZOHO_ORG_ID`, `ZOHO_API_BASE`, `ZOHO_ACCOUNTS_URL`,
+  `MONGODB_URI`, `MONGODB_DB`, `ADMIN_PIN`, `CLEAR_LOGS_PIN`; Vercel also has `ZOHO_DAILY_LIMIT` (2500) and `CRON_SECRET`.
+  Optional: `SESSION_SECRET` (changing it signs everyone out). Documented in `.env.example` (no values).
+  **Never print, copy or commit secret or PIN values** — a push was once blocked because a PIN had been written into
+  this file; scan diffs for PIN digits before every push.
+- Git identity is repo-local (`thinkhealthcareandsafety` / `sshah@thinkhealth.in`). Follow the session's commit-attribution reminder.
+- **Deploy** = push to `master` (Vercel builds automatically). `vercel.json` adds one cron: `30 3 * * 1-6` (9:00 IST Mon–Sat)
+  → `/api/cron/sync` (Vercel Hobby allows daily crons only).
 
 ---
 
-## 3. Every prompt the owner sent, and what it did (chronological)
+## 3. How the code works now
 
-| # | Owner's prompt (paraphrased / quoted) | What was done |
+### Data flow
+```
+Zoho Books ──(src/lib/zoho.ts: client, fetchers, mappers)──► src/lib/zohoSync.ts ──► MongoDB copy
+                                                                 │  zohoDocs, zohoCustomers, zohoPayments, kv
+browser ──(cookie)──► /api/pipeline · /api/aed · /api/trainings · /api/zoho/meta ──(read the copy, no Zoho calls)
+browser ◄──► /api/store (team data: cardEvents, members, …; 60 s pull, diff push; server stamps who did what)
+```
+
+### Zoho copy + sync (`src/lib/zohoSync.ts`)
+- Zoho data is **stored in MongoDB**, not server memory: `zohoDocs` (tracked quotations / sales orders / invoices with full
+  detail; flags `training` / `aed`), `zohoCustomers` (all active customers), `zohoPayments` (per paid invoice), and `kv` docs
+  `zoho_state` (version, `syncedAt`, `attemptAt`, cursors), `zoho_items`, `zoho_users`, `zoho_sync_lock`, `zoho_calls:<IST date>`,
+  `zoho_last_forced`. Each server instance keeps an in-memory copy and reloads it only when `zoho_state.version` changes
+  → page loads cost one tiny read, **0 Zoho calls**, ~90 ms.
+- **Schedule:** automatic syncs **on the hour, 9 am–7 pm IST, Monday–Saturday** (`SYNC_HOURS`; none on Sunday). A sync is due
+  when a slot has passed since the last successful one (`lastSlot()` / `scheduledSyncDue()`); the first page visit after it runs the
+  sync in the background via Next's `after()`, or the cron route does. **9 am and 2 pm are full checks** (`FULL_HOURS`: every
+  tracked document by item → catches deletions, full customer list, items, team); other hours are incremental.
+- **Incremental** = each kind listed **newest change first** (`sort_column=last_modified_time`), stopping at the stored cursor →
+  ~1 call per kind; one detail call per changed document; recent customers (1 call); payments only for changed paid invoices.
+  Typical hourly sync ≈ 4 calls; a day ≈ 50–100 calls.
+- One sync at a time across instances (Mongo lease lock, 5 min). Failed sync → retry no sooner than 5 min.
+  **Sync now** (`?refresh=1`) any time, at most **once a minute for everyone**. Daily call counter; automatic syncing pauses at
+  95% of `ZOHO_DAILY_LIMIT`. First-ever sync into an empty DB ≈ 290 calls (already done).
+- Verified when built: all route outputs identical, record by record, to the old in-memory implementation.
+
+### Sign-in and API protection
+- **One sign-in page for the whole site** (`AppShell` → `SignInPage` + `MembersScreen`): pick your name (or **Admin**), type the
+  4-digit PIN (auto-submits), land on the **Dashboard**. Signed in stays signed in (all tabs, restarts) until **Sign out** —
+  in the name pill at the top right of every page, in the sidebar, and on the Follow-ups board.
+- `POST /api/members/sign-in` checks the PIN server-side (member PINs **scrypt-hashed** in Mongo `memberPins`, a collection the
+  browser never receives; Admin = `ADMIN_PIN` env) and sets an **HttpOnly cookie `th_session`** (HMAC token, `src/lib/auth.ts`,
+  `src/lib/pins.ts`). 5 wrong PINs pause that name for 60 s. `src/lib/session.tsx` = app-wide `SessionProvider`.
+- Every data route returns **401** without the cookie. Public routes: `GET /api/members` (names only), sign-in, session (also
+  upgrades old localStorage sign-ins to the cookie), sign-out, `POST /api/members/pin` (needs the admin PIN; with a `name` it
+  creates the member — this is how members are added), `/api/cron/sync` (needs `CRON_SECRET`).
+- **The server stamps the change log**: new `cardEvents` get the signed-in member's name (from the `members` collection; Admin =
+  "Admin"; `zoho_change` notices keep "Zoho Books"); existing entries can only be reverted (server sets `revertedAt`/`revertedBy`);
+  only Admin can delete entries or write `members`. Clear logs needs the Admin session **and** the PIN.
+
+### Event model (both boards)
+A card = Zoho data + every **non-reverted** `CardEvent` replayed in order; nothing from Zoho is overwritten, so **Revert** = mark the
+event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoho id, `potential:<id>`, `aed:<invoice id>`,
+`aedcustomer:<contact id>` (customer-wide AED log). Event kinds: `set_name/type/sector`, `add/remove_alias/email/phone`, `delete`,
+`merge` (`[from,to]`), `set_training_date` (`YYYY-MM-DD`, several days comma-separated `2026-10-05,2026-10-06`,
+`YYYY-MM-DDTHH:mm` on AED, or `TBD`; carries `trainers`, which may include external names),
+`complete_training`, `zoho_change`, `add_potential` / `set_potential_date`, `set_not_required`, `set_reseller`, `set_resale`,
+`set_delivered`, `add_note`. **Clear logs** archives to `cardEventsArchive` first and keeps `add_potential` events.
+
+### Key files
+| File | Role |
+|---|---|
+| `src/lib/zohoSync.ts` | Mongo copy, schedule, lock, budget, incremental/full sync; `pipelineData` / `aedData` / `trainingsData` / `metaData` builders. |
+| `src/lib/zoho.ts` | Zoho client (token cached in Mongo `kv`, call counter, retries), list/detail building blocks, pure mappers, `QUOTE_TRAINING_ITEMS`, `AED_EXCLUDED`. |
+| `src/lib/pipeline.ts` | Board logic: `buildBoard` (training), `buildAedBoard`, flags, merges, schedules, `dueStatus`, `describeEvent`, `mergeCandidates`, trainers, potential cards, role helpers (`isAedTrainer`, `isAedDelivery`). |
+| `src/lib/aedParse.ts` | Reads the AED line description: model, year, serials, battery/pads expiry; the five extras. |
+| `src/components/FollowUps.tsx` | Board page: column window (◀ ▶ / keys / swipe, fit to screen), columns + customer boxes, F / R toggles, Clear logs, AED/training switch. |
+| `src/components/followups/CardModal.tsx` | Training card modal, merge view, schedule/trainers, Potential add modal, shared modal pieces (exported). |
+| `src/components/followups/AedModal.tsx` | AedSmartx card modal (delivery, schedule date+time, notes, item description, resale). |
+| `src/components/followups/MembersScreen.tsx` | Sign-in card (names, PIN, Admin, + Add new member). |
+| `src/components/AppShell.tsx` | Shell, sidebar (hide to rail), global sign-in gate, `MemberPill`, `PageHeader`. |
+| `src/lib/store.tsx` / `src/app/api/store/route.ts` | Shared team data (pull 60 s, diff push) / server stamping. |
+| `src/lib/auth.ts`, `src/lib/pins.ts`, `src/lib/session.tsx`, `src/app/api/members/*` | Sign-in, PINs, cookie, session. |
+| `src/app/api/{pipeline,aed,trainings,zoho/meta,cron/sync,store/clear-logs}/route.ts` | API routes. |
+
+---
+
+## 4. Business rules (authoritative)
+
+### Training follow-ups board (columns)
+**Leads → Quotations → Performa invoice → Training scheduled → Training completed → Invoice sent → Payment received → Deal lost → Potential training**
+- Leads = every active Zoho customer (not vendors). Documents from the start of the **previous** fiscal year (now 1 Apr 2025).
+  Tracked training items: `Fire Safety Evacuation Training and Drill`, `THCAS BLS Training 2025 (I)`, `THCAS CPR Training 2026 (I)`,
+  `THCAS First Aid Training (I)`. Sales orders are this org's **Performa Invoices** (`Performa-25-…`).
+- **One modal for every phase**: customer name (mandatory) + aliases, emails, contact numbers (mandatory; tagged by phase), type
+  (`cf_type`), sector (`cf_sector`), created in Zoho, phase-aware sales person, locked IDs & dates with Zoho links, training block,
+  Notes, Merged, Payment line (invoice/payment cards), and the **Changes** panel with Revert on every entry. Edit and Delete.
+- **Flags (red F) and merges** — forward only, each a revertable event; the target absorbs the earlier card's identity:
+  Lead ↔ Quote (same customer) · Quote ↔ PI (**only** the PI's `reference_number` citing the quote) · Lead ↔ PI (PI citing no synced
+  quote) · Completed training ↔ Invoice (invoice reference cites the PI) · Invoice ↔ Payment (payment applied to that invoice) —
+  **step by step**: an invoice joins its payment only after (or together with — *Merge PI → Invoice → Payment Received*) its
+  completed training; out-of-order merges are ignored and shown *Not applied*.
+- **Merge view**: one panel per phase; quotations newest first with a **NEW** tag; a quotation and PI only ever show as a
+  referenced pair (the PI panel hides when no PI cites the selected quote; clicking either chip switches its partner).
+- **Training**: unflagged quote/PI can be scheduled; merged PI pops *Ready for training*. **Several days** per training
+  (`DaysPicker.tsx`: click days one by one, drag or Shift-click for a range; shown as "3–6 Oct, 12 Oct 2026").
+  Needs ≥1 **trainer** (Shikha Dixit, Ashish Dalal, Sumit A Shah, or **External trainer** — any typed name; names used
+  before on any card come back as suggestions, derived from the change log). A trainer can't be on two trainings on one day. Scheduled / Postponed / To be decided; green border,
+  red for TBD. A quote can be scheduled directly but **Training completed is locked until its PI exists** (*PI required* note,
+  *PI needed* on the card) — completions recorded on a quote are ignored. **Past dates are temporarily allowed**
+  (`ALLOW_PAST_TRAINING_DATES = true` in CardModal.tsx — turn off when the owner says the back-fill is done).
+- **Invoices / payments** show Zoho's status like Zoho does: red *Overdue by N days*, blue *Due in N days*, green *Paid*, border to match.
+- **Deal lost**: quotations declined in Zoho move here for good (note links to the quote in Zoho).
+- **Potential training**: **+** opens a Leads-style modal (search Zoho customers, optional **month or exact date**). Acts like a lead:
+  flagged by a new quotation (dated on/after it was added); *Choose & merge* lists all the customer's quotations in the column; merging
+  from a potential card only asks for the quotation (no PI step). Survives Clear logs.
+- **Delete** a document card → hidden, customer back in Leads. Leads can't be deleted.
+- **Clear logs** (Admin only, PIN): Everything / One customer / One deal cycle.
+- **Filter** (next to *Show deleted*, both boards; `DateFilter.tsx`): one or several months, or a from–to range. Each card is
+  matched on the date it shows — training days once scheduled, else quote/PI/invoice/payment date, expected date (Potential),
+  created date (Leads). Not saved; header counts follow the filter.
+
+### AedSmartx Training board
+**Invoices sent → Training scheduled → Training completed → Training not required**
+- Who: **Priyanka** and **Arti** see only this board; **Sumit and Admin** switch with *Switch to AedSmartx Training Board* /
+  *Switch to Training Follow ups* (next to Sync now). Everyone else: training board.
+- Cards = invoices from **1 Sept 2026** (`AED_SINCE`) with an item whose Item Identifier is **All AEDs**, excluding the AED trainers
+  and *AED Rental* (`AED_EXCLUDED`). "Philips FRX AED 861304 with Child Key" is one AED with the child key included.
+- Modal: Customer; Contact (number = invoice **ship-to phone**, else the customer's numbers); Notes (clickable invoice, latest note,
+  *+ Add a note* / *All notes* window — any AED-board user, author can remove); IDs & dates incl. sales person (no payment row);
+  **Training** (delivery strip, then *Schedule training* with date **and time**, no trainer; *Training not required*; later Postpone /
+  To be decided / Training completed); **Item description** (model, year, serials + total with a mismatch warning, battery & pads
+  expiry, five extras ticked from the description or separate items: SmartX, Fast Response Kit, wall cabinet, 3D signage,
+  infant/child key); **Mark for resale** (this invoice / whole customer is a Reseller → Training not required, now and later).
+- **Delivered**: only **Arti** can mark/undo. Not delivered → yellow border + *Not delivered yet*; delivered → green + *Ready for
+  Scheduling* (replaces the paid/due chip on AED cards). Green **R n** next to a column name shows only ready cards.
+
+### Layout preferences (see also §8)
+Columns side by side as a sliding window (as many as fit at ≥184 px with full names; ◀ ▶, arrow keys, swipe); board fits the screen
+with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden scrollbars; sidebar can hide to a rail.
+
+---
+
+## 5. Every prompt the owner sent, and what it did
+
+### Session 1 (24–30 Sept 2026) — building the Follow-ups pipeline
+| # | Prompt (paraphrased) | Result |
 |---|---|---|
-| 1 | "run this locally" | `npm install` (node_modules missing), `npm run dev`. |
-| 2 | Pasted Zoho + MongoDB env values — "add these in the environment variable" | Created `.env.local` (gitignored), restarted dev server. |
-| 3 | Follow-ups screenshot: "scrap the data in this section, follow a schema — columns LEADS, QUOTATIONS, PERFORMA INVOICE, TRAINING DATE, TRAINING COMPLETED, INVOICE SENT, PAYMENT RECIEVED" | Asked 3 questions → owner chose: **one row per client engagement**, **leads entered in-app**, **Performa Invoice = Zoho Sales Orders**. Built a Deal model + table (later replaced). |
-| 4 | Zoho CRM kanban screenshot — "act as Google's front-end developer, fix the UI, leads are the clients" | Rebuilt as a kanban board, one column per stage. |
-| 5 | "scrolling horizontally is not feasible… remove all data from the follow up section" | Wrapped the columns into a grid; stopped feeding Zoho data into the board. |
-| 6 | "keep the columns" | Clarified: columns were kept; nothing changed. |
-| 7 | "keep columns side by side only; Leads = all Zoho **active customers**, new customers auto-added; paginate 20" + "3924 total active customers" | `grid-cols-7`; leads auto-created from Zoho customers; pagination (later removed). |
-| 8 | "what is this 8254… the number of clients are the number of leads" / later 12359 | **Duplicate-lead bug** (random ids + reload races). Switched to deterministic ids, de-duplicated via the app's API, widened page to `max-w-[1680px]`, empty columns fill height. |
-| 9 | "check the active numbers of customers in zoho books right now" | Reported 4127 (**wrong — included vendors**, fixed in #15); added `?refresh=1` to `/api/zoho/meta`. |
-| 10 | "check the customer status, only active customers" | Verified the `Status.Active` filter. (The vendor leak was found later.) |
-| 11 | "vertical scroll column-specific, ~6 at once, remove pagination" | Each column scrolls independently; pagination removed. |
-| 12 | "remove the scroll bar… opacity 0" | `.no-scrollbar` utility in `globals.css`. |
-| 13 | "run it locally" (several times) | Restarted dev server. |
-| 14 | "push it to github" | Commit `5f25573`; set repo-local git identity (owner chose `thinkhealthcareandsafety`). |
-| 15 | **Phase 1 + 2 spec** (members screen, one modal for all phases, change log with per-change revert, aliases, multiple emails/phones tagged by phase, locked Zoho IDs/dates, quotations containing 4 training items, F flag, merge Lead→Quote with unmerge) | Built all of it (see §5). Found Zoho returns **vendors** with `contact_type=customer&filter_by=Status.Active` → filter rows client-side (3925 = owner's 3924 + 1 new). Commit `ab28adb`, pushed. |
-| 16 | **Phase 3** (PIs from Zoho, Lead→Quote→PI merge, urgent modal redesign, "moved due to changes in Zoho Books" log, **only last 2 fiscal years (1 Apr 2025 →)**, board must fit the screen, lock background scroll in modals) | Built. Sales orders are this org's PIs (`Performa-25-…`). Wide modal, bold sections, prominent Type of Training / No. of People. Zoho-removal notices. Board fits 1728×958 exactly. |
-| 17 | "link every quote → PI → invoice → payment **only via the reference ID**… customer box with Quote 1…N inside… Flagged button next to column headings" | Quote↔PI linked **only** by the PI's `reference_number`; each column groups items in a **customer box**; per-column **F n** toggle puts flagged boxes first. |
-| 18 | **Phase 4**: merged + unflagged PI can get a training date; popup "ready — schedule now? Enter date / Later"; card moves to Training scheduled; postpone (calendar) / To be decided; borders green/yellow/red | Built (training date is a revertable event). |
-| 19 | "can you clear all the logs" | Asked first (clearing also undoes merges); owner chose "clear everything" → deleted all 26 `cardEvents`. |
-| 20 | "postponed stays green; postpone date not before today; after TBD it's *Schedule training*, not postpone" | Done. |
-| 21 | "schedule training from quotations too → straight to Training scheduled, PI = *Not applicable* + note; add **Training completed** button" | Done. |
-| 22 | "move Notes and Merged to the left half so no scroll; note disappears when reverted" | Done (note is derived, so revert removes it). |
-| 23 | "in the column card just write *PI not applicable*" | Done (superseded by #37). |
-| 24 | "resize the inner elements so I don't have to scroll" | Compact spacing; all modal types measured at 0px overflow at 1728×958. |
-| 25 | "deleted card should revert back to Leads… REFRESH THE BOARD, RESET ALL CHANGES, reset logs, check all customers… if PI missing, note: *a PI is required… create one for this quotation: <clickable quote no>*" | Delete = customer back to Leads; leads can't be deleted. Cleared 24 events, full resync, **3939 Zoho active customers = 3939 leads** (0 missing/extra). PI-missing note with Zoho link. (Shikha made new changes minutes after the reset — left intact.) |
-| 26 | **Invoice phase**: invoices whose reference cites their PI → Invoice sent, merged with **Training completed** cards specifically | Built. |
-| 27 | **Payment received phase**: reference is the invoice number; merge with invoice; card stays in the last column | Built (read via `/invoices/{id}/payments` — see §6). |
-| 28 | "get all my prompts, bundle them up… full handoff" | This file. |
-| 29 | "◀ ▶ triangles next to *Synced* to move the whole board; one more column at the end, **Deal lost**: quotations whose Zoho status turns rejected move there and stay" | 8th column; board shows 7 at a time and slides one column per click. Declined quotes (Zoho API status `declined`) go to Deal lost. |
-| 30 | Deal lost note: "declined in Zoho Books. Please click <quote no. linking to Zoho> for further reference" | Done. |
-| 31 | "Clear logs" option left of the member pill, locked behind a PIN (the owner knows it; it lives only in `.env.local` as `CLEAR_LOGS_PIN` — never write it in tracked files) | Button + PIN dialog; `POST /api/store/clear-logs` checks `CLEAR_LOGS_PIN` (in `.env.local`), copies events to Mongo `cardEventsArchive`, then deletes them. |
-| 32 | Trainers when scheduling: checkboxes for **Shikha Dixit, Ashish Dalal, Sumit A Shah** (several per training); a trainer can’t be on two trainings the same date | `TRAINERS` + `busyTrainers` in `pipeline.ts`; `set_training_date` events carry `trainers`; picker in the schedule/postpone row and the Ready-for-training popup. |
-| 33 | "Invoice → Payment shouldn’t merge before the card went Lead → Quote → PI → Training completed → Invoice" (sagealpha: 2026-01-429 was merged into Payment #1910 first) | Invoice ↔ Payment flag only when the invoice already absorbed its completed PI/quote; out-of-order merges ignored (no DB writes), so the stuck card fixed itself. |
-| 34 | "when the payment has the reference invoice, allow merging straight through to Payment received" | Payment flagged with an invoice that is flagged with its completed training; one-click *Merge PI → Invoice → Payment Received*. |
-| 35 | Hide the sidebar with an X; 9th column **Potential training** (empty for now — "we will work on this later"); make the board fit any device (enterprise grade) | Sidebar X → slim icon rail (menu button reopens; remembered in `localStorage th.sidebar`). Board width uncapped on /follow-up. Columns per view = as many as fit at `MIN_COL_W` 184px (names wrap to 2 lines, never cut); ◀ ▶, ←/→ keys and swipe slide the window; column height fitted to the window by `useFitHeight`. Checked at 1728×958 (7, or 8 without sidebar), 2560×1440 (9), 1280×800 (5), 768 tablet (3), 390 phone (1): no page scroll, no clipped names. |
-| 36 | Potential training: **+** on the column opens a Leads-style modal — search the Zoho customers, pick one, optional vague training date; the card stays until a quote for it arrives, then merges like a lead | `add_potential` event (cardIds `[potential:<id>]`, `ref` = contact id, `value` = expected month `YYYY-MM`); `set_potential_date` changes it; Delete removes it. Kind `potential` (rank 0, like a lead) flags with the customer’s quotation / PI-without-quote **dated on or after the day it was added**; merge view offers *Merge Lead + Potential → Quote*. Clear logs keeps `add_potential` events. |
-| 37 | "lock the Training completed button and tell the user to create the PI before marking training complete" + "remove the *PI not applicable* note — we can’t skip the PI" | Locked button + message on quotation cards in training; *PI required* note; *PI needed* on the board card; completions already recorded on a quotation ignored (*Not applied*), so sagealpha’s Quotation-24-002591 went back to Training scheduled. |
-| 38 | "when merging the potential lead, show all the quotes currently in the column for that customer so I can choose which one to map it to" | `mergeCandidates` adds the customer’s Potential card + every quotation of theirs in the Quotations column (`columnQuotes`: not merged, not in training, not lost/deleted) to the merge view; chips show number + date, newest first; *Merge Potential → Quote* goes into the chosen one. An unflagged potential card with such quotations shows *Choose & merge*. The red F still only comes from quotations dated on/after the card was added. |
-| 39 | "only the option to select the quotation is enough here, the quote might not have the PI yet" | Merge view opened **from a Potential card** = Potential + the customer’s open Lead + their quotations only (plus anything flagged directly with the card, e.g. a PI citing no quotation); no PI panel or PI-link message. Quote → PI is merged later from the quotation. Opened from the lead/quote, the view is the full flag chain as before. |
-| 40 | "set PINs for the members (Shikha, Ashish, Sumit) and Admin" | 4-digit PIN sign-in on the members screen (auto-submits on the 4th digit). Member PINs stored **hashed** (scrypt + salt) in Mongo `memberPins` — not in `COLLECTIONS`, so never sent to browsers; set via `POST /api/members/pin` (needs the admin PIN), checked via `POST /api/members/sign-in`. **Admin** sign-in uses `ADMIN_PIN` (`.env.local` only); adding a member needs the admin PIN and sets their PIN. 5 wrong PINs pause that name for 60 s. PIN values live only in `.env.local` / hashed in Mongo — **never write them in tracked files**. |
-| 41 | "don’t sign people out unless they sign out themselves (new session / switching tabs)" + "only admin can clear logs — or for one customer, or one cycle (quote/invoice chain)" | Sign-in returns a token (HMAC, `SESSION_SECRET` or derived from server-only env); the browser keeps `{member, token}` in `localStorage th.session` and re-checks it via `POST /api/members/session` on open; survives reloads, pages, new tabs; *Sign out* (was *Switch*) clears it in every tab. Clear logs shows only for Admin, PIN-confirmed, with scopes *Everything / One customer / One deal cycle* (`cardIds` sent to `/api/store/clear-logs`; a cycle = the documents merged into one chain, lead/potential edits kept). |
-| 42 | "a New tag on the newest quote" + "a quote and a PI must only ever show as a pair: hide the PI panel when the selected quote has no PI referencing it; clicking a quote or PI chip switches its partner" | Merge view lists quotes newest first (`newestFirst`: date, then Zoho created time) with a **NEW** tag on the newest. Quote ↔ PI pairing is by the PI’s reference (`refQuoteNumber`): clicking a quote shows its PI (or hides the PI, invoice and payment panels if none references it); clicking a PI selects the quote it cites. A mismatched pair can no longer be on screen. |
-| 43 | "show the invoice due status like Zoho (Overdue by N days red / Due in N days blue / Paid green) on invoice cards instead of Completed, border to match; payment date in the modal under Merged" | Invoice sync now keeps `dueDate`, `total`, `balance` (from the cached detail, no extra calls). `dueStatus`/`cardDue` in `pipeline.ts`; `DUE_TONE` + `DueChip` in `CardModal.tsx`; new `--info` blue token. Invoice and payment cards show the chip and a matching 2px border; the modal has a one-line *Payment* section under Merged (due date, balance, paid on). |
-| 44 | "for a temporary time, allow selecting old training dates — they want to complete the data" | `ALLOW_PAST_TRAINING_DATES = true` in `CardModal.tsx` (schedule/postpone picker and the Ready-for-training popup). **Temporary** — set it to `false` when the back-fill is done. |
-| 45 | **AedSmartx Training board** for Priyanka: AED invoices (items with Item Identifier *All AEDs*, from **1 Sept 2026** — `AED_SINCE` in `src/app/api/aed/route.ts`; was 1 Apr 2026) → Training scheduled (date **+ time**, no trainer) → Training completed; *Training not required* (phase 1 only) = its deal-lost column. Modal: Customer, Contact (number = invoice **ship-to phone**, else the customer’s numbers), Notes (clickable invoice), **Item description** parsed from the AED line (model, year, serials + total, battery & pads expiry) with 5 extras ticked from the description or separate items (SmartX, Fast Response Kit, wall cabinet, 3D signage, infant/child key), Sales person, IDs & dates (no payment). Sumit (and Admin) get *Switch to AedSmartx Training Board* / *Switch to Training Follow ups* next to Sync now. | `fetchAedInvoices` (zoho.ts, shares the invoice-detail cache) → `GET /api/aed` (5-min cache, fetched only while the AED board is open) → `buildAedBoard` (pipeline.ts, card ids `aed:<invoice id>`, same event model; `set_not_required` event) ; parser `src/lib/aedParse.ts` (tested on 45 real descriptions); modal `AedModal.tsx`; board mode in `FollowUps.tsx` (`isAedTrainer` = name starts with Priyanka; `canSwitchBoards` = Sumit/Admin; switch remembered in `localStorage th.aedBoard`). Priyanka must be added as a member (Admin → + Add new member). |
-| 46 | "Philips FRX AED 861304 with Child Key is one AED (child key included); don’t include the AED trainers / AED Rental; fix the squeezed Add button; add *Customer is a Reseller* under Item description (moves all their invoices to Training not required)" | `AED_EXCLUDED` in zoho.ts (3 trainers + AED Rental) → 90 AED invoices; extras found in an AED item’s name show *included in <item>*; shared editor Add button `shrink-0`; `set_reseller` event (ref = contact id, logged on `aedcustomer:<id>` + the customer’s current cards) → every AED invoice of that customer, incl. later ones, is *Training not required*; untick = revert. |
-| 47 | "option to mark the whole customer as a reseller **or** the particular invoice for reselling" | *Mark for resale* under Item description: **This invoice is for resale** (`set_resale` on the card → only that invoice) and **Customer is a Reseller** (`set_reseller`). Board card shows *Training not required* + *For resale* / *Reseller*. Item details laid out as Year · Battery · Pads in one row so all 71 checked AED modals fit 1728×958 without scrolling. |
-| 48 | AED start date "from this September" + **Delivered** (only **Arti Sirohi** can mark; she gets the AED board like Priyanka): green border + *Ready for Scheduling* instead of paid/due, else yellow + *Not delivered yet* + a green **R n** toggle next to the column name that shows only ready cards | `AED_SINCE` = 1 Sept 2026 (route); `set_delivered` event → `card.delivered`; `isAedTrainer` / `isAedDelivery` / `isAedBoardUser` in pipeline.ts; one-line delivery strip at the top of the AED Training box (Mark as delivered / Undo delivered for Arti only); AED cards hide the due chip; `isReady` + R toggle in `Column` (FollowUps.tsx). Also fixed: the column-window offset could go negative after a refresh in AED mode, leaving columns `inert` (unclickable). |
-| 49 | "let users pick an exact date in Potential training instead of only a month" | *Month / Exact date* toggle in the add modal and on the card (`MonthInput` in CardModal.tsx); the value is `YYYY-MM` or `YYYY-MM-DD` in the same `add_potential` / `set_potential_date` events; `fmtMonth` shows “Nov 2026” or “5 Nov 2026”. Existing month entries unchanged. |
-| 50 | "go with the recommended plan" for hosting: (0) lock down the APIs, (1) keep the Zoho copy in MongoDB with one shared sync + budget, (2) sync only what changed | **Auth:** sign-in sets an HttpOnly cookie `th_session` (`src/lib/auth.ts`); `/api/store`, `/api/pipeline`, `/api/aed`, `/api/trainings`, `/api/zoho/meta` return 401 without it; clear-logs needs the Admin session + PIN; public: `GET /api/members` (names), sign-in, session (also upgrades old localStorage tokens to the cookie), sign-out, `members/pin` (admin PIN; with `name` it creates the member). App-wide `SessionProvider` (`src/lib/session.tsx`): the shell shows the sign-in screen on every page; the store only loads once the session is verified. **Zoho copy:** `src/lib/zohoSync.ts` — collections `zohoDocs` (tracked quotes/SOs/invoices with full detail, flags `training`/`aed`), `zohoCustomers`, `zohoPayments`; `kv`: `zoho_state` (version, syncedAt, cursors, timers), `zoho_items`, `zoho_users`, `zoho_sync_lock` (5-min lease), `zoho_calls:<IST date>`, `zoho_last_forced`. Routes read the copy (in-memory per instance, reloaded when `version` changes) — 0 Zoho calls per page load (~90 ms). Stale copy (3 min office hours Mon–Sat 8–20 IST, else 30 min) → `after()` background sync. Sync = items/customers/team every 6 h; documents incremental (lists sorted by `last_modified_time`, stop at cursor → ~1 call per kind) + full per-item reconcile every 6 h (deletions); payments only for changed paid invoices. *Sync now* ≤ once/min globally. Budget `ZOHO_DAILY_LIMIT` (default 2500): slower at 80%, paused at 95%. `/api/cron/sync` (needs `CRON_SECRET`). Verified: first sync 288 calls (one-off); incremental 4 calls; 20 page loads 0 calls; replayed invoice changes re-downloaded correctly; all route outputs identical to the pre-change baseline. |
-| 51 | "one global sign-in when opening the website; the dashboard is the landing page once logged in; requires PIN" | `AppShell` renders a full-page `SignInPage` (logo + `MembersScreen`, no sidebar/ticker) on any URL when signed out; after the PIN it `router.replace("/")` → Dashboard. *Sign out* added to the sidebar (and the slim rail); the Follow-ups board keeps its own. |
-| 52 | Name pill + Sign out at the top right of every page | `MemberPill` in `PageHeader` (AppShell.tsx); Follow-ups keeps its own pill + Clear logs. |
-| 53 | "sync Zoho automatically every hour, 9 am to 7 pm, not on Sunday; MongoDB updated right after; only what changed" | `SYNC_HOURS` 9–19 IST, Mon–Sat; `lastSlot()` / `scheduledSyncDue()` in zohoSync.ts: a sync is due when a slot has passed since the last successful one; the first page visit after it runs it via `after()` (or `/api/cron/sync` on the hour — it only syncs when due). 9 am and 2 pm (`FULL_HOURS`) are full checks (per-item reconcile, full customer list, items, team); other hours incremental (~4 calls). Failed sync → retry no sooner than 5 min. MongoDB is written within each sync (no separate step). *Sync now* unchanged (any time, ≤ once/min). Replaces the 3-min/30-min schedule and the 80% slow-down (95% pause kept). |
-| 54 | "for Priyanka, allow her to add notes under the Notes section" (AED card) | `add_note` event (value = text) → `card.notes` (newest first) in `buildAedBoard`. AED modal Notes: invoice link + the latest note (2 lines) + *All notes (n)*; *+ Add a note* (by the heading) and *All notes* open a small notes window (write, Save / Ctrl+Enter, full list, author can Remove = revert). Any AED-board user can add; each note shows author + time. Sales person moved into *IDs & dates* to keep the modal fitting (0 px scroll with 3 notes). |
-| 55 | "make it live" → Vercel; "fix the who-made-the-change gap first" | `/api/store` stamps `cardEvents` on the server (`signedInMember` in auth.ts, name from the `members` collection; Admin = "Admin"): new entries get the signed-in name (`zoho_change` keeps "Zoho Books"); existing entries can only be reverted (server sets `revertedAt`/`revertedBy`), other edits ignored; deletes only by Admin; `members` writes only by Admin. Clear logs records the session’s name. Tested on a throwaway DB (`thinkhealth_qa`, dropped). `vercel.json`: daily cron `30 3 * * 1-6` (9:00 IST Mon–Sat) → `/api/cron/sync` (Vercel sends `Bearer $CRON_SECRET`); other hourly syncs come from visits. Production build passes. **Deploy:** Vercel → import the GitHub repo → env vars from `.env.local` (+ `CRON_SECRET`, `ZOHO_DAILY_LIMIT`) → MongoDB Atlas *Network Access* must allow 0.0.0.0/0 (Vercel has no fixed IPs). |
+| 1 | "run this locally" | `npm install`, `npm run dev`. |
+| 2 | Pasted Zoho + MongoDB values | `.env.local` created. |
+| 3 | Follow-ups schema: LEADS … PAYMENT RECEIVED | Asked 3 questions (one row per engagement, leads in-app, PI = sales orders); first table version. |
+| 4 | "act as Google's front-end developer, leads are the clients" | Kanban board. |
+| 5–7 | No horizontal scroll; keep columns; leads = all active Zoho customers, paginate | 7-column grid, leads from Zoho. |
+| 8 | "what is this 8254 / 12359" | Duplicate-lead bug fixed (deterministic ids, dedupe). |
+| 9–10 | Check active customer count / status | Vendor leak found later (#15). |
+| 11–12 | Column-specific scrolling, no scrollbars | Independent column scroll; `.no-scrollbar`. |
+| 13–14 | "run it locally", "push it to github" | Commit `5f25573`. |
+| 15 | Phase 1+2 spec (members, one modal, change log + revert, aliases, tagged contacts, F flag, merge/unmerge) | Built; vendor filter fix. Commit `ab28adb`. |
+| 16 | Phase 3: PIs, Lead→Quote→PI merge, modal redesign, Zoho-removal notices, last 2 fiscal years, fit screen | Built. |
+| 17 | Link only via reference IDs; customer boxes; Flagged toggle | Built. |
+| 18 | Phase 4: schedule training, ready popup, postpone/TBD, colours | Built. |
+| 19 | "clear all the logs" | 26 events deleted after confirmation. |
+| 20–24 | Postpone rules; schedule from quotations; Notes/Merged on left; "PI not applicable" wording; no inner scroll | Built. |
+| 25 | Delete → back to Leads; full reset + resync; PI-missing note | Done (3939 customers = 3939 leads). |
+| 26–27 | Invoice phase; Payment received phase | Built (`/invoices/{id}/payments`). |
+| 28 | "bundle my prompts… full handoff" | First HANDOFF.md. Phases 3–7 committed as `a45b991`. |
 
----
+### Session 2 (30 Sept – 5 Oct 2026) — new columns, sign-in, AedSmartx board, sync redesign, going live
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 29 | "Read HANDOFF.md first", "run it" | Summary; dev server. |
+| 30 | ◀ ▶ triangles to move the board; **Deal lost** column for declined quotations | 8th column; sliding window. |
+| 31 | Deal lost note: "declined in Zoho Books. Please click <quote no.>…" | Done. |
+| 32 | **Clear logs** button left of the name pill, locked by a PIN | Server-checked PIN, archive to `cardEventsArchive`. |
+| 33 | LAN sharing link | `http://192.168.1.69:3000` (already allowed in `next.config.ts`). |
+| 34 | Select **trainers** (Shikha, Ashish, Sumit) when scheduling; no double-booking a date | Trainer picker + busy check. |
+| 35 | Invoice → Payment shouldn't merge before training completed (sagealpha) | Step-by-step rule; out-of-order merges ignored. |
+| 36 | Allow merging straight through to Payment received | *Merge PI → Invoice → Payment Received*. |
+| 37 | Hide sidebar with X; **Potential training** column; fit any device ("enterprise grade") | Rail sidebar; 9 columns; responsive window, keys, swipe. |
+| 38 | "bottom is not visible, fit to screen" | 16 px bottom margin everywhere. |
+| 39 | "push it to github" | `59512cc` (first attempt blocked: a PIN had been written into HANDOFF.md — removed). |
+| 40 | Potential training: **+** to add a customer (search Zoho customers, vague date), merges like a lead | Built. |
+| 41 | Lock *Training completed* until a PI exists; remove "PI not applicable" | Built. |
+| 42 | When merging a potential lead, show all the customer's quotes to choose from | *Choose & merge*. |
+| 43 | "only the option to select quotation is enough" (no PI step) + "then push" | Built; `21208ce`. |
+| 44 | "run the server" | Dev server. |
+| 45 | **PINs** for Shikha, Ashish, Sumit and Admin (values given in chat — never stored in files) | Hashed PINs, Admin sign-in, admin-gated new members. |
+| 46 | Stay signed in until sign out; only Admin clears logs — all / one customer / one cycle | Session token; scoped Clear logs. |
+| 47 | **NEW** tag on the newest quote in the merge view | Done. |
+| 48 | Quote and PI must only show as a pair (owner asked me to restate my understanding twice, then "go ahead") | Pairing by reference. |
+| 49 | Show invoice due status like Zoho (overdue red / due blue / paid green), border to match, payment date in modal | Built. |
+| 50 | "push it to github" | `69fffdb`. |
+| 51 | "local sharing link" | LAN link. |
+| 52 | Temporarily allow **old training dates** to back-fill data; push | `ALLOW_PAST_TRAINING_DATES`; `ef54af8`. |
+| 53 | "run this, my colleague wants to see on LAN", "run it locally" | Dev server + LAN link. |
+| 54 | **AedSmartx Training board** for Priyanka (AED invoices by Item Identifier *All AEDs*, ship-to phone, item description parsing, extras, schedule date+time, Training not required, Sumit's switch) — correction mid-way: "only this fiscal year (from 1 Apr 2026)" | Built; parser tested on 45 real descriptions. |
+| 55 | Child-key composite = one AED; exclude trainers + AED Rental; fix squeezed "Add" button; *Customer is a Reseller* | Built. |
+| 56 | Mark the whole customer **or** a single invoice for resale | Two tick-boxes. |
+| 57 | Remove the slide buttons on the AED board → "revert it" | Removed, then restored. |
+| 58 | "whenever I refresh, I can't scroll or click" (AED board) | Bug: column offset went negative after refresh → columns `inert`; clamped at 0. |
+| 59 | AED invoices from **this September** | `AED_SINCE` = 1 Sept 2026. |
+| 60 | **Delivered** option (only **Arti Sirohi**, who gets the AED board); green *Ready for Scheduling* / yellow *Not delivered yet*; green **R** toggle | Built. |
+| 61 | "push it to github", "run the server" | `d73b5c4`. |
+| 62 | "in what format is the data saved?" (thinking of going live) | Explained: Zoho data fetched live (then), team actions as small change events in Mongo; showed real records. |
+| 63 | Potential training: allow an **exact date**, not just a month; push | Month / Exact date toggle; `a7e86f2`. |
+| 64 | "best approach for serverless / Zoho budget — act as a senior engineer" | Recommended: lock APIs, Zoho copy in Mongo + one shared sync + budget, sync only changes. |
+| 65 | "go with the recommended plan" | Built all three; outputs identical to before; incremental sync = 4 calls. |
+| 66 | One **global sign-in** when opening the site; Dashboard is the landing page; requires PIN | Full-page sign-in. |
+| 67 | Sign-out / switch available on all pages | Name pill on every page. |
+| 68 | Sync Zoho **every hour, 9 am–7 pm**, Mongo updated right after, only changes (asked my understanding; answered: **no Sunday**, last sync **7 pm**) | Hourly slots Mon–Sat; full checks 9 am & 2 pm. |
+| 69 | "push it to github" | `89daa16`. |
+| 70 | Priyanka can **add notes** on AED cards | Notes window; latest note on the card. |
+| 71 | "make it live" — chose **Vercel**, and **fix the who-made-the-change gap first** | Server-stamped change log (tested on a throwaway DB); `vercel.json` cron; `025e1aa`. |
+| 72 | "is it up to date on github?" | Yes (`025e1aa`). |
+| 73 | Asked for a `CRON_SECRET` string; MongoDB Atlas "what do I do here?"; "we haven't set up a database" | Gave a random secret; walked through IP access; found the app uses **Cluster0**, not the owner's "Directory" cluster; a colleague added `0.0.0.0/0`. |
+| 74 | Shared the live URL | Verified read-only: pages, DB, 401s, signed-in counts, cron secret. |
+| 75 | "write a handoff for next session, include my prompts and what changes they made" | This file. |
 
-## 4. Business rules (the spec, condensed — treat as authoritative)
-
-**Members.** Opening Follow-ups always shows a members screen first: pick your name (or *Admin*) and enter your 4-digit PIN; adding a member needs the admin PIN (#40).
-Every change is recorded under the chosen member.
-
-**Data scope.** Leads = **every active Zoho customer** (not vendors), whenever created. Quotes/PIs/invoices/payments =
-documents dated from the **start of the previous fiscal year** (FY starts 1 April → currently **1 Apr 2025**, moves each April).
-Tracked training items (by item name; all have Item Identifier "Training Services"):
-`Fire Safety Evacuation Training and Drill`, `THCAS BLS Training 2025 (I)`, `THCAS CPR Training 2026 (I)`, `THCAS First Aid Training (I)`.
-
-**One modal for every phase** (same fields; later phases fill in):
-- Customer name (**mandatory**) + aliases (searchable).
-- Emails (optional, many) and contact numbers (**mandatory**, many) — newest on top, each tagged *from Lead / Quote / PI / Invoice…*; identical values merge into one entry with combined tags.
-- Customer type (`cf_type`), Sector (`cf_sector`), Created in Zoho (locked).
-- Sales person (locked), phase-aware: *"Quotation & PI Sent By Ashish Dalal, Invoice Sent By Pranjal Nikalje"*.
-- Locked IDs & dates: Quote, Sales Order/PI, Invoice, Payment Received (number + date, link to Zoho).
-- Training: **Type of Training**; **No. of People expected** (quote) → **No. of People** (PI onwards); training date next to it.
-- Notes / Merged sections on the left half; a **Changes** panel on the right: who, what, when, **Revert** on every entry.
-- Edit (writes one revertable event per change) and Delete.
-
-**Flags (red F) and merges** — merges only run forward, each is its own revertable event, and the target card absorbs
-the earlier card's name, aliases, emails, numbers, type, sector, sales people and training date:
-
-| Link | How cards are matched |
-|---|---|
-| Lead ↔ Quote | same Zoho customer (leads have no document) |
-| Quote ↔ PI | **only** the PI's `reference_number` citing that quotation number |
-| Lead ↔ PI | same customer, only for a PI whose reference cites no synced quotation |
-| Completed training ↔ Invoice | invoice `reference_number` cites that card's PI (or, for a PI-skipped quote, the quotation number) |
-| Invoice ↔ Payment | the invoice the payment is applied to in Zoho (or a Reference# containing the invoice number) — **only once that invoice holds its completed training, or is flagged with it**; in the latter case the merge view offers *Merge PI (or Quote) → Invoice → Payment Received* in one click, and the lone *Invoice → Payment Received* button appears only after the invoice holds its training. An Invoice → Payment merge made before that is ignored by `liveMerges` and shown as *Not applied* in Changes (`mergeNotApplied`). |
-
-Customers can have several quotes/PIs/invoices: only the linked one merges forward, the rest stay put.
-The merge view shows one panel per phase present (Lead → Quote → PI …) with buttons such as *Merge Lead → Quote → PI*,
-*Merge PI → Invoice*, *Merge Invoice → Payment Received*; picking a quote auto-selects the PI that references it, etc.
-
-**Training (phases 4–5).** A quote or PI with **no flags** can be scheduled. A merged, unflagged PI pops up
-*"Ready for training — schedule now?"* (Enter date / Later). With a date it moves to **Training scheduled**:
-first date = *Scheduled*; changing a date = *Postponed*; *To be decided* = TBD; a date after TBD = *Scheduled* again.
-**Border:** green for any date (postponed keeps a yellow badge), red for TBD. Dates can't be in the past.
-A **quote** can be scheduled directly, but **the PI can’t be skipped** (#37): its *Training completed* button is locked with “Create the PI in Zoho Books for <quote> before marking the training completed — then merge Quote → PI here”; Notes show *PI required* (link to the quote); the PI row says *To be created*; the column card says *PI needed*. Training is completed on the PI after *Merge Quote → PI* (the date travels). A `complete_training` recorded on a quotation is ignored (`completionNotApplied`) and shown as *Not applied* in Changes. No “not applicable” wording anywhere.
-**Training completed** (only with a date) moves the card to Training completed. Dates stay in the dashboard (not written to Zoho).
-
-**Invoice / payment (phases 6–7).** Invoices sit in *Invoice sent*; flagged only with the Training-completed card they reference;
-unlinked ones explain why in Notes. Payments sit in *Payment received*; merging the invoice in is the final step — the card stays there.
-
-**Deal lost (8th column).** Every quotation still syncs into Quotations; once its Zoho status is `declined` (Rejected) it moves
-to **Deal lost** for good — out of Quotations/Training columns, no flags, can't be scheduled, no *PI missing* note, a *Deal lost* note instead.
-The board shows 7 columns at a time; ◀ ▶ next to *Synced …* slide it one column (`VISIBLE` in `FollowUps.tsx`).
-
-**Clear logs.** Button left of the member pill → PIN dialog. Server checks `CLEAR_LOGS_PIN` (unset = disabled; wrong PIN waits 0.8 s),
-archives every `cardEvents` doc into `cardEventsArchive` (with `clearedAt`/`clearedBy`), then deletes them. Other browsers pick up the empty log on their next pull.
-**Never test with the real PIN against the server** — mock the `/api/store/clear-logs` response in the browser instead.
-
-**Trainers.** Scheduling needs ≥1 trainer (`TRAINERS` in `pipeline.ts`). A trainer booked on a date by any other live card (not merged-away, deleted or lost) is greyed out for that date, with the other customer named. Postpone opens pre-filled with the current date + trainers; keeping the date and changing trainers = *Save trainers* (status unchanged). TBD drops trainers. Board cards show first names; schedules made before this have *Trainers: not set*.
-
-**Delete.** Deleting a quote/PI/invoice/payment card hides it (and everything merged into it) and the customer's lead
-**returns to Leads**; logged on the lead too; undo from the toast or Changes. Leads have no Delete (they are the Zoho customers).
-
-**Notes shown in the modal:** *PI missing* (quote with no PI referencing it) with a clickable quotation number;
-*PI required* (quote scheduled directly, no PI yet); *Not linked yet* (invoice/payment with the reason);
-Zoho removals: *"… is no longer in Zoho Books … The card moved due to changes in Zoho Books."* (automatic, non-revertable).
-
----
-
-## 5. How the code implements it
-
-| File | Responsibility |
-|---|---|
-| `src/app/follow-up/page.tsx` | Route; renders `FollowUpBoard`. |
-| `src/components/FollowUps.tsx` | Members gate → `Board`: polls `/api/pipeline` every 3 min, builds the board, 7 columns (`grid-cols-7`, height `var(--fu-col-h)` from `.fu-page`), customer boxes, per-column Flagged toggle, lazy rendering (40 boxes per batch), search, "Show deleted", records Zoho notices. |
-| `src/components/followups/CardModal.tsx` | Modal shell (scroll-locked, wide), `CardModal` (details/editor/training/notes/docs/merged + Changes), `MergeModal` (panels per phase + merge actions), `SchedulePrompt`, `ChangeLog`, schedule tones. |
-| `src/components/followups/MembersScreen.tsx` | Pick / add member. |
-| `src/lib/pipeline.ts` | **Core logic.** `buildBoard(leads, quotes, pis, invoices, payments, events)` → cards, flags, columns. Also `zohoNotices`, `flagGroup`, `describeEvent`, `salespersonLabel`, `refQuoteNumber`, `refPINumber`. |
-| `src/lib/zoho.ts` | Zoho client (token cached in Mongo `kv`, retry/back-off). Pipeline fetchers: `fetchAllLeads`, `fetchRecentLeads`, `trainingDocs(kind, from)` → `fetchTrainingQuotes/PIs/Invoices`, `fetchInvoicePayments`. Older `fetchFromZoho` feeds the Overview page. |
-| `src/app/api/pipeline/route.ts` | Server cache + sync schedule: full customer list every 6 h (~22 calls), recent customers every 2 min (1 call), documents every 3 min; tasks run sequentially; `?refresh=1` forces. |
-| `src/lib/store.tsx` | Client store; shared collections synced to Mongo through `/api/store` (60 s pull, diff push): `entries`, `followUps`, `removedTriggers`, `announcements`, **`members`**, **`cardEvents`**. `addCardEvents`, `recordCardEvents` (dedupe by id), `revertCardEvent`, `addMember`. |
-| `src/lib/db.ts`, `src/app/api/store/route.ts` | Mongo collections list + generic upsert/delete API. |
-| `src/lib/types.ts` | `ZohoLead/Quote/PI/Invoice/Payment`, `PipelineResponse`, `Member`, `CardEvent` (+ kinds). |
-| `src/lib/dates.ts` | `syncWindowStart` (previous FY start), formatting. |
-| `src/lib/zohoLinks.ts` | Deep links: quotes / salesorders / invoices / paymentsreceived. |
-| `src/app/globals.css` | `.fu-page` (board fits one screen), `.no-scrollbar`. |
-
-**Model (event-sourced).** A card = Zoho data + every **non-reverted** `CardEvent` replayed in order. Nothing from Zoho is
-overwritten, so "revert" = mark the event reverted. Card ids: `lead:<contact_id>`, `quote:<estimate_id>`, `pi:<salesorder_id>`,
-`invoice:<invoice_id>`, `payment:<payment_id>`. Event kinds: `set_name/type/sector`, `add/remove_alias/email/phone`, `delete`,
-`merge` (`cardIds=[from,to]`, labels in `before`/`value`), `set_training_date` (`YYYY-MM-DD` or `TBD`), `complete_training`,
-`zoho_change` (deterministic id `zoho:<mergeEventId>` so every browser records it once). Merges only apply while both documents
-exist in Zoho and neither is deleted; training dates are read across a card's whole lineage so they travel with merges.
+### Session 3 (5 Oct 2026)
+| # | Prompt (paraphrased) | Result |
+|---|---|---|
+| 76 | Read HANDOFF.md, summarise | Summary. |
+| 77 | Training dates: pick several days (range or scattered) in one picker; **External trainer** with typed names + suggestions next time; **Filter** button by Show deleted with a date filter (range, a month, or several months) | Built; verified headless with saves blocked; not pushed. |
 
 ---
 
 ## 6. Zoho facts learned the hard way
-
-- `GET /contacts?contact_type=customer&filter_by=Status.Active` **also returns vendors** → filter `contact_type === "customer"` per row (`isCustomer` in `zoho.ts`).
-- Customer **Type** = custom field `cf_type` (New/Old Customer/Reseller/Vendor); **Sector** = `cf_sector`. Both are on list rows (no per-contact calls).
-- Timestamps come as `2026-09-24T12:14:04+0530` → normalised to UTC ISO (`isoTime`).
-- **Sales orders are this org's Performa Invoices** (`Performa-25-…`). Quote contacts are `contact_persons_details`; SO contacts are `contact_person_details` (singular).
-- References: PI `reference_number` = quotation number (29/41 match a synced quote); invoice `reference_number` = PI number (46/48; 2 blank, 1 `SO-24-0471`).
-- **The OAuth token has no customer-payments scope** (`/customerpayments` → code 57 "not authorized"); invoice detail's `payments` is empty too.
-  `GET /invoices/{id}/payments` **works** → used, cached per invoice `last_modified_time`. Payment `Reference#` is normally empty.
-- Rate limits: ~100 calls/min per org + a daily budget. First sync ≈ 150–200 calls (detail calls are cached by `last_modified_time`); 429s back off 5/10/20 s.
-- Latest verified counts (29 Sept 2026): **3939** active customers, **77** quotes, **42** PIs, **48** invoices (1 void skipped), **46** payments (5 invoices paid in instalments).
-
----
-
-## 7. Owner's standing UI preferences
-
-- Columns **side by side** in one row, as a sliding window: as many as fit (min 184px, full column name), the rest reached with ◀ ▶ / ←→ / swipe; big screens show all 9. **No horizontal page scrolling**; the board must fit the screen (owner's viewport ≈ 1728×958 → 7 columns, 8 with the sidebar hidden).
-- Each column **scrolls on its own**; **no visible scrollbars** anywhere (`.no-scrollbar`).
-- Modals: wide, **no inner scrolling** at that viewport, background scroll locked, bold section headings, training info prominent.
-- Keep wording short on board cards (e.g. just "PI needed").
-- The owner writes specs in bursts with screenshots; confirm counts against Zoho when they question numbers.
+- `contact_type=customer&filter_by=Status.Active` **also returns vendors** → filter rows (`isCustomer`).
+- Customer Type = `cf_type`, Sector = `cf_sector`; item category = `cf_item_identifier` (*Training Services*, *All AEDs*, …).
+- Sales orders = the org's PIs. Quote contacts: `contact_persons_details`; SO contacts: `contact_person_details`.
+- PI `reference_number` = quotation number; invoice `reference_number` = PI number.
+- The OAuth token has **no customer-payments scope**; `GET /invoices/{id}/payments` works.
+- Lists accept `sort_column=last_modified_time&sort_order=D` (estimates, salesorders, invoices, contacts) — the incremental sync relies on it.
+- Invoice detail has `due_date`, `total`, `balance`, `shipping_address.phone` (ship-to; blank on ~1 in 9 AED invoices).
+- AED details are free text in the line description, written many ways (see `aedParse.ts` comments).
+- Limits: ~100 calls/min per org + a plan-dependent daily allowance (set `ZOHO_DAILY_LIMIT` to the real figure).
+- Counts on 5 Oct 2026: 3,958 customers, 81 quotations (+1 declined), 44 PIs, 49 invoices, 47 payments, 16 AED invoices since 1 Sept.
 
 ---
 
-## 8. Data operations performed on the shared database (MongoDB `thinkhealth_dashboard`)
-
-- Old `leads` collection: de-duplicated (12,359 → 4,105 docs) early on; it is **no longer used** (removed from `COLLECTIONS`) but still exists — delete only with the owner's OK.
-- `cardEvents` wiped twice at the owner's request (26 entries, then 24). Members kept (currently **Shikha Dixit**).
-- After the last wipe, Shikha added real changes (e.g. sagealpha: Lead → `Quotation-24-002582` → `Performa-25-1056`, scheduled + completed, then PI → invoice `2026-01-427`). Treat `cardEvents` as live team data.
-- A direct Mongo `deleteMany` was blocked by the environment's safety classifier; bulk changes were done through the app's own `/api/store` API instead, and only after explicit confirmation.
+## 7. MongoDB `thinkhealth_dashboard` (Cluster0)
+Team data: `cardEvents` (live change log), `cardEventsArchive` (cleared logs), `members`, `memberPins` (hashed), `entries`,
+`followUps`, `announcements`, `removedTriggers`. Zoho copy: `zohoDocs`, `zohoCustomers`, `zohoPayments`, `kv`.
+Legacy: `leads` (4,105 docs, unused since session 1) — drop only with the owner's OK. History: `cardEvents` was cleared by
+request in session 1 (twice) and by Shikha once in session 2; Admin/Shikha may clear again (archive keeps copies).
 
 ---
 
-## 9. How to verify UI changes (without touching team data)
+## 8. Owner's standing preferences
+- Board: columns side by side as a sliding window; no horizontal page scroll; fits the screen; hidden scrollbars.
+- Modals: wide, **no inner scrolling** at 1728×958 (measure `scrollHeight - clientHeight` after any modal change), background locked.
+- Short wording on cards. The owner writes specs in bursts with screenshots; for ambiguous or structural asks they sometimes
+  say "tell me what you understood first" — restate, then build after their go-ahead.
+- Push / run only when asked; the owner often asks "push it" and "run it locally" as separate steps.
 
-No test suite exists. The pattern used all session:
-1. In a scratch folder, `npm i puppeteer-core@23` and drive the installed Chrome
-   (`C:/Program Files/Google/Chrome/Application/chrome.exe`, headless, viewport **1728×958**).
-2. **Intercept requests and abort every `POST /api/store`** so nothing reaches the shared DB; use member name "QA Tester".
-3. Open `/follow-up`, add the member, wait until the header shows counts (e.g. `/\d+ payments/`) and "Syncing with Zoho" is gone,
-   search a customer, click items, screenshot, and read column text / measure `scrollHeight - clientHeight` for overflow.
-4. Afterwards confirm the shared log has **0** "QA Tester" entries (`GET /api/store`).
-Good fixtures: **sagealpha** (full chain, payment #1907), **Checkmate Security** (quote + PI + invoice not yet completed),
-**The Ritz Carlton** (3 quotes / 3 PIs, one reference each), **Mewar Hotels** (`Quotation-24-002545`, no PI).
-For Zoho probing, reuse the cached token from Mongo `kv` (`_id: zoho_access_token`) rather than refreshing it (Zoho limits refreshes).
+---
+
+## 9. How to verify without touching team data
+No test suite. Pattern used throughout:
+1. Headless Chrome via `puppeteer-core@23` (scratch folder) at **1728×958**; intercept and **abort `POST /api/store`** so nothing is saved.
+2. Signing in: real PIN sign-in via `/api/members/sign-in`, or a **stand-in session** — put `{member:{id:"admin",name:"Priyanka"},token}`
+   (admin token) in `localStorage th.session`; the session route turns it into the cookie. Role checks use the member *name*.
+3. For anything that must write (e.g. server stamping), run a second server against a **throwaway database**:
+   `npx next build` then `MONGODB_DB=thinkhealth_qa npx next start -p 3001`, seed, test, **drop the DB**, stop the server.
+4. Data-route changes: save the route outputs first and compare record by record afterwards.
+5. Afterwards confirm the shared `cardEvents` has no test entries. For Zoho probing reuse the cached token in Mongo `kv`
+   (`zoho_access_token`) — read-only calls only. Fixtures: sagealpha, Checkmate Security, The Ritz Carlton, Mewar Hotels,
+   Synopsys `2026-01-385` (AED), Usha Fire Safety (reseller), Medybiz Pharma (3 AED invoices).
+6. Live site checks: read-only (`/api/members`, 401s, signed-in GETs, cron "not due").
 
 ---
 
 ## 10. Open items / known gaps
-
-1. **Commit + push** phases 3–7 when the owner asks (10 files; CRLF warnings are harmless).
-2. Payment Received is the last phase — no further stage requested yet.
-3. Invoices paid in several instalments: the invoice merges into one payment; the other payments stay in the column with a note.
-4. Leads are not limited by the 2-fiscal-year window (only documents are). Owner hasn't asked to limit leads.
-5. Edits, merges and training dates live only in the dashboard — nothing is written back to Zoho.
-6. Payments rely on `/invoices/{id}/payments` because the token lacks the customer-payments scope; re-issuing the token with that scope would allow a direct listing.
-7. Legacy follow-up **tasks** (`src/lib/followups.ts`) still run and feed the ticker and the sidebar's red "Follow-ups" badge; the Overview page still uses the older `/api/trainings` pipeline. Untouched by this work.
-8. Members sign in with a PIN (#40) and stay signed in until *Sign out* (#41), but it gates the UI only: `/api/store` itself doesn’t check who is writing. No “change my PIN” screen yet — the admin route `POST /api/members/pin` resets one.
-9. Orphaned Mongo `leads` collection can be dropped with permission.
-10. Zoho API budget: handled by `src/lib/zohoSync.ts` (#50) — set `ZOHO_DAILY_LIMIT` to the plan’s real daily allowance. For hosting: any host works now; on Vercel Hobby, cron is daily only, so freshness comes from page traffic (`after()`); set `maxDuration` limits as the plan allows (routes ask for 300 s, needed only for a first sync on an empty database).
+1. **Temporary**: `ALLOW_PAST_TRAINING_DATES = true` — set to `false` when the owner confirms the back-fill is done.
+2. `ZOHO_DAILY_LIMIT` is 2500 (cautious default) — replace with the Zoho plan's real allowance in Vercel and `.env.local`.
+3. Potential training's date is stored "for notifications/alerts later" — reminders are not built yet.
+4. No "change my PIN" screen; Admin resets PINs via `POST /api/members/pin`. Session tokens don't expire (sign out, or change
+   `SESSION_SECRET` to sign everyone out).
+5. Nothing is written back to Zoho (dates, merges, notes live only in the dashboard).
+6. Invoices paid in instalments: one payment merges, the others stay in the column with a note.
+7. Legacy follow-up tasks (`src/lib/followups.ts`) still feed the ticker and the sidebar badge; untouched.
+8. Unused Mongo `leads` collection can be dropped with permission.
+9. Optional: custom domain (Vercel → Settings → Domains); the office LAN dev server is no longer needed once the team uses the live site.
+10. The `/api/store` GET returns the whole team dataset to any signed-in member (fine for this team; revisit if outside users are added).

@@ -239,7 +239,7 @@ export type CardEventKind =
   | "remove_phone"
   | "delete"
   | "merge"
-  | "set_training_date" // value: YYYY-MM-DD or "TBD"; the first date schedules, later ones postpone
+  | "set_training_date" // value: YYYY-MM-DD, several days comma-separated ("2026-10-05,2026-10-06"), or "TBD"; the first date schedules, later ones postpone
   | "complete_training" // moves the card to Training completed
   | "zoho_change" // recorded automatically when a Zoho document disappears and a card moves because of it
   | "add_potential" // creates a Potential training card: cardIds [potential:<id>], ref = Zoho contact id, value = expected month (YYYY-MM) or none
@@ -262,7 +262,7 @@ export interface CardEvent {
   before?: string; // previous value, for the change log; merge: label of the card merged from
   ref?: string; // zoho_change: the merge event it reports on
   phase?: Phase; // where an email/phone was added
-  trainers?: string[]; // set_training_date: who gives the training on that date
+  trainers?: string[]; // set_training_date: who gives the training on those dates (our trainers, then external names as typed)
   at: string;
   by: string;
   revertedAt?: string;
