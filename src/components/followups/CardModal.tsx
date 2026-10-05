@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { CardEvent, CardEventKind, Member, Phase } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
-  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, newestFirst, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
+  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, fmtWhen, newestFirst, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -37,7 +37,7 @@ export function FlagBadge() {
   );
 }
 
-function Lock() {
+export function Lock() {
   return (
     <svg viewBox="0 0 20 20" className="size-3.5 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="1.6" aria-label="Locked — synced from Zoho Books">
       <rect x="4.5" y="9" width="11" height="8" rx="1.5" />
@@ -49,7 +49,7 @@ function Lock() {
 /** Inside the narrow merge panels, sections go flat and labels sit above values. */
 const Compact = createContext(false);
 
-function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+export function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
   const compact = useContext(Compact);
   return (
     <section className={compact ? "border-t border-line px-1 pt-2.5 first:border-t-0 first:pt-0" : "rounded-2xl border border-line bg-surface px-4 py-3.5"}>
@@ -62,7 +62,7 @@ function Section({ title, aside, children }: { title: string; aside?: React.Reac
   );
 }
 
-function Row({ label, required, locked, children }: { label: string; required?: boolean; locked?: boolean; children: React.ReactNode }) {
+export function Row({ label, required, locked, children }: { label: string; required?: boolean; locked?: boolean; children: React.ReactNode }) {
   const compact = useContext(Compact);
   return (
     <div className={`grid border-b border-line first:pt-0 last:border-b-0 last:pb-0 ${compact ? "grid-cols-[118px_1fr] gap-2 py-1.5" : "grid-cols-[150px_1fr] gap-4 py-2"}`}>
@@ -96,7 +96,7 @@ function Entries({ entries, empty, missing }: { entries: ContactEntry[]; empty: 
 
 /* ---------------- Read-only sections (the same for every phase) ---------------- */
 
-function CustomerSection({ card }: { card: CardView }) {
+export function CustomerSection({ card }: { card: CardView }) {
   return (
     <Section title="Customer">
       <dl>
@@ -112,7 +112,7 @@ function CustomerSection({ card }: { card: CardView }) {
   );
 }
 
-function ContactSection({ card }: { card: CardView }) {
+export function ContactSection({ card }: { card: CardView }) {
   return (
     <Section title="Contact">
       <dl>
@@ -210,14 +210,14 @@ export const SCHEDULE_TONE: Record<ScheduleStatus, { border: string; chip: strin
   tbd: { border: "border-high", chip: "bg-high-bg text-high", label: "To be decided" },
 };
 
-export const scheduleText = (s: TrainingSchedule) => (s.status === "tbd" || !s.date ? "To be decided" : dateLong(s.date));
+export const scheduleText = (s: TrainingSchedule) => (s.status === "tbd" || !s.date ? "To be decided" : fmtWhen(s.date));
 const todayYmd = () => new Date().toLocaleDateString("en-CA");
 
 // TEMPORARY (Oct 2026): past training dates are allowed so the team can back-fill old trainings.
 // Set to false to go back to “dates can’t be in the past”.
 const ALLOW_PAST_TRAINING_DATES = true;
-const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
-const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
+export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
+export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
 type ScheduleFn = (value: string, trainers?: string[]) => void;
 type BusyFn = (date: string) => Map<string, CardView>;
@@ -430,7 +430,7 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
   );
 }
 
-function SalesSection({ card }: { card: CardView }) {
+export function SalesSection({ card }: { card: CardView }) {
   return (
     <Section title="Sales person" aside={<Lock />}>
       <p className="text-[15px] font-medium text-ink">{card.salespeople.length ? salespersonLabel(card.salespeople) : <span className="font-normal text-faint">—</span>}</p>
@@ -600,7 +600,7 @@ export function ChangeLog({ cardIds, cards, member }: { cardIds: string[]; cards
 
 /* ---------------- Modal shell: wide; locks the page behind it ---------------- */
 
-function Shell({ label, onClose, side, footer, overlay, children }: { label: string; onClose: () => void; side: React.ReactNode; footer?: React.ReactNode; overlay?: React.ReactNode; children: React.ReactNode }) {
+export function Shell({ label, onClose, side, footer, overlay, children }: { label: string; onClose: () => void; side: React.ReactNode; footer?: React.ReactNode; overlay?: React.ReactNode; children: React.ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -633,7 +633,7 @@ function Shell({ label, onClose, side, footer, overlay, children }: { label: str
   );
 }
 
-function Header({ kind, sub, title, flagged, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; onClose: () => void }) {
+export function Header({ kind, sub, title, flagged, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; onClose: () => void }) {
   return (
     <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-line bg-surface px-6 pb-3 pt-4">
       <div className="min-w-0">
@@ -654,7 +654,7 @@ function Header({ kind, sub, title, flagged, onClose }: { kind?: CardKind; sub: 
 /* ---------------- Editing ---------------- */
 
 type EntryDraft = ContactEntry & { isNew?: boolean };
-type Draft = { name: string; aliases: string[]; emails: EntryDraft[]; phones: EntryDraft[]; type: string; sector: string };
+export type Draft = { name: string; aliases: string[]; emails: EntryDraft[]; phones: EntryDraft[]; type: string; sector: string };
 
 function EntryEditor({ label, required, entries, onChange, keyOf, validate, phase, placeholder }: {
   label: string; required?: boolean; entries: EntryDraft[]; onChange: (e: EntryDraft[]) => void;
@@ -685,14 +685,14 @@ function EntryEditor({ label, required, entries, onChange, keyOf, validate, phas
       </ul>
       <div className="flex gap-2">
         <input className={`${inputCls} !h-9 text-[13px]`} value={v} placeholder={placeholder} onChange={(e) => { setV(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())} />
-        <button type="button" className={btn.ghost} onClick={add}>Add</button>
+        <button type="button" className={`${btn.ghost} shrink-0`} onClick={add}>Add</button>
       </div>
       {err && <p className="mt-1 text-[12px] text-high">{err}</p>}
     </Row>
   );
 }
 
-function Editor({ card, draft, setDraft, options }: { card: CardView; draft: Draft; setDraft: (d: Draft) => void; options: BoardOptions }) {
+export function Editor({ card, draft, setDraft, options }: { card: CardView; draft: Draft; setDraft: (d: Draft) => void; options: BoardOptions }) {
   const [alias, setAlias] = useState("");
   const addAlias = () => {
     const a = alias.trim();
@@ -745,7 +745,7 @@ function Editor({ card, draft, setDraft, options }: { card: CardView; draft: Dra
 }
 
 /** Turn the edited draft into one event per change, so each can be reverted on its own. */
-function diff(card: CardView, d: Draft, by: string): Omit<CardEvent, "id" | "at">[] {
+export function diff(card: CardView, d: Draft, by: string): Omit<CardEvent, "id" | "at">[] {
   const base = { cardIds: [card.id], by };
   const out: Omit<CardEvent, "id" | "at">[] = [];
   const ev = (kind: CardEventKind, extra: Partial<CardEvent>) => out.push({ ...base, kind, ...extra });

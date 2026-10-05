@@ -164,6 +164,28 @@ export interface ZohoInvoice {
   items: { name: string; qty: number }[];
 }
 
+/** One line of an AED invoice (the AED itself, or anything sold with it). */
+export interface AedLine {
+  name: string;
+  qty: number;
+  description: string;
+}
+
+/** AedSmartx board: an invoice with an item whose Item Identifier is "All AEDs". */
+export interface AedInvoice extends ZohoInvoice {
+  shipPhone?: string; // the invoice's ship-to phone — preferred contact number
+  shipAttention?: string;
+  aedLines: AedLine[];
+  otherLines: AedLine[];
+}
+
+export interface AedResponse {
+  syncedAt: string;
+  windowStart: string;
+  invoices: AedInvoice[];
+  error?: string;
+}
+
 /** A Zoho customer payment recorded against one of the tracked invoices. */
 export interface ZohoPayment {
   paymentId: string;
@@ -203,7 +225,7 @@ export interface Member {
   createdAt: string;
 }
 
-export type Phase = "Potential" | "Lead" | "Quote" | "PI" | "Invoice" | "Payment";
+export type Phase = "Potential" | "Lead" | "Quote" | "PI" | "Invoice" | "Payment" | "Ship-to";
 
 export type CardEventKind =
   | "set_name"
@@ -221,7 +243,11 @@ export type CardEventKind =
   | "complete_training" // moves the card to Training completed
   | "zoho_change" // recorded automatically when a Zoho document disappears and a card moves because of it
   | "add_potential" // creates a Potential training card: cardIds [potential:<id>], ref = Zoho contact id, value = expected month (YYYY-MM) or none
-  | "set_potential_date"; // value: new expected month (YYYY-MM) or "" for not set; before: previous
+  | "set_potential_date" // value: new expected month (YYYY-MM) or "" for not set; before: previous
+  | "set_not_required" // AedSmartx board: the invoice needs no training — card moves to Training not required
+  | "set_reseller" // AedSmartx board: ref = Zoho contact id; all that customer's AED invoices need no training
+  | "set_resale" // AedSmartx board: this one invoice was bought for resale — needs no training
+  | "set_delivered"; // AedSmartx board: the AED has been delivered (marked by Arti) — ready for scheduling
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every

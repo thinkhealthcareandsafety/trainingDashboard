@@ -1,5 +1,6 @@
-import type { CardEvent, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
+import type { AedInvoice, CardEvent, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { fmtDate } from "./dates";
+import { type AedDetails, type AedExtra, aedExtras, parseAedLine } from "./aedParse";
 
 const fmtDay = (ymd: string) => fmtDate(ymd, { day: "numeric", month: "short", year: "numeric" });
 
@@ -85,6 +86,16 @@ export interface CardView {
   piMissing: boolean;
   /** A quotation declined (rejected) in Zoho Books — the deal is lost; it sits in Deal lost for good. */
   lost: boolean;
+  /** AedSmartx board: marked "Training not required" (its deal-lost column) — itself, or because the customer is a reseller. */
+  notRequired?: boolean;
+  /** AedSmartx board: the customer was marked as a reseller (all their AED invoices need no training). */
+  reseller?: boolean;
+  /** AedSmartx board: this invoice was marked as bought for resale (needs no training). */
+  resale?: boolean;
+  /** AedSmartx board: the AED was delivered (who marked it, when) — the card is ready for scheduling. */
+  delivered?: { at: string; by: string };
+  /** AedSmartx board: what the invoice's AED lines say (model, serials, expiries) and the extras sold with them. */
+  aed?: { lines: AedDetails[]; extras: AedExtra[] };
 }
 
 /** A new date only counts as postponed when it replaces a date; after TBD (or first time) it's scheduling. */
@@ -617,7 +628,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
       return `Merged ${KIND_LABEL[kindOfId(from)].toLowerCase()} “${e.before ?? labelOf(from)}” into ${e.value ?? labelOf(to)}`;
     }
     case "set_training_date": {
-      const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDay(x));
+      const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtWhen(x));
       const who = e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "";
       if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)} changed to ${e.trainers?.join(", ") || "none"}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
@@ -630,5 +641,89 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "zoho_change": return v;
     case "add_potential": return `Added to Potential training${v ? ` — training expected around ${fmtMonth(v)}` : ""}`;
     case "set_potential_date": return `Expected training: ${fmtMonth(e.before) || "not set"} → ${fmtMonth(v) || "not set"}`;
+    case "set_not_required": return "Marked Training not required — moved to Training not required";
+    case "set_delivered": return "Marked as delivered — ready for scheduling";
+    case "set_resale": return `Marked ${e.before ?? "this invoice"} for resale — moved to Training not required`;
+    case "set_reseller": return `Marked ${e.before ?? "the customer"} as a Reseller — all their AED invoices moved to Training not required`;
   }
+}
+
+/* ---------------- AedSmartx board: AED invoices → Training scheduled → Training completed ---------------- */
+
+export const aedCardId = (invoiceId: string) => `aed:${invoiceId}`;
+/** AedSmartx board: Priyanka (trainer) and Arti (deliveries) work only on it; only Arti marks AEDs as delivered. */
+export const isAedTrainer = (name: string) => /^priyanka\b/i.test(name.trim());
+export const isAedDelivery = (name: string) => /^arti\b/i.test(name.trim());
+export const isAedBoardUser = (name: string) => isAedTrainer(name) || isAedDelivery(name);
+
+/** Where customer-wide AED changes ("Customer is a Reseller") are logged, so every invoice of theirs shows them. */
+export const aedCustomerId = (contactId: string) => `aedcustomer:${contactId}`;
+
+/** A training date, with its time when one was set ("2026-10-20T14:30" → "20 Oct 2026, 2:30 pm"). */
+export function fmtWhen(v: string): string {
+  const [day, time] = v.split("T");
+  const d = fmtDay(day);
+  if (!time) return d;
+  const [h, m] = time.split(":").map(Number);
+  return `${d}, ${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+}
+
+/**
+ * Priyanka's board. One card per AED invoice (card id "aed:<invoice id>", separate from the training board's
+ * invoice cards). Contact number = the invoice's ship-to phone; if that's blank, the customer's usual numbers.
+ * Same event model as the training board, so edits, dates, completion and "not required" are logged and revertable.
+ */
+export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events: CardEvent[]) {
+  const ids = new Set(invoices.map((i) => aedCardId(i.invoiceId)));
+  // Resellers apply to every invoice of the customer, including ones that arrive later.
+  const resellers = new Set(events.filter((e) => !e.revertedAt && e.kind === "set_reseller" && e.ref).map((e) => e.ref!));
+  const byCard = new Map<string, CardEvent[]>();
+  const active = events.filter((e) => !e.revertedAt && e.cardIds.some((id) => ids.has(id))).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  for (const e of active) for (const id of e.cardIds) if (ids.has(id)) byCard.set(id, [...(byCard.get(id) ?? []), e]);
+  const contacts = new Map(leads.map((l) => [l.contactId, l]));
+
+  const cards = new Map<string, CardView>();
+  for (const inv of invoices) {
+    const id = aedCardId(inv.invoiceId);
+    const contact = contacts.get(inv.customerId);
+    const evs = byCard.get(id) ?? [];
+    const draft: Draft = { name: inv.customerName, aliases: [], emails: new Map(), phones: new Map(), type: contact?.type, sector: contact?.sector };
+    for (const c of inv.contacts) if (c.email) put(draft.emails, normEmail(c.email), { value: c.email, phases: ["Invoice"], at: inv.createdAt });
+    if (!draft.emails.size && contact?.email) put(draft.emails, normEmail(contact.email), { value: contact.email, phases: ["Lead"], at: contact.createdAt });
+    if (inv.shipPhone) put(draft.phones, normPhone(inv.shipPhone), { value: inv.shipPhone, phases: ["Ship-to"], at: inv.createdAt });
+    else {
+      for (const c of inv.contacts) for (const p of [c.mobile, c.phone]) if (p) put(draft.phones, normPhone(p), { value: p, phases: ["Invoice"], at: inv.createdAt });
+      if (contact) for (const p of [contact.mobile, contact.phone]) if (p) put(draft.phones, normPhone(p), { value: p, phases: ["Lead"], at: contact.createdAt });
+    }
+    apply(draft, evs);
+    const emails = sortEntries(draft.emails);
+    const phones = sortEntries(draft.phones);
+    const lines = inv.aedLines.map(parseAedLine);
+    const card: CardView = {
+      id, kind: "invoice", customerId: inv.customerId, name: draft.name, aliases: draft.aliases, emails, phones, type: draft.type, sector: draft.sector,
+      customerSince: contact?.createdAt, salespeople: inv.salesperson ? [{ phase: "Invoice", name: inv.salesperson }] : [],
+      invoice: inv, training: inv.items, peopleLabel: "Units", docNumber: inv.number, docDate: inv.date,
+      mergedFrom: [], deleted: false, flaggedWith: [], historyIds: [id], search: "",
+      canSchedule: true, readyToSchedule: false, piSkipped: false, piMissing: false, lost: false,
+      schedule: scheduleOf(evs), reseller: resellers.has(inv.customerId), resale: evs.some((e) => e.kind === "set_resale"),
+      notRequired: resellers.has(inv.customerId) || evs.some((e) => e.kind === "set_not_required" || e.kind === "set_resale"),
+      delivered: (() => { const d = evs.filter((e) => e.kind === "set_delivered").at(-1); return d ? { at: d.at, by: d.by } : undefined; })(),
+      aed: { lines, extras: aedExtras(inv) },
+    };
+    card.search = [card.name, ...card.aliases, ...emails.map((e) => e.value), ...phones.map((p) => p.value), ...phones.map((p) => normPhone(p.value)),
+      inv.number, inv.reference, ...inv.items.map((i) => i.name), ...lines.flatMap((l) => l.serials)].filter(Boolean).join(" ").toLowerCase();
+    cards.set(id, card);
+  }
+
+  const all = [...cards.values()];
+  return {
+    cards,
+    invoiceCards: all.filter((c) => !c.schedule && !c.notRequired),
+    // Soonest training first; to-be-decided at the end.
+    scheduledCards: all.filter((c) => c.schedule && !c.schedule.completed && !c.notRequired)
+      .sort((a, b) => (a.schedule!.date ?? "9999").localeCompare(b.schedule!.date ?? "9999")),
+    completedCards: all.filter((c) => c.schedule?.completed && !c.notRequired)
+      .sort((a, b) => b.schedule!.completed!.at.localeCompare(a.schedule!.completed!.at)),
+    notRequiredCards: all.filter((c) => c.notRequired),
+  };
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import type { PipelineDoc, Priority, Training, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote, ZohoStatus } from "./types";
+import type { AedInvoice, PipelineDoc, Priority, Training, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote, ZohoStatus } from "./types";
 import { fiscalYearStart, ymd } from "./dates";
 import { tidyName } from "./format";
 import { db, mongoConfigured } from "./db";
@@ -14,6 +14,9 @@ const API = process.env.ZOHO_API_BASE ?? "https://www.zohoapis.in/books/v3";
 const ORG = process.env.ZOHO_ORG_ID ?? "60016330017";
 
 const ITEM_IDENTIFIER_FIELD = "cf_item_identifier";
+const ALL_AEDS = "All AEDs";
+/** Tagged "All AEDs" in Zoho but not AEDs a customer is trained on: trainers and rentals. */
+const AED_EXCLUDED = new Set(["Defibtch Lifeline AED Trainer DCF-E350T", "FRX AED Trainer Full set", "XFT-120C AED Trainer", "AED Rental"].map((n) => n.toLowerCase()));
 const TRAINING_SERVICES = "Training Services";
 
 export function zohoConfigured(): boolean {
@@ -401,6 +404,62 @@ async function trainingDocs(kind: Kind, from: Date) {
           .filter((li) => wantedIds.has(String(li.item_id)))
           .map((li) => ({ name: String(li.name), qty: Number(li.quantity) || 0 })),
       },
+    };
+  });
+}
+
+/**
+ * AedSmartx board: invoices (any status but void) since `from` containing an item whose Item Identifier is
+ * "All AEDs". Details come from the same cache as the training documents (re-downloaded only when changed).
+ */
+export async function fetchAedInvoices(from: Date): Promise<AedInvoice[]> {
+  const aedItems = (await allItems()).filter((i) => i.identifier === ALL_AEDS && !AED_EXCLUDED.has(i.name.trim().toLowerCase()));
+  const aedIds = new Set(aedItems.map((i) => i.id));
+  const since = ymd(from);
+  const listed = new Map<string, ZRecord>();
+  const lists = await pool(aedItems, 4, (i) => paged("/invoices", "invoices", { item_id: i.id, date_start: since }));
+  for (const e of lists.flat()) if (String(e.status) !== "void" && String(e.date) >= since) listed.set(String(e.invoice_id), e);
+  const docs = await pool([...listed.values()], 5, async (e) => {
+    const id = String(e.invoice_id);
+    const lmt = String(e.last_modified_time ?? "");
+    const hit = detailCache.get(`invoices:${id}`);
+    if (hit && lmt && hit.lmt === lmt) return hit.doc;
+    const doc = (await zget<Record<string, ZRecord>>(`/invoices/${id}`)).invoice;
+    detailCache.set(`invoices:${id}`, { lmt, doc });
+    return doc;
+  });
+  return docs.map((d) => {
+    const selected = new Set(((d.contact_persons as unknown[]) ?? []).map(String));
+    const details = ((d.contact_persons_details ?? d.contact_person_details) as ZRecord[]) ?? [];
+    const people = details.filter((p) => (selected.size === 0 ? p.is_primary_contact : selected.has(String(p.contact_person_id))));
+    const ship = (d.shipping_address as ZRecord | undefined) ?? {};
+    const line = (li: ZRecord) => ({ name: String(li.name), qty: Number(li.quantity) || 0, description: String(li.description ?? "") });
+    const lines = (d.line_items as ZRecord[]) ?? [];
+    return {
+      invoiceId: String(d.invoice_id),
+      number: String(d.invoice_number),
+      date: String(d.date),
+      createdAt: isoTime(d.created_time, `${d.date}T00:00:00.000Z`),
+      status: String(d.status),
+      customerId: String(d.customer_id),
+      customerName: tidyName(String(d.customer_name)),
+      salesperson: str(d.salesperson_name),
+      reference: str(d.reference_number),
+      dueDate: str(d.due_date),
+      total: d.total === undefined ? undefined : Number(d.total),
+      balance: d.balance === undefined ? undefined : Number(d.balance),
+      lastModified: String(d.last_modified_time ?? ""),
+      contacts: people.map((p) => ({
+        name: [p.first_name, p.last_name].filter(Boolean).join(" ") || undefined,
+        email: str(p.email),
+        phone: str(p.phone),
+        mobile: str(p.mobile),
+      })),
+      shipPhone: str(ship.phone),
+      shipAttention: str(ship.attention),
+      aedLines: lines.filter((li) => aedIds.has(String(li.item_id))).map(line),
+      otherLines: lines.filter((li) => !aedIds.has(String(li.item_id))).map(line),
+      items: lines.filter((li) => aedIds.has(String(li.item_id))).map((li) => ({ name: String(li.name), qty: Number(li.quantity) || 0 })),
     };
   });
 }

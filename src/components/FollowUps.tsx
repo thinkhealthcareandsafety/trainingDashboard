@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Member, PipelineResponse } from "@/lib/types";
-import { type CardView, STAGE_RANK, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
+import { type CardView, STAGE_RANK, buildAedBoard, isAedBoardUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { MembersScreen } from "./followups/MembersScreen";
+import { AedCardModal } from "./followups/AedModal";
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
-type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential";
+type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
+  | "aed_invoices" | "aed_training" | "aed_completed" | "aed_not_required";
 
 const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "lead", label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
@@ -23,6 +25,18 @@ const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "potential", label: "Potential training", header: "bg-surface-2", dot: "bg-brand" },
 ];
 
+/** AedSmartx Training board (Priyanka): AED invoices → Training scheduled → Training completed, or not required. */
+const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
+  { key: "aed_invoices", label: "Invoices sent", header: "bg-medium-bg", dot: "bg-medium" },
+  { key: "aed_training", label: "Training scheduled", header: "bg-brand-soft", dot: "bg-brand" },
+  { key: "aed_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
+  { key: "aed_not_required", label: "Training not required", header: "bg-high-bg", dot: "bg-high" },
+];
+/** Priyanka works only on the AED board; Sumit (and Admin) can switch between the two. */
+/** Priyanka and Arti work only on the AedSmartx board. */
+const isAedTrainer = (m: Member) => isAedBoardUser(m.name);
+const canSwitchBoards = (m: Member) => m.id === "admin" || /^sumit\b/i.test(m.name.trim());
+
 // As many columns as fit at MIN_COL_W (enough for the column name); the rest slide in with ◀ ▶,
 // the arrow keys or a swipe. A wide screen shows every column.
 const MIN_COL_W = 184;
@@ -34,7 +48,8 @@ function useColumnWindow(total: number) {
   const viewRef = useRef<HTMLDivElement>(null);
   const [perView, setPerView] = useState(Math.min(7, total));
   const [offset, setOffset] = useState(0);
-  const maxOffset = total - perView;
+  // Never below 0: right after switching boards, perView can briefly be larger than the new column count.
+  const maxOffset = Math.max(0, total - perView);
 
   useLayoutEffect(() => {
     const el = viewRef.current;
@@ -45,7 +60,7 @@ function useColumnWindow(total: number) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [total]);
-  useEffect(() => setOffset((o) => Math.min(o, maxOffset)), [maxOffset]);
+  useEffect(() => setOffset((o) => Math.max(0, Math.min(o, maxOffset))), [maxOffset]);
 
   const move = useCallback((step: number) => setOffset((o) => Math.max(0, Math.min(maxOffset, o + step))), [maxOffset]);
 
@@ -137,14 +152,60 @@ function usePipeline() {
   return { data, loading, refresh: () => load(true) };
 }
 
+/** AED invoices (current fiscal year) — fetched only while the AedSmartx board is showing. */
+function useAedInvoices(enabled: boolean) {
+  const [data, setData] = useState<AedResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(async (force = false) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/aed${force ? "?refresh=1" : ""}`, { cache: "no-store" });
+      const json = (await res.json()) as AedResponse;
+      setData((d) => (json.invoices?.length || !d ? json : { ...d, error: json.error ?? "Sync failed" }));
+    } catch (e) {
+      setData((d) => (d ? { ...d, error: String(e) } : null));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (!enabled) return;
+    load();
+    const t = setInterval(() => load(), 5 * 60_000);
+    return () => clearInterval(t);
+  }, [enabled, load]);
+  return { data, loading, refresh: () => load(true) };
+}
+
+/** Sumit / Admin: which board is showing, remembered per browser. */
+function useAedSwitch(): [boolean, (v: boolean) => void] {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    try {
+      setOn(localStorage.getItem("th.aedBoard") === "1");
+    } catch {}
+  }, []);
+  const set = (v: boolean) => {
+    setOn(v);
+    try {
+      localStorage.setItem("th.aedBoard", v ? "1" : "0");
+    } catch {}
+  };
+  return [on, set];
+}
+
 /* ---------------- Cards: one box per customer, their documents inside ---------------- */
 
 const flagged = (c: CardView) => c.flaggedWith.length > 0;
+/** AedSmartx: delivered and waiting for a training date. */
+const isReady = (c: CardView) => Boolean(c.aed && c.delivered && !c.schedule && !c.notRequired);
 
 function ItemShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
   // Invoices / payments: red overdue, blue due, green paid. Training scheduled: green = date, red = to be decided.
-  const due = cardDue(card);
-  const border = due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
+  const due = card.aed ? undefined : cardDue(card);
+  // AedSmartx: not required = red; scheduled = the training date's colour; before that green once delivered, else yellow.
+  const border = card.notRequired ? "border-2 border-high" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
+    : card.aed ? `border-2 ${card.delivered ? "border-low" : "border-medium"}` : due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
   return (
     <button
       onClick={onClick}
@@ -196,7 +257,8 @@ function PotentialItem({ card, onClick }: { card: CardView; onClick: () => void 
 /** A quotation, PI, invoice or payment: number, training, date. */
 function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   const pay = card.payment;
-  const due = cardDue(card);
+  // AedSmartx cards show delivery instead of payment status.
+  const due = card.aed ? undefined : cardDue(card);
   return (
     <ItemShell card={card} onClick={onClick}>
       <div className="flex items-start justify-between gap-2">
@@ -216,7 +278,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <span className={`num font-semibold ${card.schedule.status === "tbd" ? "text-high" : "text-ink"}`}>{scheduleText(card.schedule)}</span>
           {card.schedule.completed ? (
-            !due && <span className="rounded bg-low px-1 text-[10.5px] font-bold text-white">Completed</span>
+            (!due || card.aed) && <span className="rounded bg-low px-1 text-[10.5px] font-bold text-white">Completed</span>
           ) : (
             card.schedule.status !== "tbd" && <span className={`rounded px-1 text-[10.5px] font-bold ${SCHEDULE_TONE[card.schedule.status].chip}`}>{SCHEDULE_TONE[card.schedule.status].label}</span>
           )}
@@ -227,7 +289,20 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
       ) : (
         !pay && card.docDate && <div className="num text-ink-2">{dateLong(card.docDate)}</div>
       )}
+      {card.notRequired && (
+        <div className="mt-1">
+          <span className="rounded bg-high-bg px-1 text-[10.5px] font-bold uppercase tracking-wide text-high">Training not required</span>
+          {(card.reseller || card.resale) && <span className="ml-1 text-[11px] text-ink-2">{card.reseller ? "Reseller" : "For resale"}</span>}
+        </div>
+      )}
       {due && <div className="mt-1"><DueChip due={due} /></div>}
+      {card.aed && !card.notRequired && !card.schedule && (
+        <div className="mt-1">
+          <span className={`rounded px-1 text-[10.5px] font-bold uppercase tracking-wide ${card.delivered ? "bg-low-bg text-low" : "bg-medium-bg text-medium"}`}>
+            {card.delivered ? "Ready for Scheduling" : "Not delivered yet"}
+          </span>
+        </div>
+      )}
       {card.readyToSchedule && <div className="mt-1 text-[11px] font-semibold text-low">Ready to schedule</div>}
     </ItemShell>
   );
@@ -261,17 +336,22 @@ const BATCH = 40;
 function Column({ stage, cards, onOpen, onAdd, loading }: { stage: (typeof STAGES)[number]; cards: CardView[]; onOpen: (c: CardView) => void; onAdd?: () => void; loading: boolean }) {
   const [shown, setShown] = useState(BATCH);
   const [flaggedFirst, setFlaggedFirst] = useState(false);
+  // AedSmartx: "R" shows only the cards that are Ready for Scheduling (delivered, not scheduled yet).
+  const [readyOnly, setReadyOnly] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => setShown(BATCH), [cards.length, flaggedFirst]);
+  useEffect(() => setShown(BATCH), [cards.length, flaggedFirst, readyOnly]);
 
   // One box per customer, in the column's order (newest first); flagged boxes on top when asked.
   const groups = useMemo(() => {
     const byCustomer = new Map<string, CardView[]>();
     for (const c of cards) byCustomer.set(c.customerId, [...(byCustomer.get(c.customerId) ?? []), c]);
     const list = [...byCustomer.values()];
-    return flaggedFirst ? [...list.filter((g) => g.some(flagged)), ...list.filter((g) => !g.some(flagged))] : list;
-  }, [cards, flaggedFirst]);
+    const pick = readyOnly ? list.map((g) => g.filter(isReady)).filter((g) => g.length) : list;
+    return flaggedFirst ? [...pick.filter((g) => g.some(flagged)), ...pick.filter((g) => !g.some(flagged))] : pick;
+  }, [cards, flaggedFirst, readyOnly]);
   const flaggedCount = cards.filter(flagged).length;
+  const readyCount = cards.filter(isReady).length;
+  useEffect(() => { if (!readyCount) setReadyOnly(false); }, [readyCount]);
 
   const onScroll = () => {
     const el = ref.current;
@@ -286,6 +366,16 @@ function Column({ stage, cards, onOpen, onAdd, loading }: { stage: (typeof STAGE
           <span data-col-name className="line-clamp-2 text-[13px] font-semibold leading-tight text-ink">{stage.label}</span>
         </span>
         <span className="inline-flex shrink-0 items-center gap-1">
+          {readyCount > 0 && (
+            <button
+              onClick={() => { setReadyOnly((v) => !v); ref.current?.scrollTo({ top: 0 }); }}
+              aria-pressed={readyOnly}
+              title={readyOnly ? "Show all cards" : "Show only cards ready for scheduling"}
+              className={`inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[11px] font-bold transition ${readyOnly ? "bg-low text-white" : "bg-low-bg text-low hover:brightness-95"}`}
+            >
+              R <span className="num font-semibold">{readyCount}</span>
+            </button>
+          )}
           {flaggedCount > 0 && (
             <button
               onClick={() => { setFlaggedFirst((v) => !v); ref.current?.scrollTo({ top: 0 }); }}
@@ -307,7 +397,7 @@ function Column({ stage, cards, onOpen, onAdd, loading }: { stage: (typeof STAGE
       <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} data-col-body style={{ height: "var(--fu-col-h)" }}>
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-center text-[12px] text-faint">
-            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost"].includes(stage.key) ? "Syncing with Zoho Books…" : stage.key === "potential" ? "Add customers who might train later with +" : "No cards"}
+            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost", "aed_invoices"].includes(stage.key) ? "Syncing with Zoho Books…" : stage.key === "potential" ? "Add customers who might train later with +" : "No cards"}
           </div>
         ) : (
           groups.slice(0, shown).map((g) => <CustomerBox key={g[0].customerId} cards={g} onOpen={onOpen} />)
@@ -492,15 +582,24 @@ function ClearLogs({ member, cards }: { member: Member; cards: Map<string, CardV
 
 function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut: () => void; initialQuery: string }) {
   const { cardEvents, recordCardEvents } = useStore();
-  const { data, loading, refresh } = usePipeline();
+  const pipeline = usePipeline();
+  const { data } = pipeline;
+  const [aedSwitch, setAedSwitch] = useAedSwitch();
+  const aedMode = isAedTrainer(member) || (canSwitchBoards(member) && aedSwitch);
+  const aed = useAedInvoices(aedMode);
+  // The header's sync status and "Sync now" follow the board that's showing.
+  const { loading, refresh } = aedMode ? aed : pipeline;
+  const sync = aedMode ? aed.data : data;
+  const stages = aedMode ? AED_STAGES : STAGES;
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
   const [open, setOpen] = useState<{ id: string; merge: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
-  const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(STAGES.length);
+  const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(stages.length);
   const { pageRef, colH } = useFitHeight();
 
   const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents), [data, cardEvents]);
+  const aedBoard = useMemo(() => (aedMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents) : null), [aedMode, data, aed.data, cardEvents]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
 
   // A merged quote/PI that disappeared from Zoho moves its cards apart — log why, once.
@@ -521,23 +620,39 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const paid = useMemo(() => board.paymentCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
   const lost = useMemo(() => board.lostCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
   const potential = useMemo(() => board.potentialCards.filter(visible), [board, needle, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
-  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential };
+  const aedCols = useMemo(() => {
+    if (!aedBoard) return { aed_invoices: [], aed_training: [], aed_completed: [], aed_not_required: [] };
+    return {
+      aed_invoices: aedBoard.invoiceCards.filter(visible),
+      aed_training: aedBoard.scheduledCards.filter(visible),
+      aed_completed: aedBoard.completedCards.filter(visible),
+      aed_not_required: aedBoard.notRequiredCards.filter(visible),
+    };
+  }, [aedBoard, needle]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });
-  const current = open ? board.cards.get(open.id) : undefined;
-  const candidates = current && open?.merge ? mergeCandidates(current.id, board.cards) : [];
+  const current = open ? (aedMode ? aedBoard?.cards : board.cards)?.get(open.id) : undefined;
+  const candidates = current && open?.merge && !aedMode ? mergeCandidates(current.id, board.cards) : [];
   const mergeGroup = candidates.length > 1 ? candidates : null;
 
   return (
     <div ref={pageRef} className="fu-page" style={colH ? ({ "--fu-col-h": `${colH}px` } as React.CSSProperties) : undefined}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">Follow-ups</h1>
+          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">{aedMode ? "AedSmartx Training" : "Follow-ups"}</h1>
           <p className="text-[12.5px] text-muted">
+            {aedMode ? (
+              <>
+                {aedCols.aed_invoices.length} invoices · {aedCols.aed_training.length} scheduled · {aedCols.aed_completed.length} completed · {aedCols.aed_not_required.length} not required
+                {aed.data?.windowStart && <> · AED invoices since {fmtDate(aed.data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
+              </>
+            ) : <>
             {leads.length.toLocaleString("en-IN")} leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments · {lost.length} lost · {potential.length} potential
             {data?.windowStart && <> · documents since {fmtDate(data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
+            </>}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -555,19 +670,24 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
             <svg viewBox="0 0 20 20" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
             <input className={`${inputCls} !h-9 pl-8 text-[13px]`} placeholder="Search name, alias, phone, email, quote no." value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          {deletedCount > 0 && (
+          {!aedMode && deletedCount > 0 && (
             <label className="inline-flex items-center gap-2 text-[13px] text-muted">
               <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
               Show deleted ({deletedCount})
             </label>
           )}
           <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
-            {data?.error ? <span className="text-high">Zoho sync issue: {data.error}</span> : data?.syncedAt && <span>Synced {fmtDate(data.syncedAt)}, {new Date(data.syncedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
+            {sync?.error ? <span className="text-high">Zoho sync issue: {sync.error}</span> : sync?.syncedAt && <span>Synced {fmtDate(sync.syncedAt)}, {new Date(sync.syncedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
             <span className="inline-flex items-center gap-1">
               <SlideButton dir="left" disabled={offset === 0} onClick={() => move(-1)} />
               <SlideButton dir="right" disabled={offset >= maxOffset} onClick={() => move(1)} />
             </span>
             <button className={btn.quiet} onClick={refresh} disabled={loading}>{loading ? "Syncing…" : "Sync now"}</button>
+            {canSwitchBoards(member) && !isAedTrainer(member) && (
+              <button className={`${btn.ghost} !h-8 !px-3 text-[12.5px]`} onClick={() => { setAedSwitch(!aedSwitch); setOpen(null); }} aria-pressed={aedSwitch}>
+                {aedSwitch ? "Switch to Training Follow ups" : "Switch to AedSmartx Training Board"}
+              </button>
+            )}
           </div>
         </div>
         {/* perView columns fill the width; the track slides one column (width + gap) per step. */}
@@ -580,9 +700,9 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
                 transform: `translateX(calc(-${offset} * ((100% - ${perView - 1} * ${GAP_PX}px) / ${perView} + ${GAP_PX}px)))`,
               }}
             >
-              {STAGES.map((s, i) => (
+              {stages.map((s, i) => (
                 <div key={s.key} className="grid min-w-0" inert={i < offset || i >= offset + perView}>
-                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} onAdd={s.key === "potential" && data ? () => setAdding(true) : undefined} loading={loading && !data} />
+                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} onAdd={s.key === "potential" && data ? () => setAdding(true) : undefined} loading={loading && !sync} />
                 </div>
               ))}
             </div>
@@ -591,7 +711,8 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
       </div>
 
       {adding && <AddPotentialModal cards={board.cards} member={member} onClose={() => setAdding(false)} />}
-      {current && mergeGroup && (
+      {current && aedMode && <AedCardModal card={current} cards={aedBoard!.cards} member={member} options={options} onClose={() => setOpen(null)} />}
+      {current && !aedMode && mergeGroup && (
         <MergeModal
           key={`merge:${current.id}`}
           group={mergeGroup}
@@ -603,7 +724,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
           onOpen={(id) => setOpen({ id, merge: false })}
         />
       )}
-      {current && !mergeGroup && (
+      {current && !aedMode && !mergeGroup && (
         <CardModal
           card={current}
           cards={board.cards}
