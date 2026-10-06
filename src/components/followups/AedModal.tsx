@@ -6,6 +6,7 @@ import { type CardView, aedCardId, aedCustomerId, cardDue, fmtWhen, isAedDeliver
 import { fmtDate } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
+import { celebrate } from "@/lib/confetti";
 import { btn, inputCls } from "../ui";
 import {
   type BoardOptions, type Draft, ChangeLog, ContactSection, CustomerSection, DueChip, Editor, Header, Lock, Row, SCHEDULE_TONE,
@@ -130,7 +131,7 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
                 {s.date && (
                   <button
                     className="press inline-flex h-9 items-center justify-center rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110"
-                    onClick={() => undoToast(`${card.name} moved to Training completed`, record("complete_training").id)}
+                    onClick={(e) => { celebrate(e.currentTarget); undoToast(`${card.name} moved to Training completed`, record("complete_training").id); }}
                   >
                     Training completed
                   </button>

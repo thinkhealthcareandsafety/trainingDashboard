@@ -182,13 +182,21 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
   created date (Leads). Not saved; header counts follow the filter.
 
 ### Fulfillment board (Shreya — certificates)
-**Payments Done → Certificates Generated → Certificates Sent → Gratitude Email sent**
-- Built from the training board (`buildFulfillmentBoard`): **one card per invoice in Payment received that is paid in full**
-  (payments + TDS = total; part-paid ones stay behind). Card id `fulfil:<invoice id>`; it carries the training card's data
-  (customer, contacts, training, merged chain, all payments, notes, history). On 6 Oct: 48 cards in Payment received → 42.
-- Moved **by hand** in the card (`FulfillmentModal.tsx`): the four stages in one row (click any), *Move to <next>*, *Back*;
-  event `set_fulfillment` (value done / generated / sent / thanked, before = previous), revertable; notes on the card too.
-  Payments Done: most recently paid first; other columns: most recently moved first.
+**Training Completed → Process on hold → List Received → Certificates Generated → Sent to Logistics**
+- Built from the training board (`buildFulfillmentBoard`): **every training marked completed** — still in Training completed,
+  or since merged on into an invoice / payment (payment status doesn't matter) — as a one-to-one copy of that card, incl. the
+  *Under name* alias (shown on the card and in the Training box). Card id `fulfil:<pi card id>` (or the quote's, if the PI was
+  skipped), so it stays put as the deal moves on. On 6 Oct: 4 cards (Mementos, Paccar, Classic Citi, Heartstream).
+- Moved from the card (`FulfillmentModal.tsx`), **under Notes, only the current step's choices**:
+  Training Completed → ☐ *Awaiting List of Participants* (→ Process on hold) or ☐ *List of Names Received* (shortcut → List
+  Received); Process on hold → *Waiting for List* + ☐ *List of Names Received*; List Received → ☐ *Work in Progress* (toggle,
+  event `set_wip` on/off) + *Certificates Generated* → popup **"Also send to Logistics?"** (*Yes* → Sent to Logistics, *Let me
+  decide* → Certificates Generated); Certificates Generated → *Send to Logistics*. Event `set_fulfillment` (value completed /
+  hold / received / generated / logistics, before = previous); every move has Undo and can be reverted in Changes. No Back button.
+- Borders: Training Completed plain; Process on hold green + "Waiting for List"; List Received yellow, green once Work in
+  progress; Certificates Generated / Sent to Logistics green. The Payment section sits in whichever column is shorter.
+- History: the first version (6 Oct, from Payment received, 4 other columns) had one move by Admin (`fulfil:<invoice id>`,
+  "thanked") — those ids no longer exist, so it no longer applies.
 
 ### AedSmartx Training board
 **Invoices sent → Training scheduled → Training completed → Training not required**
@@ -307,6 +315,8 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 87 | "Change date" option next to Postpone / To be decided / Training completed (training can happen earlier) — "make it for both dashboards" | Both boards; a changed date keeps its Scheduled/Postponed label. |
 | 88 | Fulfillment board for **Shreya**: continues from Payment received (excluding part paid) → Payments Done → Certificates Generated → Certificates Sent → Gratitude Email sent, moved by hand; Admin, Sumit, Shikha can open it; push | Built; tested on real data (42 cards) with saves blocked; pushed. |
 | 89 | Scheduling a merged PI: choose the name — same as original or an alias (add alias); show *Under name:* under No. of People when an alias | Name picker in the Ready-for-training popup and the schedule row; new alias saved to the card; tested with saves blocked; pushed. |
+| 90 | Fulfillment board reworked: Training Completed (all completed trainings, with alias) → Process on hold (Awaiting List of Participants) → List Received (Work in Progress) → Certificates Generated (popup "Also send to Logistics?") → Sent to Logistics; choices under Notes; shortcut from step 1 straight to List Received. Owner asked to restate first, then "go ahead" | Built with the defaults offered (old columns removed, borders as above, Under name on cards, no Back button); full flow tested with saves blocked. |
+| 91 | Basic confetti when *Training completed* is clicked — training board and AedSmartx | `src/lib/confetti.ts` (`canvas-confetti`, loaded on demand, from the button, skipped for reduced motion). |
 
 ---
 

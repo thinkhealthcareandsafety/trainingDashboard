@@ -250,7 +250,8 @@ export type CardEventKind =
   | "set_resale" // AedSmartx board: this one invoice was bought for resale — needs no training
   | "set_delivered" // AedSmartx board: the AED has been delivered (marked by Arti) — ready for scheduling
   | "add_note" // a free-text note on the card (value = the note); removing it = reverting the event
-  | "set_fulfillment"; // Fulfillment board (Shreya): cardIds [fulfil:<invoice id>], value = stage (done / generated / sent / thanked)
+  | "set_fulfillment" // Fulfillment board (Shreya): cardIds [fulfil:<pi/quote card id>], value = stage (completed / hold / received / generated / logistics)
+  | "set_wip"; // Fulfillment board, List Received: value "on" = Work in progress, "off" = not
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every

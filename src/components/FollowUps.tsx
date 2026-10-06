@@ -14,7 +14,7 @@ import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal,
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
   | "aed_invoices" | "aed_training" | "aed_completed" | "aed_not_required"
-  | "ful_done" | "ful_generated" | "ful_sent" | "ful_thanked";
+  | "ful_completed" | "ful_hold" | "ful_received" | "ful_generated" | "ful_logistics";
 
 const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "lead", label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
@@ -35,12 +35,13 @@ const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] =
   { key: "aed_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
   { key: "aed_not_required", label: "Training not required", header: "bg-high-bg", dot: "bg-high" },
 ];
-/** Fulfillment board (Shreya): certificates for fully paid trainings, carried over from Payment received. */
+/** Fulfillment board (Shreya): certificates for completed trainings, carried over from the training board. */
 const FULFIL_COLUMNS: { key: Stage; label: string; header: string; dot: string }[] = [
-  { key: "ful_done", label: FULFIL_LABEL.done, header: "bg-low-bg", dot: "bg-low" },
+  { key: "ful_completed", label: FULFIL_LABEL.completed, header: "bg-surface-2", dot: "bg-faint" },
+  { key: "ful_hold", label: FULFIL_LABEL.hold, header: "bg-low-bg", dot: "bg-low" },
+  { key: "ful_received", label: FULFIL_LABEL.received, header: "bg-medium-bg", dot: "bg-medium" },
   { key: "ful_generated", label: FULFIL_LABEL.generated, header: "bg-brand-soft", dot: "bg-brand-2" },
-  { key: "ful_sent", label: FULFIL_LABEL.sent, header: "bg-medium-bg", dot: "bg-medium" },
-  { key: "ful_thanked", label: FULFIL_LABEL.thanked, header: "bg-low-bg", dot: "bg-brand" },
+  { key: "ful_logistics", label: FULFIL_LABEL.logistics, header: "bg-low-bg", dot: "bg-brand" },
 ];
 
 type BoardKind = "training" | "aed" | "fulfil";
@@ -234,11 +235,22 @@ const flagged = (c: CardView) => c.flaggedWith.length > 0;
 /** AedSmartx: delivered and waiting for a training date. */
 const isReady = (c: CardView) => Boolean(c.aed && c.delivered && !c.schedule && !c.notRequired);
 
+/**
+ * Fulfillment board borders: Training Completed plain; Process on hold green; List Received green once Work in
+ * progress, else yellow; Certificates Generated and Sent to Logistics green.
+ */
+function fulfilBorder(c: CardView): string {
+  const f = c.fulfillment!;
+  if (f.stage === "completed") return "border hover:border-line-strong border-line";
+  if (f.stage === "received") return `border-2 ${f.wip ? "border-low" : "border-medium"}`;
+  return "border-2 border-low";
+}
+
 function ItemShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
   // Invoices / payments: red overdue, blue due, green paid. Training scheduled: green = date, red = to be decided.
   const due = card.aed ? undefined : cardDue(card);
   // AedSmartx: not required = red; scheduled = the training date's colour; before that green once delivered, else yellow.
-  const border = card.notRequired ? "border-2 border-high" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
+  const border = card.fulfillment ? fulfilBorder(card) : card.notRequired ? "border-2 border-high" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
     : card.aed ? `border-2 ${card.delivered ? "border-low" : "border-medium"}` : due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
   return (
     <button
@@ -291,8 +303,9 @@ function PotentialItem({ card, onClick }: { card: CardView; onClick: () => void 
 /** A quotation, PI, invoice or payment: number, training, date. */
 function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   const pay = card.payment;
-  // AedSmartx cards show delivery instead of payment status.
-  const due = card.aed ? undefined : cardDue(card);
+  // AedSmartx cards show delivery instead of payment status; Fulfillment cards show where the certificates are.
+  const due = card.aed || card.fulfillment ? undefined : cardDue(card);
+  const f = card.fulfillment;
   return (
     <ItemShell card={card} onClick={onClick}>
       <div className="flex items-start justify-between gap-2">
@@ -324,6 +337,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
           )}
         </div>
         {card.schedule.trainers.length > 0 && <div className="mt-0.5 truncate text-[11px] text-ink-2">{card.schedule.trainers.map((t) => t.split(" ")[0]).join(", ")}</div>}
+        {f && card.schedule.underName && <div className="mt-0.5 truncate text-[11px] text-ink-2">Under name: <span className="font-semibold">{card.schedule.underName}</span></div>}
         {card.piSkipped && card.kind === "quote" && <div className="mt-0.5 text-[11px] font-semibold text-medium">PI needed</div>}
         </>
       ) : (
@@ -344,6 +358,11 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
         </div>
       )}
       {card.readyToSchedule && <div className="mt-1 text-[11px] font-semibold text-low">Ready to schedule</div>}
+      {f && f.stage !== "completed" && (
+        <div className={`mt-1 text-[11.5px] font-semibold ${f.stage === "received" && !f.wip ? "text-medium" : "text-low"}`}>
+          {f.stage === "hold" ? "Waiting for List" : f.stage === "received" ? (f.wip ? "Work in progress" : "List received") : f.stage === "generated" ? "Certificates generated" : "Sent to Logistics"}
+        </div>
+      )}
     </ItemShell>
   );
 }
@@ -674,12 +693,13 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
     };
   }, [aedBoard, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const fulCols = useMemo(() => {
-    if (!fulBoard) return { ful_done: [], ful_generated: [], ful_sent: [], ful_thanked: [] };
+    if (!fulBoard) return { ful_completed: [], ful_hold: [], ful_received: [], ful_generated: [], ful_logistics: [] };
     return {
-      ful_done: fulBoard.doneCards.filter(visible),
+      ful_completed: fulBoard.completedCards.filter(visible),
+      ful_hold: fulBoard.holdCards.filter(visible),
+      ful_received: fulBoard.receivedCards.filter(visible),
       ful_generated: fulBoard.generatedCards.filter(visible),
-      ful_sent: fulBoard.sentCards.filter(visible),
-      ful_thanked: fulBoard.thankedCards.filter(visible),
+      ful_logistics: fulBoard.logisticsCards.filter(visible),
     };
   }, [fulBoard, needle, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols, ...fulCols };
@@ -700,8 +720,8 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
           <p className="text-[12.5px] text-muted">
             {fulfilMode ? (
               <>
-                {fulCols.ful_done.length} payments done · {fulCols.ful_generated.length} certificates generated · {fulCols.ful_sent.length} certificates sent · {fulCols.ful_thanked.length} gratitude emails sent
-                {" "}· fully paid trainings from Payment received
+                {fulCols.ful_completed.length} training completed · {fulCols.ful_hold.length} on hold · {fulCols.ful_received.length} list received · {fulCols.ful_generated.length} certificates generated · {fulCols.ful_logistics.length} sent to logistics
+                {" "}· completed trainings from the training board
               </>
             ) : aedMode ? (
               <>

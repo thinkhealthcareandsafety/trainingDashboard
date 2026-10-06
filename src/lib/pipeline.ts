@@ -104,7 +104,7 @@ export interface CardView {
   /** Notes typed on the card, newest first. */
   notes?: { id: string; text: string; by: string; at: string }[];
   /** Fulfillment board: where the certificates are (moved by hand), who moved it there and when. */
-  fulfillment?: { stage: FulfilStage; at?: string; by?: string };
+  fulfillment?: { stage: FulfilStage; at?: string; by?: string; wip?: { at: string; by: string } };
   /** AedSmartx board: what the invoice's AED lines say (model, serials, expiries) and the extras sold with them. */
   aed?: { lines: AedDetails[]; extras: AedExtra[] };
 }
@@ -741,7 +741,8 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "add_note": return `Note: “${v}”`;
     case "set_resale": return `Marked ${e.before ?? "this invoice"} for resale — moved to Training not required`;
     case "set_reseller": return `Marked ${e.before ?? "the customer"} as a Reseller — all their AED invoices moved to Training not required`;
-    case "set_fulfillment": return `Moved to ${FULFIL_LABEL[(v as FulfilStage) || "done"] ?? v}${e.before ? ` (was ${FULFIL_LABEL[e.before as FulfilStage] ?? e.before})` : ""}`;
+    case "set_fulfillment": return `Moved to ${FULFIL_LABEL[v as FulfilStage] ?? v}${e.before ? ` (was ${FULFIL_LABEL[e.before as FulfilStage] ?? e.before})` : ""}`;
+    case "set_wip": return v === "on" ? "Marked Work in progress" : "Unmarked Work in progress";
   }
 }
 
@@ -852,38 +853,35 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
   };
 }
 
-/* ---------------- Fulfillment board (Shreya): certificates for paid trainings ---------------- */
+/* ---------------- Fulfillment board (Shreya): certificates for completed trainings ---------------- */
 
-/** Payments Done → Certificates Generated → Certificates Sent → Gratitude Email sent; moved by hand. */
-export type FulfilStage = "done" | "generated" | "sent" | "thanked";
-export const FULFIL_STAGES: FulfilStage[] = ["done", "generated", "sent", "thanked"];
+/**
+ * Training Completed → Process on hold → List Received → Certificates Generated → Sent to Logistics.
+ * Moved from the card (tick boxes / buttons under Notes); List Received cards can be marked Work in progress.
+ */
+export type FulfilStage = "completed" | "hold" | "received" | "generated" | "logistics";
+export const FULFIL_STAGES: FulfilStage[] = ["completed", "hold", "received", "generated", "logistics"];
 export const FULFIL_LABEL: Record<FulfilStage, string> = {
-  done: "Payments Done", generated: "Certificates Generated", sent: "Certificates Sent", thanked: "Gratitude Email sent",
+  completed: "Training Completed", hold: "Process on hold", received: "List Received", generated: "Certificates Generated", logistics: "Sent to Logistics",
 };
-export const fulfilCardId = (invoiceId: string) => `fulfil:${invoiceId}`;
+/** Keyed by the training's own document (its PI, or the quotation that skipped it), so it stays put as the deal moves on to invoice and payment. */
+export const fulfilCardId = (trainingCardId: string) => `fulfil:${trainingCardId}`;
 /** Shreya works only on the Fulfillment board. */
 export const isFulfilmentUser = (name: string) => /^shreya\b/i.test(name.trim());
 
 /**
- * Shreya's board continues from the training board's Payment received column: one card per invoice that is paid in
- * full (part-paid ones stay behind), carrying everything the training card has — customer, contacts, training, what
- * was merged, every payment, notes and history. Its own moves and notes are logged on "fulfil:<invoice id>".
+ * Shreya's board: every training marked completed on the training board — still in Training completed, or since
+ * merged on into an invoice / payment — as a one-to-one copy of that card (customer, contacts, training with its
+ * dates, trainers and "Under name" alias, merged chain, payments, notes, history). Its own moves and notes are logged
+ * on "fulfil:<pi or quote card id>".
  */
 export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, events: CardEvent[]) {
-  const paymentsOf = new Map<string, ZohoPayment[]>();
-  for (const c of board.cards.values()) if (c.kind === "payment" && c.payment) paymentsOf.set(c.payment.invoiceId, [...(paymentsOf.get(c.payment.invoiceId) ?? []), c.payment]);
-
-  // The card in Payment received that stands for each fully paid invoice: the one holding the invoice once merged,
-  // otherwise its newest payment (unmerged instalments would be several cards — Shreya gets one).
+  // The card on the training board that holds each completed training (the latest stage of its deal).
   const holders = new Map<string, CardView>();
-  for (const c of board.paymentCards) {
-    const inv = c.linkedInvoice;
-    if (!inv || c.deleted) continue;
-    const invCard = board.cards.get(invoiceCardId(inv.invoiceId));
-    if (!invCard?.paidInFull) continue;
-    const cur = holders.get(inv.invoiceId);
-    const holds = (x: CardView) => x.mergedFrom.includes(invCard.id);
-    if (!cur || (holds(c) && !holds(cur)) || (!holds(cur) && !holds(c) && c.payment!.date > cur.payment!.date)) holders.set(inv.invoiceId, c);
+  for (const c of board.cards.values()) {
+    if (c.mergedInto || c.deleted || c.lost || isCustomerCard(c.kind) || !c.schedule?.completed) continue;
+    const doc = c.historyIds.find((id) => kindOfId(id) === "pi") ?? c.historyIds.find((id) => kindOfId(id) === "quote");
+    if (doc) holders.set(doc, c);
   }
 
   const ids = new Set([...holders.keys()].map(fulfilCardId));
@@ -893,11 +891,11 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
   }
 
   const cards = new Map<string, CardView>();
-  for (const [invoiceId, h] of holders) {
-    const id = fulfilCardId(invoiceId);
+  for (const [doc, h] of holders) {
+    const id = fulfilCardId(doc);
     const evs = byCard.get(id) ?? [];
-    const moved = evs.filter((e) => e.kind === "set_fulfillment").at(-1);
-    const stage = FULFIL_STAGES.includes(moved?.value as FulfilStage) ? (moved!.value as FulfilStage) : "done";
+    const moved = evs.filter((e) => e.kind === "set_fulfillment" && FULFIL_STAGES.includes(e.value as FulfilStage)).at(-1);
+    const wip = evs.filter((e) => e.kind === "set_wip").at(-1);
     const own = evs.filter((e) => e.kind === "add_note" && e.value).map((e) => ({ id: e.id, text: e.value!, by: e.by, at: e.at }));
     cards.set(id, {
       ...h,
@@ -906,17 +904,19 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
       flaggedWith: [],
       waitingOn: undefined,
       mergedInto: undefined,
-      payments: (paymentsOf.get(invoiceId) ?? []).sort((a, b) => a.date.localeCompare(b.date) || Number(a.number) - Number(b.number)),
+      readyToSchedule: false,
       notes: [...own, ...(h.notes ?? [])].sort((a, b) => b.at.localeCompare(a.at)),
-      fulfillment: { stage, at: moved?.at, by: moved?.by },
-      search: `${h.search} ${h.linkedInvoice?.number ?? ""}`.toLowerCase(),
+      fulfillment: {
+        stage: (moved?.value as FulfilStage) ?? "completed", at: moved?.at, by: moved?.by,
+        wip: wip?.value === "on" ? { at: wip.at, by: wip.by } : undefined,
+      },
+      search: `${h.search} ${h.schedule?.underName ?? ""}`.toLowerCase(),
     });
   }
 
   const all = [...cards.values()];
-  const paidOn = (c: CardView) => c.payments?.at(-1)?.date ?? c.docDate ?? "";
-  // Payments Done: most recently paid first; later columns: most recently moved first.
+  // Training Completed: most recently completed first; later columns: most recently moved first.
   const column = (s: FulfilStage) => all.filter((c) => c.fulfillment!.stage === s)
-    .sort((a, b) => (s === "done" ? paidOn(b).localeCompare(paidOn(a)) : (b.fulfillment!.at ?? "").localeCompare(a.fulfillment!.at ?? "")));
-  return { cards, doneCards: column("done"), generatedCards: column("generated"), sentCards: column("sent"), thankedCards: column("thanked") };
+    .sort((a, b) => (s === "completed" ? b.schedule!.completed!.at.localeCompare(a.schedule!.completed!.at) : (b.fulfillment!.at ?? "").localeCompare(a.fulfillment!.at ?? "")));
+  return { cards, completedCards: column("completed"), holdCards: column("hold"), receivedCards: column("received"), generatedCards: column("generated"), logisticsCards: column("logistics") };
 }

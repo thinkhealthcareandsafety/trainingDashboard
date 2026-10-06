@@ -11,6 +11,7 @@ import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
 import { Avatar, IconButton, Segmented, btn, inputCls, selectCls } from "../ui";
 import { DaysPicker } from "./DaysPicker";
+import { celebrate } from "@/lib/confetti";
 
 export type BoardOptions = { typeOptions: string[]; sectorOptions: string[]; orgId?: string };
 type Cards = Map<string, CardView>;
@@ -534,7 +535,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
                   Training completed
                 </button>
               ) : (
-                <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={onComplete}>
+                <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={(e) => { celebrate(e.currentTarget); onComplete(); }}>
                   Training completed
                 </button>
               ))}
@@ -719,7 +720,8 @@ export function NotesPanel({ card, member, heading, oneLine, children }: { card:
     setText("");
   };
   return (
-    <Section title="Notes" aside={<button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>+ Add a note</button>}>
+    // No notes yet: said beside the title, so an empty Notes section stays one line.
+    <Section title="Notes" aside={<span className="inline-flex items-center gap-3">{!latest && !children && <span className="text-[13px] text-faint">No notes yet</span>}<button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>+ Add a note</button></span>}>
       {children}
       {latest && oneLine ? (
         // Training board: the latest note on one line (the left column is the tight one); the full text is in All notes.
@@ -736,9 +738,7 @@ export function NotesPanel({ card, member, heading, oneLine, children }: { card:
             <button className="font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>{notes.length > 1 ? `All notes (${notes.length})` : "Open"}</button>
           </div>
         </div>
-      ) : (
-        !children && <p className="text-[13.5px] text-faint">No notes yet.</p>
-      )}
+      ) : null}
       {open && (
         <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={() => setOpen(false)}>
           <div role="alertdialog" aria-label="Notes" className="modal-in flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
