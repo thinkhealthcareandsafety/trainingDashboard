@@ -46,7 +46,10 @@ npx next build                       # production build (passes)
   this file; scan diffs for PIN digits before every push.
 - Git identity is repo-local (`thinkhealthcareandsafety` / `sshah@thinkhealth.in`). Follow the session's commit-attribution reminder.
 - **Deploy** = push to `master` (Vercel builds automatically). `vercel.json` adds one cron: `30 3 * * 1-6` (9:00 IST Mon–Sat)
-  → `/api/cron/sync` (Vercel Hobby allows daily crons only).
+  → `/api/cron/sync` (Vercel Hobby allows daily crons only — and fires anywhere within that hour).
+- **Hourly scheduler** = GitHub Actions `.github/workflows/zoho-sync.yml` (`32,50 3-13 * * 1-6` UTC) → `/api/cron/sync`. Needs the
+  repo secret **`CRON_SECRET`** (same value as Vercel's); without it the workflow just logs a warning. A failed sync answers 502,
+  so the run fails and GitHub emails the repo owner.
 
 ---
 
@@ -67,14 +70,21 @@ browser ◄──► /api/store (team data: cardEvents, members, …; 60 s pull,
   `zoho_last_forced`. Each server instance keeps an in-memory copy and reloads it only when `zoho_state.version` changes
   → page loads cost one tiny read, **0 Zoho calls**, ~90 ms.
 - **Schedule:** automatic syncs **on the hour, 9 am–7 pm IST, Monday–Saturday** (`SYNC_HOURS`; none on Sunday). A sync is due
-  when a slot has passed since the last successful one (`lastSlot()` / `scheduledSyncDue()`); the first page visit after it runs the
-  sync in the background via Next's `after()`, or the cron route does. **9 am and 2 pm are full checks** (`FULL_HOURS`: every
-  tracked document by item → catches deletions, full customer list, items, team); other hours are incremental.
+  when a slot has passed since the last successful one (`lastSlot()` / `scheduledSyncDue()`). Three triggers, one lock:
+  (1) **heartbeat** — the sidebar's `SyncPanel` calls `GET /api/zoho/sync` every 2 min (and on tab focus); when due, the sync runs
+  **inside that request** (`syncIfDue()`), so it can't be cut short after the response; (2) **GitHub Actions** hourly →
+  `/api/cron/sync`, for hours when nobody has the site open; (3) data routes still start one via `after()` (best effort).
+  **9 am and 2 pm are full checks** (`FULL_HOURS`: every tracked document by item → catches deletions, full customer list,
+  items, team; ~60 calls, ~1 min); other hours are incremental. Sync failures are logged (`[zoho sync] failed: …`).
+- **Sidebar (every page):** *Sync now* (`POST /api/zoho/sync`), **Last sync** / **Next sync**, red line if the last try failed;
+  the rail and the phone header have compact versions. After a sync, pages reload their Zoho data (`ZOHO_SYNCED` window event).
+  The board header no longer has its own Sync now.
 - **Incremental** = each kind listed **newest change first** (`sort_column=last_modified_time`), stopping at the stored cursor →
   ~1 call per kind; one detail call per changed document; recent customers (1 call); payments only for changed paid invoices.
   Typical hourly sync ≈ 4 calls; a day ≈ 50–100 calls.
 - One sync at a time across instances (Mongo lease lock, 5 min). Failed sync → retry no sooner than 5 min.
-  **Sync now** (`?refresh=1`) any time, at most **once a minute for everyone**. Daily call counter; automatic syncing pauses at
+  **Sync now** (`forceSync()`) any time, at most **once a minute for everyone**. Zoho token: always re-read from Mongo before
+  refreshing (every refresh mints a new token; Zoho caps live tokens), and a 401 drops the token and retries once. Daily call counter; automatic syncing pauses at
   95% of `ZOHO_DAILY_LIMIT`. First-ever sync into an empty DB ≈ 290 calls (already done).
 - Verified when built: all route outputs identical, record by record, to the old in-memory implementation.
 
@@ -158,7 +168,7 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
 
 ### AedSmartx Training board
 **Invoices sent → Training scheduled → Training completed → Training not required**
-- Who: **Priyanka** and **Arti** see only this board; **Sumit and Admin** switch with *Switch to AedSmartx Training Board* /
+- Who: **Priyanka** and **Arti** see only this board; **Sumit, Shikha, Ashish and Admin** switch with *Switch to AedSmartx Training Board* /
   *Switch to Training Follow ups* (next to Sync now). Everyone else: training board.
 - Cards = invoices from **1 Sept 2026** (`AED_SINCE`) with an item whose Item Identifier is **All AEDs**, excluding the AED trainers
   and *AED Rental* (`AED_EXCLUDED`). "Philips FRX AED 861304 with Child Key" is one AED with the child key included.
@@ -168,7 +178,7 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
   To be decided / Training completed); **Item description** (model, year, serials + total with a mismatch warning, battery & pads
   expiry, five extras ticked from the description or separate items: SmartX, Fast Response Kit, wall cabinet, 3D signage,
   infant/child key); **Mark for resale** (this invoice / whole customer is a Reseller → Training not required, now and later).
-- **Delivered**: only **Arti** can mark/undo. Not delivered → yellow border + *Not delivered yet*; delivered → green + *Ready for
+- **Delivered**: only **Arti** (and **Admin**) can mark/undo. **Admin can do everything** (both boards, delivery, remove any note, Clear logs). Not delivered → yellow border + *Not delivered yet*; delivered → green + *Ready for
   Scheduling* (replaces the paid/due chip on AED cards). Green **R n** next to a column name shows only ready cards.
 
 ### Layout preferences (see also §8)
@@ -259,6 +269,14 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 77 | Training dates: pick several days (range or scattered) in one picker; **External trainer** with typed names + suggestions next time; **Filter** button by Show deleted with a date filter (range, a month, or several months) | Built; verified headless with saves blocked. |
 | 78 | "push to github" | `d68e636`. |
 | 79 | Notes on training-board cards, above Merged, like the AedSmartx ones | Shared `NotesPanel` (both boards); notes follow merges; latest note on one line, Unmerge moved into the Merged header so the modal still fits. |
+| 80 | "push it to github" | `9b091e2`. |
+| 81 | Give Shikha Dixit access to the AedSmartx board | Shikha gets the board switch, like Sumit and Admin (`canSwitchBoards`). |
+
+### Session 3, day 2 (6 Oct 2026)
+| # | Prompt (paraphrased) | Result |
+|---|---|---|
+| 82 | "Zoho sync stopped since yesterday 3 pm — find the underlying issue; auto sync every hour; manual Sync now in the left panel above Appearance with Last sync / Next sync; Admin can do everything; Shikha and Ashish get the AedSmartx board too" | Found: last success Mon 3 pm → next only Tue 9:19 am; automatic syncs relied on `after()` from page visits plus one daily Vercel cron, and failures were silent. Fixed: heartbeat runs due syncs inside the request, GitHub Actions hourly (needs `CRON_SECRET` repo secret), failures logged + 502 from the cron route, token reuse/401 handling; sidebar SyncPanel; Admin = delivery + remove any note; Ashish/Shikha switch boards. |
+| 83 | "just push all to github" | Pushed (see git log). |
 
 ---
 

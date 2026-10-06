@@ -48,8 +48,8 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
     setPicking(false);
   };
 
-  // Delivery: only Arti marks (or unmarks) an AED as delivered; everyone else sees the status (kept to one line).
-  const canDeliver = isAedDelivery(member.name);
+  // Delivery: Arti (and Admin, who can do everything) marks or unmarks an AED as delivered; everyone else sees the status (kept to one line).
+  const canDeliver = isAedDelivery(member.name) || member.id === "admin";
   const deliveredEv = useStore().cardEvents.find((e) => !e.revertedAt && e.kind === "set_delivered" && e.cardIds.includes(card.id));
   const markDelivered = () => {
     if (deliveredEv) return revertCardEvent(deliveredEv.id, member.name);

@@ -638,7 +638,7 @@ export function NotesPanel({ card, member, heading, oneLine, children }: { card:
                   <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{n.text}</div>
                   <div className="mt-1 flex items-center justify-between gap-2 text-[11.5px] text-muted">
                     <span>{n.by} · {noteWhen(n.at)}</span>
-                    {n.by === member.name && <button className="font-medium hover:text-high" onClick={() => revertCardEvent(n.id, member.name)}>Remove</button>}
+                    {(n.by === member.name || member.id === "admin") && <button className="font-medium hover:text-high" onClick={() => revertCardEvent(n.id, member.name)}>Remove</button>}
                   </div>
                 </li>
               ))}

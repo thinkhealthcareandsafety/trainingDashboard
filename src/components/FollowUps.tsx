@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
 import { type CardView, STAGE_RANK, buildAedBoard, isAedBoardUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { fmtDate, fmtINR } from "@/lib/dates";
-import { useStore } from "@/lib/store";
+import { ZOHO_SYNCED, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
@@ -33,10 +33,9 @@ const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] =
   { key: "aed_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
   { key: "aed_not_required", label: "Training not required", header: "bg-high-bg", dot: "bg-high" },
 ];
-/** Priyanka works only on the AED board; Sumit (and Admin) can switch between the two. */
-/** Priyanka and Arti work only on the AedSmartx board. */
-const isAedTrainer = (m: Member) => isAedBoardUser(m.name);
-const canSwitchBoards = (m: Member) => m.id === "admin" || /^sumit\b/i.test(m.name.trim());
+/** Priyanka and Arti work only on the AedSmartx board; Sumit, Shikha, Ashish (and Admin) can switch between the two. */
+const isAedTrainer = (m: Member) => m.id !== "admin" && isAedBoardUser(m.name);
+const canSwitchBoards = (m: Member) => m.id === "admin" || /^(sumit|shikha|ashish)\b/i.test(m.name.trim());
 
 // As many columns as fit at MIN_COL_W (enough for the column name); the rest slide in with ◀ ▶,
 // the arrow keys or a swipe. A wide screen shows every column.
@@ -148,7 +147,12 @@ function usePipeline() {
   useEffect(() => {
     load();
     const t = setInterval(() => load(), 3 * 60_000);
-    return () => clearInterval(t);
+    const onSynced = () => load();
+    window.addEventListener(ZOHO_SYNCED, onSynced);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(ZOHO_SYNCED, onSynced);
+    };
   }, [load]);
   return { data, loading, refresh: () => load(true) };
 }
@@ -173,12 +177,17 @@ function useAedInvoices(enabled: boolean) {
     if (!enabled) return;
     load();
     const t = setInterval(() => load(), 5 * 60_000);
-    return () => clearInterval(t);
+    const onSynced = () => load();
+    window.addEventListener(ZOHO_SYNCED, onSynced);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(ZOHO_SYNCED, onSynced);
+    };
   }, [enabled, load]);
   return { data, loading, refresh: () => load(true) };
 }
 
-/** Sumit / Admin: which board is showing, remembered per browser. */
+/** Everyone who can switch (Sumit, Shikha, Ashish, Admin): which board is showing, remembered per browser. */
 function useAedSwitch(): [boolean, (v: boolean) => void] {
   const [on, setOn] = useState(false);
   useEffect(() => {
@@ -588,8 +597,8 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const [aedSwitch, setAedSwitch] = useAedSwitch();
   const aedMode = isAedTrainer(member) || (canSwitchBoards(member) && aedSwitch);
   const aed = useAedInvoices(aedMode);
-  // The header's sync status and "Sync now" follow the board that's showing.
-  const { loading, refresh } = aedMode ? aed : pipeline;
+  // Loading state and sync errors follow the board that's showing.
+  const { loading } = aedMode ? aed : pipeline;
   const sync = aedMode ? aed.data : data;
   const stages = aedMode ? AED_STAGES : STAGES;
   const [q, setQ] = useState(initialQuery);
@@ -680,12 +689,12 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
           )}
           <DateFilterButton value={dateFilter} onChange={setDateFilter} />
           <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
-            {sync?.error ? <span className="text-high">Zoho sync issue: {sync.error}</span> : sync?.syncedAt && <span>Synced {fmtDate(sync.syncedAt)}, {new Date(sync.syncedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>}
+            {/* Sync now, last and next sync live in the sidebar (every page); the board only flags a problem. */}
+            {sync?.error && <span className="text-high">Zoho sync issue: {sync.error}</span>}
             <span className="inline-flex items-center gap-1">
               <SlideButton dir="left" disabled={offset === 0} onClick={() => move(-1)} />
               <SlideButton dir="right" disabled={offset >= maxOffset} onClick={() => move(1)} />
             </span>
-            <button className={btn.quiet} onClick={refresh} disabled={loading}>{loading ? "Syncing…" : "Sync now"}</button>
             {canSwitchBoards(member) && !isAedTrainer(member) && (
               <button className={`${btn.ghost} !h-8 !px-3 text-[12.5px]`} onClick={() => { setAedSwitch(!aedSwitch); setOpen(null); }} aria-pressed={aedSwitch}>
                 {aedSwitch ? "Switch to Training Follow ups" : "Switch to AedSmartx Training Board"}

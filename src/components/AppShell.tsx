@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useStore } from "@/lib/store";
+import { ZOHO_SYNCED, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { MembersScreen } from "./followups/MembersScreen";
 import { Avatar, btn } from "./ui";
@@ -16,11 +16,6 @@ const NAV = [
   { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
 ];
-
-function timeAgo(iso: string, now: Date) {
-  const m = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 60000));
-  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
-}
 
 function toggleTheme() {
   const root = document.documentElement;
@@ -39,26 +34,121 @@ function Icon({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SyncStatus() {
-  const { data, syncing, refresh, now } = useStore();
-  if (!data) return null;
-  const tone = data.error ? "bg-high" : data.source === "zoho" ? "bg-low" : "bg-medium";
-  const label = data.error ? "Zoho isn’t responding" : data.source === "zoho" ? "Connected to Zoho" : "Sample data";
+/* ---------------- Zoho sync: heartbeat, Sync now, last / next sync ---------------- */
+
+type SyncInfo = { enabled?: boolean; syncedAt?: string; error?: string; due?: boolean; running?: boolean; nextAt?: number; ran?: boolean };
+
+const clock = (d: Date) => d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+/** "Today, 10:00 am" · "Yesterday, 3:00 pm" · "Tomorrow, 9:00 am" · "Mon 12 Oct, 9:00 am". */
+function dayTime(t: string | number, now: Date): string {
+  const d = new Date(t);
+  const shift = (n: number) => { const x = new Date(now); x.setDate(x.getDate() + n); return x.toDateString(); };
+  const day = d.toDateString();
+  const label = day === now.toDateString() ? "Today" : day === shift(-1) ? "Yesterday" : day === shift(1) ? "Tomorrow"
+    : d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+  return `${label}, ${clock(d)}`;
+}
+
+/**
+ * One per page (signed in): asks the server every 2 minutes (and when the tab comes back) — the server runs the hourly
+ * sync right then if it's due — and tells the pages to reload their Zoho data whenever a sync has finished.
+ */
+function useZohoSync(active: boolean) {
+  const { toast } = useStore();
+  const [info, setInfo] = useState<SyncInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [forcing, setForcing] = useState(false);
+  const seen = useRef<string | undefined>(undefined);
+  const inFlight = useRef(false);
+  const take = useCallback((j: SyncInfo) => {
+    setInfo(j);
+    if (j.syncedAt && seen.current && j.syncedAt !== seen.current) window.dispatchEvent(new Event(ZOHO_SYNCED));
+    if (j.syncedAt) seen.current = j.syncedAt;
+  }, []);
+  const beat = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setChecking(true);
+    try {
+      const res = await fetch("/api/zoho/sync", { cache: "no-store" });
+      if (res.ok || res.status === 502) take(await res.json());
+    } catch {} finally {
+      inFlight.current = false;
+      setChecking(false);
+    }
+  }, [take]);
+  useEffect(() => {
+    if (!active) return;
+    beat();
+    const t = setInterval(beat, 2 * 60_000);
+    const onVisible = () => { if (document.visibilityState === "visible") beat(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [active, beat]);
+  const syncNow = async () => {
+    if (forcing) return;
+    setForcing(true);
+    try {
+      const res = await fetch("/api/zoho/sync", { method: "POST", cache: "no-store" });
+      const j = (await res.json()) as SyncInfo;
+      take(j);
+      toast({ text: j.error ? `Zoho sync failed: ${j.error}` : j.ran ? "Synced with Zoho Books" : "Synced less than a minute ago — try again in a moment" });
+    } catch (e) {
+      toast({ text: `Zoho sync failed: ${String(e)}` });
+    } finally {
+      setForcing(false);
+    }
+  };
+  // "Syncing…" while a sync runs anywhere, or while our heartbeat is waiting on a sync that was due.
+  const syncing = forcing || Boolean(info?.running) || (checking && Boolean(info?.due));
+  return { info, syncing, syncNow };
+}
+type ZohoSync = ReturnType<typeof useZohoSync>;
+
+const SyncIcon = ({ spin }: { spin?: boolean }) => (
+  <svg viewBox="0 0 20 20" className={`size-4 shrink-0 ${spin ? "animate-spin" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5" />
+  </svg>
+);
+
+/** Sidebar: Sync now, then Last sync / Next sync (red when the last attempt failed). */
+function SyncPanel({ sync, compact }: { sync: ZohoSync; compact?: boolean }) {
+  const { now } = useStore();
+  const { info, syncing, syncNow } = sync;
+  if (info?.enabled === false) return null;
+  const last = info?.syncedAt ? dayTime(info.syncedAt, now) : "—";
+  const next = syncing ? "Syncing now…" : info?.due ? "Due now" : info?.nextAt ? dayTime(info.nextAt, now) : "—";
+  const lines = (
+    <>
+      <span className="block truncate"><span className="text-faint">Last sync:</span> <span className="font-medium text-ink-2">{info ? last : "Checking…"}</span></span>
+      <span className="block truncate"><span className="text-faint">Next sync:</span> <span className="font-medium text-ink-2">{info ? next : "—"}</span></span>
+      {info?.error && <span className="block truncate text-high" title={info.error}>Last try failed: {info.error}</span>}
+    </>
+  );
+  if (compact) {
+    return (
+      <button onClick={syncNow} disabled={syncing} className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[11.5px] leading-tight text-muted hover:bg-surface-2 disabled:opacity-70" title="Sync now">
+        <span className="min-w-0 flex-1">{lines}</span>
+        <SyncIcon spin={syncing} />
+      </button>
+    );
+  }
   return (
-    <button
-      onClick={refresh}
-      className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-surface-2"
-      title={data.error ?? "Sync now"}
-    >
-      <span className={`size-2 shrink-0 rounded-full ${tone}`} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-ink-2">{label}</span>
-        <span className="block text-xs text-muted">{syncing ? "Updating…" : `Updated ${timeAgo(data.syncedAt, now)}`}</span>
-      </span>
-      <svg viewBox="0 0 20 20" className={`size-4 text-faint group-hover:text-ink ${syncing ? "animate-spin" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5" />
-      </svg>
-    </button>
+    <div className="rounded-xl border border-line bg-surface/60 p-2">
+      <button
+        onClick={syncNow}
+        disabled={syncing}
+        className={`press flex h-8 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-semibold transition ${info?.error ? "bg-high-bg text-high" : "bg-brand-soft text-brand hover:brightness-95"} disabled:opacity-70`}
+        title="Fetch the latest from Zoho Books now"
+      >
+        <SyncIcon spin={syncing} />
+        {syncing ? "Syncing…" : "Sync now"}
+      </button>
+      <div className="mt-1.5 space-y-0.5 px-1 text-[12px] leading-snug text-muted">{lines}</div>
+    </div>
   );
 }
 
@@ -115,6 +205,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const overdue = followUps.filter((f) => effectiveStatus(f, now) === "overdue").length;
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   const router = useRouter();
+  const zoho = useZohoSync(Boolean(session.ready && session.member));
 
   // One sign-in for the whole site, before anything else shows; after it, the Dashboard is the landing page.
   if (!session.ready) return null;
@@ -154,6 +245,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button onClick={session.signOut} aria-label="Sign out" title={`Sign out (${session.member.name})`} className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon><path d="M8 4.5H5.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H8M12 13.5 15.5 10 12 6.5M15.5 10H8" /></Icon>
             </button>
+            {zoho.info?.enabled !== false && (
+              <button
+                onClick={zoho.syncNow}
+                disabled={zoho.syncing}
+                aria-label="Sync now"
+                title={`Sync now\nLast sync: ${zoho.info?.syncedAt ? dayTime(zoho.info.syncedAt, now) : "—"}\nNext sync: ${zoho.info?.nextAt ? dayTime(zoho.info.nextAt, now) : "—"}`}
+                className={`grid size-9 place-items-center rounded-[10px] hover:bg-surface-2 hover:text-ink ${zoho.info?.error ? "text-high" : "text-muted"}`}
+              >
+                <SyncIcon spin={zoho.syncing} />
+              </button>
+            )}
             <button onClick={toggleTheme} aria-label="Appearance" title="Appearance" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
             </button>
@@ -192,8 +294,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-2">{session.member.name}</span>
               <button onClick={session.signOut} className="rounded-md px-1.5 py-0.5 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink">Sign out</button>
             </div>
-            <SyncStatus />
             {storageWarn && <StorageStatus />}
+            <SyncPanel sync={zoho} />
             <button onClick={toggleTheme} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
               Appearance
@@ -206,7 +308,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <header className="glass sticky top-9 z-30 flex h-14 items-center gap-3 border-b border-line/70 px-4 lg:hidden">
             <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
             <span className="text-[14px] font-semibold">ThinkHealth</span>
-            <div className="ml-auto w-48"><SyncStatus /></div>
+            <div className="ml-auto w-48"><SyncPanel sync={zoho} compact /></div>
           </header>
           <main key={path} className={`rise mx-auto px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10 ${path.startsWith("/follow-up") ? "max-w-none" : "max-w-[1680px]"}`}>{children}</main>
         </div>

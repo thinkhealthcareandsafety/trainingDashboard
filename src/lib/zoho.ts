@@ -59,6 +59,14 @@ async function saveToken(t: NonNullable<ZohoState["token"]>) {
   } catch {}
 }
 
+/** Zoho refused this token: remove it from MongoDB too (only if it's still the saved one), so nobody reuses it. */
+async function forgetSavedToken(value: string) {
+  if (!mongoConfigured()) return;
+  try {
+    await (await db()).collection("kv").deleteOne({ _id: TOKEN_KEY as never, value });
+  } catch {}
+}
+
 /**
  * Zoho access token (valid 1 hour). Reused across reloads and server restarts (saved in MongoDB),
  * refreshed at most once at a time, and never hammered: after a refusal we wait before asking again.
@@ -66,12 +74,12 @@ async function saveToken(t: NonNullable<ZohoState["token"]>) {
 export async function accessToken(): Promise<string> {
   const fresh = (t: ZohoState["token"]) => t && Date.now() < t.expiresAt - 5 * 60_000;
   if (fresh(G.token)) return G.token!.value;
-  if (!G.token) {
-    const saved = await loadSavedToken();
-    if (fresh(saved)) {
-      G.token = saved;
-      return saved!.value;
-    }
+  // Always try the shared token first (another server instance may have refreshed it already): every refresh
+  // creates a new Zoho token, and Zoho caps how many can be live at once.
+  const saved = await loadSavedToken();
+  if (fresh(saved) && saved!.value !== G.token?.value) {
+    G.token = saved;
+    return saved!.value;
   }
   if (Date.now() < G.cooldownUntil) throw new Error("Zoho asked us to slow down — retrying shortly");
   G.refreshing ??= (async () => {
@@ -104,10 +112,17 @@ async function zget<T = Record<string, unknown>>(path: string, params: Record<st
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
   for (let attempt = 0; ; attempt++) {
     G.calls = (G.calls ?? 0) + 1;
+    const token = await accessToken();
     const res = await fetch(url, {
-      headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` },
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
       cache: "no-store",
     });
+    // Token revoked or replaced on Zoho's side before it expired: drop it and try once more with a fresh one.
+    if (res.status === 401 && attempt < 1) {
+      if (G.token?.value === token) G.token = null;
+      await forgetSavedToken(token);
+      continue;
+    }
     // Back off on rate limit / transient errors. Zoho's limit is per minute, so 429s wait longer.
     if ((res.status === 429 || res.status >= 500) && attempt < 3) {
       await new Promise((r) => setTimeout(r, (res.status === 429 ? 5000 : 1000) * 2 ** attempt));

@@ -1,0 +1,36 @@
+# Hourly Zoho sync for the live dashboard, even when nobody has it open.
+# Vercel's free (Hobby) plan only allows a once-a-day cron, so GitHub calls /api/cron/sync instead.
+# The route only syncs when an hourly slot (9 am–7 pm IST, Mon–Sat) has passed since the last sync,
+# so the second run each hour (a retry, in case GitHub starts late or Zoho hiccups) is usually a no-op.
+#
+# Needs one repository secret: CRON_SECRET — the same value as CRON_SECRET in Vercel's Environment Variables
+# (GitHub → repo → Settings → Secrets and variables → Actions → New repository secret).
+name: Zoho sync
+
+on:
+  schedule:
+    # UTC. 03:32 UTC = 9:02 am IST … 13:32 UTC = 7:02 pm IST; :50 is the retry. Mon–Sat.
+    - cron: "32,50 3-13 * * 1-6"
+  workflow_dispatch: {}
+
+concurrency:
+  group: zoho-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Call the sync endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET is not set in this repository's Actions secrets — skipping."
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://training-dashboard-xfwl.vercel.app/api/cron/sync
+          echo

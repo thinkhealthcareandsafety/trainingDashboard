@@ -54,6 +54,16 @@ export function lastSlot(hours: number[], now = Date.now()): number {
 }
 /** An automatic sync is due when a scheduled hour has passed since the last successful sync. */
 export const scheduledSyncDue = (syncedAt?: string, now = Date.now()) => lastSlot(SYNC_HOURS, now) > (syncedAt ? new Date(syncedAt).getTime() : 0);
+/** The next scheduled time after now (on the hour, 9 am–7 pm IST, Mon–Sat). */
+export function nextSlot(now = Date.now()): number {
+  for (let d = 0; d <= 8; d++) {
+    for (const h of SYNC_HOURS) {
+      const t = istAt(d, h, now);
+      if (t > now && new Date(t + IST_MS).getUTCDay() !== 0) return t;
+    }
+  }
+  return 0;
+}
 /** Blank fields are left out (not stored as null), so customers look exactly as Zoho sent them. */
 const clean = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null)) as T;
 const istDay = () => new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
@@ -254,6 +264,7 @@ export async function runSync({ force = false }: { force?: boolean } = {}): Prom
     return "done";
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
+    console.error(`[zoho sync] failed: ${error}`); // shows in Vercel's logs
     return "done";
   } finally {
     state.attemptAt = Date.now();
@@ -344,18 +355,47 @@ export async function getSnapshot(force = false): Promise<Snapshot | null> {
     return readSnapshot();
   }
   if (force) {
-    const store = await kv();
-    const last = Number((await store.findOne({ _id: "zoho_last_forced" }))?.at ?? 0);
-    if (Date.now() - last > FORCE_GAP_MS) {
-      await store.replaceOne({ _id: "zoho_last_forced" }, { at: Date.now() }, { upsert: true });
-      await runSync({ force: true });
-      snap = (await readSnapshot()) ?? snap;
-    }
+    if (await forceSync()) snap = (await readSnapshot()) ?? snap;
     return snap;
   }
   const retryOk = !snap.attemptAt || Date.now() - snap.attemptAt > RETRY_MS;
   if (scheduledSyncDue(snap.syncedAt) && retryOk) after(() => runSync().then(() => undefined, () => undefined));
   return snap;
+}
+
+/** "Sync now": runs a sync and waits for it — at most once a minute for everyone together. False if it was too soon. */
+export async function forceSync(): Promise<boolean> {
+  const store = await kv();
+  const last = Number((await store.findOne({ _id: "zoho_last_forced" }))?.at ?? 0);
+  if (Date.now() - last <= FORCE_GAP_MS) return false;
+  await store.replaceOne({ _id: "zoho_last_forced" }, { at: Date.now() }, { upsert: true });
+  await runSync({ force: true });
+  return true;
+}
+
+/**
+ * Heartbeat from every open page (the sidebar asks every 2 minutes): when a scheduled hour has passed, the sync runs
+ * right here, inside the request, and the answer waits for it. Unlike after(), this can't be cut short once the
+ * response has gone, so the hourly sync happens whenever anyone has the dashboard open; the external scheduler
+ * (GitHub Actions → /api/cron/sync) covers the hours when nobody does.
+ */
+export async function syncIfDue(): Promise<void> {
+  const state = await loadState();
+  const retryOk = !state.attemptAt || Date.now() - state.attemptAt > RETRY_MS;
+  if (scheduledSyncDue(state.syncedAt) && retryOk) await runSync();
+}
+
+export type SyncStatus = { syncedAt?: string; error?: string; due: boolean; running: boolean; nextAt: number };
+/** Last successful sync, the next scheduled one, and whether one is running now. */
+export async function syncStatus(): Promise<SyncStatus> {
+  const [state, lock] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_sync_lock" })]);
+  return {
+    syncedAt: state.syncedAt,
+    error: state.error ?? undefined,
+    due: scheduledSyncDue(state.syncedAt),
+    running: Number(lock?.until ?? 0) > Date.now(),
+    nextAt: nextSlot(),
+  };
 }
 
 const newestFirst = <T extends { date: string; createdAt: string }>(xs: T[]) => [...xs].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));

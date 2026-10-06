@@ -66,6 +66,9 @@ function seedAnnouncements(today: Date): Announcement[] {
   ];
 }
 
+/** Window event fired when a Zoho sync has finished (new data in the copy) — pages reload their Zoho data on it. */
+export const ZOHO_SYNCED = "th:zoho-synced";
+
 export interface Toast {
   id: string;
   text: string;
@@ -294,7 +297,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!verified) return;
     refresh();
     const poll = setInterval(() => refresh(), 5 * 60_000);
-    return () => clearInterval(poll);
+    // The sidebar's sync panel announces a finished Zoho sync: load the new copy straight away.
+    const onSynced = () => refresh();
+    window.addEventListener(ZOHO_SYNCED, onSynced);
+    return () => {
+      clearInterval(poll);
+      window.removeEventListener(ZOHO_SYNCED, onSynced);
+    };
   }, [refresh, verified]);
 
   // Reconcile with the current data source:
