@@ -1,10 +1,10 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import type { CardEvent, CardEventKind, Member, Phase } from "@/lib/types";
+import type { CardEvent, CardEventKind, Member, Phase, ZohoInvoice, ZohoPayment } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
-  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, daysValue, externalTrainers, fmtDays, newestFirst, orderTrainers, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
+  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, daysValue, partPaidText, receivedOn, externalTrainers, fmtDays, newestFirst, orderTrainers, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -206,18 +206,78 @@ function PaymentSection({ card, cards }: { card: CardView; cards: Cards }) {
   const inv = card.kind === "invoice" ? card.invoice : card.kind === "payment" ? card.linkedInvoice : undefined;
   if (!inv) return null;
   const due = cardDue(card);
-  const payments = [...cards.values()].filter((c) => c.kind === "payment" && c.payment?.invoiceId === inv.invoiceId).sort((a, b) => a.payment!.date.localeCompare(b.payment!.date));
+  const payments = invoicePayments(inv.invoiceId, cards);
   return (
     <Section title="Payment" aside={due && <DueChip due={due} big />}>
-      {/* One line, so the modal still fits without scrolling. */}
+      {/* One line, so the modal still fits without scrolling; several payments open in a small window. */}
       <p className="text-[14px] text-ink-2">
         Due <b className="text-ink">{inv.dueDate ? dateLong(inv.dueDate) : "—"}</b>
         {inv.balance !== undefined && inv.balance > 0 && <> · <b className="num text-ink">{fmtINR(inv.balance)}</b> still due</>}
-        {payments.length === 0
-          ? <span className="text-muted"> · not paid yet</span>
-          : payments.map((p) => <span key={p.id}> · Paid <b className="text-ink">{dateLong(p.payment!.date)}</b> <span className="text-muted">({fmtINR(p.payment!.amount)}, {p.docNumber})</span></span>)}
+        {payments.length === 0 ? (
+          <span className="text-muted"> · not paid yet</span>
+        ) : payments.length === 1 ? (
+          <span> · Paid <b className="text-ink">{dateLong(payments[0].date)}</b> <span className="text-muted">({fmtINR(payments[0].amount)}{payments[0].tdsWithheld ? ` + TDS ${fmtINR(payments[0].tdsWithheld)}` : ""}, Payment #{payments[0].number})</span></span>
+        ) : (
+          <> · <PaymentsLink invoice={inv} payments={payments} /></>
+        )}
       </p>
     </Section>
+  );
+}
+
+/** Every payment recorded against an invoice (all instalments), oldest first. */
+function invoicePayments(invoiceId: string, cards: Cards) {
+  return [...cards.values()].filter((c) => c.kind === "payment" && c.payment?.invoiceId === invoiceId).map((c) => c.payment!)
+    .sort((a, b) => a.date.localeCompare(b.date) || Number(a.number) - Number(b.number));
+}
+
+/** "Received ₹1,81,440 in 2 payments · Show all PRs" — the list opens in a small window over the card. */
+export function PaymentsLink({ invoice, payments }: { invoice: ZohoInvoice; payments: ZohoPayment[] }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") (e.stopPropagation(), setOpen(false)); };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+  const received = payments.reduce((s, p) => s + p.amount, 0);
+  const tds = payments.reduce((s, p) => s + (p.tdsWithheld ?? 0), 0);
+  const got = receivedOn(payments);
+  const total = invoice.total ?? 0;
+  return (
+    <>
+      Received <b className="num text-ink">{fmtINR(received)}</b>{tds > 0 && <> + TDS <b className="num text-ink">{fmtINR(tds)}</b></>} in {payments.length} payment{payments.length === 1 ? "" : "s"}{" "}
+      <button className="font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>Show all PRs</button>
+      {open && (
+        <span className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={() => setOpen(false)}>
+          <span role="alertdialog" aria-label="Payments received" className="modal-in block w-full max-w-lg rounded-2xl bg-surface p-5 text-left shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+            <span className="flex items-center justify-between gap-2">
+              <span className="text-[16px] font-bold tracking-tight text-ink">Payments received · {invoice.number}</span>
+              <button className={btn.quiet} onClick={() => setOpen(false)}>Close</button>
+            </span>
+            <span className="no-scrollbar mt-3 block max-h-[50vh] overflow-y-auto rounded-xl border border-line">
+              {payments.map((p) => (
+                <span key={p.paymentId} className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-line px-3 py-2 last:border-b-0">
+                  <span className="text-[13.5px] font-semibold text-ink">Payment #{p.number}</span>
+                  <span className="num text-right text-[13.5px] font-semibold text-low">{fmtINR(p.amount)}</span>
+                  <span className="text-[12.5px] text-muted">{dateLong(p.date)}{p.mode && ` · ${p.mode}`}{p.reference && ` · Ref# ${p.reference}`}</span>
+                  {(p.tdsWithheld ?? 0) > 0 && <span className="num text-right text-[12.5px] text-muted">+ TDS {fmtINR(p.tdsWithheld!)}</span>}
+                </span>
+              ))}
+            </span>
+            {/* Payments + TDS against the invoice total: the invoice merges with its payments only when they match. */}
+            <span className="mt-3 flex flex-wrap justify-between gap-2 text-[13.5px] text-ink-2">
+              <span>
+                Received <b className="num text-ink">{fmtINR(received)}</b>{tds > 0 && <> + TDS <b className="num text-ink">{fmtINR(tds)}</b> = <b className="num text-ink">{fmtINR(got)}</b></>} of <b className="num text-ink">{fmtINR(total)}</b>
+              </span>
+              {got >= total - 0.5
+                ? <span className="font-semibold text-low">Paid in full</span>
+                : <span className="font-semibold text-high">{fmtINR(total - got)} still due</span>}
+            </span>
+          </span>
+        </span>
+      )}
+    </>
   );
 }
 
@@ -698,14 +758,19 @@ function NotesSection({ card, member, options }: { card: CardView; member: Membe
 /** Lead → Quote → PI trail of what was merged into this card, with unmerge on each direct merge. */
 function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards; onUnmerge?: (fromId: string) => void }) {
   if (card.historyIds.length < 2) return null;
-  const chain = [...card.historyIds].map((id) => cards.get(id)).filter((c): c is CardView => !!c).sort((a, b) => STAGE_RANK[a.kind] - STAGE_RANK[b.kind]);
+  // An invoice's instalments travel together: one "Payment Received · n payments" chip, no unmerge of their own
+  // (unmerging the invoice separates them again).
+  const instalments = card.kind === "payment" && (card.payments?.length ?? 0) > 1;
+  const chain = [...card.historyIds].map((id) => cards.get(id)).filter((c): c is CardView => !!c && (!instalments || c.kind !== "payment" || c.id === card.id))
+    .sort((a, b) => STAGE_RANK[a.kind] - STAGE_RANK[b.kind]);
+  const unmergeable = card.mergedFrom.filter((id) => kindOfId(id) !== "payment");
   return (
     <Section
       title="Merged"
       // Unmerge sits in the header so the section takes one row less (Notes sits above it).
-      aside={onUnmerge && card.mergedFrom.length > 0 && (
+      aside={onUnmerge && unmergeable.length > 0 && (
         <span className="flex flex-wrap justify-end gap-x-3">
-          {card.mergedFrom.map((id) => (
+          {unmergeable.map((id) => (
             <button key={id} className="text-[13px] font-medium text-muted hover:text-ink hover:underline" onClick={() => onUnmerge(id)}>Unmerge {isCustomerCard(kindOfId(id)) ? KIND_LABEL[kindOfId(id)] : cardLabel(cards.get(id))}</button>
           ))}
         </span>
@@ -716,7 +781,7 @@ function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards
           <span key={c.id} className="inline-flex items-center gap-2">
             {/* Lead and Potential training sit side by side (+); later stages follow (→). */}
             {i > 0 && <span className="text-faint">{STAGE_RANK[c.kind] === STAGE_RANK[chain[i - 1].kind] ? "+" : "→"}</span>}
-            <span className={`rounded-lg px-2.5 py-1 text-[13px] font-medium ${STAGE_TONE[c.kind].chip}`}>{KIND_LABEL[c.kind]} · {isCustomerCard(c.kind) ? c.lead?.name : c.docNumber}</span>
+            <span className={`rounded-lg px-2.5 py-1 text-[13px] font-medium ${STAGE_TONE[c.kind].chip}`}>{KIND_LABEL[c.kind]} · {isCustomerCard(c.kind) ? c.lead?.name : instalments && c.id === card.id ? `${card.payments!.length} payments` : c.docNumber}</span>
           </span>
         ))}
       </div>
@@ -748,7 +813,7 @@ export function ChangeLog({ cardIds, cards, member }: { cardIds: string[]; cards
                   <div className="mt-1 text-[12px] font-medium text-medium">Not applied — training is completed on the PI. Create the PI in Zoho Books, merge Quote → PI, then mark it completed.</div>
                 )}
                 {mergeNotApplied(e, cards) && (
-                  <div className="mt-1 text-[12px] font-medium text-medium">Not applied — the invoice wasn&apos;t merged with its completed training first. Merge step by step, then merge it with the payment again.</div>
+                  <div className="mt-1 text-[12px] font-medium text-medium">{mergeNotApplied(e, cards)}</div>
                 )}
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-muted">
@@ -1099,7 +1164,12 @@ function PhasePanel({ kind, list, selected, onSelect, cards, onOpen }: {
         <h3 className="text-[16px] font-bold tracking-tight text-ink">{KIND_LABEL[kind]}</h3>
         <button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => onOpen(selected.id)}>Open &amp; edit</button>
       </div>
-      {list.length > 1 && (
+      {kind === "payment" && list.length > 1 && selected.linkedInvoice ? (
+        // An invoice's payments all merge together (into the newest), so no picking — just what's included.
+        <div className="border-b border-line px-4 py-2.5 text-[13px] text-ink-2">
+          All {list.length} payments merge together · <PaymentsLink invoice={selected.linkedInvoice} payments={list.map((c) => c.payment!)} />
+        </div>
+      ) : list.length > 1 && (
         <div className="flex flex-wrap gap-1.5 border-b border-line px-4 py-2.5">
           {list.map((c) => (
             <button key={c.id} onClick={() => onSelect(c.id)} className={`rounded-full px-2.5 py-1 text-[12.5px] font-medium ${c.id === selected.id ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:bg-line"}`}>
@@ -1138,6 +1208,8 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   const members = group.map((id) => cards.get(id)).filter((c): c is CardView => !!c);
   const byKind = Object.fromEntries(STAGE_ORDER.map((k) => [k, members.filter((c) => c.kind === k)])) as Record<CardKind, CardView[]>;
   byKind.quote.sort(newestFirst);
+  // An invoice's payments (instalments) all merge together, into the newest one.
+  byKind.payment.sort((a, b) => b.payment!.date.localeCompare(a.payment!.date) || Number(b.payment!.number) - Number(a.payment!.number));
   const kinds = STAGE_ORDER.filter((k) => byKind[k].length);
   // Opened from a Potential training card: just pick the quotation it goes into (see mergeCandidates).
   const potentialMode = cards.get(initialId)?.kind === "potential";
@@ -1226,15 +1298,20 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   // Step by step: the invoice joins its payment only after (or together with) its completed training.
   const invPay = linked(invoice, payment);
   const invoiceReady = Boolean(invoice?.mergedFrom.some((id) => { const k = cards.get(id)?.kind; return k && !isCustomerCard(k); }));
-  if (linked(pi, invoice) && invPay) actions.push({ label: "Merge PI → Invoice → Payment Received", steps: [[pi!, invoice!], [invoice!, payment!]], primary: true });
-  if (linked(quote, invoice) && invPay) actions.push({ label: "Merge Quote → Invoice → Payment Received", steps: [[quote!, invoice!], [invoice!, payment!]], primary: true });
+  // Several instalments: the invoice goes into the newest payment and the others come along.
+  const prs = byKind.payment.filter((c) => c.payment?.invoiceId === invoice?.invoice?.invoiceId).length;
+  const payLabel = prs > 1 ? `Payment Received (${prs} payments)` : "Payment Received";
+  if (linked(pi, invoice) && invPay) actions.push({ label: `Merge PI → Invoice → ${payLabel}`, steps: [[pi!, invoice!], [invoice!, payment!]], primary: true });
+  if (linked(quote, invoice) && invPay) actions.push({ label: `Merge Quote → Invoice → ${payLabel}`, steps: [[quote!, invoice!], [invoice!, payment!]], primary: true });
   if (linked(pi, invoice)) actions.push({ label: "Merge PI → Invoice", steps: [[pi!, invoice!]], primary: !invPay });
   if (linked(quote, invoice)) actions.push({ label: "Merge Quote → Invoice", steps: [[quote!, invoice!]], primary: !invPay });
-  if (invPay && invoiceReady) actions.push({ label: "Merge Invoice → Payment Received", steps: [[invoice!, payment!]], primary: true });
+  if (invPay && invoiceReady) actions.push({ label: `Merge Invoice → ${payLabel}`, steps: [[invoice!, payment!]], primary: true });
   // PI / invoice links don't apply when a Potential training card is only choosing its quotation.
   const unlinked = potentialMode ? "" : invoice && payment && !linked(invoice, payment)
     ? payment.payment?.invoiceId === invoice.invoice?.invoiceId
-      ? `Merge ${invoice.docNumber} with its completed training first — step by step, the invoice can only be merged with ${payment.docNumber} after that.`
+      ? !invoice.paidInFull
+        ? `${partPaidText(invoice.invoice!, invoice.received ?? 0)} — it can be merged with its payments once they add up to the invoice total.`
+        : `Merge ${invoice.docNumber} with its completed training first — step by step, the invoice can only be merged with ${payment.docNumber} after that.`
       : `${payment.docNumber} is applied to invoice ${payment.payment?.invoiceNumber}, not ${invoice.docNumber} — only the invoice a payment is recorded against can be merged with it.`
     : pi && invoice && !linked(pi, invoice)
     ? `${invoice.docNumber} references ${invoice.invoice?.reference || "no PI"}, not ${pi.docNumber} — only an invoice that references a PI (with completed training) can be merged with it.`

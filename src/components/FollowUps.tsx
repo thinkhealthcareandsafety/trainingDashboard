@@ -276,7 +276,13 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
         {flagged(card) && <FlagBadge />}
         {card.deleted && <DeletedTag />}
       </div>
-      {pay && (
+      {pay && (card.payments?.length ?? 0) > 1 ? (
+        // An invoice paid in instalments, merged: the total and how many payments, latest date.
+        <div className="mt-0.5">
+          <span className="num font-semibold text-low">{fmtINR(card.payments!.reduce((s, p) => s + p.amount, 0))}</span> · {card.payments!.length} payments
+          <div className="truncate">Last {dateLong(card.payments!.at(-1)!.date)} · Invoice {pay.invoiceNumber}</div>
+        </div>
+      ) : pay && (
         <div className="mt-0.5">
           <span className="num font-semibold text-low">{fmtINR(pay.amount)}</span> · {dateLong(pay.date)}
           <div className="truncate">Invoice {pay.invoiceNumber}</div>

@@ -424,6 +424,7 @@ export function toPayments(inv: ZohoInvoice, rows: ZRecord[]): ZohoPayment[] {
     date: String(p.date),
     createdAt: `${p.date}T00:00:00.000Z`,
     amount: Number(p.amount) || 0,
+    tdsWithheld: Number(p.tax_amount_withheld) || undefined,
     mode: str(p.payment_mode),
     reference: str(p.reference_number),
     invoiceId: inv.invoiceId,

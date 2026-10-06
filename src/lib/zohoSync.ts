@@ -189,11 +189,17 @@ async function incremental(state: SyncState, sets: ItemSets): Promise<number> {
   return changed;
 }
 
-/** Payments, only for paid / part-paid training invoices that changed since their payments were read. */
+/**
+ * Payments, for every training invoice that has received money and changed since its payments were read. Not just
+ * "paid" / "partially_paid": a part-paid invoice past its due date is "overdue" in Zoho (e.g. 2026-01-428, payment #1923).
+ */
 async function syncPayments(sets: ItemSets): Promise<number> {
   const docs = await col<StoredDoc>("zohoDocs");
   const pays = await col<StoredPayments>("zohoPayments");
-  const paid = await docs.find({ kind: "invoices", training: true, status: { $in: ["paid", "partially_paid"] } }, { projection: { id: 1, doc: 1 } }).toArray();
+  const paid = await docs.find(
+    { kind: "invoices", training: true, $or: [{ status: { $in: ["paid", "partially_paid"] } }, { "doc.payment_made": { $gt: 0 } }] },
+    { projection: { id: 1, doc: 1 } },
+  ).toArray();
   const have = new Map((await pays.find({}, { projection: { rows: 0 } }).toArray()).map((p) => [p._id, p.lmt]));
   const stale = paid.filter((d) => have.get(d.id) !== String(d.doc.last_modified_time ?? ""));
   await pool(stale, 4, async (d) => {
@@ -412,7 +418,8 @@ export function pipelineData(s: Snapshot) {
     const pis: ZohoPI[] = tracked(s, "salesorders", since, (d) => hasItem(d, ids)).map((d) => toPI(d.doc, ids));
     const invoices: ZohoInvoice[] = tracked(s, "invoices", since, (d) => hasItem(d, ids)).map((d) => toInvoice(d.doc, ids));
     const payments: ZohoPayment[] = invoices
-      .filter((i) => i.status === "paid" || i.status === "partially_paid")
+      // Any invoice with money received — an overdue invoice can be part-paid too.
+      .filter((i) => i.status === "paid" || i.status === "partially_paid" || (i.total ?? 0) - (i.balance ?? i.total ?? 0) > 0)
       .flatMap((i) => toPayments(i, s.payments.get(i.invoiceId) ?? []));
     const leads = [...s.customers].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const distinct = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => Boolean(x)))].sort((a, b) => a.localeCompare(b));

@@ -144,6 +144,18 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
   quote) · Completed training ↔ Invoice (invoice reference cites the PI) · Invoice ↔ Payment (payment applied to that invoice) —
   **step by step**: an invoice joins its payment only after (or together with — *Merge PI → Invoice → Payment Received*) its
   completed training; out-of-order merges are ignored and shown *Not applied*.
+- **Instalments (Invoice ↔ Payment received):** every payment is pulled, but an invoice is flagged with its payments **only once
+  the whole sum matches: payments + TDS withheld = invoice total** (`receivedOn` / `sumMatches`; invoice cards carry `received`
+  and `paidInFull`). TDS counts because Zoho counts it — 32 of 43 paid training invoices carry TDS (`tax_amount_withheld` on
+  each payment row → `ZohoPayment.tdsWithheld`); on 6 Oct the rule agreed with Zoho's balance on all 43. A write-off or credit
+  note (none so far) would keep an invoice waiting.
+  Until then each payment card waits in Payment received with *Not linked yet — part paid, ₹x of ₹y received, ₹z still due*,
+  and the invoice shows *Part paid · Overdue/Due…*. Then **all its payments flag together**; one merge (invoice → newest
+  payment, button *Merge Invoice → Payment Received (n payments)*) folds every other payment of that invoice into the same card
+  (computed, not events — reverting the one merge separates them). The card shows the total and *n payments*; the modal's
+  Payment section says *Received ₹… + TDS ₹… in n payments · Show all PRs* (small window: each PR with its TDS, received of
+  total, *Paid in full* or ₹… still due).
+  A merge made while part paid waits (*Not applied yet*) and applies by itself once fully paid.
 - **Merge view**: one panel per phase; quotations newest first with a **NEW** tag; a quotation and PI only ever show as a
   referenced pair (the PI panel hides when no PI cites the selected quote; clicking either chip switches its partner).
 - **Training**: unflagged quote/PI can be scheduled; merged PI pops *Ready for training*. **Several days** per training
@@ -276,7 +288,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | # | Prompt (paraphrased) | Result |
 |---|---|---|
 | 82 | "Zoho sync stopped since yesterday 3 pm — find the underlying issue; auto sync every hour; manual Sync now in the left panel above Appearance with Last sync / Next sync; Admin can do everything; Shikha and Ashish get the AedSmartx board too" | Found: last success Mon 3 pm → next only Tue 9:19 am; automatic syncs relied on `after()` from page visits plus one daily Vercel cron, and failures were silent. Fixed: heartbeat runs due syncs inside the request, GitHub Actions hourly (needs `CRON_SECRET` repo secret), failures logged + 502 from the cron route, token reuse/401 handling; sidebar SyncPanel; Admin = delivery + remove any note; Ashish/Shikha switch boards. |
-| 83 | "just push all to github" | Pushed (see git log). |
+| 83 | "just push all to github" | `737a021`. |
+| 84 | "Payment received #1923 came yesterday but wasn't pulled" (invoice 2026-01-428, Heartstream) | Cause: payments were read only for invoices with status paid / partially_paid, but Zoho calls a part-paid invoice **overdue** once past due (₹6,194 of ₹1,74,951 still open). Now: any training invoice with `payment_made > 0`; due chip says *Part paid* from the amounts. #1923 pulled into the copy. |
+| 85 | Instalments: an invoice passes only when fully paid ("only when the whole payment sum matches"); then it merges with all its payment receiveds (n of them); modal "click to show all PRs" | Built (see Instalments in §4); tested on synthetic data (part paid / fully paid / merged / reverted / early merge) and on real Heartstream + Diana Builwell cards with saves blocked. |
 
 ---
 
@@ -287,6 +301,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 - PI `reference_number` = quotation number; invoice `reference_number` = PI number.
 - The OAuth token has **no customer-payments scope**; `GET /invoices/{id}/payments` works.
 - Lists accept `sort_column=last_modified_time&sort_order=D` (estimates, salesorders, invoices, contacts) — the incremental sync relies on it.
+- A **part-paid invoice past its due date has status `overdue`**, not `partially_paid` — use `payment_made` / `balance`, not status.
 - Invoice detail has `due_date`, `total`, `balance`, `shipping_address.phone` (ship-to; blank on ~1 in 9 AED invoices).
 - AED details are free text in the line description, written many ways (see `aedParse.ts` comments).
 - Limits: ~100 calls/min per org + a plan-dependent daily allowance (set `ZOHO_DAILY_LIMIT` to the real figure).
@@ -333,7 +348,7 @@ No test suite. Pattern used throughout:
 4. No "change my PIN" screen; Admin resets PINs via `POST /api/members/pin`. Session tokens don't expire (sign out, or change
    `SESSION_SECRET` to sign everyone out).
 5. Nothing is written back to Zoho (dates, merges, notes live only in the dashboard).
-6. Invoices paid in instalments: one payment merges, the others stay in the column with a note.
+6. ~~Invoices paid in instalments~~ — done (see Instalments in §4).
 7. Legacy follow-up tasks (`src/lib/followups.ts`) still feed the ticker and the sidebar badge; untouched.
 8. Unused Mongo `leads` collection can be dropped with permission.
 9. Optional: custom domain (Vercel → Settings → Domains); the office LAN dev server is no longer needed once the team uses the live site.

@@ -193,6 +193,7 @@ export interface ZohoPayment {
   date: string; // YYYY-MM-DD
   createdAt: string;
   amount: number;
+  tdsWithheld?: number; // TDS the customer deducted on this payment — Zoho counts it as received (amount + TDS settles the invoice)
   mode?: string;
   reference?: string; // Reference# (usually the bank / UTR reference)
   invoiceId: string; // the invoice it's applied to

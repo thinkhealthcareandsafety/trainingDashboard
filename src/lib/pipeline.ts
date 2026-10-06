@@ -1,5 +1,5 @@
 import type { AedInvoice, CardEvent, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
-import { fmtDate } from "./dates";
+import { fmtDate, fmtINR } from "./dates";
 import { type AedDetails, type AedExtra, aedExtras, parseAedLine } from "./aedParse";
 
 const fmtDay = (ymd: string) => fmtDate(ymd, { day: "numeric", month: "short", year: "numeric" });
@@ -57,6 +57,11 @@ export interface CardView {
   pi?: ZohoPI;
   invoice?: ZohoInvoice;
   payment?: ZohoPayment;
+  /** Payment cards: every payment this card stands for, oldest first — its own, plus the invoice's other instalments once merged. */
+  payments?: ZohoPayment[];
+  /** Invoices: received so far (payments + TDS), and whether that matches the total — only then it merges with its payments. */
+  received?: number;
+  paidInFull?: boolean;
   /** Payments: the invoice behind it — merged in, or the one it is applied to in Zoho. */
   linkedInvoice?: ZohoInvoice;
   /** Quotation behind this card: merged in, or the one its PI/reference cites. */
@@ -138,10 +143,25 @@ export function dueStatus(inv?: ZohoInvoice, today = new Date().toLocaleDateStri
   if (inv.status === "paid" || (inv.balance !== undefined && inv.balance <= 0 && (inv.total ?? 0) > 0)) return { tone: "paid", label: "Paid" };
   if (!inv.dueDate) return undefined;
   const days = Math.round((Date.parse(inv.dueDate) - Date.parse(today)) / 86_400_000);
-  const partlyPaid = inv.status === "partially_paid";
+  // Zoho calls a part-paid invoice "overdue" once it's past due, so look at the amounts too.
+  const partlyPaid = inv.status === "partially_paid" || (inv.balance !== undefined && inv.total !== undefined && inv.balance > 0 && inv.balance < inv.total);
   const n = (d: number) => `${d} day${d === 1 ? "" : "s"}`;
   if (days < 0) return { tone: "overdue", label: `Overdue by ${n(-days)}`, partlyPaid };
   return { tone: "due", label: days === 0 ? "Due today" : `Due in ${n(days)}`, partlyPaid };
+}
+
+/**
+ * What an invoice has received: every payment plus the TDS the customer withheld on it — Zoho counts both toward the
+ * invoice (most paid invoices carry TDS, e.g. ₹43,200 paid + ₹4,000 TDS = ₹47,200).
+ */
+export const receivedOn = (ps: ZohoPayment[]) => ps.reduce((s, p) => s + p.amount + (p.tdsWithheld ?? 0), 0);
+/** Paid in full: the payments (with their TDS) add up to the invoice total. */
+export const sumMatches = (total: number | undefined, received: number) => (total ?? 0) > 0 && received >= (total ?? 0) - 0.5;
+
+/** "Invoice 2026-01-428 is part paid — ₹1,68,757 of ₹1,74,951 received, ₹6,194 still due." */
+export function partPaidText(inv: ZohoInvoice, received: number): string {
+  const total = inv.total ?? 0;
+  return `Invoice ${inv.number} is part paid — ${fmtINR(received)} of ${fmtINR(total)} received, ${fmtINR(Math.max(0, total - received))} still due`;
 }
 
 /** The payment status shown on invoice and payment cards (a payment is paid unless its invoice still has a balance). */
@@ -284,13 +304,17 @@ export function salespersonLabel(people: { phase: string; name: string }[]): str
   return groups.map((g) => `${g.phases.join(" & ")} Sent By ${g.name}`).join(", ");
 }
 
-/** Merge events that still apply: not reverted, and both documents still exist in Zoho. */
-function liveMerges(active: CardEvent[], exists: Set<string>) {
+/**
+ * Merge events that still apply: not reverted, and both documents still exist in Zoho. An invoice joins its payments
+ * only once it's fully paid (`paid`: invoice card ids) — a merge made earlier simply waits and applies when it is.
+ */
+function liveMerges(active: CardEvent[], exists: Set<string>, paid: Set<string>) {
   const into = new Map<string, string>();
   const at = new Map<string, string>(); // from → when it was merged
   for (const e of active) {
     if (e.kind !== "merge") continue;
     const [from, to] = e.cardIds;
+    if (kindOfId(to) === "payment" && kindOfId(from) === "invoice" && !paid.has(from)) continue;
     if (exists.has(from) && exists.has(to) && STAGE_RANK[kindOfId(from)] < STAGE_RANK[kindOfId(to)]) (into.set(from, to), at.set(from, e.at));
   }
   // Step by step: an invoice joins its payment only if its completed training was merged into it first.
@@ -302,11 +326,16 @@ function liveMerges(active: CardEvent[], exists: Set<string>) {
   return into;
 }
 
-/** An Invoice → Payment merge the board ignores because the invoice didn't hold its completed training yet. */
-export function mergeNotApplied(e: CardEvent, cards: Map<string, CardView>): boolean {
-  if (e.kind !== "merge" || e.revertedAt || kindOfId(e.cardIds[1]) !== "payment") return false;
+/**
+ * An Invoice → Payment merge the board isn't applying, and why: the invoice isn't fully paid yet (it applies by itself
+ * once it is), or it didn't hold its completed training yet (step by step). Empty when the merge applies.
+ */
+export function mergeNotApplied(e: CardEvent, cards: Map<string, CardView>): string {
+  if (e.kind !== "merge" || e.revertedAt || kindOfId(e.cardIds[1]) !== "payment") return "";
   const from = cards.get(e.cardIds[0]);
-  return Boolean(from && cards.has(e.cardIds[1]) && from.mergedInto !== e.cardIds[1]);
+  if (!from || !cards.has(e.cardIds[1]) || from.mergedInto === e.cardIds[1]) return "";
+  if (from.invoice && !from.paidInFull) return `Not applied yet — ${partPaidText(from.invoice, from.received ?? 0)}. It applies by itself once the payments add up to the invoice total.`;
+  return "Not applied — the invoice wasn't merged with its completed training first. Merge step by step, then merge it with the payment again.";
 }
 
 export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[]) {
@@ -332,7 +361,11 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
     ...pis.map((p) => piCardId(p.salesorderId)), ...invoices.map((i) => invoiceCardId(i.invoiceId)),
     ...payments.map((p) => paymentCardId(p.paymentId)), ...potentials.map((p) => p.id),
   ]);
-  const liveInto = liveMerges(active, exists);
+  // Received per invoice (payments + TDS): an invoice joins its payments only once this matches its total.
+  const received = new Map<string, number>();
+  for (const p of payments) received.set(p.invoiceId, (received.get(p.invoiceId) ?? 0) + receivedOn([p]));
+  const inFull = (i: ZohoInvoice) => sumMatches(i.total, received.get(i.invoiceId) ?? 0);
+  const liveInto = liveMerges(active, exists, new Set(invoices.filter(inFull).map((i) => invoiceCardId(i.invoiceId))));
 
   // Deleting a quote/PI sends the customer back to Leads: that card and every document merged into
   // it are hidden, and the merges into them stop applying, so any lead they held reappears.
@@ -346,6 +379,14 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   };
   deletedDocs.forEach((id) => hide(id));
   const mergedInto = new Map([...liveInto].filter(([, to]) => !deleted.has(to)));
+  // Instalments: once a (fully paid) invoice is merged into one of its payments, its other payments fold into that
+  // same card — one card in Payment received for the whole invoice. Unmerging the invoice separates them again.
+  const paymentsOf = new Map<string, string[]>();
+  for (const p of payments) paymentsOf.set(p.invoiceId, [...(paymentsOf.get(p.invoiceId) ?? []), paymentCardId(p.paymentId)]);
+  for (const [from, to] of [...mergedInto]) {
+    if (kindOfId(from) !== "invoice" || kindOfId(to) !== "payment") continue;
+    for (const pid of paymentsOf.get(from.slice("invoice:".length)) ?? []) if (pid !== to && !mergedInto.has(pid) && !deleted.has(pid)) mergedInto.set(pid, to);
+  }
   const mergedFrom = new Map<string, string[]>();
   for (const [from, to] of mergedInto) mergedFrom.set(to, [...(mergedFrom.get(to) ?? []), from]);
 
@@ -415,6 +456,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
     const refQuote = refPI ? quotesByNumber.get(refQuoteNumber(refPI) ?? "") : undefined;
     build(id, "invoice", docDraft(inv, "Invoice", contacts.get(inv.customerId)), {
       customerId: inv.customerId, invoice: inv, customerSince: contacts.get(inv.customerId)?.createdAt,
+      received: received.get(inv.invoiceId) ?? 0, paidInFull: inFull(inv),
       linkedPI: src?.pi ?? src?.linkedPI ?? refPI, linkedQuote: src?.linkedQuote ?? refQuote,
       salespeople: [...(src?.salespeople ?? []), ...(inv.salesperson ? [{ phase: "Invoice", name: inv.salesperson }] : [])],
       training: inv.items, peopleLabel: "No. of People", docNumber: inv.number, docDate: inv.date,
@@ -439,6 +481,12 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   // Change log of a card covers everything merged into it, at any depth.
   const lineage = (id: string): string[] => [id, ...(mergedFrom.get(id) ?? []).flatMap(lineage)];
   for (const c of cards.values()) c.historyIds = lineage(c.id);
+  // Payment cards: their own payment plus any instalments folded in, oldest first.
+  for (const c of cards.values()) {
+    if (c.kind !== "payment") continue;
+    const held = [c.payment!, ...c.mergedFrom.map((id) => cards.get(id)?.payment).filter((p): p is ZohoPayment => !!p)];
+    c.payments = held.sort((a, b) => a.date.localeCompare(b.date) || Number(a.number) - Number(b.number));
+  }
 
   // Notes travel with merges too: a note typed on the lead shows on the quotation it was merged into, and so on. Newest first.
   for (const c of cards.values()) {
@@ -506,8 +554,9 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   }
 
   //  - Invoice ↔ Payment received: the invoice the payment is applied to in Zoho
-  //    (or whose number the payment's Reference# cites) — only once that invoice holds its completed training,
-  //    or is flagged with it (then the merge view offers Training completed → Invoice → Payment received in one go).
+  //    (or whose number the payment's Reference# cites) — only once that invoice is fully paid (all its payments are
+  //    flagged with it and merge together), and holds its completed training or is flagged with it (then the merge view
+  //    offers Training completed → Invoice → Payment received in one go).
   const openInvoiceById = new Map(open.filter((c) => c.kind === "invoice").map((c) => [c.invoice!.invoiceId, c]));
   const openInvoiceByNumber = new Map([...openInvoiceById.values()].map((c) => [c.docNumber, c]));
   for (const pay of open.filter((c) => c.kind === "payment")) {
@@ -516,6 +565,10 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
     const cited = [...openInvoiceByNumber.keys()].find((n) => n && p.reference?.includes(n));
     const target = openInvoiceById.get(p.invoiceId) ?? (cited ? openInvoiceByNumber.get(cited) : undefined);
     const hasTraining = (ids: string[]) => ids.some((id) => kindOfId(id) === "pi" || kindOfId(id) === "quote");
+    if (target && !target.paidInFull) {
+      pay.waitingOn = `${partPaidText(target.invoice!, target.received ?? 0)}. This payment waits here; once the payments add up to the invoice total, the invoice merges with all of them together.`;
+      continue;
+    }
     if (target && (hasTraining(target.mergedFrom) || hasTraining(target.flaggedWith))) {
       link(target, pay);
       continue;
