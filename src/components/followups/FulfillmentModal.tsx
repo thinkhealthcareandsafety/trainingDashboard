@@ -5,6 +5,7 @@ import type { Member } from "@/lib/types";
 import { type CardView, type FulfilStage, FULFIL_LABEL } from "@/lib/pipeline";
 import { fmtDate } from "@/lib/dates";
 import { useStore } from "@/lib/store";
+import { fireworks } from "@/lib/confetti";
 import { btn } from "../ui";
 import {
   type BoardOptions, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection,
@@ -73,7 +74,7 @@ function FulfillmentSteps({ card, member }: { card: CardView; member: Member }) 
               <input type="checkbox" className="size-4 accent-[var(--brand)]" checked={Boolean(f.wip)} onChange={(e) => setWip(e.target.checked)} />
               Work in Progress
             </label>
-            <button className={btn.primary} onClick={() => setAskLogistics(true)}>Certificates Generated</button>
+            <button className={btn.primary} onClick={() => { fireworks(); setAskLogistics(true); }}>Certificates Generated</button>
             {f.wip && <span className="text-[12.5px] text-muted">In progress · {f.wip.by}, {dateLong(f.wip.at)}</span>}
           </div>
         )}
