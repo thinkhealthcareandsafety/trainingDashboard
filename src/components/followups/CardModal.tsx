@@ -203,7 +203,7 @@ export function DueChip({ due, big }: { due: DueStatus; big?: boolean }) {
 }
 
 /** Invoice / payment: when the invoice is due, how much is left, and the payments recorded against it. */
-function PaymentSection({ card, cards }: { card: CardView; cards: Cards }) {
+export function PaymentSection({ card, cards }: { card: CardView; cards: Cards }) {
   const inv = card.kind === "invoice" ? card.invoice : card.kind === "payment" ? card.linkedInvoice : undefined;
   if (!inv) return null;
   const due = cardDue(card);
@@ -500,7 +500,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
   );
 }
 
-function TrainingSection({ card, compact, onSchedule, onComplete, busyOn }: { card: CardView; compact?: boolean; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn }) {
+export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn }: { card: CardView; compact?: boolean; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn }) {
   const quoted = card.kind === "pi" ? card.linkedQuote : undefined;
   const showSchedule = card.kind !== "lead" && Boolean(card.schedule || onSchedule);
   return (
@@ -588,7 +588,7 @@ export function SalesSection({ card }: { card: CardView }) {
   );
 }
 
-function DocsSection({ card, options }: { card: CardView; options: BoardOptions }) {
+export function DocsSection({ card, options }: { card: CardView; options: BoardOptions }) {
   const q = card.linkedQuote;
   const p = card.pi ?? card.linkedPI;
   const inv = card.invoice ?? card.linkedInvoice;
@@ -762,7 +762,7 @@ function NotesSection({ card, member, options }: { card: CardView; member: Membe
 }
 
 /** Lead → Quote → PI trail of what was merged into this card, with unmerge on each direct merge. */
-function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards; onUnmerge?: (fromId: string) => void }) {
+export function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards; onUnmerge?: (fromId: string) => void }) {
   if (card.historyIds.length < 2) return null;
   // An invoice's instalments travel together: one "Payment Received · n payments" chip, no unmerge of their own
   // (unmerging the invoice separates them again).

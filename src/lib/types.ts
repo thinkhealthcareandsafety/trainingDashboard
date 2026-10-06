@@ -249,7 +249,8 @@ export type CardEventKind =
   | "set_reseller" // AedSmartx board: ref = Zoho contact id; all that customer's AED invoices need no training
   | "set_resale" // AedSmartx board: this one invoice was bought for resale — needs no training
   | "set_delivered" // AedSmartx board: the AED has been delivered (marked by Arti) — ready for scheduling
-  | "add_note"; // a free-text note on the card (value = the note); removing it = reverting the event
+  | "add_note" // a free-text note on the card (value = the note); removing it = reverting the event
+  | "set_fulfillment"; // Fulfillment board (Shreya): cardIds [fulfil:<invoice id>], value = stage (done / generated / sent / thanked)
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every

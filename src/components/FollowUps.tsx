@@ -2,17 +2,19 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
-import { type CardView, STAGE_RANK, buildAedBoard, isAedBoardUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, isAedBoardUser, isFulfilmentUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { ZOHO_SYNCED, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
+import { FulfillmentModal } from "./followups/FulfillmentModal";
 import { type DateFilterValue, DateFilterButton, matchesDateFilter } from "./followups/DateFilter";
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
-  | "aed_invoices" | "aed_training" | "aed_completed" | "aed_not_required";
+  | "aed_invoices" | "aed_training" | "aed_completed" | "aed_not_required"
+  | "ful_done" | "ful_generated" | "ful_sent" | "ful_thanked";
 
 const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "lead", label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
@@ -33,9 +35,29 @@ const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] =
   { key: "aed_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
   { key: "aed_not_required", label: "Training not required", header: "bg-high-bg", dot: "bg-high" },
 ];
-/** Priyanka and Arti work only on the AedSmartx board; Sumit, Shikha, Ashish (and Admin) can switch between the two. */
-const isAedTrainer = (m: Member) => m.id !== "admin" && isAedBoardUser(m.name);
-const canSwitchBoards = (m: Member) => m.id === "admin" || /^(sumit|shikha|ashish)\b/i.test(m.name.trim());
+/** Fulfillment board (Shreya): certificates for fully paid trainings, carried over from Payment received. */
+const FULFIL_COLUMNS: { key: Stage; label: string; header: string; dot: string }[] = [
+  { key: "ful_done", label: FULFIL_LABEL.done, header: "bg-low-bg", dot: "bg-low" },
+  { key: "ful_generated", label: FULFIL_LABEL.generated, header: "bg-brand-soft", dot: "bg-brand-2" },
+  { key: "ful_sent", label: FULFIL_LABEL.sent, header: "bg-medium-bg", dot: "bg-medium" },
+  { key: "ful_thanked", label: FULFIL_LABEL.thanked, header: "bg-low-bg", dot: "bg-brand" },
+];
+
+type BoardKind = "training" | "aed" | "fulfil";
+const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", aed: "AedSmartx", fulfil: "Fulfillment" };
+/**
+ * Who sees which board. Priyanka and Arti: AedSmartx only. Shreya: Fulfillment only. Ashish: Training + AedSmartx.
+ * Sumit and Shikha: all three. Admin: everything. Anyone else: Training.
+ */
+function boardsFor(m: Member): BoardKind[] {
+  if (m.id === "admin") return ["training", "aed", "fulfil"];
+  const n = m.name.trim();
+  if (isAedBoardUser(n)) return ["aed"];
+  if (isFulfilmentUser(n)) return ["fulfil"];
+  if (/^(sumit|shikha)\b/i.test(n)) return ["training", "aed", "fulfil"];
+  if (/^ashish\b/i.test(n)) return ["training", "aed"];
+  return ["training"];
+}
 
 // As many columns as fit at MIN_COL_W (enough for the column name); the rest slide in with ◀ ▶,
 // the arrow keys or a swipe. A wide screen shows every column.
@@ -187,21 +209,23 @@ function useAedInvoices(enabled: boolean) {
   return { data, loading, refresh: () => load(true) };
 }
 
-/** Everyone who can switch (Sumit, Shikha, Ashish, Admin): which board is showing, remembered per browser. */
-function useAedSwitch(): [boolean, (v: boolean) => void] {
-  const [on, setOn] = useState(false);
+/** Which board is showing, for members with more than one — remembered per browser. */
+function useBoardChoice(allowed: BoardKind[]): [BoardKind, (b: BoardKind) => void] {
+  const [picked, setPicked] = useState<BoardKind | null>(null);
   useEffect(() => {
     try {
-      setOn(localStorage.getItem("th.aedBoard") === "1");
+      const saved = localStorage.getItem("th.board") as BoardKind | null;
+      setPicked(saved ?? (localStorage.getItem("th.aedBoard") === "1" ? "aed" : null)); // older browsers remembered only the AED switch
     } catch {}
   }, []);
-  const set = (v: boolean) => {
-    setOn(v);
+  const set = (b: BoardKind) => {
+    setPicked(b);
     try {
-      localStorage.setItem("th.aedBoard", v ? "1" : "0");
+      localStorage.setItem("th.board", b);
     } catch {}
   };
-  return [on, set];
+  // Only boards this member may open; otherwise their first one.
+  return [picked && allowed.includes(picked) ? picked : allowed[0], set];
 }
 
 /* ---------------- Cards: one box per customer, their documents inside ---------------- */
@@ -600,13 +624,15 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const { cardEvents, recordCardEvents } = useStore();
   const pipeline = usePipeline();
   const { data } = pipeline;
-  const [aedSwitch, setAedSwitch] = useAedSwitch();
-  const aedMode = isAedTrainer(member) || (canSwitchBoards(member) && aedSwitch);
+  const allowed = boardsFor(member);
+  const [boardKind, setBoardKind] = useBoardChoice(allowed);
+  const aedMode = boardKind === "aed";
+  const fulfilMode = boardKind === "fulfil";
   const aed = useAedInvoices(aedMode);
-  // Loading state and sync errors follow the board that's showing.
+  // Loading state and sync errors follow the board that's showing (Fulfillment is built from the training data).
   const { loading } = aedMode ? aed : pipeline;
   const sync = aedMode ? aed.data : data;
-  const stages = aedMode ? AED_STAGES : STAGES;
+  const stages = aedMode ? AED_STAGES : fulfilMode ? FULFIL_COLUMNS : STAGES;
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
   const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null);
@@ -617,6 +643,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
 
   const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents), [data, cardEvents]);
   const aedBoard = useMemo(() => (aedMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents) : null), [aedMode, data, aed.data, cardEvents]);
+  const fulBoard = useMemo(() => (fulfilMode ? buildFulfillmentBoard(board, cardEvents) : null), [fulfilMode, board, cardEvents]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
 
   // A merged quote/PI that disappeared from Zoho moves its cards apart — log why, once.
@@ -646,22 +673,37 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
       aed_not_required: aedBoard.notRequiredCards.filter(visible),
     };
   }, [aedBoard, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols };
+  const fulCols = useMemo(() => {
+    if (!fulBoard) return { ful_done: [], ful_generated: [], ful_sent: [], ful_thanked: [] };
+    return {
+      ful_done: fulBoard.doneCards.filter(visible),
+      ful_generated: fulBoard.generatedCards.filter(visible),
+      ful_sent: fulBoard.sentCards.filter(visible),
+      ful_thanked: fulBoard.thankedCards.filter(visible),
+    };
+  }, [fulBoard, needle, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols, ...fulCols };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
+  const switchBoard = (b: BoardKind) => { setBoardKind(b); setOpen(null); };
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });
-  const current = open ? (aedMode ? aedBoard?.cards : board.cards)?.get(open.id) : undefined;
-  const candidates = current && open?.merge && !aedMode ? mergeCandidates(current.id, board.cards) : [];
+  const current = open ? (aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : board.cards)?.get(open.id) : undefined;
+  const candidates = current && open?.merge && boardKind === "training" ? mergeCandidates(current.id, board.cards) : [];
   const mergeGroup = candidates.length > 1 ? candidates : null;
 
   return (
     <div ref={pageRef} className="fu-page" style={colH ? ({ "--fu-col-h": `${colH}px` } as React.CSSProperties) : undefined}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">{aedMode ? "AedSmartx Training" : "Follow-ups"}</h1>
+          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">{aedMode ? "AedSmartx Training" : fulfilMode ? "Fulfillment" : "Follow-ups"}</h1>
           <p className="text-[12.5px] text-muted">
-            {aedMode ? (
+            {fulfilMode ? (
+              <>
+                {fulCols.ful_done.length} payments done · {fulCols.ful_generated.length} certificates generated · {fulCols.ful_sent.length} certificates sent · {fulCols.ful_thanked.length} gratitude emails sent
+                {" "}· fully paid trainings from Payment received
+              </>
+            ) : aedMode ? (
               <>
                 {aedCols.aed_invoices.length} invoices · {aedCols.aed_training.length} scheduled · {aedCols.aed_completed.length} completed · {aedCols.aed_not_required.length} not required
                 {aed.data?.windowStart && <> · AED invoices since {fmtDate(aed.data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
@@ -687,7 +729,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
             <svg viewBox="0 0 20 20" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
             <input className={`${inputCls} !h-9 pl-8 text-[13px]`} placeholder="Search name, alias, phone, email, quote no." value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          {!aedMode && deletedCount > 0 && (
+          {boardKind === "training" && deletedCount > 0 && (
             <label className="inline-flex items-center gap-2 text-[13px] text-muted">
               <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
               Show deleted ({deletedCount})
@@ -701,10 +743,11 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
               <SlideButton dir="left" disabled={offset === 0} onClick={() => move(-1)} />
               <SlideButton dir="right" disabled={offset >= maxOffset} onClick={() => move(1)} />
             </span>
-            {canSwitchBoards(member) && !isAedTrainer(member) && (
-              <button className={`${btn.ghost} !h-8 !px-3 text-[12.5px]`} onClick={() => { setAedSwitch(!aedSwitch); setOpen(null); }} aria-pressed={aedSwitch}>
-                {aedSwitch ? "Switch to Training Follow ups" : "Switch to AedSmartx Training Board"}
-              </button>
+            {allowed.length > 1 && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-[12px] text-muted">Board</span>
+                <Segmented value={boardKind} onChange={switchBoard} options={allowed.map((b) => ({ value: b, label: BOARD_LABEL[b] }))} />
+              </span>
             )}
           </div>
         </div>
@@ -730,7 +773,8 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
 
       {adding && <AddPotentialModal cards={board.cards} member={member} onClose={() => setAdding(false)} />}
       {current && aedMode && <AedCardModal card={current} cards={aedBoard!.cards} member={member} options={options} onClose={() => setOpen(null)} />}
-      {current && !aedMode && mergeGroup && (
+      {current && fulfilMode && <FulfillmentModal card={current} cards={fulBoard!.cards} trainingCards={board.cards} member={member} options={options} onClose={() => setOpen(null)} />}
+      {current && boardKind === "training" && mergeGroup && (
         <MergeModal
           key={`merge:${current.id}`}
           group={mergeGroup}
@@ -742,7 +786,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
           onOpen={(id) => setOpen({ id, merge: false })}
         />
       )}
-      {current && !aedMode && !mergeGroup && (
+      {current && boardKind === "training" && !mergeGroup && (
         <CardModal
           card={current}
           cards={board.cards}

@@ -19,10 +19,12 @@ business rules that came out of it, how the code works **now**, what was verifie
 - **Stack:** Next.js **16.3** (Turbopack) + React 19 + Tailwind v4 + MongoDB + Zoho Books (India DC).
   `AGENTS.md`: this Next.js differs from training data — read `node_modules/next/dist/docs/` before Next-specific code.
 - **People using it (real, live data):** Shikha Dixit, Ashish Dalal, Sumit A Shah (training board), **Priyanka**
-  (AedSmartx trainer), **Arti Sirohi** (AED deliveries), and **Admin** (the owner). Their changes live in MongoDB
-  `cardEvents` — **never write test data to the shared database** (see §9).
-- **Two boards** on `/follow-up`: the **Training follow-ups** board (9 columns) and the **AedSmartx Training** board
-  (4 columns). Plus the Dashboard (`/`, Overview) and Calendar pages from the original app.
+  (AedSmartx trainer), **Arti Sirohi** (AED deliveries), **Shreya** (certificates — Fulfillment board), and **Admin** (the
+  owner). Their changes live in MongoDB `cardEvents` — **never write test data to the shared database** (see §9).
+- **Three boards** on `/follow-up`, picked with the **Board** switch (Training · AedSmartx · Fulfillment): the **Training
+  follow-ups** board (9 columns), the **AedSmartx Training** board (4 columns) and the **Fulfillment** board (4 columns).
+  Access (`boardsFor` in FollowUps.tsx): Priyanka, Arti → AedSmartx only; Shreya → Fulfillment only; Ashish → Training +
+  AedSmartx; Sumit, Shikha, Admin → all three; anyone else → Training. Plus the Dashboard (`/`) and Calendar pages.
 
 ---
 
@@ -120,6 +122,7 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
 | `src/lib/aedParse.ts` | Reads the AED line description: model, year, serials, battery/pads expiry; the five extras. |
 | `src/components/FollowUps.tsx` | Board page: column window (◀ ▶ / keys / swipe, fit to screen), columns + customer boxes, F / R toggles, Clear logs, AED/training switch. |
 | `src/components/followups/CardModal.tsx` | Training card modal, merge view, schedule/trainers, Potential add modal, shared modal pieces (exported). |
+| `src/components/followups/FulfillmentModal.tsx` | Fulfillment card modal (stage row, notes, the training card's sections). |
 | `src/components/followups/AedModal.tsx` | AedSmartx card modal (delivery, schedule date+time, notes, item description, resale). |
 | `src/components/followups/MembersScreen.tsx` | Sign-in card (names, PIN, Admin, + Add new member). |
 | `src/components/AppShell.tsx` | Shell, sidebar (hide to rail), global sign-in gate, `MemberPill`, `PageHeader`. |
@@ -177,6 +180,15 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
 - **Filter** (next to *Show deleted*, both boards; `DateFilter.tsx`): one or several months, or a from–to range. Each card is
   matched on the date it shows — training days once scheduled, else quote/PI/invoice/payment date, expected date (Potential),
   created date (Leads). Not saved; header counts follow the filter.
+
+### Fulfillment board (Shreya — certificates)
+**Payments Done → Certificates Generated → Certificates Sent → Gratitude Email sent**
+- Built from the training board (`buildFulfillmentBoard`): **one card per invoice in Payment received that is paid in full**
+  (payments + TDS = total; part-paid ones stay behind). Card id `fulfil:<invoice id>`; it carries the training card's data
+  (customer, contacts, training, merged chain, all payments, notes, history). On 6 Oct: 48 cards in Payment received → 42.
+- Moved **by hand** in the card (`FulfillmentModal.tsx`): the four stages in one row (click any), *Move to <next>*, *Back*;
+  event `set_fulfillment` (value done / generated / sent / thanked, before = previous), revertable; notes on the card too.
+  Payments Done: most recently paid first; other columns: most recently moved first.
 
 ### AedSmartx Training board
 **Invoices sent → Training scheduled → Training completed → Training not required**
@@ -293,6 +305,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 85 | Instalments: an invoice passes only when fully paid ("only when the whole payment sum matches"); then it merges with all its payment receiveds (n of them); modal "click to show all PRs" | Built (see Instalments in §4); tested on synthetic data (part paid / fully paid / merged / reverted / early merge) and on real Heartstream + Diana Builwell cards with saves blocked. |
 | 86 | Colours: due blue, overdue red, part paid yellow, paid green | `DueTone` "part" → yellow border + chip. |
 | 87 | "Change date" option next to Postpone / To be decided / Training completed (training can happen earlier) — "make it for both dashboards" | Both boards; a changed date keeps its Scheduled/Postponed label. |
+| 88 | Fulfillment board for **Shreya**: continues from Payment received (excluding part paid) → Payments Done → Certificates Generated → Certificates Sent → Gratitude Email sent, moved by hand; Admin, Sumit, Shikha can open it; push | Built; tested on real data (42 cards) with saves blocked; pushed. |
 
 ---
 
