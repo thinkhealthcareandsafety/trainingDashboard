@@ -915,8 +915,9 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
   }
 
   const all = [...cards.values()];
-  // Training Completed: most recently completed first; later columns: most recently moved first.
+  // Every column: by training date, latest first (a multi-day training counts from its last day); then the customer.
+  const trainedOn = (c: CardView) => c.schedule?.dates.at(-1)?.slice(0, 10) ?? "";
   const column = (s: FulfilStage) => all.filter((c) => c.fulfillment!.stage === s)
-    .sort((a, b) => (s === "completed" ? b.schedule!.completed!.at.localeCompare(a.schedule!.completed!.at) : (b.fulfillment!.at ?? "").localeCompare(a.fulfillment!.at ?? "")));
+    .sort((a, b) => trainedOn(b).localeCompare(trainedOn(a)) || a.name.localeCompare(b.name));
   return { cards, completedCards: column("completed"), holdCards: column("hold"), receivedCards: column("received"), generatedCards: column("generated"), logisticsCards: column("logistics") };
 }

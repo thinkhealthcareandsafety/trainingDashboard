@@ -195,6 +195,7 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
   hold / received / generated / logistics, before = previous); every move has Undo and can be reverted in Changes. No Back button.
 - Borders: Training Completed plain; Process on hold green + "Waiting for List"; List Received yellow, green once Work in
   progress; Certificates Generated / Sent to Logistics green. The Payment section sits in whichever column is shorter.
+- Order: every column by **training date, latest first** (multi-day = last day), then customer name.
 - History: the first version (6 Oct, from Payment received, 4 other columns) had one move by Admin (`fulfil:<invoice id>`,
   "thanked") — those ids no longer exist, so it no longer applies.
 
@@ -318,6 +319,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 90 | Fulfillment board reworked: Training Completed (all completed trainings, with alias) → Process on hold (Awaiting List of Participants) → List Received (Work in Progress) → Certificates Generated (popup "Also send to Logistics?") → Sent to Logistics; choices under Notes; shortcut from step 1 straight to List Received. Owner asked to restate first, then "go ahead" | Built with the defaults offered (old columns removed, borders as above, Under name on cards, no Back button); full flow tested with saves blocked. |
 | 91 | Basic confetti when *Training completed* is clicked — training board and AedSmartx | `src/lib/confetti.ts` (`canvas-confetti`, loaded on demand, from the button; shows even when Windows animations are off — owner asked to override reduced motion). |
 | 92 | "Confetti works for me but not on others' PCs — what refresh?"; AedSmartx: only Arti, Shikha, Sumit, Ashish, Admin mark delivered; schedule only after delivered (not-required still allowed); Arti can only mark | Live build confirmed to contain the confetti — others need a full reload (and reduced-motion PCs skip it); delivery/schedule rules built and tested per role with saves blocked. |
+| 93 | "Confetti: override reduced motion"; push; Fulfillment board: default order by training date | Confetti always shows; `2106db5`; columns sorted by training date, latest first. |
 
 ---
 
