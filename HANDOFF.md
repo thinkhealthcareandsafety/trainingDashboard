@@ -210,7 +210,7 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
   To be decided / Training completed); **Item description** (model, year, serials + total with a mismatch warning, battery & pads
   expiry, five extras ticked from the description or separate items: SmartX, Fast Response Kit, wall cabinet, 3D signage,
   infant/child key); **Mark for resale** (this invoice / whole customer is a Reseller → Training not required, now and later).
-- **Delivered**: only **Arti** (and **Admin**) can mark/undo. **Admin can do everything** (both boards, delivery, remove any note, Clear logs). Not delivered → yellow border + *Not delivered yet*; delivered → green + *Ready for
+- **Delivered**: **Arti, Shikha, Sumit, Ashish and Admin** can mark/undo (`canMarkDelivered`). **Schedule training is locked until the AED is delivered** (first schedule and from To be decided); *Training not required* stays available. **Arti only marks deliveries** (`isDeliveryOnly`): no scheduling, not-required or resale ticks — notes are fine. **Admin can do everything** (both boards, delivery, remove any note, Clear logs). Not delivered → yellow border + *Not delivered yet*; delivered → green + *Ready for
   Scheduling* (replaces the paid/due chip on AED cards). Green **R n** next to a column name shows only ready cards.
 
 ### Layout preferences (see also §8)
@@ -316,7 +316,8 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 88 | Fulfillment board for **Shreya**: continues from Payment received (excluding part paid) → Payments Done → Certificates Generated → Certificates Sent → Gratitude Email sent, moved by hand; Admin, Sumit, Shikha can open it; push | Built; tested on real data (42 cards) with saves blocked; pushed. |
 | 89 | Scheduling a merged PI: choose the name — same as original or an alias (add alias); show *Under name:* under No. of People when an alias | Name picker in the Ready-for-training popup and the schedule row; new alias saved to the card; tested with saves blocked; pushed. |
 | 90 | Fulfillment board reworked: Training Completed (all completed trainings, with alias) → Process on hold (Awaiting List of Participants) → List Received (Work in Progress) → Certificates Generated (popup "Also send to Logistics?") → Sent to Logistics; choices under Notes; shortcut from step 1 straight to List Received. Owner asked to restate first, then "go ahead" | Built with the defaults offered (old columns removed, borders as above, Under name on cards, no Back button); full flow tested with saves blocked. |
-| 91 | Basic confetti when *Training completed* is clicked — training board and AedSmartx | `src/lib/confetti.ts` (`canvas-confetti`, loaded on demand, from the button, skipped for reduced motion). |
+| 91 | Basic confetti when *Training completed* is clicked — training board and AedSmartx | `src/lib/confetti.ts` (`canvas-confetti`, loaded on demand, from the button; shows even when Windows animations are off — owner asked to override reduced motion). |
+| 92 | "Confetti works for me but not on others' PCs — what refresh?"; AedSmartx: only Arti, Shikha, Sumit, Ashish, Admin mark delivered; schedule only after delivered (not-required still allowed); Arti can only mark | Live build confirmed to contain the confetti — others need a full reload (and reduced-motion PCs skip it); delivery/schedule rules built and tested per role with saves blocked. |
 
 ---
 

@@ -19,6 +19,11 @@ import {
 type Cards = Map<string, CardView>;
 const dateLong = (s: string) => fmtDate(s, { day: "numeric", month: "short", year: "numeric" });
 
+/** Who marks AEDs as delivered: Arti, Shikha, Sumit, Ashish and Admin. */
+const canMarkDelivered = (m: Member) => m.id === "admin" || isAedDelivery(m.name) || /^(shikha|sumit|ashish)\b/i.test(m.name.trim());
+/** Arti only marks deliveries (and writes notes): no scheduling, no "not required", no resale. */
+const isDeliveryOnly = (m: Member) => m.id !== "admin" && isAedDelivery(m.name);
+
 function AedTrainingSection({ card, member }: { card: CardView; member: Member }) {
   const { addCardEvents, revertCardEvent, toast } = useStore();
   const s = card.schedule;
@@ -52,8 +57,10 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
     setPicking(false);
   };
 
-  // Delivery: Arti (and Admin, who can do everything) marks or unmarks an AED as delivered; everyone else sees the status (kept to one line).
-  const canDeliver = isAedDelivery(member.name) || member.id === "admin";
+  // Delivery: Arti, Shikha, Sumit, Ashish and Admin mark (or unmark) an AED as delivered; everyone else sees the status (kept to one line).
+  const canDeliver = canMarkDelivered(member);
+  // Arti only marks deliveries: no scheduling, no "not required". Nobody schedules before the AED is delivered.
+  const deliveryOnly = isDeliveryOnly(member);
   const deliveredEv = useStore().cardEvents.find((e) => !e.revertedAt && e.kind === "set_delivered" && e.cardIds.includes(card.id));
   const markDelivered = () => {
     if (deliveredEv) return revertCardEvent(deliveredEv.id, member.name);
@@ -65,7 +72,7 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
     <Section title="Training">
       {!card.notRequired && (
         <div className={`mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 px-3 py-1 ${card.delivered ? "border-low bg-low-bg" : "border-medium bg-medium-bg"}`}>
-          <span className="text-[13.5px]" title={card.delivered ? undefined : "Arti Sirohi marks it once the AED is delivered"}>
+          <span className="text-[13.5px]" title={card.delivered ? undefined : "Arti, Shikha, Sumit, Ashish or Admin marks it once the AED is delivered — then the training can be scheduled"}>
             <b className={card.delivered ? "text-low" : "text-medium"}>{card.delivered ? "Delivered — ready for scheduling" : "Not delivered yet"}</b>
             {card.delivered && <span className="text-[12px] text-muted"> · {card.delivered.by}, {dateLong(card.delivered.at)}</span>}
           </span>
@@ -104,7 +111,10 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
           </p>
         )}
 
-        {!card.notRequired && !s?.completed && (
+        {!card.notRequired && !s?.completed && deliveryOnly && (
+          <p className="mt-1.5 text-[13px] text-muted">{card.delivered ? "Delivered — the training team schedules it from here." : "Mark it as delivered once the AED reaches the customer — then the training can be scheduled."}</p>
+        )}
+        {!card.notRequired && !s?.completed && !deliveryOnly && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {picking ? (
               <>
@@ -115,7 +125,14 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
               </>
             ) : !s ? (
               <>
-                <button className={btn.primary} onClick={() => open()}>Schedule training</button>
+                {card.delivered ? (
+                  <button className={btn.primary} onClick={() => open()}>Schedule training</button>
+                ) : (
+                  <button disabled title="Mark the AED as delivered first" className="inline-flex h-9 cursor-not-allowed items-center justify-center gap-1.5 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-muted">
+                    <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden><rect x="4.5" y="9" width="11" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
+                    Schedule training
+                  </button>
+                )}
                 <button
                   className="press inline-flex h-9 items-center justify-center rounded-full border border-high/40 bg-surface px-4 text-[13px] font-semibold text-high hover:bg-high-bg"
                   onClick={() => undoToast(`${card.name} moved to Training not required`, record("set_not_required").id)}
@@ -126,7 +143,12 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
             ) : (
               <>
                 {postponing && <button className={btn.ghost} onClick={() => open(true)} title="Correct the date or time — earlier or later — without marking it postponed">Change date</button>}
-                <button className={postponing ? btn.ghost : btn.primary} onClick={() => open()}>{postponing ? "Postpone" : "Schedule training"}</button>
+                {postponing || card.delivered ? (
+                  <button className={postponing ? btn.ghost : btn.primary} onClick={() => open()}>{postponing ? "Postpone" : "Schedule training"}</button>
+                ) : (
+                  // To be decided, not delivered yet: same rule as a first schedule.
+                  <button disabled title="Mark the AED as delivered first" className="inline-flex h-9 cursor-not-allowed items-center justify-center rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-muted">Schedule training</button>
+                )}
                 {s.status !== "tbd" && <button className={btn.ghost} onClick={() => record("set_training_date", "TBD")}>To be decided</button>}
                 {s.date && (
                   <button
@@ -180,20 +202,22 @@ function ResaleOptions({ card, cards, member }: { card: CardView; cards: Cards; 
     const [ev] = addCardEvents([{ cardIds: [aedCustomerId(card.customerId), ...theirs], kind: "set_reseller", ref: card.customerId, before: card.name, by: member.name }]);
     undo(`${card.name} marked as a Reseller — ${theirs.length} invoice${theirs.length === 1 ? "" : "s"} moved to Training not required`, ev.id);
   };
-  const box = (on: boolean) => `flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13.5px] ${on ? "border-high/40 bg-high-bg" : "border-line hover:border-line-strong"}`;
+  // Resale moves invoices to Training not required — not for Arti (she only marks deliveries).
+  const locked = isDeliveryOnly(member);
+  const box = (on: boolean) => `flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13.5px] ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${on ? "border-high/40 bg-high-bg" : `border-line ${locked ? "" : "hover:border-line-strong"}`}`;
   return (
     <div className="mt-2">
       <div className="mb-1 text-[12px] font-bold uppercase tracking-wide text-muted">Mark for resale — moves to Training not required</div>
       <div className="grid gap-2 sm:grid-cols-2">
         <label className={box(Boolean(resale))}>
-          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--high)]" checked={Boolean(resale)} onChange={toggleInvoice} />
+          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--high)]" checked={Boolean(resale)} onChange={toggleInvoice} disabled={locked} />
           <span>
             <b className={resale ? "text-high" : "text-ink"}>This invoice is for resale</b>
             <span className="block text-[12.5px] text-muted">Only this invoice</span>
           </span>
         </label>
         <label className={box(Boolean(reseller))}>
-          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--high)]" checked={Boolean(reseller)} onChange={toggleCustomer} />
+          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--high)]" checked={Boolean(reseller)} onChange={toggleCustomer} disabled={locked} />
           <span>
             <b className={reseller ? "text-high" : "text-ink"}>Customer is a Reseller</b>
             <span className="block text-[12.5px] text-muted">All {theirs.length} AED invoice{theirs.length === 1 ? "" : "s"}, now and later</span>
