@@ -161,7 +161,7 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
   A merge made while part paid waits (*Not applied yet*) and applies by itself once fully paid.
 - **Merge view**: one panel per phase; quotations newest first with a **NEW** tag; a quotation and PI only ever show as a
   referenced pair (the PI panel hides when no PI cites the selected quote; clicking either chip switches its partner).
-- **Training**: unflagged quote/PI can be scheduled; once dated: **Change date** (a correction, earlier or later — event `mode: "change"`, label unchanged, log "Training date changed from … to …") / **Postpone** / **To be decided** / **Training completed** (both boards); merged PI pops *Ready for training*. **Several days** per training
+- **Training**: unflagged quote/PI can be scheduled — with dates, trainers and the **Name** it is under (*Same as original*, an alias, or *+ Add alias…*, which also adds the alias to the card; event `underName`; shown as *Under name: …* below No. of People only for an alias); once dated: **Change date** (a correction, earlier or later — event `mode: "change"`, label unchanged, log "Training date changed from … to …") / **Postpone** / **To be decided** / **Training completed** (both boards); merged PI pops *Ready for training*. **Several days** per training
   (`DaysPicker.tsx`: click days one by one, drag or Shift-click for a range; shown as "3–6 Oct, 12 Oct 2026").
   Needs ≥1 **trainer** (Shikha Dixit, Ashish Dalal, Sumit A Shah, or **External trainer** — any typed name; names used
   before on any card come back as suggestions, derived from the change log). A trainer can't be on two trainings on one day. Scheduled / Postponed / To be decided; green border,
@@ -306,6 +306,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 86 | Colours: due blue, overdue red, part paid yellow, paid green | `DueTone` "part" → yellow border + chip. |
 | 87 | "Change date" option next to Postpone / To be decided / Training completed (training can happen earlier) — "make it for both dashboards" | Both boards; a changed date keeps its Scheduled/Postponed label. |
 | 88 | Fulfillment board for **Shreya**: continues from Payment received (excluding part paid) → Payments Done → Certificates Generated → Certificates Sent → Gratitude Email sent, moved by hand; Admin, Sumit, Shikha can open it; push | Built; tested on real data (42 cards) with saves blocked; pushed. |
+| 89 | Scheduling a merged PI: choose the name — same as original or an alias (add alias); show *Under name:* under No. of People when an alias | Name picker in the Ready-for-training popup and the schedule row; new alias saved to the card; tested with saves blocked; pushed. |
 
 ---
 

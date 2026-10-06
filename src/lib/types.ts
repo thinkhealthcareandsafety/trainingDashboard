@@ -266,6 +266,7 @@ export interface CardEvent {
   phase?: Phase; // where an email/phone was added
   trainers?: string[]; // set_training_date: who gives the training on those dates (our trainers, then external names as typed)
   mode?: "change"; // set_training_date: "Change date" — the date was corrected (earlier or later), not postponed
+  underName?: string; // set_training_date: the training is under this alias (none = the customer's own name)
   at: string;
   by: string;
   revertedAt?: string;

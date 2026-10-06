@@ -33,6 +33,7 @@ export interface TrainingSchedule {
   date?: string; // first training day, YYYY-MM-DD; none when TBD
   dates: string[]; // every training day, in order — one, a range, or scattered days; none when TBD
   trainers: string[]; // who gives it (none when TBD)
+  underName?: string; // the alias the training is under, when it isn't the customer's own name
   at: string;
   by: string;
   completed?: { at: string; by: string }; // "Training completed" pressed
@@ -123,12 +124,12 @@ function scheduleOf(events: CardEvent[]): TrainingSchedule | undefined {
     }
     if (e.kind !== "set_training_date" || !e.value) continue;
     if (e.value === "TBD") s = { status: "tbd", dates: [], trainers: [], at: e.at, by: e.by };
-    else if (s?.dates.length && s.dates.join(",") === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, at: e.at, by: e.by }; // same dates: trainers changed
+    else if (s?.dates.length && s.dates.join(",") === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, underName: e.underName, at: e.at, by: e.by }; // same dates: trainers / name changed
     else {
       const dates = trainingDays(e.value);
       // A new date replacing one is a postponement — unless it was "Change date" (a correction: the label stays).
       const status = !s || s.status === "tbd" ? "scheduled" : e.mode === "change" ? s.status : "postponed";
-      s = { status, date: dates[0], dates, trainers: e.trainers ?? [], at: e.at, by: e.by };
+      s = { status, date: dates[0], dates, trainers: e.trainers ?? [], underName: e.underName, at: e.at, by: e.by };
     }
   }
   return s;
@@ -722,8 +723,8 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     }
     case "set_training_date": {
       const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDays(x));
-      const who = e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "";
-      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)} changed to ${e.trainers?.join(", ") || "none"}`;
+      const who = (e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "") + (e.underName ? ` · Under name: ${e.underName}` : "");
+      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : " · under the customer's own name"}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
       if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)${who}`;
       if (e.before && e.mode === "change") return `Training date changed from ${show(e.before)} to ${show(v)}${who}`;

@@ -298,7 +298,51 @@ const ALLOW_PAST_TRAINING_DATES = true;
 export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
 export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
-type ScheduleFn = (value: string, trainers?: string[], mode?: "change") => void;
+type ScheduleFn = (value: string, trainers?: string[], mode?: "change", underName?: string) => void;
+
+/**
+ * Name the training is under: the customer's own name, one of their aliases, or a new alias (added to the card's
+ * aliases when the training is saved). One row, so the modal doesn't grow.
+ */
+function UnderNamePicker({ card, value, onChange }: { card: CardView; value?: string; onChange: (v?: string) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState("");
+  const NEW = "\u0000new";
+  const known = card.aliases.includes(value ?? "") || !value;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <span className="mr-0.5 text-[12px] font-bold uppercase tracking-wide text-brand">Name</span>
+      {adding ? (
+        <>
+          <input
+            className={`${inputCls} !h-8 !w-44 text-[13px]`}
+            placeholder="New alias"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) { e.preventDefault(); onChange(text.trim().replace(/\s+/g, " ")); setAdding(false); } }}
+            aria-label="New alias"
+            autoFocus
+          />
+          <button type="button" className={`${btn.ghost} !h-8 !px-3`} disabled={!text.trim()} onClick={() => { onChange(text.trim().replace(/\s+/g, " ")); setAdding(false); }}>Use alias</button>
+          <button type="button" className={`${btn.quiet} !h-8`} onClick={() => setAdding(false)}>Cancel</button>
+        </>
+      ) : (
+        <select
+          className={`${selectCls} !h-8 w-auto max-w-[240px] truncate`}
+          value={value ?? ""}
+          onChange={(e) => (e.target.value === NEW ? (setText(""), setAdding(true)) : onChange(e.target.value || undefined))}
+          aria-label="Name on training"
+          title={value ? `Under alias: ${value}` : `Same name as original: ${card.name}`}
+        >
+          <option value="">Same as original</option>
+          {card.aliases.map((a) => <option key={a} value={a}>Alias: {a}</option>)}
+          {!known && <option value={value}>Alias: {value} (new)</option>}
+          <option value={NEW}>+ Add alias…</option>
+        </select>
+      )}
+    </span>
+  );
+}
 type BusyFn = (dates: string[]) => Map<string, CardView>;
 
 const chipCls = (on: boolean, off?: boolean) =>
@@ -308,7 +352,7 @@ const chipCls = (on: boolean, off?: boolean) =>
  * Trainer checkboxes; anyone already running another training on one of the days is greyed out.
  * "External trainer" takes any name; names typed before (on any card) come back as suggestions.
  */
-function TrainerPicker({ selected, onChange, busy, days }: { selected: string[]; onChange: (t: string[]) => void; busy: Map<string, CardView>; days: number }) {
+function TrainerPicker({ selected, onChange, busy, days, after }: { selected: string[]; onChange: (t: string[]) => void; busy: Map<string, CardView>; days: number; after?: React.ReactNode }) {
   const { cardEvents } = useStore();
   const externals = selected.filter((t) => !TRAINERS.includes(t));
   const [external, setExternal] = useState(externals.length > 0);
@@ -389,6 +433,8 @@ function TrainerPicker({ selected, onChange, busy, days }: { selected: string[];
             </button>
           ))}
         </>}
+        {/* e.g. the name the training is under — in the same wrapping row, so it rarely needs a row of its own. */}
+        {after && <span className="ml-1">{after}</span>}
       </div>
       {taken.length > 0 && (() => {
         const text = `${taken.map((t) => `${t} is already training ${busy.get(t)!.name}`).join("; ")} on ${days > 1 ? "one of these dates" : "this date"}.`;
@@ -399,37 +445,42 @@ function TrainerPicker({ selected, onChange, busy, days }: { selected: string[];
 }
 
 /** Training date next to "No. of People", with postpone (calendar), trainers and to-be-decided. */
-function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card: CardView; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn; compact?: boolean }) {
+function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditing }: { card: CardView; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn; compact?: boolean; onEditing?: (on: boolean) => void }) {
   const [picking, setPicking] = useState(false);
   const [days, setDays] = useState<string[]>([]);
   const [trainers, setTrainers] = useState<string[]>([]);
+  const [underName, setUnderName] = useState<string | undefined>(undefined);
   const s = card.schedule;
   // With a date set, a new one is a postponement or a correction ("Change date"); from nothing or TBD it's scheduling.
   const postponing = Boolean(s && s.status !== "tbd");
   const big = compact ? "text-[16px]" : "text-[20px]";
   const busy = busyOn?.(days) ?? new Map<string, CardView>();
   const chosen = trainers.filter((t) => !busy.has(t));
-  // Same days as now: only the trainers change.
+  // Same days as now: only the trainers or the name change.
   const sameDate = postponing && daysValue(days) === s!.dates.join(",");
-  const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t));
+  const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t)) && underName === s!.underName;
   const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && !unchanged;
   // "Change date" corrects the date (earlier or later) and keeps the label; "Postpone" marks it postponed.
   const [changing, setChanging] = useState(false);
   const open = (change = false) => {
     setDays(postponing ? s!.dates : []);
     setTrainers(s?.trainers ?? []);
+    setUnderName(s?.underName);
     setChanging(change);
     setPicking(true);
+    onEditing?.(true);
   };
   const close = () => {
     setPicking(false);
+    onEditing?.(false);
     setChanging(false);
     setDays([]);
     setTrainers([]);
+    setUnderName(undefined);
   };
   const save = () => {
     if (!valid) return;
-    onSchedule?.(daysValue(days), orderTrainers(chosen), changing && !sameDate ? "change" : undefined);
+    onSchedule?.(daysValue(days), orderTrainers(chosen), changing && !sameDate ? "change" : undefined, underName);
     close();
   };
   // Two grid cells: the date sits next to "No. of People"; the buttons get their own full-width row.
@@ -467,10 +518,10 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
             <div className="w-full space-y-2">
               <div className="flex items-center gap-2">
                 <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={postponing ? "New training dates" : "Training dates"} autoOpen={!postponing} />
-                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid}>{sameDate ? "Save trainers" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
+                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={`${btn.quiet} shrink-0`} onClick={close}>Cancel</button>
               </div>
-              <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
+              <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} after={<UnderNamePicker card={card} value={underName} onChange={setUnderName} />} />
             </div>
           ) : (
             <>
@@ -503,6 +554,8 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
 export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn }: { card: CardView; compact?: boolean; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn }) {
   const quoted = card.kind === "pi" ? card.linkedQuote : undefined;
   const showSchedule = card.kind !== "lead" && Boolean(card.schedule || onSchedule);
+  // While the date is being edited, its Name picker shows the name — the "Under name" line steps aside (no scrolling).
+  const [editing, setEditing] = useState(false);
   return (
     <Section title="Training">
       {card.training.length === 0 ? (
@@ -538,8 +591,12 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn 
                       {t.qty}
                       {expected !== undefined && expected !== t.qty && <span className="ml-2 text-[13px] font-medium text-muted">({expected} expected at quotation)</span>}
                     </div>
+                    {/* Only when the training is under an alias; nothing when it's the customer's own name. */}
+                    {i === 0 && !editing && card.schedule?.underName && (
+                      <p className="mt-0.5 text-[12.5px] leading-snug text-ink-2"><span className="font-semibold">Under name:</span> {card.schedule.underName}</p>
+                    )}
                   </div>
-                  {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} busyOn={busyOn} compact={compact} />}
+                  {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} busyOn={busyOn} compact={compact} onEditing={setEditing} />}
                 </div>
               </div>
             );
@@ -554,6 +611,7 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn 
 function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView; onSchedule: ScheduleFn; onLater: () => void; busyOn: BusyFn }) {
   const [days, setDays] = useState<string[]>([]);
   const [trainers, setTrainers] = useState<string[]>([]);
+  const [underName, setUnderName] = useState<string | undefined>(undefined);
   const busy = busyOn(days);
   const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
   return (
@@ -571,9 +629,12 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
         <div className="mt-3">
           <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
         </div>
+        <div className="mt-3">
+          <UnderNamePicker card={card} value={underName} onChange={setUnderName} />
+        </div>
         <div className="mt-5 flex justify-end gap-2">
           <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length} onClick={() => onSchedule(daysValue(days), chosen)}>Schedule training</button>
+          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length} onClick={() => onSchedule(daysValue(days), chosen, undefined, underName)}>Schedule training</button>
         </div>
       </div>
     </div>
@@ -1025,10 +1086,16 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const [prompt, setPrompt] = useState(card.readyToSchedule);
   useEffect(() => { setDraft(null); setError(""); setConfirmDelete(false); setPrompt(card.readyToSchedule); }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const schedule = (value: string, trainers?: string[], mode?: "change") => {
+  const schedule = (value: string, trainers?: string[], mode?: "change", underName?: string) => {
     const s = card.schedule;
     const before = s ? (s.status === "tbd" ? "TBD" : s.dates.join(",")) : undefined;
-    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers } : {}), ...(mode ? { mode } : {}) }]);
+    // A new alias typed for the training also becomes one of the card's aliases.
+    const newAlias = underName && underName !== card.name && !card.aliases.includes(underName);
+    const evs = addCardEvents([
+      ...(newAlias ? [{ cardIds: [card.id], kind: "add_alias" as const, value: underName, by: member.name }] : []),
+      { cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers, ...(underName ? { underName } : {}) } : {}), ...(mode ? { mode } : {}) },
+    ]);
+    const ev = evs[evs.length - 1];
     if (!s) {
       const skip = card.kind === "quote" ? " — create its PI before completing" : "";
       toast({ text: `${card.name} moved to Training scheduled${skip}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
