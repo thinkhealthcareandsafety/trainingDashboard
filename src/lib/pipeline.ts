@@ -124,7 +124,9 @@ function scheduleOf(events: CardEvent[]): TrainingSchedule | undefined {
     else if (s?.dates.length && s.dates.join(",") === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, at: e.at, by: e.by }; // same dates: trainers changed
     else {
       const dates = trainingDays(e.value);
-      s = { status: s && s.status !== "tbd" ? "postponed" : "scheduled", date: dates[0], dates, trainers: e.trainers ?? [], at: e.at, by: e.by };
+      // A new date replacing one is a postponement — unless it was "Change date" (a correction: the label stays).
+      const status = !s || s.status === "tbd" ? "scheduled" : e.mode === "change" ? s.status : "postponed";
+      s = { status, date: dates[0], dates, trainers: e.trainers ?? [], at: e.at, by: e.by };
     }
   }
   return s;
@@ -135,8 +137,8 @@ export function completionNotApplied(e: CardEvent): boolean {
   return e.kind === "complete_training" && !e.revertedAt && e.cardIds[0]?.startsWith("quote:");
 }
 
-/** Invoice payment status, as Zoho Books shows it: red overdue, blue due, green paid. */
-export type DueTone = "overdue" | "due" | "paid";
+/** Invoice payment status: blue due, red overdue, yellow part paid (due or overdue), green paid. */
+export type DueTone = "overdue" | "due" | "part" | "paid";
 export interface DueStatus { tone: DueTone; label: string; partlyPaid?: boolean }
 export function dueStatus(inv?: ZohoInvoice, today = new Date().toLocaleDateString("en-CA")): DueStatus | undefined {
   if (!inv) return undefined;
@@ -146,8 +148,8 @@ export function dueStatus(inv?: ZohoInvoice, today = new Date().toLocaleDateStri
   // Zoho calls a part-paid invoice "overdue" once it's past due, so look at the amounts too.
   const partlyPaid = inv.status === "partially_paid" || (inv.balance !== undefined && inv.total !== undefined && inv.balance > 0 && inv.balance < inv.total);
   const n = (d: number) => `${d} day${d === 1 ? "" : "s"}`;
-  if (days < 0) return { tone: "overdue", label: `Overdue by ${n(-days)}`, partlyPaid };
-  return { tone: "due", label: days === 0 ? "Due today" : `Due in ${n(days)}`, partlyPaid };
+  if (days < 0) return { tone: partlyPaid ? "part" : "overdue", label: `Overdue by ${n(-days)}`, partlyPaid };
+  return { tone: partlyPaid ? "part" : "due", label: days === 0 ? "Due today" : `Due in ${n(days)}`, partlyPaid };
 }
 
 /**
@@ -722,6 +724,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
       if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)} changed to ${e.trainers?.join(", ") || "none"}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
       if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)${who}`;
+      if (e.before && e.mode === "change") return `Training date changed from ${show(e.before)} to ${show(v)}${who}`;
       if (e.before) return `Training postponed from ${show(e.before)} to ${show(v)}${who}`;
       const skip = kindOfId(e.cardIds[0]) === "quote" ? " — moved directly from Quotation to Training scheduled; its PI is still needed before the training can be completed" : "";
       return `Training scheduled for ${show(v)}${skip}${who}`;

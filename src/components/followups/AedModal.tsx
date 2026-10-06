@@ -24,26 +24,29 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
   const [picking, setPicking] = useState(false);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
+  // "Change date" corrects the date/time (earlier or later) and keeps the label; "Postpone" marks it postponed.
+  const [changing, setChanging] = useState(false);
   useEffect(() => setPicking(false), [card.id]);
-  // Changing an existing date is postponing; from nothing or TBD it's scheduling.
+  // With a date set, a new one is a postponement or a correction ("Change date"); from nothing or TBD it's scheduling.
   const postponing = Boolean(s && s.status !== "tbd");
   const value = date && time ? `${date}T${time}` : "";
   const valid = dateAllowed(date) && Boolean(time) && value !== s?.date;
 
-  const record = (kind: "set_training_date" | "complete_training" | "set_not_required", value?: string) => {
+  const record = (kind: "set_training_date" | "complete_training" | "set_not_required", value?: string, mode?: "change") => {
     const before = kind === "set_training_date" && s ? (s.status === "tbd" ? "TBD" : s.date) : undefined;
-    return addCardEvents([{ cardIds: [card.id], kind, value, before, by: member.name }])[0];
+    return addCardEvents([{ cardIds: [card.id], kind, value, before, by: member.name, ...(mode ? { mode } : {}) }])[0];
   };
   const undoToast = (text: string, id: string) => toast({ text, actionLabel: "Undo", onAction: () => revertCardEvent(id, member.name) });
-  const open = () => {
+  const open = (change = false) => {
     const [d, t] = (postponing ? s!.date ?? "" : "").split("T");
     setDate(d ?? "");
     setTime(t ?? "");
+    setChanging(change);
     setPicking(true);
   };
   const schedule = () => {
     if (!valid) return;
-    const ev = record("set_training_date", value);
+    const ev = record("set_training_date", value, changing ? "change" : undefined);
     if (!s) undoToast(`${card.name} moved to Training scheduled`, ev.id);
     setPicking(false);
   };
@@ -106,12 +109,12 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
               <>
                 <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={minTrainingDate()} onChange={(e) => setDate(e.target.value)} aria-label="Training date" autoFocus />
                 <input type="time" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={time} onChange={(e) => setTime(e.target.value)} aria-label="Training time" />
-                <button className={btn.primary} onClick={schedule} disabled={!valid}>{postponing ? "Postpone" : "Schedule"}</button>
+                <button className={btn.primary} onClick={schedule} disabled={!valid}>{changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={btn.quiet} onClick={() => setPicking(false)}>Cancel</button>
               </>
             ) : !s ? (
               <>
-                <button className={btn.primary} onClick={open}>Schedule training</button>
+                <button className={btn.primary} onClick={() => open()}>Schedule training</button>
                 <button
                   className="press inline-flex h-9 items-center justify-center rounded-full border border-high/40 bg-surface px-4 text-[13px] font-semibold text-high hover:bg-high-bg"
                   onClick={() => undoToast(`${card.name} moved to Training not required`, record("set_not_required").id)}
@@ -121,7 +124,8 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
               </>
             ) : (
               <>
-                <button className={postponing ? btn.ghost : btn.primary} onClick={open}>{postponing ? "Postpone" : "Schedule training"}</button>
+                {postponing && <button className={btn.ghost} onClick={() => open(true)} title="Correct the date or time — earlier or later — without marking it postponed">Change date</button>}
+                <button className={postponing ? btn.ghost : btn.primary} onClick={() => open()}>{postponing ? "Postpone" : "Schedule training"}</button>
                 {s.status !== "tbd" && <button className={btn.ghost} onClick={() => record("set_training_date", "TBD")}>To be decided</button>}
                 {s.date && (
                   <button

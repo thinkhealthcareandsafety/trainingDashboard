@@ -187,10 +187,11 @@ function PotentialSection({ card, onChange }: { card: CardView; onChange?: (mont
   );
 }
 
-/** Invoice payment status, coloured like Zoho Books: red overdue, blue due, green paid. The card border matches. */
+/** Invoice payment status: blue due, red overdue, yellow part paid, green paid. The card border matches. */
 export const DUE_TONE: Record<DueTone, { border: string; chip: string }> = {
   overdue: { border: "border-high", chip: "bg-high-bg text-high" },
   due: { border: "border-info", chip: "bg-info-bg text-info" },
+  part: { border: "border-medium", chip: "bg-medium-bg text-medium" },
   paid: { border: "border-low", chip: "bg-low text-white" },
 };
 export function DueChip({ due, big }: { due: DueStatus; big?: boolean }) {
@@ -297,7 +298,7 @@ const ALLOW_PAST_TRAINING_DATES = true;
 export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
 export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
-type ScheduleFn = (value: string, trainers?: string[]) => void;
+type ScheduleFn = (value: string, trainers?: string[], mode?: "change") => void;
 type BusyFn = (dates: string[]) => Map<string, CardView>;
 
 const chipCls = (on: boolean, off?: boolean) =>
@@ -403,7 +404,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
   const [days, setDays] = useState<string[]>([]);
   const [trainers, setTrainers] = useState<string[]>([]);
   const s = card.schedule;
-  // Changing an existing date is postponing; from nothing or TBD it's scheduling.
+  // With a date set, a new one is a postponement or a correction ("Change date"); from nothing or TBD it's scheduling.
   const postponing = Boolean(s && s.status !== "tbd");
   const big = compact ? "text-[16px]" : "text-[20px]";
   const busy = busyOn?.(days) ?? new Map<string, CardView>();
@@ -412,19 +413,23 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
   const sameDate = postponing && daysValue(days) === s!.dates.join(",");
   const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t));
   const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && !unchanged;
-  const open = () => {
+  // "Change date" corrects the date (earlier or later) and keeps the label; "Postpone" marks it postponed.
+  const [changing, setChanging] = useState(false);
+  const open = (change = false) => {
     setDays(postponing ? s!.dates : []);
     setTrainers(s?.trainers ?? []);
+    setChanging(change);
     setPicking(true);
   };
   const close = () => {
     setPicking(false);
+    setChanging(false);
     setDays([]);
     setTrainers([]);
   };
   const save = () => {
     if (!valid) return;
-    onSchedule?.(daysValue(days), orderTrainers(chosen));
+    onSchedule?.(daysValue(days), orderTrainers(chosen), changing && !sameDate ? "change" : undefined);
     close();
   };
   // Two grid cells: the date sits next to "No. of People"; the buttons get their own full-width row.
@@ -462,14 +467,15 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card
             <div className="w-full space-y-2">
               <div className="flex items-center gap-2">
                 <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={postponing ? "New training dates" : "Training dates"} autoOpen={!postponing} />
-                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid}>{sameDate ? "Save trainers" : postponing ? "Postpone" : "Schedule"}</button>
+                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid}>{sameDate ? "Save trainers" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={`${btn.quiet} shrink-0`} onClick={close}>Cancel</button>
               </div>
               <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
             </div>
           ) : (
             <>
-              <button className={postponing ? btn.ghost : btn.primary} onClick={open}>{postponing ? "Postpone" : "Schedule training"}</button>
+              {postponing && <button className={btn.ghost} onClick={() => open(true)} title="Correct the date — earlier or later — without marking it postponed">Change date</button>}
+              <button className={postponing ? btn.ghost : btn.primary} onClick={() => open()}>{postponing ? "Postpone" : "Schedule training"}</button>
               {s?.status !== "tbd" && <button className={btn.ghost} onClick={() => onSchedule("TBD")}>To be decided</button>}
               {s?.date && onComplete && (card.kind === "quote" ? (
                 <button disabled title="Create the PI first" className="inline-flex h-9 cursor-not-allowed items-center justify-center gap-1.5 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-muted">
@@ -1019,10 +1025,10 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const [prompt, setPrompt] = useState(card.readyToSchedule);
   useEffect(() => { setDraft(null); setError(""); setConfirmDelete(false); setPrompt(card.readyToSchedule); }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const schedule = (value: string, trainers?: string[]) => {
+  const schedule = (value: string, trainers?: string[], mode?: "change") => {
     const s = card.schedule;
     const before = s ? (s.status === "tbd" ? "TBD" : s.dates.join(",")) : undefined;
-    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers } : {}) }]);
+    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers } : {}), ...(mode ? { mode } : {}) }]);
     if (!s) {
       const skip = card.kind === "quote" ? " — create its PI before completing" : "";
       toast({ text: `${card.name} moved to Training scheduled${skip}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
