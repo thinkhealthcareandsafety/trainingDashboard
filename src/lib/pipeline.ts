@@ -275,6 +275,69 @@ function apply(d: Draft, events: CardEvent[]) {
   }
 }
 
+/**
+ * Every card id we know → its Zoho customer (contact id): leads, documents, payments, Potential training cards, and
+ * the AedSmartx board's invoices. Used to give aliases to the whole customer.
+ */
+export function cardCustomers(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], aedInvoices: AedInvoice[], events: CardEvent[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const l of leads) m.set(leadCardId(l.contactId), l.contactId);
+  for (const q of quotes) m.set(quoteCardId(q.estimateId), q.customerId);
+  for (const p of pis) m.set(piCardId(p.salesorderId), p.customerId);
+  for (const i of invoices) m.set(invoiceCardId(i.invoiceId), i.customerId);
+  for (const p of payments) m.set(paymentCardId(p.paymentId), p.customerId);
+  for (const i of aedInvoices) m.set(aedCardId(i.invoiceId), i.customerId);
+  for (const e of events) if (e.kind === "add_potential" && e.ref) m.set(e.cardIds[0], e.ref);
+  return m;
+}
+
+/** A customer name for matching: "CHALET HOTELS LIMITED" = "Chalet Hotels Limited" = "Chalet  Hotels Limited." */
+const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Every Zoho customer (contact id) → the name it goes by, for matching: Zoho often has the same client under several
+ * records (e.g. two "Chalet Hotels Limited"), so aliases go to every record with the same name.
+ */
+export function customerNameKeys(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], aedInvoices: AedInvoice[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const d of [...payments, ...aedInvoices, ...invoices, ...pis, ...quotes]) m.set(d.customerId, nameKey(d.customerName));
+  for (const l of leads) m.set(l.contactId, nameKey(l.name)); // the customer's own record wins
+  return m;
+}
+
+/**
+ * Aliases belong to the customer's name, not to one card: one added (or removed) on any card — on any board — shows on
+ * every card of every Zoho customer with that same name. Replayed in order; new alias events carry the customer in
+ * `ref`, older ones are matched through the card they were added on. Returns contact id → aliases.
+ */
+export function customerAliases(events: CardEvent[], customerOf: Map<string, string>, nameOf: Map<string, string>): Map<string, string[]> {
+  const byName = new Map<string, string[]>();
+  const keyOf = (customer: string) => nameOf.get(customer) || `id:${customer}`;
+  const evs = events.filter((e) => !e.revertedAt && (e.kind === "add_alias" || e.kind === "remove_alias") && e.value)
+    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  for (const e of evs) {
+    const customer = e.ref ?? e.cardIds.map((id) => customerOf.get(id)).find(Boolean);
+    if (!customer) continue;
+    const key = keyOf(customer);
+    const list = byName.get(key) ?? [];
+    byName.set(key, e.kind === "add_alias" ? (list.includes(e.value!) ? list : [...list, e.value!]) : list.filter((a) => a !== e.value));
+  }
+  const out = new Map<string, string[]>();
+  for (const [customer, key] of nameOf) { const a = byName.get(key); if (a) out.set(customer, a); }
+  for (const [key, a] of byName) if (key.startsWith("id:")) out.set(key.slice(3), a);
+  return out;
+}
+
+/** Give each card its customer's aliases (and make them searchable). */
+function applyCustomerAliases(cards: Map<string, CardView>, aliases: Map<string, string[]>) {
+  for (const c of cards.values()) {
+    const a = aliases.get(c.customerId);
+    if (!a) continue;
+    c.aliases = a;
+    if (a.length) c.search = `${c.search} ${a.join(" ").toLowerCase()}`;
+  }
+}
+
 /** The merged-in card carries the client's identity (name as in Leads), aliases and contacts forward. */
 function absorb(into: Draft, from: Draft) {
   into.name = from.name;
@@ -348,7 +411,8 @@ export function mergeNotApplied(e: CardEvent, cards: Map<string, CardView>): str
   return "Not applied — the invoice wasn't merged with its completed training first. Merge step by step, then merge it with the payment again.";
 }
 
-export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[]) {
+/** `aliases`: the customers' aliases (customerAliases) — pass them in to include ones added on the AedSmartx board. */
+export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[], aliases?: Map<string, string[]>) {
   const active = events.filter((e) => !e.revertedAt).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
   const byCard = new Map<string, CardEvent[]>();
   const deletedDocs = new Set<string>();
@@ -608,6 +672,8 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
       : c.kind === "payment" && c.mergedFrom.some((id) => cards.get(id)?.piSkipped);
   }
 
+  applyCustomerAliases(cards, aliases ?? customerAliases(events, cardCustomers(leads, quotes, pis, invoices, payments, [], events), customerNameKeys(leads, quotes, pis, invoices, payments, [])));
+
   const live = [...cards.values()].filter((c) => !c.mergedInto);
   const inTraining = (c: CardView) => (c.kind === "quote" || c.kind === "pi") && Boolean(c.schedule) && !c.lost;
   const column = (k: CardKind) => live.filter((c) => c.kind === k && !inTraining(c) && !c.lost);
@@ -713,8 +779,8 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_name": return `Renamed “${e.before ?? ""}” → “${v}”`;
     case "set_type": return `Type: ${e.before || "—"} → ${v || "—"}`;
     case "set_sector": return `Sector: ${e.before || "—"} → ${v || "—"}`;
-    case "add_alias": return `Added alias “${v}”`;
-    case "remove_alias": return `Removed alias “${v}”`;
+    case "add_alias": return `Added alias “${v}” — on every card under this customer name`;
+    case "remove_alias": return `Removed alias “${v}” — from every card under this customer name`;
     case "add_email": return `Added email ${v} (from ${e.phase ?? "Lead"})`;
     case "remove_email": return `Removed email ${v}`;
     case "add_phone": return `Added contact number ${v} (from ${e.phase ?? "Lead"})`;
@@ -813,7 +879,7 @@ export function fmtDays(v: string): string {
  * invoice cards). Contact number = the invoice's ship-to phone; if that's blank, the customer's usual numbers.
  * Same event model as the training board, so edits, dates, completion and "not required" are logged and revertable.
  */
-export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events: CardEvent[]) {
+export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events: CardEvent[], aliases?: Map<string, string[]>) {
   const ids = new Set(invoices.map((i) => aedCardId(i.invoiceId)));
   // Resellers apply to every invoice of the customer, including ones that arrive later.
   const resellers = new Set(events.filter((e) => !e.revertedAt && e.kind === "set_reseller" && e.ref).map((e) => e.ref!));
@@ -855,6 +921,7 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
       inv.number, inv.reference, ...inv.items.map((i) => i.name), ...lines.flatMap((l) => l.serials)].filter(Boolean).join(" ").toLowerCase();
     cards.set(id, card);
   }
+  applyCustomerAliases(cards, aliases ?? customerAliases(events, cardCustomers(leads, [], [], [], [], invoices, events), customerNameKeys(leads, [], [], [], [], invoices)));
 
   const all = [...cards.values()];
   return {

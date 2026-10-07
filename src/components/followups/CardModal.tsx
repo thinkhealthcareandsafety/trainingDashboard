@@ -1058,8 +1058,9 @@ export function diff(card: CardView, d: Draft, by: string): Omit<CardEvent, "id"
   const out: Omit<CardEvent, "id" | "at">[] = [];
   const ev = (kind: CardEventKind, extra: Partial<CardEvent>) => out.push({ ...base, kind, ...extra });
   if (d.name.trim() !== card.name) ev("set_name", { value: d.name.trim(), before: card.name });
-  for (const a of card.aliases) if (!d.aliases.includes(a)) ev("remove_alias", { value: a });
-  for (const a of d.aliases) if (!card.aliases.includes(a)) ev("add_alias", { value: a });
+  // Aliases belong to the customer (every card of theirs shows them), so the event names the customer too.
+  for (const a of card.aliases) if (!d.aliases.includes(a)) ev("remove_alias", { value: a, ref: card.customerId });
+  for (const a of d.aliases) if (!card.aliases.includes(a)) ev("add_alias", { value: a, ref: card.customerId });
   const keep = (list: EntryDraft[], key: (v: string) => string) => new Set(list.filter((e) => !e.isNew).map((e) => key(e.value)));
   const keptEmails = keep(d.emails, normEmail);
   const keptPhones = keep(d.phones, normPhone);
@@ -1095,7 +1096,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
     // A new alias typed for the training also becomes one of the card's aliases.
     const newAlias = underName && underName !== card.name && !card.aliases.includes(underName);
     const evs = addCardEvents([
-      ...(newAlias ? [{ cardIds: [card.id], kind: "add_alias" as const, value: underName, by: member.name }] : []),
+      ...(newAlias ? [{ cardIds: [card.id], kind: "add_alias" as const, value: underName, ref: card.customerId, by: member.name }] : []),
       { cardIds: [card.id], kind: "set_training_date", value, before, by: member.name, ...(value !== "TBD" ? { trainers, ...(underName ? { underName } : {}) } : {}), ...(mode ? { mode } : {}) },
     ]);
     const ev = evs[evs.length - 1];

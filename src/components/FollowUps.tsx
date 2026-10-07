@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
-import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
 import { type BoardKind, boardsFor } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
@@ -697,8 +697,13 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(stages.length);
   const { pageRef, colH } = useFitHeight();
 
-  const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents), [data, cardEvents]);
-  const aedBoard = useMemo(() => (aedMode || logiMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents) : null), [aedMode, logiMode, data, aed.data, cardEvents]);
+  // Aliases go by the customer's name: one added on any card, on any board, shows on every card under that name.
+  const aliases = useMemo(() => {
+    const [leads, quotes, pis, invoices, payments, aedInv] = [data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], aed.data?.invoices ?? []];
+    return customerAliases(cardEvents, cardCustomers(leads, quotes, pis, invoices, payments, aedInv, cardEvents), customerNameKeys(leads, quotes, pis, invoices, payments, aedInv));
+  }, [data, aed.data, cardEvents]);
+  const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents, aliases), [data, cardEvents, aliases]);
+  const aedBoard = useMemo(() => (aedMode || logiMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents, aliases) : null), [aedMode, logiMode, data, aed.data, cardEvents, aliases]);
   const fulBoard = useMemo(() => (fulfilMode || logiMode ? buildFulfillmentBoard(board, cardEvents) : null), [fulfilMode, logiMode, board, cardEvents]);
   const logiBoard = useMemo(() => (logiMode && fulBoard && aedBoard ? buildLogisticsBoard(board, fulBoard, aedBoard, cardEvents) : null), [logiMode, board, fulBoard, aedBoard, cardEvents]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };

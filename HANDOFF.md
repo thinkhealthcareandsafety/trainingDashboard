@@ -167,6 +167,10 @@ and keeps `add_potential` events. Instalment folding (an invoice's other payment
 - Leads = every active Zoho customer (not vendors). Documents from the start of the **previous** fiscal year (now 1 Apr 2025).
   Tracked training items: `Fire Safety Evacuation Training and Drill`, `THCAS BLS Training 2025 (I)`, `THCAS CPR Training 2026 (I)`,
   `THCAS First Aid Training (I)`. Sales orders are this org's **Performa Invoices** (`Performa-25-…`).
+- **Aliases go by the customer name** (session 4): an alias added or removed on any card — any board — shows on every card of
+  every Zoho customer with the **same name** (case, spaces, punctuation ignored; Zoho has duplicates, e.g. two "Chalet Hotels
+  Limited" records). "Chalet Hotel Limited" (singular) or "… Pune" are different names and don't get it. `customerAliases`,
+  `cardCustomers`, `customerNameKeys` in pipeline.ts; new alias events carry `ref` = contact id. Search finds them all by alias.
 - **One modal for every phase**: customer name (mandatory) + aliases, emails, contact numbers (mandatory; tagged by phase), type
   (`cf_type`), sector (`cf_sector`), created in Zoho, phase-aware sales person, locked IDs & dates with Zoho links, training block,
   Notes, Merged, Payment line (invoice/payment cards), and the **Changes** panel with Revert on every entry. Edit and Delete.
@@ -405,6 +409,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 115 | New **Logistics** board for Arti (6 phases, merge STL ↔ fully paid payment by PI, Ready for Packaging → Packages → Shipments → Received by Client, confetti on reached, undo cascades forward). Restated with 5 questions; answers: Arti marks AED deliveries only on Logistics; permissions later; column "AED Delivered Status", blue + "Moved by Priyanka" when moved on, hideable; "Waiting for Certificates" cards shown; Reached → green + simple confetti | Built (§4 Logistics board); full flow, cascade, hide/unhide and role views tested on a throwaway copy of live data (dropped). `3b19816`. |
 | 116 | Card wording before the merge: STL "Please Merge to Payment" (green) / "Awaiting Payment" (yellow); payment "Certificates Received, Merge Required" (green) / "Waiting for Certificates" (yellow); push | `b65032e`. |
 | 117 | **Permissions list** (Priyanka AED minus delivered; Arti Logistics; Shreya Fulfillment; Ashish/Shikha/Sumit all; Admin all + sole clear-logs); "any revert reverts everything after it". Asked 3 questions → everyone reverts their own; global cascade; other boards stop applying rather than revert | `roles.ts` + `cascade.ts` + server enforcement + confirm popup (see §1). Tested: server refusals per member with real session tokens, cascade across merges on the training board, Ashish 4 boards, Priyanka no delivered button. |
+| 118 | "Whenever an alias is added, it updates on all the cards" | Aliases made customer-wide; then "I searched sahar, only one Chalet showed — literally all cards under that name" → matched by **name** across duplicate Zoho records. Tested on a throwaway copy (search sahar: all 8 Chalet Hotels Limited cards + the 2nd record's lead). |
 
 ---
 
