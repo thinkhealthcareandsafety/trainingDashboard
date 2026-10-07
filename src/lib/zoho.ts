@@ -390,6 +390,15 @@ export const toPI = (d: ZRecord, ids: Set<string>): ZohoPI => ({
   reference: str(d.reference_number),
 });
 
+/** The ship-to address on one line ("Attn · street, street 2, city 302001, state, country"), or undefined. */
+function shipToLine(d: ZRecord): string | undefined {
+  const a = (d.shipping_address as ZRecord | undefined) ?? {};
+  const cityZip = [str(a.city), str(a.zip)].filter(Boolean).join(" ");
+  const line = [str(a.address), str(a.street2), cityZip, str(a.state), str(a.country)].filter(Boolean).join(", ");
+  const attn = str(a.attention);
+  return line ? (attn ? `${attn} · ${line}` : line) : attn;
+}
+
 /** Phase 6: an invoice; its reference cites the PI (Performa-…) it came from. */
 export const toInvoice = (d: ZRecord, ids: Set<string>): ZohoInvoice => ({
   ...common(d, ids),
@@ -397,6 +406,8 @@ export const toInvoice = (d: ZRecord, ids: Set<string>): ZohoInvoice => ({
   number: String(d.invoice_number),
   reference: str(d.reference_number),
   dueDate: str(d.due_date),
+  shipTo: shipToLine(d),
+  shipPhone: str((d.shipping_address as ZRecord | undefined)?.phone),
   total: d.total === undefined ? undefined : Number(d.total),
   balance: d.balance === undefined ? undefined : Number(d.balance),
   lastModified: String(d.last_modified_time ?? ""),

@@ -157,6 +157,8 @@ export interface ZohoInvoice {
   salesperson?: string;
   reference?: string; // usually "Performa-25-…"
   dueDate?: string; // YYYY-MM-DD, set when the invoice is raised
+  shipTo?: string; // the invoice's ship-to address on one line (Logistics board)
+  shipPhone?: string; // the invoice's ship-to phone
   total?: number;
   balance?: number; // still to be paid
   lastModified: string;
@@ -251,7 +253,10 @@ export type CardEventKind =
   | "set_delivered" // AedSmartx board: the AED has been delivered (marked by Arti) — ready for scheduling
   | "add_note" // a free-text note on the card (value = the note); removing it = reverting the event
   | "set_fulfillment" // Fulfillment board (Shreya): cardIds [fulfil:<pi/quote card id>], value = stage (completed / hold / received / generated / logistics)
-  | "set_wip"; // Fulfillment board, List Received: value "on" = Work in progress, "off" = not
+  | "set_wip" // Fulfillment board, List Received: value "on" = Work in progress, "off" = not
+  | "logi_hide" // Logistics board, AED Delivered Status: hides the AED card (cardIds [aed:<invoice id>]); Unhide = revert it
+  | "logi_merge" // Logistics board: cardIds [logi:<pi/quote card id>, logipay:<payment card id>] — Sent to Logistics + its fully paid invoice's payment(s)
+  | "set_logistics"; // Logistics board: value = step (packages, pack_process, pack_hold, shipments, ship_dispatched, ship_hold, expected:YYYY-MM-DD, received)
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every

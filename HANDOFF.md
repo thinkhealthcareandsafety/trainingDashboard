@@ -25,10 +25,11 @@ business rules that came out of it, how the code works **now**, what was verifie
 - **People using it (real, live data):** Shikha Dixit, Ashish Dalal, Sumit A Shah (training board), **Priyanka**
   (AedSmartx trainer), **Arti Sirohi** (AED deliveries), **Shreya** (certificates — Fulfillment board), and **Admin** (the
   owner). Their changes live in MongoDB `cardEvents` — **never write test data to the shared database** (see §9).
-- **Three boards** on `/follow-up`, picked with the **Board** switch (Training · AedSmartx · Fulfillment): the **Training
-  follow-ups** board (9 columns), the **AedSmartx Training** board (4 columns) and the **Fulfillment** board (5 columns).
-  Access (`boardsFor` in FollowUps.tsx): Priyanka, Arti → AedSmartx only; Shreya → Fulfillment only; Ashish → Training +
-  AedSmartx; Sumit, Shikha, Admin → all three; anyone else → Training. Plus the Dashboard (`/`) and Calendar pages.
+- **Four boards** on `/follow-up`, picked with the **Board** switch (Training · AedSmartx · Fulfillment · Logistics): the
+  **Training follow-ups** board (9 columns), the **AedSmartx Training** board (4), the **Fulfillment** board (5) and the
+  **Logistics** board (6, session 4). Access (`boardsFor` in FollowUps.tsx): Priyanka → AedSmartx only; Arti → Logistics
+  only; Shreya → Fulfillment only; Ashish → Training + AedSmartx; Sumit, Shikha, Admin → all four; anyone else → Training.
+  (The owner will send fuller per-person permissions later.) Plus the Dashboard (`/`) and Calendar pages.
 
 ---
 
@@ -222,10 +223,35 @@ and keeps `add_potential` events. Instalment folding (an invoice's other payment
 - History: the first version (6 Oct, from Payment received, 4 other columns) had one move by Admin (`fulfil:<invoice id>`,
   "thanked") — those ids no longer exist, so it no longer applies.
 
+### Logistics board (Arti) — `src/lib/logistics.ts`, `src/components/followups/LogisticsModal.tsx`
+**AED Delivered Status → Sent to Logistics → Payment Received → Packages → Shipments → Received by Client**
+- **AED Delivered Status**: every AED invoice since 1 Sept (the AedSmartx cards, same `set_delivered` mark — Priyanka sees it).
+  Only *Mark as delivered* / *Undo delivered*; after marking, a popup offers **Hide card** (`logi_hide` on `aed:<id>`).
+  **Unhide cards (n)** (board toolbar) shows hidden cards dimmed; open one → *Unhide* (= revert the hide). Yellow = not
+  delivered, green = delivered, **blue = Priyanka moved it on** (scheduled / completed / not required) — the modal says
+  *Moved by <name>* · where to. Its Changes panel shows only delivery, hide and notes. AED cards stop here.
+- **Sent to Logistics**: Fulfillment cards at *Sent to Logistics*, labelled by PI; card id `logi:<pi or quote card id>`.
+  **Flagged** with its payment card once that exists → *Merge & move to Payment Received* (event `logi_merge`, cardIds
+  `[logi:<doc>, logipay:<payment card id>]`). Otherwise *Waiting for payment — …* (part paid / not paid / no invoice).
+- **Payment Received**: only training-board payment cards **merged with their invoice** (so paid in full; instalments are one
+  card — checked again with payments + TDS = total). Matched to certificates by the PI in the payment's merge chain. Not merged
+  yet: flagged with its STL card, or *Waiting for Certificates* (with the Fulfillment stage). Merged card modal: training,
+  alias, people, **Ship to** (invoice `shipping_address`, new `ZohoInvoice.shipTo` / `shipPhone`), payment(s), documents; above
+  Merged: ☐ *Ready for Packaging?* + *Confirm* (greyed until ticked) → Packages.
+- **Packages**: *Packaging in Process* (green) / *On hold* (yellow) / *Ready to Dispatch* (→ Shipments).
+- **Shipments**: *Dispatched* (green) / *On hold* (yellow) + *Confirm* (greyed until a choice). Opening a Dispatched card asks
+  **"Has the shipment reached the client?"** — *Yes* → Received by Client, green, **confetti** (`confettiPop`); or an
+  *expected date* → Received by Client, yellow, *Expected <date>*; opening it asks again; *Reached* button → green + confetti.
+- Steps are `set_logistics` events on `logi:<doc>` (values packages, pack_process, pack_hold, shipments, ship_dispatched,
+  ship_hold, `expected:YYYY-MM-DD`, received). **Undo runs forward**: reverting a step (or the merge) also reverts every later
+  step of that card; reverting *delivered* also unhides (`CASCADE` in `store.tsx`). If Shreya moves certificates back or a
+  payment is unmerged on the training board, the merge simply stops applying (nothing is reverted across boards).
+- Columns ordered by training date, latest first. Notes on logistics cards are their own plus the training card's.
+
 ### AedSmartx Training board
 **Invoices sent → Training scheduled → Training completed → Training not required**
-- Who: **Priyanka** and **Arti** see only this board; **Sumit, Shikha, Ashish and Admin** open it with the **Board** switch
-  (Training · AedSmartx · Fulfillment, top right of the board). Everyone else: training board.
+- Who: **Priyanka** sees only this board; **Sumit, Shikha, Ashish and Admin** open it with the **Board** switch. Arti now
+  marks deliveries from the Logistics board. Everyone else: training board.
 - Cards = invoices from **1 Sept 2026** (`AED_SINCE`) with an item whose Item Identifier is **All AEDs**, excluding the AED trainers
   and *AED Rental* (`AED_EXCLUDED`). "Philips FRX AED 861304 with Child Key" is one AED with the child key included.
 - Modal: Customer; Contact (number = invoice **ship-to phone**, else the customer's numbers); Notes (clickable invoice, latest note,
@@ -366,6 +392,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 110 | "Read HANDOFF.md first … tell me where things stand" | Summary. |
 | 111 | "Check if syncs are working properly, logs of syncs, data fetched at the correct sync time" | No sync history existed (only latest state + daily call count). Today's 9 am full check ran 9:00:01–9:00:50; Mongo copy compared record by record with live Zoho (82 quotes, 44 PIs, 70 invoices, 43 payment sets, newest 200 customers): **0 differences**. GitHub Actions: only 2 of ~20 scheduled runs fired on 6 Oct (one at 10:52 pm) and both skipped — **`CRON_SECRET` not set**. Repo is **public**. |
 | 112 | "Sync logs are necessary; where is Secrets and variables?" | Sync log built (§3), tested on a throwaway DB (`thinkhealth_qa`, dropped). Secrets: repo → Settings tab → Security → Secrets and variables → Actions. |
+| 113 | "push it to github" | `abd8b1b` (sync log live). |
+| 114 | "How are partially paid payments handled in Payment received?" | Explained (§4 Instalments); live: only Heartstream 2026-01-428 part paid; 5 invoices paid in >1 payment. |
+| 115 | New **Logistics** board for Arti (6 phases, merge STL ↔ fully paid payment by PI, Ready for Packaging → Packages → Shipments → Received by Client, confetti on reached, undo cascades forward). Restated with 5 questions; answers: Arti marks AED deliveries only on Logistics; permissions later; column "AED Delivered Status", blue + "Moved by Priyanka" when moved on, hideable; "Waiting for Certificates" cards shown; Reached → green + simple confetti | Built (§4 Logistics board); full flow, cascade, hide/unhide and role views tested on a throwaway copy of live data (dropped). Not pushed yet. |
 
 ---
 

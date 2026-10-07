@@ -2,19 +2,22 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
-import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, isAedBoardUser, isFulfilmentUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, isAedTrainer, isFulfilmentUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { LOGI_COLUMN_LABEL, buildLogisticsBoard, isLogisticsUser } from "@/lib/logistics";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { ZOHO_SYNCED, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
+import { LogiAedModal, LogisticsModal } from "./followups/LogisticsModal";
 import { type DateFilterValue, DateFilterButton, matchesDateFilter } from "./followups/DateFilter";
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
   | "aed_invoices" | "aed_training" | "aed_completed" | "aed_not_required"
-  | "ful_completed" | "ful_hold" | "ful_received" | "ful_generated" | "ful_logistics";
+  | "ful_completed" | "ful_hold" | "ful_received" | "ful_generated" | "ful_logistics"
+  | "logi_aed" | "logi_stl" | "logi_paid" | "logi_packages" | "logi_shipments" | "logi_received";
 
 const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "lead", label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
@@ -44,18 +47,29 @@ const FULFIL_COLUMNS: { key: Stage; label: string; header: string; dot: string }
   { key: "ful_logistics", label: FULFIL_LABEL.logistics, header: "bg-low-bg", dot: "bg-brand" },
 ];
 
-type BoardKind = "training" | "aed" | "fulfil";
-const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", aed: "AedSmartx", fulfil: "Fulfillment" };
+/** Logistics board (Arti): AED deliveries, then certificates from Sent to Logistics through to the client. */
+const LOGI_COLUMNS: { key: Stage; label: string; header: string; dot: string }[] = [
+  { key: "logi_aed", label: LOGI_COLUMN_LABEL.aed, header: "bg-medium-bg", dot: "bg-medium" },
+  { key: "logi_stl", label: LOGI_COLUMN_LABEL.stl, header: "bg-brand-soft", dot: "bg-brand" },
+  { key: "logi_paid", label: LOGI_COLUMN_LABEL.payment, header: "bg-low-bg", dot: "bg-low" },
+  { key: "logi_packages", label: LOGI_COLUMN_LABEL.packages, header: "bg-surface-2", dot: "bg-brand-2" },
+  { key: "logi_shipments", label: LOGI_COLUMN_LABEL.shipments, header: "bg-info-bg", dot: "bg-info" },
+  { key: "logi_received", label: LOGI_COLUMN_LABEL.received, header: "bg-low-bg", dot: "bg-low" },
+];
+
+type BoardKind = "training" | "aed" | "fulfil" | "logistics";
+const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", aed: "AedSmartx", fulfil: "Fulfillment", logistics: "Logistics" };
 /**
- * Who sees which board. Priyanka and Arti: AedSmartx only. Shreya: Fulfillment only. Ashish: Training + AedSmartx.
- * Sumit and Shikha: all three. Admin: everything. Anyone else: Training.
+ * Who sees which board. Priyanka: AedSmartx only. Arti: Logistics only. Shreya: Fulfillment only. Ashish: Training +
+ * AedSmartx. Sumit and Shikha: all four. Admin: everything. Anyone else: Training.
  */
 function boardsFor(m: Member): BoardKind[] {
-  if (m.id === "admin") return ["training", "aed", "fulfil"];
+  if (m.id === "admin") return ["training", "aed", "fulfil", "logistics"];
   const n = m.name.trim();
-  if (isAedBoardUser(n)) return ["aed"];
+  if (isAedTrainer(n)) return ["aed"];
+  if (isLogisticsUser(n)) return ["logistics"];
   if (isFulfilmentUser(n)) return ["fulfil"];
-  if (/^(sumit|shikha)\b/i.test(n)) return ["training", "aed", "fulfil"];
+  if (/^(sumit|shikha)\b/i.test(n)) return ["training", "aed", "fulfil", "logistics"];
   if (/^ashish\b/i.test(n)) return ["training", "aed"];
   return ["training"];
 }
@@ -233,7 +247,34 @@ function useBoardChoice(allowed: BoardKind[]): [BoardKind, (b: BoardKind) => voi
 
 const flagged = (c: CardView) => c.flaggedWith.length > 0;
 /** AedSmartx: delivered and waiting for a training date. */
-const isReady = (c: CardView) => Boolean(c.aed && c.delivered && !c.schedule && !c.notRequired);
+const isReady = (c: CardView) => Boolean(c.aed && !c.logiAed && c.delivered && !c.schedule && !c.notRequired);
+
+/**
+ * Logistics board borders. AED Delivered Status: blue once Priyanka moved it on, else green delivered / yellow not.
+ * Packages: green Packaging in Process, yellow On hold. Shipments: green Dispatched, yellow On hold. Received by Client:
+ * green reached, yellow expected. Otherwise plain (red tint when flagged).
+ */
+function logiBorder(c: CardView): string {
+  if (c.logiAed) return `border-2 ${c.logiAed.moved ? "border-info" : c.delivered ? "border-low" : "border-medium"}`;
+  const s = c.logistics!.step;
+  if (s === "pack_process" || s === "ship_dispatched" || s === "received") return "border-2 border-low";
+  if (s === "pack_hold" || s === "ship_hold" || s === "expected") return "border-2 border-medium";
+  return `border hover:border-line-strong ${flagged(c) ? "border-high/40" : "border-line"}`;
+}
+
+/** One line under a Logistics card: where it stands. */
+function logiStatus(c: CardView): { text: string; tone: string } | undefined {
+  const l = c.logistics!;
+  if (c.logiAed) return c.logiAed.hidden ? { text: "Hidden", tone: "text-faint" } : undefined;
+  switch (l.column) {
+    case "stl": return flagged(c) ? { text: "Payment received — merge", tone: "text-high" } : { text: "Waiting for payment", tone: "text-medium" };
+    case "payment": return !l.merged ? (flagged(c) ? { text: "Certificates sent — merge", tone: "text-high" } : { text: "Waiting for Certificates", tone: "text-medium" }) : { text: "Ready for packaging?", tone: "text-ink-2" };
+    case "packages": return l.step === "pack_process" ? { text: "Packaging in Process", tone: "text-low" } : l.step === "pack_hold" ? { text: "On hold", tone: "text-medium" } : { text: "To be packed", tone: "text-ink-2" };
+    case "shipments": return l.step === "ship_dispatched" ? { text: "Dispatched", tone: "text-low" } : l.step === "ship_hold" ? { text: "On hold", tone: "text-medium" } : { text: "Ready to dispatch", tone: "text-ink-2" };
+    case "received": return l.step === "received" ? { text: "Reached the client", tone: "text-low" } : { text: `Expected ${l.expected ? dateLong(l.expected) : "—"}`, tone: "text-medium" };
+    default: return undefined;
+  }
+}
 
 /**
  * Fulfillment board borders: Training Completed plain; Process on hold green; List Received green once Work in
@@ -250,12 +291,12 @@ function ItemShell({ card, onClick, children }: { card: CardView; onClick: () =>
   // Invoices / payments: red overdue, blue due, green paid. Training scheduled: green = date, red = to be decided.
   const due = card.aed ? undefined : cardDue(card);
   // AedSmartx: not required = red; scheduled = the training date's colour; before that green once delivered, else yellow.
-  const border = card.fulfillment ? fulfilBorder(card) : card.notRequired ? "border-2 border-high" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
+  const border = card.logistics ? logiBorder(card) : card.fulfillment ? fulfilBorder(card) : card.notRequired ? "border-2 border-high" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
     : card.aed ? `border-2 ${card.delivered ? "border-low" : "border-medium"}` : due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
   return (
     <button
       onClick={onClick}
-      className={`block w-full rounded-lg bg-surface px-2.5 py-2 text-left text-[12px] text-muted transition hover:shadow-card ${border} ${card.deleted ? "opacity-50" : ""}`}
+      className={`block w-full rounded-lg bg-surface px-2.5 py-2 text-left text-[12px] text-muted transition hover:shadow-card ${border} ${card.deleted || card.logiAed?.hidden ? "opacity-50" : ""}`}
     >
       {children}
     </button>
@@ -304,8 +345,9 @@ function PotentialItem({ card, onClick }: { card: CardView; onClick: () => void 
 function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   const pay = card.payment;
   // AedSmartx cards show delivery instead of payment status; Fulfillment cards show where the certificates are.
-  const due = card.aed || card.fulfillment ? undefined : cardDue(card);
+  const due = card.aed || card.fulfillment || card.logistics ? undefined : cardDue(card);
   const f = card.fulfillment;
+  const logi = card.logistics ? logiStatus(card) : undefined;
   return (
     <ItemShell card={card} onClick={onClick}>
       <div className="flex items-start justify-between gap-2">
@@ -337,7 +379,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
           )}
         </div>
         {card.schedule.trainers.length > 0 && <div className="mt-0.5 truncate text-[11px] text-ink-2">{card.schedule.trainers.map((t) => t.split(" ")[0]).join(", ")}</div>}
-        {f && card.schedule.underName && <div className="mt-0.5 truncate text-[11px] text-ink-2">Under name: <span className="font-semibold">{card.schedule.underName}</span></div>}
+        {(f || card.logistics) && card.schedule.underName && <div className="mt-0.5 truncate text-[11px] text-ink-2">Under name: <span className="font-semibold">{card.schedule.underName}</span></div>}
         {card.piSkipped && card.kind === "quote" && <div className="mt-0.5 text-[11px] font-semibold text-medium">PI needed</div>}
         </>
       ) : (
@@ -353,11 +395,12 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
       {card.aed && !card.notRequired && !card.schedule && (
         <div className="mt-1">
           <span className={`rounded px-1 text-[10.5px] font-bold uppercase tracking-wide ${card.delivered ? "bg-low-bg text-low" : "bg-medium-bg text-medium"}`}>
-            {card.delivered ? "Ready for Scheduling" : "Not delivered yet"}
+            {card.delivered ? (card.logiAed ? "Delivered" : "Ready for Scheduling") : "Not delivered yet"}
           </span>
         </div>
       )}
       {card.readyToSchedule && <div className="mt-1 text-[11px] font-semibold text-low">Ready to schedule</div>}
+      {logi && <div className={`mt-1 text-[11.5px] font-semibold ${logi.tone}`}>{logi.text}</div>}
       {f && f.stage !== "completed" && (
         <div className={`mt-1 text-[11.5px] font-semibold ${f.stage === "received" && !f.wip ? "text-medium" : "text-low"}`}>
           {f.stage === "hold" ? "Waiting for List" : f.stage === "received" ? (f.wip ? "Work in progress" : "List received") : f.stage === "generated" ? "Certificates generated" : "Sent to Logistics"}
@@ -456,7 +499,7 @@ function Column({ stage, cards, onOpen, onAdd, loading, filtered }: { stage: (ty
       <div ref={ref} onScroll={onScroll} className={`no-scrollbar overflow-y-auto p-2 ${cards.length ? "space-y-2" : "flex"}`} data-col-body style={{ height: "var(--fu-col-h)" }}>
         {cards.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-line text-center text-[12px] text-faint">
-            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost", "aed_invoices"].includes(stage.key) ? "Syncing with Zoho Books…" : filtered ? "No cards in these dates" : stage.key === "potential" ? "Add customers who might train later with +" : "No cards"}
+            {loading && ["lead", "quotation", "performa", "invoiced", "paid", "lost", "aed_invoices", "logi_aed", "logi_stl", "logi_paid"].includes(stage.key) ? "Syncing with Zoho Books…" : filtered ? "No cards in these dates" : stage.key === "potential" ? "Add customers who might train later with +" : "No cards"}
           </div>
         ) : (
           groups.slice(0, shown).map((g) => <CustomerBox key={g[0].customerId} cards={g} onOpen={onOpen} />)
@@ -647,13 +690,17 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const [boardKind, setBoardKind] = useBoardChoice(allowed);
   const aedMode = boardKind === "aed";
   const fulfilMode = boardKind === "fulfil";
-  const aed = useAedInvoices(aedMode);
-  // Loading state and sync errors follow the board that's showing (Fulfillment is built from the training data).
-  const { loading } = aedMode ? aed : pipeline;
-  const sync = aedMode ? aed.data : data;
-  const stages = aedMode ? AED_STAGES : fulfilMode ? FULFIL_COLUMNS : STAGES;
+  const logiMode = boardKind === "logistics";
+  const aed = useAedInvoices(aedMode || logiMode);
+  // Loading state and sync errors follow the board that's showing (Fulfillment is built from the training data;
+  // Logistics from both).
+  const loading = aedMode ? aed.loading : logiMode ? aed.loading || pipeline.loading : pipeline.loading;
+  const sync = aedMode ? aed.data : logiMode && aed.data?.error ? aed.data : data;
+  const stages = aedMode ? AED_STAGES : fulfilMode ? FULFIL_COLUMNS : logiMode ? LOGI_COLUMNS : STAGES;
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
+  // Logistics: "Unhide cards" shows the AED cards Arti hid, so one can be opened and brought back.
+  const [showHidden, setShowHidden] = useState(false);
   const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null);
   const [open, setOpen] = useState<{ id: string; merge: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
@@ -661,8 +708,9 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const { pageRef, colH } = useFitHeight();
 
   const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents), [data, cardEvents]);
-  const aedBoard = useMemo(() => (aedMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents) : null), [aedMode, data, aed.data, cardEvents]);
-  const fulBoard = useMemo(() => (fulfilMode ? buildFulfillmentBoard(board, cardEvents) : null), [fulfilMode, board, cardEvents]);
+  const aedBoard = useMemo(() => (aedMode || logiMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents) : null), [aedMode, logiMode, data, aed.data, cardEvents]);
+  const fulBoard = useMemo(() => (fulfilMode || logiMode ? buildFulfillmentBoard(board, cardEvents) : null), [fulfilMode, logiMode, board, cardEvents]);
+  const logiBoard = useMemo(() => (logiMode && fulBoard && aedBoard ? buildLogisticsBoard(board, fulBoard, aedBoard, cardEvents) : null), [logiMode, board, fulBoard, aedBoard, cardEvents]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
 
   // A merged quote/PI that disappeared from Zoho moves its cards apart — log why, once.
@@ -702,13 +750,25 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
       ful_logistics: fulBoard.logisticsCards.filter(visible),
     };
   }, [fulBoard, needle, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols, ...fulCols };
+  const logiCols = useMemo(() => {
+    if (!logiBoard) return { logi_aed: [], logi_stl: [], logi_paid: [], logi_packages: [], logi_shipments: [], logi_received: [] };
+    return {
+      logi_aed: logiBoard.aedCards.filter((c) => (showHidden || !c.logiAed?.hidden) && visible(c)),
+      logi_stl: logiBoard.stlCards.filter(visible),
+      logi_paid: logiBoard.paymentCards.filter(visible),
+      logi_packages: logiBoard.packageCards.filter(visible),
+      logi_shipments: logiBoard.shipmentCards.filter(visible),
+      logi_received: logiBoard.receivedCards.filter(visible),
+    };
+  }, [logiBoard, needle, dateFilter, showHidden]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hiddenCount = logiBoard ? logiBoard.aedCards.filter((c) => c.logiAed?.hidden).length : 0;
+  const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols, ...fulCols, ...logiCols };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
   const switchBoard = (b: BoardKind) => { setBoardKind(b); setOpen(null); };
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });
-  const current = open ? (aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : board.cards)?.get(open.id) : undefined;
+  const current = open ? (aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : logiMode ? logiBoard?.cards : board.cards)?.get(open.id) : undefined;
   const candidates = current && open?.merge && boardKind === "training" ? mergeCandidates(current.id, board.cards) : [];
   const mergeGroup = candidates.length > 1 ? candidates : null;
 
@@ -716,9 +776,13 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
     <div ref={pageRef} className="fu-page" style={colH ? ({ "--fu-col-h": `${colH}px` } as React.CSSProperties) : undefined}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">{aedMode ? "AedSmartx Training" : fulfilMode ? "Fulfillment" : "Follow-ups"}</h1>
+          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">{aedMode ? "AedSmartx Training" : fulfilMode ? "Fulfillment" : logiMode ? "Logistics" : "Follow-ups"}</h1>
           <p className="text-[12.5px] text-muted">
-            {fulfilMode ? (
+            {logiMode ? (
+              <>
+                {logiCols.logi_aed.length} AED invoices · {logiCols.logi_stl.length} sent to logistics · {logiCols.logi_paid.length} payment received · {logiCols.logi_packages.length} packages · {logiCols.logi_shipments.length} shipments · {logiCols.logi_received.length} received
+              </>
+            ) : fulfilMode ? (
               <>
                 {fulCols.ful_completed.length} training completed · {fulCols.ful_hold.length} on hold · {fulCols.ful_received.length} list received · {fulCols.ful_generated.length} certificates generated · {fulCols.ful_logistics.length} sent to logistics
                 {" "}· completed trainings from the training board
@@ -753,6 +817,12 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
             <label className="inline-flex items-center gap-2 text-[13px] text-muted">
               <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />
               Show deleted ({deletedCount})
+            </label>
+          )}
+          {logiMode && hiddenCount > 0 && (
+            <label className="inline-flex items-center gap-2 text-[13px] text-muted" title="Show the AED cards that were hidden — open one to bring it back">
+              <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
+              Unhide cards ({hiddenCount})
             </label>
           )}
           <DateFilterButton value={dateFilter} onChange={setDateFilter} />
@@ -793,6 +863,10 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
 
       {adding && <AddPotentialModal cards={board.cards} member={member} onClose={() => setAdding(false)} />}
       {current && aedMode && <AedCardModal card={current} cards={aedBoard!.cards} member={member} options={options} onClose={() => setOpen(null)} />}
+      {current && logiMode && current.logiAed && <LogiAedModal card={current} cards={logiBoard!.cards} member={member} options={options} onClose={() => setOpen(null)} />}
+      {current && logiMode && !current.logiAed && (
+        <LogisticsModal card={current} cards={logiBoard!.cards} trainingCards={board.cards} member={member} options={options} onClose={() => setOpen(null)} onSwitch={(id) => setOpen({ id, merge: false })} />
+      )}
       {current && fulfilMode && <FulfillmentModal card={current} cards={fulBoard!.cards} trainingCards={board.cards} member={member} options={options} onClose={() => setOpen(null)} />}
       {current && boardKind === "training" && mergeGroup && (
         <MergeModal

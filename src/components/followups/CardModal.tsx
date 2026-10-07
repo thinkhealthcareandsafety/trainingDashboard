@@ -858,10 +858,11 @@ export function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards
 
 /* ---------------- Change log (the modal's extension) ---------------- */
 
-export function ChangeLog({ cardIds, cards, member }: { cardIds: string[]; cards: Cards; member: Member }) {
+export function ChangeLog({ cardIds, cards, member, kinds }: { cardIds: string[]; cards: Cards; member: Member; kinds?: CardEventKind[] }) {
   const { cardEvents, revertCardEvent } = useStore();
   const ids = new Set(cardIds);
-  const list = cardEvents.filter((e) => e.cardIds.some((id) => ids.has(id))).sort((a, b) => b.at.localeCompare(a.at));
+  // `kinds`: only these changes (e.g. Logistics shows an AED card's delivery, hide and notes — not Priyanka's training steps).
+  const list = cardEvents.filter((e) => e.cardIds.some((id) => ids.has(id)) && (!kinds || kinds.includes(e.kind))).sort((a, b) => b.at.localeCompare(a.at));
   const labelOf = (id: string) => cardLabel(cards.get(id));
   return (
     <div className="p-5">

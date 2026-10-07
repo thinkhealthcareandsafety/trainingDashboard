@@ -36,6 +36,16 @@ function save(key: string, value: unknown) {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+/**
+ * Reverting one of these also reverts the listed later events on the same card: the Logistics flow (merge → packages →
+ * shipments → received), and an AED's "delivered" mark with the Logistics hide that followed it.
+ */
+const CASCADE: Partial<Record<CardEvent["kind"], CardEvent["kind"][]>> = {
+  logi_merge: ["set_logistics"],
+  set_logistics: ["set_logistics"],
+  set_delivered: ["logi_hide"],
+};
+
 type SharedName = "entries" | "followUps" | "removedTriggers" | "announcements" | "members" | "cardEvents";
 type SharedDoc = { id: string } & Record<string, unknown>;
 const SHARED: SharedName[] = ["entries", "followUps", "removedTriggers", "announcements", "members", "cardEvents"];
@@ -425,7 +435,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const revertCardEvent = useCallback((id: string, by: string) => {
-    setCardEvents((cur) => cur.map((e) => (e.id === id && !e.revertedAt ? { ...e, revertedAt: new Date().toISOString(), revertedBy: by } : e)));
+    setCardEvents((cur) => {
+      // Flows that only run forward (Logistics): undoing a step also undoes every later step of that card, so it never
+      // ends up half-way — e.g. reverting the merge sends it back to Sent to Logistics with no packing/shipping left.
+      const target = cur.find((e) => e.id === id && !e.revertedAt);
+      const after = target ? CASCADE[target.kind] : undefined;
+      const ids = new Set(target?.cardIds ?? []);
+      const undo = (e: CardEvent) => e.id === id || Boolean(after?.includes(e.kind) && e.at > target!.at && e.cardIds.some((c) => ids.has(c)));
+      const at = new Date().toISOString();
+      return cur.map((e) => (!e.revertedAt && undo(e) ? { ...e, revertedAt: at, revertedBy: by } : e));
+    });
   }, []);
 
   const clearCardEvents = useCallback(async (pin: string, by: string, cardIds?: string[]) => {

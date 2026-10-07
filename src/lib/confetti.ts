@@ -27,6 +27,16 @@ export function celebrate(from?: Element | null) {
     .catch(() => {}); // Confetti is a nicety — never let it get in the way of saving.
 }
 
+/** Plain confetti burst from a button (canvas-confetti's basic example) — "Reached the client" on the Logistics board. */
+export function confettiPop(from?: Element | null) {
+  if (typeof window === "undefined") return;
+  const r = from?.getBoundingClientRect();
+  const origin = r && r.width ? { x: (r.left + r.width / 2) / window.innerWidth, y: (r.top + r.height / 2) / window.innerHeight } : { x: 0.5, y: 0.6 };
+  import("canvas-confetti")
+    .then(({ default: confetti }) => void confetti({ particleCount: 100, spread: 70, origin, zIndex: 9999 }))
+    .catch(() => {});
+}
+
 /** Fireworks (Magic UI's "Fireworks" example): bursts from both sides for a few seconds — "Certificates Generated". */
 export function fireworks(seconds = 4) {
   if (typeof window === "undefined") return;

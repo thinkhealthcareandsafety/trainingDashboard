@@ -168,7 +168,7 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
 }
 
 /** Notes: the clickable invoice, then the team's notes (shared with the training board). */
-function NotesSection({ card, member, options }: { card: CardView; member: Member; options: BoardOptions }) {
+export function AedNotesSection({ card, member, options }: { card: CardView; member: Member; options: BoardOptions }) {
   const inv = card.invoice!;
   return (
     <NotesPanel card={card} member={member} heading={inv.number}>
@@ -229,7 +229,7 @@ function ResaleOptions({ card, cards, member }: { card: CardView; cards: Cards; 
 }
 
 /** The AED itself, read from its invoice description, plus the extras sold with it. */
-function ItemDescriptionSection({ card, cards, member }: { card: CardView; cards: Cards; member: Member }) {
+export function ItemDescriptionSection({ card, cards, member, noResale }: { card: CardView; cards: Cards; member: Member; noResale?: boolean }) {
   const [allSerials, setAllSerials] = useState(false);
   const aed = card.aed;
   if (!aed) return null;
@@ -295,13 +295,13 @@ function ItemDescriptionSection({ card, cards, member }: { card: CardView; cards
             );
           })}
         </div>
-        <ResaleOptions card={card} cards={cards} member={member} />
+        {!noResale && <ResaleOptions card={card} cards={cards} member={member} />}
       </div>
     </Section>
   );
 }
 
-function AedDocsSection({ card, options }: { card: CardView; options: BoardOptions }) {
+export function AedDocsSection({ card, options }: { card: CardView; options: BoardOptions }) {
   const inv = card.invoice!;
   const due = cardDue(card);
   return (
@@ -356,7 +356,7 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
       <div className="grid gap-3 p-4 xl:grid-cols-2">
         <div className="space-y-3">
           {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
-          <NotesSection card={card} member={member} options={options} />
+          <AedNotesSection card={card} member={member} options={options} />
           <AedDocsSection card={card} options={options} />
         </div>
         <div className="space-y-3">

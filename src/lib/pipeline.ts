@@ -1,6 +1,7 @@
 import type { AedInvoice, CardEvent, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { fmtDate, fmtINR } from "./dates";
 import { type AedDetails, type AedExtra, aedExtras, parseAedLine } from "./aedParse";
+import type { LogiAedInfo, LogiInfo } from "./logistics";
 
 const fmtDay = (ymd: string) => fmtDate(ymd, { day: "numeric", month: "short", year: "numeric" });
 
@@ -107,6 +108,10 @@ export interface CardView {
   fulfillment?: { stage: FulfilStage; at?: string; by?: string; wip?: { at: string; by: string } };
   /** AedSmartx board: what the invoice's AED lines say (model, serials, expiries) and the extras sold with them. */
   aed?: { lines: AedDetails[]; extras: AedExtra[] };
+  /** Logistics board: which column, the card it's built from, its step and merge (see logistics.ts). */
+  logistics?: LogiInfo;
+  /** Logistics board, AED Delivered Status: hidden by Arti, and whether Priyanka moved it on. */
+  logiAed?: LogiAedInfo;
 }
 
 /** A set_training_date value: one day, several days ("2026-10-05,2026-10-06,2026-10-09"), or TBD. */
@@ -743,13 +748,24 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_reseller": return `Marked ${e.before ?? "the customer"} as a Reseller — all their AED invoices moved to Training not required`;
     case "set_fulfillment": return `Moved to ${FULFIL_LABEL[v as FulfilStage] ?? v}${e.before ? ` (was ${FULFIL_LABEL[e.before as FulfilStage] ?? e.before})` : ""}`;
     case "set_wip": return v === "on" ? "Marked Work in progress" : "Unmarked Work in progress";
+    case "logi_hide": return "Hidden from AED Delivered Status (Logistics)";
+    case "logi_merge": return `Merged Sent to Logistics with Payment Received${v ? ` (${v})` : ""} — moved to Payment Received`;
+    case "set_logistics": {
+      if (v.startsWith("expected:")) return `Not reached yet — expected ${fmtDay(v.slice("expected:".length))} · moved to Received by Client`;
+      const text: Record<string, string> = {
+        packages: "Ready for Packaging — moved to Packages", pack_process: "Packaging in Process", pack_hold: "Packages: On hold",
+        shipments: "Ready to Dispatch — moved to Shipments", ship_dispatched: "Dispatched", ship_hold: "Shipments: On hold",
+        received: "Reached the client — moved to Received by Client",
+      };
+      return text[v] ?? `Logistics: ${v}`;
+    }
   }
 }
 
 /* ---------------- AedSmartx board: AED invoices → Training scheduled → Training completed ---------------- */
 
 export const aedCardId = (invoiceId: string) => `aed:${invoiceId}`;
-/** AedSmartx board: Priyanka (trainer) and Arti (deliveries) work only on it; only Arti marks AEDs as delivered. */
+/** AedSmartx board: Priyanka (trainer) works only on it. Arti marks deliveries from the Logistics board (logistics.ts). */
 export const isAedTrainer = (name: string) => /^priyanka\b/i.test(name.trim());
 export const isAedDelivery = (name: string) => /^arti\b/i.test(name.trim());
 export const isAedBoardUser = (name: string) => isAedTrainer(name) || isAedDelivery(name);
