@@ -10,6 +10,7 @@ import { Avatar, btn } from "./ui";
 import type { Member } from "@/lib/types";
 import { Ticker } from "./Ticker";
 import { SyncLogWindow } from "./SyncLog";
+import { RevertConfirm } from "./RevertConfirm";
 import { effectiveStatus } from "@/lib/followups";
 
 const NAV = [
@@ -350,6 +351,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       {logOpen && <SyncLogWindow open onClose={() => setLogOpen(false)} />}
+      <RevertConfirm />
 
       {/* Toasts */}
       <div className="fixed bottom-20 left-1/2 z-[60] flex -translate-x-1/2 flex-col gap-2 lg:bottom-6">

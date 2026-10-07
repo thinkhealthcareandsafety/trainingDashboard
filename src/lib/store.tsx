@@ -5,6 +5,7 @@ import type { Announcement, CalendarEntry, CardEvent, FollowUp, FollowUpActivity
 import { addDays, ymd } from "./dates";
 import { followUpsFromPipeline, followUpsFromTrainings, seedManualFollowUps } from "./followups";
 import { buildTickerItems } from "./ticker";
+import { cascadeOf } from "./cascade";
 import { useSession } from "./session";
 
 // Calendar entries, follow-ups and announcements are cached in the browser and, when the server has
@@ -36,15 +37,8 @@ function save(key: string, value: unknown) {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-/**
- * Reverting one of these also reverts the listed later events on the same card: the Logistics flow (merge → packages →
- * shipments → received), and an AED's "delivered" mark with the Logistics hide that followed it.
- */
-const CASCADE: Partial<Record<CardEvent["kind"], CardEvent["kind"][]>> = {
-  logi_merge: ["set_logistics"],
-  set_logistics: ["set_logistics"],
-  set_delivered: ["logi_hide"],
-};
+/** A revert waiting for "Revert all": the changes picked, and the later steps of their flow that go with them. */
+export type PendingRevert = { targets: CardEvent[]; later: CardEvent[]; by: string };
 
 type SharedName = "entries" | "followUps" | "removedTriggers" | "announcements" | "members" | "cardEvents";
 type SharedDoc = { id: string } & Record<string, unknown>;
@@ -115,7 +109,14 @@ interface Store {
   addCardEvents: (events: Omit<CardEvent, "id" | "at">[]) => CardEvent[];
   /** Adds ready-made events (e.g. Zoho notices with deterministic ids), skipping ids already recorded. */
   recordCardEvents: (events: CardEvent[]) => void;
-  revertCardEvent: (id: string, by: string) => void;
+  /**
+   * Reverts changes (one id, or several together). When that would also revert later steps of the flow (cascade.ts),
+   * it asks first: the request waits in `pendingRevert` until confirmed.
+   */
+  revertCardEvent: (id: string | string[], by: string) => void;
+  pendingRevert: PendingRevert | null;
+  confirmRevert: () => void;
+  cancelRevert: () => void;
   /** Wipes every card event for the whole team (PIN-locked on the server). */
   clearCardEvents: (pin: string, by: string, cardIds?: string[]) => Promise<{ ok: boolean; cleared?: number; error?: string }>;
 
@@ -434,18 +435,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const revertCardEvent = useCallback((id: string, by: string) => {
-    setCardEvents((cur) => {
-      // Flows that only run forward (Logistics): undoing a step also undoes every later step of that card, so it never
-      // ends up half-way — e.g. reverting the merge sends it back to Sent to Logistics with no packing/shipping left.
-      const target = cur.find((e) => e.id === id && !e.revertedAt);
-      const after = target ? CASCADE[target.kind] : undefined;
-      const ids = new Set(target?.cardIds ?? []);
-      const undo = (e: CardEvent) => e.id === id || Boolean(after?.includes(e.kind) && e.at > target!.at && e.cardIds.some((c) => ids.has(c)));
-      const at = new Date().toISOString();
-      return cur.map((e) => (!e.revertedAt && undo(e) ? { ...e, revertedAt: at, revertedBy: by } : e));
-    });
+  const applyRevert = useCallback((ids: Set<string>, by: string) => {
+    const at = new Date().toISOString();
+    setCardEvents((cur) => cur.map((e) => (!e.revertedAt && ids.has(e.id) ? { ...e, revertedAt: at, revertedBy: by } : e)));
   }, []);
+  // Every board's flow only runs forward: reverting a step also reverts the later steps of that flow, so a card never
+  // ends up half-way (cascade.ts). When there are any, the team member confirms first (see RevertConfirm).
+  const [pendingRevert, setPendingRevert] = useState<PendingRevert | null>(null);
+  const revertCardEvent = useCallback((id: string | string[], by: string) => {
+    const ids = new Set(Array.isArray(id) ? id : [id]);
+    const targets = cardEvents.filter((e) => ids.has(e.id) && !e.revertedAt);
+    if (!targets.length) return;
+    const later = cascadeOf(targets, cardEvents);
+    if (later.length) setPendingRevert({ targets, later, by });
+    else applyRevert(ids, by);
+  }, [cardEvents, applyRevert]);
+  const confirmRevert = useCallback(() => {
+    if (!pendingRevert) return;
+    applyRevert(new Set([...pendingRevert.targets, ...pendingRevert.later].map((e) => e.id)), pendingRevert.by);
+    setPendingRevert(null);
+  }, [pendingRevert, applyRevert]);
+  const cancelRevert = useCallback(() => setPendingRevert(null), []);
 
   const clearCardEvents = useCallback(async (pin: string, by: string, cardIds?: string[]) => {
     try {
@@ -499,6 +509,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addCardEvents,
     recordCardEvents,
     revertCardEvent,
+    pendingRevert,
+    confirmRevert,
+    cancelRevert,
     clearCardEvents,
     announcements,
     ticker,

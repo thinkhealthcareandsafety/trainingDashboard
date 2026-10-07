@@ -7,6 +7,7 @@ import { type LogiStep, LOGI_COLUMN_LABEL, LOGI_STEP_LABEL } from "@/lib/logisti
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
 import { confettiPop } from "@/lib/confetti";
+import { canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
   type BoardOptions, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection, Section, Shell,
@@ -65,7 +66,7 @@ function DeliverySection({ card, member }: { card: CardView; member: Member }) {
           {card.delivered && <span className="text-[12.5px] text-muted"> · {card.delivered.by}, {dateLong(card.delivered.at)}</span>}
         </span>
         {deliveredEv ? (
-          <button className={`${btn.quiet} !h-8`} onClick={() => revertCardEvent(deliveredEv.id, member.name)}>Undo delivered</button>
+          canRevert(member, deliveredEv) && <button className={`${btn.quiet} !h-8`} onClick={() => revertCardEvent(deliveredEv.id, member.name)}>Undo delivered</button>
         ) : (
           <button className="press inline-flex h-8 items-center justify-center rounded-full bg-low px-3.5 text-[13px] font-semibold text-white hover:brightness-110" onClick={markDelivered}>
             Mark as delivered
@@ -82,7 +83,7 @@ function DeliverySection({ card, member }: { card: CardView; member: Member }) {
         {hidden ? (
           <>
             <span>Hidden from AED Delivered Status · {hidden.by}, {dateLong(hidden.at)}</span>
-            <button className={`${btn.ghost} !h-8`} onClick={() => revertCardEvent(hidden.eventId, member.name)}>Unhide</button>
+            {canRevert(member, hidden) && <button className={`${btn.ghost} !h-8`} onClick={() => revertCardEvent(hidden.eventId, member.name)}>Unhide</button>}
           </>
         ) : (
           <>

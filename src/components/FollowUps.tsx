@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
-import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, isAedTrainer, isFulfilmentUser, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
-import { LOGI_COLUMN_LABEL, buildLogisticsBoard, isLogisticsUser } from "@/lib/logistics";
+import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, buildBoard, cardDue, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
+import { type BoardKind, boardsFor } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { ZOHO_SYNCED, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
@@ -57,22 +58,8 @@ const LOGI_COLUMNS: { key: Stage; label: string; header: string; dot: string }[]
   { key: "logi_received", label: LOGI_COLUMN_LABEL.received, header: "bg-low-bg", dot: "bg-low" },
 ];
 
-type BoardKind = "training" | "aed" | "fulfil" | "logistics";
+/** Who sees which board: roles.ts (Priyanka AedSmartx, Arti Logistics, Shreya Fulfillment; Ashish, Shikha, Sumit, Admin all four). */
 const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", aed: "AedSmartx", fulfil: "Fulfillment", logistics: "Logistics" };
-/**
- * Who sees which board. Priyanka: AedSmartx only. Arti: Logistics only. Shreya: Fulfillment only. Ashish: Training +
- * AedSmartx. Sumit and Shikha: all four. Admin: everything. Anyone else: Training.
- */
-function boardsFor(m: Member): BoardKind[] {
-  if (m.id === "admin") return ["training", "aed", "fulfil", "logistics"];
-  const n = m.name.trim();
-  if (isAedTrainer(n)) return ["aed"];
-  if (isLogisticsUser(n)) return ["logistics"];
-  if (isFulfilmentUser(n)) return ["fulfil"];
-  if (/^(sumit|shikha)\b/i.test(n)) return ["training", "aed", "fulfil", "logistics"];
-  if (/^ashish\b/i.test(n)) return ["training", "aed"];
-  return ["training"];
-}
 
 // As many columns as fit at MIN_COL_W (enough for the column name); the rest slide in with ◀ ▶,
 // the arrow keys or a swipe. A wide screen shows every column.

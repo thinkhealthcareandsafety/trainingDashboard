@@ -7,6 +7,7 @@ import { fmtDate } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
 import { celebrate } from "@/lib/confetti";
+import { canMarkDelivered, canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
   type BoardOptions, type Draft, ChangeLog, ContactSection, CustomerSection, DueChip, Editor, Header, Lock, Row, SCHEDULE_TONE,
@@ -19,8 +20,7 @@ import {
 type Cards = Map<string, CardView>;
 const dateLong = (s: string) => fmtDate(s, { day: "numeric", month: "short", year: "numeric" });
 
-/** Who marks AEDs as delivered: Arti, Shikha, Sumit, Ashish and Admin. */
-const canMarkDelivered = (m: Member) => m.id === "admin" || isAedDelivery(m.name) || /^(shikha|sumit|ashish)\b/i.test(m.name.trim());
+// Who marks AEDs as delivered: roles.ts (Arti, Shikha, Sumit, Ashish and Admin — not Priyanka).
 /** Arti only marks deliveries (and writes notes): no scheduling, no "not required", no resale. */
 const isDeliveryOnly = (m: Member) => m.id !== "admin" && isAedDelivery(m.name);
 
@@ -58,7 +58,9 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
   };
 
   // Delivery: Arti, Shikha, Sumit, Ashish and Admin mark (or unmark) an AED as delivered; everyone else sees the status (kept to one line).
-  const canDeliver = canMarkDelivered(member);
+  const deliveredBy = useStore().cardEvents.find((e) => !e.revertedAt && e.kind === "set_delivered" && e.cardIds.includes(card.id));
+  // Marking is for the delivery team; undoing it only for whoever marked it (or Admin).
+  const canDeliver = canMarkDelivered(member) && (!deliveredBy || canRevert(member, deliveredBy));
   // Arti only marks deliveries: no scheduling, no "not required". Nobody schedules before the AED is delivered.
   const deliveryOnly = isDeliveryOnly(member);
   const deliveredEv = useStore().cardEvents.find((e) => !e.revertedAt && e.kind === "set_delivered" && e.cardIds.includes(card.id));
@@ -203,7 +205,8 @@ function ResaleOptions({ card, cards, member }: { card: CardView; cards: Cards; 
     undo(`${card.name} marked as a Reseller — ${theirs.length} invoice${theirs.length === 1 ? "" : "s"} moved to Training not required`, ev.id);
   };
   // Resale moves invoices to Training not required — not for Arti (she only marks deliveries).
-  const locked = isDeliveryOnly(member);
+  // Unticking is reverting: only whoever ticked it (or Admin).
+  const locked = isDeliveryOnly(member) || Boolean(resale && !canRevert(member, resale)) || Boolean(reseller && !canRevert(member, reseller));
   const box = (on: boolean) => `flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13.5px] ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${on ? "border-high/40 bg-high-bg" : `border-line ${locked ? "" : "hover:border-line-strong"}`}`;
   return (
     <div className="mt-2">

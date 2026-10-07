@@ -1,5 +1,8 @@
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
+import { canRevert, canWriteEvent, isAdmin } from "@/lib/roles";
+import { cascadeOf } from "@/lib/cascade";
+import type { CardEvent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -24,19 +27,34 @@ export async function GET(request: Request) {
 
 /**
  * The change log is stamped by the server, not the browser: a new entry gets the signed-in member's name
- * ("Zoho Books" notices excepted), an existing entry can only be reverted (recorded under the signed-in name),
- * and only Admin may delete entries. Members are managed by Admin only (new ones come from /api/members/pin).
+ * ("Zoho Books" notices excepted) and must be something that member may do (roles.ts); an existing entry can only be
+ * reverted (recorded under the signed-in name) — your own entries, plus the later steps of their flow that go with them
+ * (cascade.ts); Admin may revert any. Only Admin may delete entries. Members are managed by Admin only.
  */
-async function stampCardEvents(upserts: Doc[], name: string): Promise<Doc[]> {
+async function stampCardEvents(upserts: Doc[], me: { id: string; name: string }): Promise<Doc[]> {
   const col = (await db()).collection<Doc & { _id: string }>("cardEvents");
   const existing = new Map((await col.find({ _id: { $in: upserts.map((u) => u.id) } }).toArray()).map((e) => [e._id, e]));
-  return upserts.map((doc) => {
+  const reverting = upserts.map((d) => existing.get(d.id)).filter((h, i) => h && !h.revertedAt && upserts[i].revertedAt) as (Doc & { _id: string })[];
+  // Which reverts this member may make: their own, and what those take along (others' later steps of the same flow).
+  let allowed: Set<string> | null = null;
+  if (!isAdmin(me) && reverting.length) {
+    const own = reverting.filter((h) => canRevert(me, h as unknown as CardEvent));
+    allowed = new Set(own.map((h) => h._id));
+    if (own.length < reverting.length) {
+      const all = (await col.find({}).toArray()) as unknown as CardEvent[];
+      for (const e of cascadeOf(own as unknown as CardEvent[], all)) allowed.add(e.id);
+    }
+  }
+  return upserts.flatMap((doc): Doc[] => {
     const had = existing.get(doc.id);
-    if (!had) return { ...doc, by: doc.kind === "zoho_change" ? "Zoho Books" : name, revertedAt: undefined, revertedBy: undefined };
+    if (!had) {
+      if (!canWriteEvent(me, doc as unknown as CardEvent)) return []; // not this member's board / action
+      return [{ ...doc, by: doc.kind === "zoho_change" ? "Zoho Books" : me.name, revertedAt: undefined, revertedBy: undefined }];
+    }
     const { _id, ...prev } = had;
-    void _id;
-    if (prev.revertedAt || !doc.revertedAt) return prev as Doc; // nothing to change, or already reverted
-    return { ...prev, revertedAt: new Date().toISOString(), revertedBy: name } as Doc;
+    if (prev.revertedAt || !doc.revertedAt) return [prev as Doc]; // nothing to change, or already reverted
+    if (allowed && !allowed.has(_id)) return [prev as Doc]; // someone else's change
+    return [{ ...prev, revertedAt: new Date().toISOString(), revertedBy: me.name } as Doc];
   });
 }
 
@@ -53,7 +71,7 @@ export async function POST(request: Request) {
   let deletes = (body.deletes ?? []).filter((x) => typeof x === "string");
   try {
     if (body.collection === "cardEvents") {
-      upserts = await stampCardEvents(upserts, me.name);
+      upserts = await stampCardEvents(upserts, me);
       if (!admin) deletes = []; // the log is append-only (Admin clears it via Clear logs)
     }
     const col = (await db()).collection(body.collection);

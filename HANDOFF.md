@@ -27,9 +27,17 @@ business rules that came out of it, how the code works **now**, what was verifie
   owner). Their changes live in MongoDB `cardEvents` — **never write test data to the shared database** (see §9).
 - **Four boards** on `/follow-up`, picked with the **Board** switch (Training · AedSmartx · Fulfillment · Logistics): the
   **Training follow-ups** board (9 columns), the **AedSmartx Training** board (4), the **Fulfillment** board (5) and the
-  **Logistics** board (6, session 4). Access (`boardsFor` in FollowUps.tsx): Priyanka → AedSmartx only; Arti → Logistics
-  only; Shreya → Fulfillment only; Ashish → Training + AedSmartx; Sumit, Shikha, Admin → all four; anyone else → Training.
-  (The owner will send fuller per-person permissions later.) Plus the Dashboard (`/`) and Calendar pages.
+  **Logistics** board (6, session 4). Plus the Dashboard (`/`) and Calendar pages.
+- **Permissions (owner's list, 7 Oct — `src/lib/roles.ts`, enforced by the boards AND by `/api/store`):**
+  Priyanka → AedSmartx only, everything except marking delivered · Arti → Logistics only, everything there · Shreya →
+  Fulfillment only, everything there · Ashish, Shikha, Sumit → all four boards, every action · Admin → everything, and the
+  only one who can clear logs · anyone else → Training. The server refuses a new change outside your board/actions.
+- **Reverting:** your own changes only (Admin: anyone's); Revert / Undo / Unmerge / Restore / Unhide / Undo delivered show only
+  on your own. **Undo runs forward on every board** (`src/lib/cascade.ts`): reverting a step also reverts the later steps of
+  that flow — following merges (e.g. reverting *Training scheduled* also reverts *Training completed* and the invoice / payment
+  merges after it), even when someone else made them; a popup (`RevertConfirm.tsx`, from the store's `pendingRevert`) lists
+  them first. Notes and edits are never rolled back; other boards' steps aren't either (they stop applying, and return if the
+  step is redone). The server allows a revert of others' entries only as part of such a cascade of your own.
 
 ---
 
@@ -394,7 +402,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 112 | "Sync logs are necessary; where is Secrets and variables?" | Sync log built (§3), tested on a throwaway DB (`thinkhealth_qa`, dropped). Secrets: repo → Settings tab → Security → Secrets and variables → Actions. |
 | 113 | "push it to github" | `abd8b1b` (sync log live). |
 | 114 | "How are partially paid payments handled in Payment received?" | Explained (§4 Instalments); live: only Heartstream 2026-01-428 part paid; 5 invoices paid in >1 payment. |
-| 115 | New **Logistics** board for Arti (6 phases, merge STL ↔ fully paid payment by PI, Ready for Packaging → Packages → Shipments → Received by Client, confetti on reached, undo cascades forward). Restated with 5 questions; answers: Arti marks AED deliveries only on Logistics; permissions later; column "AED Delivered Status", blue + "Moved by Priyanka" when moved on, hideable; "Waiting for Certificates" cards shown; Reached → green + simple confetti | Built (§4 Logistics board); full flow, cascade, hide/unhide and role views tested on a throwaway copy of live data (dropped). Not pushed yet. |
+| 115 | New **Logistics** board for Arti (6 phases, merge STL ↔ fully paid payment by PI, Ready for Packaging → Packages → Shipments → Received by Client, confetti on reached, undo cascades forward). Restated with 5 questions; answers: Arti marks AED deliveries only on Logistics; permissions later; column "AED Delivered Status", blue + "Moved by Priyanka" when moved on, hideable; "Waiting for Certificates" cards shown; Reached → green + simple confetti | Built (§4 Logistics board); full flow, cascade, hide/unhide and role views tested on a throwaway copy of live data (dropped). `3b19816`. |
+| 116 | Card wording before the merge: STL "Please Merge to Payment" (green) / "Awaiting Payment" (yellow); payment "Certificates Received, Merge Required" (green) / "Waiting for Certificates" (yellow); push | `b65032e`. |
+| 117 | **Permissions list** (Priyanka AED minus delivered; Arti Logistics; Shreya Fulfillment; Ashish/Shikha/Sumit all; Admin all + sole clear-logs); "any revert reverts everything after it". Asked 3 questions → everyone reverts their own; global cascade; other boards stop applying rather than revert | `roles.ts` + `cascade.ts` + server enforcement + confirm popup (see §1). Tested: server refusals per member with real session tokens, cascade across merges on the training board, Ashish 4 boards, Priyanka no delivered button. |
 
 ---
 
@@ -436,7 +446,7 @@ request in session 1 (twice) and by Shikha once in session 2; Admin/Shikha may c
 - They test with real cards and screenshots; when something "didn't come through", find the concrete cause in the data
   (e.g. #1923's `overdue` status, TDS) before changing rules — and check the real numbers before agreeing to a rule.
 - They like small celebrations (confetti / fireworks) and plain-language summaries they can send to the team.
-- Admin can do everything; members' roles go by name (Priyanka, Arti → AED; Shreya → Fulfillment; Sumit, Shikha → all boards).
+- Permissions: see §1 (roles.ts). Admin does everything and is the only one who clears logs.
 
 ---
 
@@ -487,7 +497,7 @@ No test suite. Pattern used throughout:
 13. Fulfillment board shows only trainings someone marked **Training completed** on the dashboard (4–5 cards on 6 Oct); older
     paid trainings never marked completed don't appear. If the owner wants them, mark them completed on the training board
     (past dates are allowed) or add a start-date rule.
-14. Role rules are client-side only (board access, who marks delivered, Arti delivery-only) — the server stamps who did what
-    but doesn't refuse an event by role. Fine for this team; tighten in `/api/store` if needed.
+14. ~~Role rules client-side only~~ — enforced on the server since 7 Oct (`roles.ts` in `/api/store`). Roles go by member
+    *name* (e.g. a member named "Arti …"); renaming a member changes what they can do.
 15. The GitHub repo is **public** (anyone can read the code; Actions minutes are free). Decide whether it should be private.
 16. The Overview page (`/`) is 131 px wider than a 390 px phone screen (pre-existing; Follow-ups and Calendar fit).

@@ -12,6 +12,7 @@ import { useStore } from "@/lib/store";
 import { Avatar, IconButton, Segmented, btn, inputCls, selectCls } from "../ui";
 import { DaysPicker } from "./DaysPicker";
 import { celebrate } from "@/lib/confetti";
+import { canRevert } from "@/lib/roles";
 
 export type BoardOptions = { typeOptions: string[]; sectorOptions: string[]; orgId?: string };
 type Cards = Map<string, CardView>;
@@ -823,14 +824,15 @@ function NotesSection({ card, member, options }: { card: CardView; member: Membe
 }
 
 /** Lead → Quote → PI trail of what was merged into this card, with unmerge on each direct merge. */
-export function ChainSection({ card, cards, onUnmerge }: { card: CardView; cards: Cards; onUnmerge?: (fromId: string) => void }) {
+export function ChainSection({ card, cards, onUnmerge, canUnmerge }: { card: CardView; cards: Cards; onUnmerge?: (fromId: string) => void; canUnmerge?: (fromId: string) => boolean }) {
   if (card.historyIds.length < 2) return null;
   // An invoice's instalments travel together: one "Payment Received · n payments" chip, no unmerge of their own
   // (unmerging the invoice separates them again).
   const instalments = card.kind === "payment" && (card.payments?.length ?? 0) > 1;
   const chain = [...card.historyIds].map((id) => cards.get(id)).filter((c): c is CardView => !!c && (!instalments || c.kind !== "payment" || c.id === card.id))
     .sort((a, b) => STAGE_RANK[a.kind] - STAGE_RANK[b.kind]);
-  const unmergeable = card.mergedFrom.filter((id) => kindOfId(id) !== "payment");
+  // Only merges you made can be unmerged (Admin: any).
+  const unmergeable = card.mergedFrom.filter((id) => kindOfId(id) !== "payment" && (!canUnmerge || canUnmerge(id)));
   return (
     <Section
       title="Merged"
@@ -888,7 +890,7 @@ export function ChangeLog({ cardIds, cards, member, kinds }: { cardIds: string[]
                     <Avatar name={e.by} />
                     <span className="truncate">{e.by} · {fmtDate(e.at)}, {fmtTime(e.at)}</span>
                   </span>
-                  {!e.revertedAt && !zoho && (
+                  {!e.revertedAt && !zoho && canRevert(member, e) && (
                     <button className="shrink-0 rounded-md px-2 py-0.5 text-[12px] font-semibold text-brand hover:bg-brand-soft" onClick={() => revertCardEvent(e.id, member.name)}>
                       Revert
                     </button>
@@ -1135,14 +1137,17 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
     onClose();
   };
   const ownDelete = cardEvents.some((e) => !e.revertedAt && e.kind === "delete" && e.cardIds.includes(card.id));
+  const canRestore = cardEvents.some((e) => !e.revertedAt && e.kind === "delete" && e.cardIds.includes(card.id) && canRevert(member, e));
   const restore = () => {
     const ev = activeEvent((e) => e.kind === "delete" && e.cardIds.includes(card.id));
     if (ev) revertCardEvent(ev.id, member.name);
   };
+  const mergeEvent = (fromId: string) => activeEvent((e) => e.kind === "merge" && e.cardIds[0] === fromId && e.cardIds[1] === card.id);
   const unmerge = (fromId: string) => {
-    const ev = activeEvent((e) => e.kind === "merge" && e.cardIds[0] === fromId && e.cardIds[1] === card.id);
+    const ev = mergeEvent(fromId);
     if (ev) revertCardEvent(ev.id, member.name);
   };
+  const canUnmerge = (fromId: string) => { const ev = mergeEvent(fromId); return Boolean(ev && canRevert(member, ev)); };
 
   const sub = card.kind === "lead"
     ? "Zoho customer"
@@ -1187,7 +1192,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
         {card.deleted && (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-high-bg px-4 py-3 text-[14px] text-high">
             {ownDelete ? (card.kind === "potential" ? "Removed from Potential training." : "This card is deleted; the customer is back in Leads.") : "Hidden because the card it was merged into was deleted — restore that card to bring it back."}
-            {ownDelete && <button className="font-semibold underline" onClick={restore}>Restore</button>}
+            {ownDelete && canRestore && <button className="font-semibold underline" onClick={restore}>Restore</button>}
           </div>
         )}
         {card.kind === "potential" && !card.flaggedWith.length && !card.mergedInto && !card.deleted && (() => {
@@ -1209,7 +1214,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
           <div className="space-y-3">
             {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
             <NotesSection card={card} member={member} options={options} />
-            <ChainSection card={card} cards={cards} onUnmerge={unmerge} />
+            <ChainSection card={card} cards={cards} onUnmerge={unmerge} canUnmerge={canUnmerge} />
             <PaymentSection card={card} cards={cards} />
           </div>
           <div className="space-y-3">
@@ -1347,7 +1352,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
     toast({
       text: steps.map(([f, t]) => `${KIND_LABEL[f.kind]} → ${KIND_LABEL[t.kind]}`).join(", ") + ` merged into ${cardLabel(target)}`,
       actionLabel: "Undo",
-      onAction: () => evs.forEach((e) => revertCardEvent(e.id, member.name)),
+      onAction: () => revertCardEvent(evs.map((e) => e.id), member.name),
     });
     onOpen(target.id);
   };
