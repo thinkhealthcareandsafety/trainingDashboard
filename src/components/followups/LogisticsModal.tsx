@@ -201,14 +201,14 @@ function LogisticsSteps({ card, cards, member, onSwitch }: { card: CardView; car
   if (l.column === "stl") {
     body = partner ? (
       <>
-        <span className="text-[13.5px] text-ink-2"><b className="text-low">Payment received</b> — {paidLine(partner)}</span>
+        <span className="text-[13.5px] text-ink-2"><b className="text-low">Please Merge to Payment</b> — {paidLine(partner)}</span>
         {mergeBtn}
       </>
-    ) : <span className="text-[13.5px] font-medium text-medium">{l.waiting}</span>;
+    ) : <span className="text-[13.5px]"><b className="text-medium">Awaiting Payment</b><span className="text-muted"> — {l.waiting}</span></span>;
   } else if (l.column === "payment" && !l.merged) {
     body = partner ? (
       <>
-        <span className="text-[13.5px] text-ink-2"><b className="text-low">Certificates sent to Logistics</b> for this training</span>
+        <span className="text-[13.5px] text-ink-2"><b className="text-low">Certificates Received, Merge Required</b> — sent to Logistics for this training</span>
         {mergeBtn}
       </>
     ) : (

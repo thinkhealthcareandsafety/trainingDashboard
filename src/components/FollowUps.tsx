@@ -256,9 +256,12 @@ const isReady = (c: CardView) => Boolean(c.aed && !c.logiAed && c.delivered && !
  */
 function logiBorder(c: CardView): string {
   if (c.logiAed) return `border-2 ${c.logiAed.moved ? "border-info" : c.delivered ? "border-low" : "border-medium"}`;
-  const s = c.logistics!.step;
+  const l = c.logistics!;
+  const s = l.step;
   if (s === "pack_process" || s === "ship_dispatched" || s === "received") return "border-2 border-low";
   if (s === "pack_hold" || s === "ship_hold" || s === "expected") return "border-2 border-medium";
+  // Not merged yet: green when its partner is there (merge it), yellow while waiting for payment / certificates.
+  if (l.column === "stl" || (l.column === "payment" && !l.merged)) return `border-2 ${flagged(c) ? "border-low" : "border-medium"}`;
   return `border hover:border-line-strong ${flagged(c) ? "border-high/40" : "border-line"}`;
 }
 
@@ -267,8 +270,8 @@ function logiStatus(c: CardView): { text: string; tone: string } | undefined {
   const l = c.logistics!;
   if (c.logiAed) return c.logiAed.hidden ? { text: "Hidden", tone: "text-faint" } : undefined;
   switch (l.column) {
-    case "stl": return flagged(c) ? { text: "Payment received — merge", tone: "text-high" } : { text: "Waiting for payment", tone: "text-medium" };
-    case "payment": return !l.merged ? (flagged(c) ? { text: "Certificates sent — merge", tone: "text-high" } : { text: "Waiting for Certificates", tone: "text-medium" }) : { text: "Ready for packaging?", tone: "text-ink-2" };
+    case "stl": return flagged(c) ? { text: "Please Merge to Payment", tone: "text-low" } : { text: "Awaiting Payment", tone: "text-medium" };
+    case "payment": return !l.merged ? (flagged(c) ? { text: "Certificates Received, Merge Required", tone: "text-low" } : { text: "Waiting for Certificates", tone: "text-medium" }) : { text: "Ready for packaging?", tone: "text-ink-2" };
     case "packages": return l.step === "pack_process" ? { text: "Packaging in Process", tone: "text-low" } : l.step === "pack_hold" ? { text: "On hold", tone: "text-medium" } : { text: "To be packed", tone: "text-ink-2" };
     case "shipments": return l.step === "ship_dispatched" ? { text: "Dispatched", tone: "text-low" } : l.step === "ship_hold" ? { text: "On hold", tone: "text-medium" } : { text: "Ready to dispatch", tone: "text-ink-2" };
     case "received": return l.step === "received" ? { text: "Reached the client", tone: "text-low" } : { text: `Expected ${l.expected ? dateLong(l.expected) : "—"}`, tone: "text-medium" };

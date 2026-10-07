@@ -150,9 +150,9 @@ export function buildLogisticsBoard(
     const holder = board.cards.get(f.historyIds[1]);
     const waiting = partner ? undefined
       : holder?.kind === "invoice" && holder.invoice
-        ? (holder.received ? `Waiting for payment — ${partPaidText(holder.invoice, holder.received)}.` : `Waiting for payment — invoice ${holder.docNumber} isn't paid yet.`)
-        : holder?.kind === "payment" ? "Waiting for the payment to be merged with its invoice on the training board."
-        : "Waiting for payment — no invoice raised yet.";
+        ? (holder.received ? `${partPaidText(holder.invoice, holder.received)}.` : `Invoice ${holder.docNumber} isn't paid yet.`)
+        : holder?.kind === "payment" ? "The payment isn't merged with its invoice on the training board yet."
+        : "No invoice raised yet.";
     // Labelled by its PI (the money is the payment card's, shown once they're merged).
     const pi = f.pi ?? f.linkedPI;
     const card: CardView = {
