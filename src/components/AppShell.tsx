@@ -9,6 +9,7 @@ import { MembersScreen } from "./followups/MembersScreen";
 import { Avatar, btn } from "./ui";
 import type { Member } from "@/lib/types";
 import { Ticker } from "./Ticker";
+import { SyncLogWindow } from "./SyncLog";
 import { effectiveStatus } from "@/lib/followups";
 
 const NAV = [
@@ -114,8 +115,14 @@ const SyncIcon = ({ spin }: { spin?: boolean }) => (
   </svg>
 );
 
-/** Sidebar: Sync now, then Last sync / Next sync (red when the last attempt failed). */
-function SyncPanel({ sync, compact }: { sync: ZohoSync; compact?: boolean }) {
+const LogIcon = () => (
+  <svg viewBox="0 0 20 20" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M6.5 5.5h9M6.5 10h9M6.5 14.5h9M3.5 5.5h.01M3.5 10h.01M3.5 14.5h.01" />
+  </svg>
+);
+
+/** Sidebar: Sync now, then Last sync / Next sync (red when the last attempt failed), and the Sync log. */
+function SyncPanel({ sync, compact, onLog }: { sync: ZohoSync; compact?: boolean; onLog?: () => void }) {
   const { now } = useStore();
   const { info, syncing, syncNow } = sync;
   if (info?.enabled === false) return null;
@@ -148,6 +155,12 @@ function SyncPanel({ sync, compact }: { sync: ZohoSync; compact?: boolean }) {
         {syncing ? "Syncing…" : "Sync now"}
       </button>
       <div className="mt-1.5 space-y-0.5 px-1 text-[12px] leading-snug text-muted">{lines}</div>
+      {onLog && (
+        <button onClick={onLog} className="mt-1 flex h-7 w-full items-center gap-2 rounded-lg px-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" title="Every sync, hour by hour">
+          <LogIcon />
+          Sync log
+        </button>
+      )}
     </div>
   );
 }
@@ -206,6 +219,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   const router = useRouter();
   const zoho = useZohoSync(Boolean(session.ready && session.member));
+  const [logOpen, setLogOpen] = useState(false);
 
   // One sign-in for the whole site, before anything else shows; after it, the Dashboard is the landing page.
   if (!session.ready) return null;
@@ -256,6 +270,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SyncIcon spin={zoho.syncing} />
               </button>
             )}
+            {zoho.info?.enabled !== false && (
+              <button onClick={() => setLogOpen(true)} aria-label="Sync log" title="Sync log" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
+                <LogIcon />
+              </button>
+            )}
             <button onClick={toggleTheme} aria-label="Appearance" title="Appearance" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
             </button>
@@ -295,7 +314,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button onClick={session.signOut} className="rounded-md px-1.5 py-0.5 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink">Sign out</button>
             </div>
             {storageWarn && <StorageStatus />}
-            <SyncPanel sync={zoho} />
+            <SyncPanel sync={zoho} onLog={() => setLogOpen(true)} />
             <button onClick={toggleTheme} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
               Appearance
@@ -309,6 +328,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
             <span className="text-[14px] font-semibold">ThinkHealth</span>
             <div className="ml-auto w-48"><SyncPanel sync={zoho} compact /></div>
+            {zoho.info?.enabled !== false && (
+              <button onClick={() => setLogOpen(true)} aria-label="Sync log" title="Sync log" className="-ml-2 grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink">
+                <LogIcon />
+              </button>
+            )}
           </header>
           <main key={path} className={`rise mx-auto px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10 ${path.startsWith("/follow-up") ? "max-w-none" : "max-w-[1680px]"}`}>{children}</main>
         </div>
@@ -324,6 +348,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         ))}
       </nav>
+
+      {logOpen && <SyncLogWindow open onClose={() => setLogOpen(false)} />}
 
       {/* Toasts */}
       <div className="fixed bottom-20 left-1/2 z-[60] flex -translate-x-1/2 flex-col gap-2 lg:bottom-6">

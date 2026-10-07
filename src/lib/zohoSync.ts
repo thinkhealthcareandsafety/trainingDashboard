@@ -88,6 +88,58 @@ type SyncState = {
 const col = async <T extends { _id: string }>(name: string) => (await db()).collection<T>(name);
 const kv = async () => (await db()).collection<{ _id: string } & Record<string, unknown>>("kv");
 
+/* ---------------- Sync log ---------------- */
+
+/** What started a sync: an open page's heartbeat, a scheduler (GitHub / Vercel cron), a data request, or Sync now. */
+export type SyncTrigger = { trigger: "heartbeat" | "scheduler" | "page" | "manual" | "first"; source?: string; by?: string };
+export type DocChange = { kind: Kind; number: string; customer: string; action: "new" | "updated" | "removed" };
+/**
+ * One line per sync (and per scheduler call that found nothing due), kept 90 days in `zohoSyncLog` — so "did the
+ * 3 pm sync happen, and what did it bring in?" can be answered later. Writing it never breaks a sync.
+ */
+export type SyncLogEntry = SyncTrigger & {
+  at: Date; // start
+  ms?: number;
+  result: "ok" | "failed" | "paused" | "not due" | "busy";
+  mode?: "full" | "quick";
+  error?: string;
+  calls?: number;
+  docs?: DocChange[];
+  payments?: string[]; // invoice numbers whose payments were (re)read
+  customers?: string[]; // new or changed customers
+  customersRemoved?: number;
+};
+const LOG_DAYS = 90;
+const LOG_LIST_MAX = 60; // names kept per entry (counts stay exact)
+const NUMBER_KEY: Record<Kind, string> = { estimates: "estimate_number", salesorders: "salesorder_number", invoices: "invoice_number" };
+const G2 = globalThis as unknown as { __thLogIndex?: Promise<unknown> };
+const syncLog = async () => {
+  const c = (await db()).collection<SyncLogEntry>("zohoSyncLog");
+  G2.__thLogIndex ??= c.createIndex({ at: 1 }, { expireAfterSeconds: LOG_DAYS * 86_400 }).catch(() => (G2.__thLogIndex = undefined));
+  return c;
+};
+export async function writeSyncLog(e: SyncLogEntry): Promise<void> {
+  try {
+    const cap = <T>(xs?: T[]) => (xs && xs.length > LOG_LIST_MAX ? xs.slice(0, LOG_LIST_MAX) : xs);
+    const row = Object.fromEntries(Object.entries({ ...e, docs: cap(e.docs), payments: cap(e.payments), customers: cap(e.customers) }).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length)));
+    await (await syncLog()).insertOne(row as SyncLogEntry);
+  } catch (err) {
+    console.error(`[zoho sync] could not write the sync log: ${err}`);
+  }
+}
+/** Log entries for one IST calendar day (`YYYY-MM-DD`), oldest first, plus that day's Zoho call count. */
+export async function readSyncLog(day: string) {
+  const start = new Date(Date.parse(`${day}T00:00:00Z`) - IST_MS);
+  const end = new Date(start.getTime() + 86_400_000);
+  const c = await syncLog();
+  const [entries, first, calls] = await Promise.all([
+    c.find({ at: { $gte: start, $lt: end } }, { projection: { _id: 0 } }).sort({ at: 1 }).toArray(),
+    c.find({}, { projection: { at: 1 } }).sort({ at: 1 }).limit(1).next(),
+    (await kv()).findOne({ _id: `zoho_calls:${day}` }),
+  ]);
+  return { day, entries, calls: Number(calls?.n ?? 0), logSince: first?.at, hours: SYNC_HOURS, fullHours: FULL_HOURS };
+}
+
 async function loadState(): Promise<SyncState> {
   const s = (await (await kv()).findOne({ _id: "zoho_state" })) as SyncState | null;
   return s ?? { _id: "zoho_state", version: 0, cursors: {} };
@@ -114,9 +166,10 @@ export async function zohoCallsToday(): Promise<number> {
   const d = await (await kv()).findOne({ _id: `zoho_calls:${istDay()}` });
   return Number(d?.n ?? 0);
 }
-async function countCalls() {
+async function countCalls(): Promise<number> {
   const n = takeZohoCalls();
   if (n) await (await kv()).updateOne({ _id: `zoho_calls:${istDay()}` }, { $inc: { n } } as never, { upsert: true });
+  return n;
 }
 
 /* ---------------- Sync ---------------- */
@@ -126,11 +179,15 @@ function classify(kind: Kind, d: ZDoc, sets: ItemSets) {
   return { training: ids.some((i) => sets.training.has(i)), aed: kind === "invoices" && ids.some((i) => sets.aed.has(i)) };
 }
 
-/** Download, classify and store changed documents; returns how many tracked documents changed. */
-async function storeDocs(kind: Kind, rows: ZDoc[], sets: ItemSets): Promise<number> {
+/** Download, classify and store changed documents; returns how many tracked documents changed (each noted in `out`). */
+async function storeDocs(kind: Kind, rows: ZDoc[], sets: ItemSets, out: DocChange[]): Promise<number> {
   const docs = await col<StoredDoc>("zohoDocs");
   const existing = new Map((await docs.find({ _id: { $in: rows.map((r) => `${kind}:${docIdOf(kind, r)}`) } }, { projection: { doc: 0 } }).toArray()).map((d) => [d._id, d]));
   let changed = 0;
+  const note = (r: ZDoc, action: DocChange["action"]) => {
+    changed++;
+    out.push({ kind, number: String(r[NUMBER_KEY[kind]] ?? docIdOf(kind, r)), customer: String(r.customer_name ?? ""), action });
+  };
   await pool(rows, 5, async (r) => {
     const id = docIdOf(kind, r);
     const key = `${kind}:${id}`;
@@ -138,23 +195,23 @@ async function storeDocs(kind: Kind, rows: ZDoc[], sets: ItemSets): Promise<numb
     const had = existing.get(key);
     if (had && had.lmt === lmt) return;
     if (String(r.status) === "void") {
-      if (had) (await docs.deleteOne({ _id: key }), changed++);
+      if (had) (await docs.deleteOne({ _id: key }), note(r, "removed"));
       return;
     }
     const d = await fetchDetail(kind, id);
     const { training, aed } = classify(kind, d, sets);
     if (!training && !aed) {
-      if (had) (await docs.deleteOne({ _id: key }), changed++); // no longer has a tracked item
+      if (had) (await docs.deleteOne({ _id: key }), note(r, "removed")); // no longer has a tracked item
       return;
     }
     await docs.replaceOne({ _id: key }, { kind, id, lmt, date: String(d.date), status: String(d.status), training, aed, doc: d }, { upsert: true });
-    changed++;
+    note(r, had ? "updated" : "new");
   });
   return changed;
 }
 
 /** Full check (first sync, then every 6 h): every tracked document, by item; removes what Zoho no longer has. */
-async function reconcile(state: SyncState, sets: ItemSets): Promise<number> {
+async function reconcile(state: SyncState, sets: ItemSets, out: DocChange[]): Promise<number> {
   const docs = await col<StoredDoc>("zohoDocs");
   const since = trainingSince();
   let changed = 0;
@@ -168,9 +225,13 @@ async function reconcile(state: SyncState, sets: ItemSets): Promise<number> {
       for (const r of rows) if (String(r.status) !== "void") listed.set(docIdOf(kind, r), r);
     }
     const cursor = await newestChange(kind, since); // incremental syncing continues from here
-    changed += await storeDocs(kind, [...listed.values()], sets);
-    const gone = (await docs.find({ kind }, { projection: { id: 1 } }).toArray()).filter((d) => !listed.has(d.id)).map((d) => d._id);
-    if (gone.length) (await docs.deleteMany({ _id: { $in: gone } }), (changed += gone.length));
+    changed += await storeDocs(kind, [...listed.values()], sets, out);
+    const gone = (await docs.find({ kind }, { projection: { id: 1, [`doc.${NUMBER_KEY[kind]}`]: 1, "doc.customer_name": 1 } }).toArray()).filter((d) => !listed.has(d.id));
+    if (gone.length) {
+      await docs.deleteMany({ _id: { $in: gone.map((d) => d._id) } });
+      changed += gone.length;
+      for (const d of gone) out.push({ kind, number: String(d.doc?.[NUMBER_KEY[kind]] ?? d.id), customer: String(d.doc?.customer_name ?? ""), action: "removed" });
+    }
     if (cursor) state.cursors[kind] = cursor;
   }
   state.reconcileAt = Date.now();
@@ -178,12 +239,12 @@ async function reconcile(state: SyncState, sets: ItemSets): Promise<number> {
 }
 
 /** Between full checks: only documents changed since the last sync (newest change first). */
-async function incremental(state: SyncState, sets: ItemSets): Promise<number> {
+async function incremental(state: SyncState, sets: ItemSets, out: DocChange[]): Promise<number> {
   let changed = 0;
   for (const kind of KINDS) {
     const rows = await listChangedSince(kind, trainingSince(), state.cursors[kind]);
     if (!rows.length) continue;
-    changed += await storeDocs(kind, rows, sets);
+    changed += await storeDocs(kind, rows, sets, out);
     state.cursors[kind] = rows.map(lmtOf).reduce((a, b) => (b > a ? b : a), state.cursors[kind] ?? "");
   }
   return changed;
@@ -193,7 +254,7 @@ async function incremental(state: SyncState, sets: ItemSets): Promise<number> {
  * Payments, for every training invoice that has received money and changed since its payments were read. Not just
  * "paid" / "partially_paid": a part-paid invoice past its due date is "overdue" in Zoho (e.g. 2026-01-428, payment #1923).
  */
-async function syncPayments(sets: ItemSets): Promise<number> {
+async function syncPayments(sets: ItemSets, out: string[]): Promise<number> {
   const docs = await col<StoredDoc>("zohoDocs");
   const pays = await col<StoredPayments>("zohoPayments");
   const paid = await docs.find(
@@ -205,6 +266,7 @@ async function syncPayments(sets: ItemSets): Promise<number> {
   await pool(stale, 4, async (d) => {
     const rows = await fetchInvoicePaymentRows(d.id);
     await pays.replaceOne({ _id: d.id }, { lmt: String(d.doc.last_modified_time ?? ""), rows }, { upsert: true });
+    out.push(String(d.doc.invoice_number ?? d.id));
   });
   void sets;
   return stale.length;
@@ -214,16 +276,18 @@ async function syncPayments(sets: ItemSets): Promise<number> {
  * One sync. Returns "busy" if another instance is syncing, "skipped" when the daily budget is nearly used.
  * `force` = someone pressed "Sync now": it runs even when the budget has paused automatic syncing.
  */
-export async function runSync({ force = false }: { force?: boolean } = {}): Promise<"done" | "busy" | "skipped"> {
+export async function runSync({ force = false, ...who }: { force?: boolean } & Partial<SyncTrigger> = {}): Promise<"done" | "busy" | "skipped"> {
   if (!zohoConfigured() || !mongoConfigured()) return "skipped";
   const owner = await acquireLock();
   if (!owner) return "busy";
   const state = await loadState();
+  const log: SyncLogEntry = { trigger: who.trigger ?? (force ? "manual" : "page"), source: who.source, by: who.by, at: new Date(), result: "ok", docs: [], payments: [], customers: [] };
   let changed = 0;
   let error: string | undefined;
   try {
     if ((await zohoCallsToday()) >= DAILY_LIMIT * 0.95 && !force) {
       error = "Zoho's daily API allowance is nearly used — automatic syncing paused until tomorrow (Sync now still works).";
+      log.result = "paused";
       return "skipped";
     }
     const now = Date.now();
@@ -231,6 +295,7 @@ export async function runSync({ force = false }: { force?: boolean } = {}): Prom
     // Items decide which documents are tracked (Training Services / the four Follow-ups items / All AEDs).
     // Full check at the 9 am / 2 pm slots (or whenever one was missed, or on an empty database).
     const fullDue = !state.reconcileAt || state.reconcileAt < lastSlot(FULL_HOURS, now) || KINDS.some((k) => !state.cursors[k]);
+    log.mode = fullDue ? "full" : "quick";
     let items = ((await store.findOne({ _id: "zoho_items" }))?.items as ZItem[] | undefined) ?? undefined;
     if (!items?.length || fullDue) {
       items = await fetchItems();
@@ -244,8 +309,10 @@ export async function runSync({ force = false }: { force?: boolean } = {}): Prom
     if (!state.customersAt || fullDue) {
       const all = await fetchAllLeads();
       if (all.length) {
+        const had = new Map((await customers.find({}, { projection: { lastModified: 1 } }).toArray()).map((l) => [l._id, l.lastModified]));
+        log.customers = all.filter((l) => had.get(l.contactId) !== l.lastModified).map((l) => l.name);
         await customers.bulkWrite(all.map((l) => ({ replaceOne: { filter: { _id: l.contactId }, replacement: clean(l), upsert: true } })), { ordered: false });
-        await customers.deleteMany({ _id: { $nin: all.map((l) => l.contactId) } });
+        log.customersRemoved = (await customers.deleteMany({ _id: { $nin: all.map((l) => l.contactId) } })).deletedCount || undefined;
       }
       state.customersAt = now;
       changed++;
@@ -255,6 +322,7 @@ export async function runSync({ force = false }: { force?: boolean } = {}): Prom
       const fresh = recent.filter((l) => have.get(l.contactId) !== l.lastModified);
       if (fresh.length) {
         await customers.bulkWrite(fresh.map((l) => ({ replaceOne: { filter: { _id: l.contactId }, replacement: clean(l), upsert: true } })), { ordered: false });
+        log.customers = fresh.map((l) => l.name);
         changed++;
       }
     }
@@ -265,12 +333,13 @@ export async function runSync({ force = false }: { force?: boolean } = {}): Prom
       changed++;
     }
     // Documents and payments.
-    changed += fullDue ? await reconcile(state, sets) : await incremental(state, sets);
-    changed += await syncPayments(sets);
+    changed += fullDue ? await reconcile(state, sets, log.docs!) : await incremental(state, sets, log.docs!);
+    changed += await syncPayments(sets, log.payments!);
     return "done";
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error(`[zoho sync] failed: ${error}`); // shows in Vercel's logs
+    log.result = "failed";
     return "done";
   } finally {
     state.attemptAt = Date.now();
@@ -278,8 +347,9 @@ export async function runSync({ force = false }: { force?: boolean } = {}): Prom
     if (!error) state.syncedAt = new Date().toISOString();
     state.error = error;
     await (await kv()).replaceOne({ _id: "zoho_state" }, state as unknown as Record<string, unknown>, { upsert: true });
-    await countCalls();
+    log.calls = await countCalls();
     await releaseLock(owner);
+    await writeSyncLog({ ...log, ms: Date.now() - log.at.getTime(), error });
   }
 }
 
@@ -351,7 +421,7 @@ export async function getSnapshot(force = false): Promise<Snapshot | null> {
   let snap = await readSnapshot();
   if (!snap) {
     // First ever sync: run it, or wait for the one another request already started (up to ~4.5 min).
-    if ((await runSync()) === "busy") {
+    if ((await runSync({ trigger: "first" })) === "busy") {
       for (let i = 0; i < 90 && !snap; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         snap = await readSnapshot();
@@ -365,17 +435,17 @@ export async function getSnapshot(force = false): Promise<Snapshot | null> {
     return snap;
   }
   const retryOk = !snap.attemptAt || Date.now() - snap.attemptAt > RETRY_MS;
-  if (scheduledSyncDue(snap.syncedAt) && retryOk) after(() => runSync().then(() => undefined, () => undefined));
+  if (scheduledSyncDue(snap.syncedAt) && retryOk) after(() => runSync({ trigger: "page" }).then(() => undefined, () => undefined));
   return snap;
 }
 
 /** "Sync now": runs a sync and waits for it — at most once a minute for everyone together. False if it was too soon. */
-export async function forceSync(): Promise<boolean> {
+export async function forceSync(by?: string): Promise<boolean> {
   const store = await kv();
   const last = Number((await store.findOne({ _id: "zoho_last_forced" }))?.at ?? 0);
   if (Date.now() - last <= FORCE_GAP_MS) return false;
   await store.replaceOne({ _id: "zoho_last_forced" }, { at: Date.now() }, { upsert: true });
-  await runSync({ force: true });
+  await runSync({ force: true, trigger: "manual", by });
   return true;
 }
 
@@ -385,10 +455,10 @@ export async function forceSync(): Promise<boolean> {
  * response has gone, so the hourly sync happens whenever anyone has the dashboard open; the external scheduler
  * (GitHub Actions → /api/cron/sync) covers the hours when nobody does.
  */
-export async function syncIfDue(): Promise<void> {
+export async function syncIfDue(who: () => Promise<string | undefined> = async () => undefined): Promise<void> {
   const state = await loadState();
   const retryOk = !state.attemptAt || Date.now() - state.attemptAt > RETRY_MS;
-  if (scheduledSyncDue(state.syncedAt) && retryOk) await runSync();
+  if (scheduledSyncDue(state.syncedAt) && retryOk) await runSync({ trigger: "heartbeat", by: await who() });
 }
 
 export type SyncStatus = { syncedAt?: string; error?: string; due: boolean; running: boolean; nextAt: number };
