@@ -45,6 +45,7 @@ function boardOfCard(id: string): BoardKind {
 /** May this member record this (new) change? Zoho notices are recorded by whoever's browser notices them. */
 export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): boolean {
   if (e.kind === "aed_email") return false; // only the server records a sent email (/api/mail/aed), once it has gone out
+  if (e.kind === "set_name") return false; // the customer's name is their Zoho identity — nobody renames it here
   if (e.kind === "zoho_change" || hasFullAccess(m)) return true;
   const boards = boardsFor(m);
   return e.cardIds.length > 0 && e.cardIds.every((id) => {

@@ -1014,7 +1014,11 @@ export function Editor({ card, draft, setDraft, options }: { card: CardView; dra
       <Section title="Customer">
         <dl>
           <Row label="Customer name" required>
-            <input className={`${inputCls} !h-9 text-[14px]`} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label="Customer name" />
+            {/* The customer's name is their identity in Zoho Books (it links every card to them) — never edited here. */}
+            <div className="flex items-center gap-1.5 text-[15px] font-semibold text-ink" title="The customer name comes from Zoho Books and can't be changed here — add an alias instead">
+              {draft.name} <span className="text-faint"><Lock /></span>
+            </div>
+            <div className="text-[12px] text-muted">From Zoho Books — can&apos;t be changed. Add an alias instead.</div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {draft.aliases.map((a) => (
                 <span key={a} className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2.5 py-0.5 text-[12.5px] text-ink-2">
@@ -1057,17 +1061,17 @@ export function diff(card: CardView, d: Draft, by: string): Omit<CardEvent, "id"
   const base = { cardIds: [card.id], by };
   const out: Omit<CardEvent, "id" | "at">[] = [];
   const ev = (kind: CardEventKind, extra: Partial<CardEvent>) => out.push({ ...base, kind, ...extra });
-  if (d.name.trim() !== card.name) ev("set_name", { value: d.name.trim(), before: card.name });
   // Aliases belong to the customer (every card of theirs shows them), so the event names the customer too.
   for (const a of card.aliases) if (!d.aliases.includes(a)) ev("remove_alias", { value: a, ref: card.customerId });
   for (const a of d.aliases) if (!card.aliases.includes(a)) ev("add_alias", { value: a, ref: card.customerId });
   const keep = (list: EntryDraft[], key: (v: string) => string) => new Set(list.filter((e) => !e.isNew).map((e) => key(e.value)));
   const keptEmails = keep(d.emails, normEmail);
   const keptPhones = keep(d.phones, normPhone);
-  for (const e of card.emails) if (!keptEmails.has(normEmail(e.value))) ev("remove_email", { value: e.value });
-  for (const p of card.phones) if (!keptPhones.has(normPhone(p.value))) ev("remove_phone", { value: p.value });
-  for (const e of [...d.emails].reverse()) if (e.isNew) ev("add_email", { value: e.value, phase: e.phases[0] });
-  for (const p of [...d.phones].reverse()) if (p.isNew) ev("add_phone", { value: p.value, phase: p.phases[0] });
+  // Numbers and emails also belong to the customer: added or removed here, they change on every card under that name.
+  for (const e of card.emails) if (!keptEmails.has(normEmail(e.value))) ev("remove_email", { value: e.value, ref: card.customerId });
+  for (const p of card.phones) if (!keptPhones.has(normPhone(p.value))) ev("remove_phone", { value: p.value, ref: card.customerId });
+  for (const e of [...d.emails].reverse()) if (e.isNew) ev("add_email", { value: e.value, phase: e.phases[0], ref: card.customerId });
+  for (const p of [...d.phones].reverse()) if (p.isNew) ev("add_phone", { value: p.value, phase: p.phases[0], ref: card.customerId });
   if (d.type !== (card.type ?? "")) ev("set_type", { value: d.type, before: card.type ?? "" });
   if (d.sector !== (card.sector ?? "")) ev("set_sector", { value: d.sector, before: card.sector ?? "" });
   return out;

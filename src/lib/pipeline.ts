@@ -137,19 +137,19 @@ export interface AedOutreach {
   lastCall?: { at: string; by: string; to: string; person?: string; cardId: string };
 }
 
-/** Contacted: the customer's events (numbers, emails, calls) replayed over what Zoho has for this invoice. */
-function aedOutreach(inv: AedInvoice, contact: ZohoLead | undefined, own: CardEvent[], shared: CardEvent[]): AedOutreach {
-  const base = new Map<string, AedContact>();
-  const addBase = (v: string | undefined, person: string | undefined, source: string) => {
-    const k = v ? normPhone(v) : "";
-    if (k && !base.has(k)) base.set(k, { value: v!.trim(), person: person?.trim() || undefined, source });
+/**
+ * Contacted: Priyanka's events (numbers, emails, calls) replayed over the card's own numbers and emails — Zoho's plus
+ * any added by editing a card of this customer, on any board.
+ */
+function aedOutreach(card: CardView, inv: AedInvoice, own: CardEvent[], shared: CardEvent[]): AedOutreach {
+  // Who a number / email belongs to, when Zoho says so.
+  const personOf = (v: string, isPhone: boolean) => {
+    if (isPhone && inv.shipPhone && normPhone(inv.shipPhone) === normPhone(v)) return inv.shipAttention?.trim() || undefined;
+    const c = inv.contacts.find((x) => (isPhone ? [x.mobile, x.phone].some((p) => p && normPhone(p) === normPhone(v)) : x.email && normEmail(x.email) === normEmail(v)));
+    return c?.name?.trim() || undefined;
   };
-  addBase(inv.shipPhone, inv.shipAttention, "Ship-to");
-  for (const c of inv.contacts) for (const p of [c.mobile, c.phone]) addBase(p, c.name, "Invoice");
-  if (contact) for (const p of [contact.mobile, contact.phone]) addBase(p, undefined, "Customer");
-  const baseMail = new Map<string, AedContact>();
-  for (const c of inv.contacts) if (c.email && !baseMail.has(normEmail(c.email))) baseMail.set(normEmail(c.email), { value: c.email.trim(), person: c.name?.trim() || undefined, source: "Invoice" });
-  if (contact?.email && !baseMail.has(normEmail(contact.email))) baseMail.set(normEmail(contact.email), { value: contact.email.trim(), source: "Customer" });
+  const base = new Map<string, AedContact>(card.phones.map((p) => [normPhone(p.value), { value: p.value, person: personOf(p.value, true), source: p.phases.join(" · ") }]));
+  const baseMail = new Map<string, AedContact>(card.emails.map((m) => [normEmail(m.value), { value: m.value, person: personOf(m.value, false), source: m.phases.join(" · ") }]));
 
   const added = new Map<string, AedContact>();
   const addedMail = new Map<string, AedContact>();
@@ -352,7 +352,7 @@ function apply(d: Draft, events: CardEvent[]) {
   for (const e of events) {
     const v = e.value ?? "";
     switch (e.kind) {
-      case "set_name": if (v.trim()) d.name = v.trim(); break;
+      // set_name: no longer applied — the customer's name is their Zoho identity (old renames show only in the log).
       case "set_type": d.type = v || undefined; break;
       case "set_sector": d.sector = v || undefined; break;
       case "add_alias": if (v && !d.aliases.includes(v)) d.aliases.push(v); break;
@@ -416,6 +416,59 @@ export function customerAliases(events: CardEvent[], customerOf: Map<string, str
   for (const [customer, key] of nameOf) { const a = byName.get(key); if (a) out.set(customer, a); }
   for (const [key, a] of byName) if (key.startsWith("id:")) out.set(key.slice(3), a);
   return out;
+}
+
+/** Contact numbers / emails added (entry) or removed (null) by editing cards, per customer. */
+export type CustomerContacts = Map<string, { phones: Map<string, ContactEntry | null>; emails: Map<string, ContactEntry | null> }>;
+const CONTACT_KINDS = new Set<CardEventKind>(["add_phone", "remove_phone", "add_email", "remove_email"]);
+
+/**
+ * Contact numbers and emails go by the customer's name too: one added (or removed) by editing any card — on any board —
+ * shows on (or leaves) every card under that name. Replayed in order; events carry the customer in `ref`, older ones
+ * are matched through the card they were made on. Returns contact id → changes.
+ */
+export function customerContacts(events: CardEvent[], customerOf: Map<string, string>, nameOf: Map<string, string>): CustomerContacts {
+  type Changes = { phones: Map<string, ContactEntry | null>; emails: Map<string, ContactEntry | null> };
+  const byName = new Map<string, Changes>();
+  const keyOf = (customer: string) => nameOf.get(customer) || `id:${customer}`;
+  const evs = events.filter((e) => !e.revertedAt && CONTACT_KINDS.has(e.kind) && e.value).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  for (const e of evs) {
+    const customer = e.ref ?? e.cardIds.map((id) => customerOf.get(id)).find(Boolean);
+    if (!customer) continue;
+    const key = keyOf(customer);
+    const c = byName.get(key) ?? { phones: new Map(), emails: new Map() };
+    byName.set(key, c);
+    const v = e.value!.trim();
+    const entry: ContactEntry = { value: v, phases: [e.phase ?? "Lead"], at: e.at };
+    if (e.kind === "add_phone" && normPhone(v)) c.phones.set(normPhone(v), entry);
+    if (e.kind === "remove_phone" && normPhone(v)) c.phones.set(normPhone(v), null);
+    if (e.kind === "add_email") c.emails.set(normEmail(v), entry);
+    if (e.kind === "remove_email") c.emails.set(normEmail(v), null);
+  }
+  const out: CustomerContacts = new Map();
+  for (const [customer, key] of nameOf) { const c = byName.get(key); if (c) out.set(customer, c); }
+  for (const [key, c] of byName) if (key.startsWith("id:")) out.set(key.slice(3), c);
+  return out;
+}
+
+function mergeEntries(list: ContactEntry[], changes: Map<string, ContactEntry | null>, norm: (v: string) => string): ContactEntry[] {
+  const m = new Map(list.map((e) => [norm(e.value), { ...e, phases: [...e.phases] }]));
+  for (const [k, e] of changes) {
+    if (!e) m.delete(k);
+    else put(m, k, e);
+  }
+  return sortEntries(m);
+}
+
+/** Give each card its customer's added / removed numbers and emails (and make them searchable). */
+function applyCustomerContacts(cards: Map<string, CardView>, contacts: CustomerContacts) {
+  for (const c of cards.values()) {
+    const s = contacts.get(c.customerId);
+    if (!s) continue;
+    c.phones = mergeEntries(c.phones, s.phones, normPhone);
+    c.emails = mergeEntries(c.emails, s.emails, normEmail);
+    c.search = `${c.search} ${[...c.phones.map((p) => `${p.value} ${normPhone(p.value)}`), ...c.emails.map((e) => e.value)].join(" ").toLowerCase()}`;
+  }
 }
 
 /** Give each card its customer's aliases (and make them searchable). */
@@ -502,7 +555,7 @@ export function mergeNotApplied(e: CardEvent, cards: Map<string, CardView>): str
 }
 
 /** `aliases`: the customers' aliases (customerAliases) — pass them in to include ones added on the AedSmartx board. */
-export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[], aliases?: Map<string, string[]>) {
+export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[], aliases?: Map<string, string[]>, sharedContacts?: CustomerContacts) {
   const active = events.filter((e) => !e.revertedAt).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
   const byCard = new Map<string, CardEvent[]>();
   const deletedDocs = new Set<string>();
@@ -763,6 +816,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   }
 
   applyCustomerAliases(cards, aliases ?? customerAliases(events, cardCustomers(leads, quotes, pis, invoices, payments, [], events), customerNameKeys(leads, quotes, pis, invoices, payments, [])));
+  applyCustomerContacts(cards, sharedContacts ?? customerContacts(events, cardCustomers(leads, quotes, pis, invoices, payments, [], events), customerNameKeys(leads, quotes, pis, invoices, payments, [])));
 
   const live = [...cards.values()].filter((c) => !c.mergedInto);
   const inTraining = (c: CardView) => (c.kind === "quote" || c.kind === "pi") && Boolean(c.schedule) && !c.lost;
@@ -988,7 +1042,7 @@ export function fmtDays(v: string): string {
  * invoice cards). Contact number = the invoice's ship-to phone; if that's blank, the customer's usual numbers.
  * Same event model as the training board, so edits, dates, completion and "not required" are logged and revertable.
  */
-export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events: CardEvent[], aliases?: Map<string, string[]>) {
+export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events: CardEvent[], aliases?: Map<string, string[]>, sharedContacts?: CustomerContacts) {
   const ids = new Set(invoices.map((i) => aedCardId(i.invoiceId)));
   // Resellers apply to every invoice of the customer, including ones that arrive later.
   const resellers = new Set(events.filter((e) => !e.revertedAt && e.kind === "set_reseller" && e.ref).map((e) => e.ref!));
@@ -1004,6 +1058,7 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
   for (const e of sharedEvents) shared.set(groupOf(e.ref!), [...(shared.get(groupOf(e.ref!)) ?? []), e]);
 
   const cards = new Map<string, CardView>();
+  const invById = new Map(invoices.map((i) => [aedCardId(i.invoiceId), i]));
   for (const inv of invoices) {
     const id = aedCardId(inv.invoiceId);
     const contact = contacts.get(inv.customerId);
@@ -1031,13 +1086,15 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
       delivered: (() => { const d = evs.filter((e) => e.kind === "set_delivered").at(-1); return d ? { at: d.at, by: d.by } : undefined; })(),
       notes: evs.filter((e) => e.kind === "add_note" && e.value).map((e) => ({ id: e.id, text: e.value!, by: e.by, at: e.at })).reverse(),
       aed: { lines, extras: aedExtras(inv) },
-      outreach: aedOutreach(inv, contact, evs, shared.get(groupOf(inv.customerId)) ?? []),
     };
     card.search = [card.name, ...card.aliases, ...emails.map((e) => e.value), ...phones.map((p) => p.value), ...phones.map((p) => normPhone(p.value)),
       inv.number, inv.reference, ...inv.items.map((i) => i.name), ...lines.flatMap((l) => l.serials)].filter(Boolean).join(" ").toLowerCase();
     cards.set(id, card);
   }
   applyCustomerAliases(cards, aliases ?? customerAliases(events, cardCustomers(leads, [], [], [], [], invoices, events), customerNameKeys(leads, [], [], [], [], invoices)));
+  applyCustomerContacts(cards, sharedContacts ?? customerContacts(events, cardCustomers(leads, [], [], [], [], invoices, events), customerNameKeys(leads, [], [], [], [], invoices)));
+  // Contacted: built from the card's numbers and emails as they now stand (Zoho, edits on any card of the customer).
+  for (const c of cards.values()) c.outreach = aedOutreach(c, invById.get(c.id)!, byCard.get(c.id) ?? [], shared.get(groupOf(c.customerId)) ?? []);
 
   const all = [...cards.values()];
   return {

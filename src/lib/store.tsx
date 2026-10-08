@@ -43,7 +43,8 @@ export type PendingRevert = { targets: CardEvent[]; later: CardEvent[]; by: stri
 type SharedName = "entries" | "followUps" | "removedTriggers" | "announcements" | "members" | "cardEvents";
 type SharedDoc = { id: string } & Record<string, unknown>;
 const SHARED: SharedName[] = ["entries", "followUps", "removedTriggers", "announcements", "members", "cardEvents"];
-const PULL_MS = 60_000;
+// The team's changes show up on everyone's screen within 15 s — and at once when a tab is brought back to the front.
+const PULL_MS = 15_000;
 
 function seedEntries(today: Date): CalendarEntry[] {
   const c = new Date().toISOString();
@@ -220,9 +221,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
     pull(true);
     const t = setInterval(() => pull(false), PULL_MS);
+    const onShow = () => { if (document.visibilityState === "visible") pull(false); };
+    document.addEventListener("visibilitychange", onShow);
+    window.addEventListener("focus", onShow);
     return () => {
       stop = true;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("focus", onShow);
     };
   }, [hydrated, verified, applyServer]);
 
