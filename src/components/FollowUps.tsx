@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
-import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
 import { type BoardKind, boardsFor } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
@@ -16,7 +16,7 @@ import { type DateFilterValue, DateFilterButton, matchesDateFilter } from "./fol
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
-  | "aed_invoices" | "aed_training" | "aed_completed" | "aed_not_required"
+  | "aed_invoices" | "aed_contacted" | "aed_training" | "aed_completed" | "aed_not_required"
   | "ful_completed" | "ful_hold" | "ful_received" | "ful_generated" | "ful_logistics"
   | "logi_aed" | "logi_stl" | "logi_paid" | "logi_packages" | "logi_shipments" | "logi_received";
 
@@ -32,9 +32,10 @@ const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "potential", label: "Potential training", header: "bg-surface-2", dot: "bg-brand" },
 ];
 
-/** AedSmartx Training board (Priyanka): AED invoices → Training scheduled → Training completed, or not required. */
+/** AedSmartx Training board (Priyanka): AED invoices → Contacted (In process) → Training scheduled → Training completed, or not required. */
 const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "aed_invoices", label: "Invoices sent", header: "bg-medium-bg", dot: "bg-medium" },
+  { key: "aed_contacted", label: "Contacted", header: "bg-info-bg", dot: "bg-info" },
   { key: "aed_training", label: "Training scheduled", header: "bg-brand-soft", dot: "bg-brand" },
   { key: "aed_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
   { key: "aed_not_required", label: "Training not required", header: "bg-high-bg", dot: "bg-high" },
@@ -234,7 +235,7 @@ function useBoardChoice(allowed: BoardKind[]): [BoardKind, (b: BoardKind) => voi
 
 const flagged = (c: CardView) => c.flaggedWith.length > 0;
 /** AedSmartx: delivered and waiting for a training date. */
-const isReady = (c: CardView) => Boolean(c.aed && !c.logiAed && c.delivered && !c.schedule && !c.notRequired);
+const isReady = (c: CardView) => Boolean(c.aed && !c.logiAed && c.delivered && !c.schedule && !c.notRequired && !c.outreach?.inProcess);
 
 /**
  * Logistics board borders. AED Delivered Status: blue once Priyanka moved it on, else green delivered / yellow not.
@@ -281,8 +282,9 @@ function ItemShell({ card, onClick, children }: { card: CardView; onClick: () =>
   // Invoices / payments: red overdue, blue due, green paid. Training scheduled: green = date, red = to be decided.
   const due = card.aed ? undefined : cardDue(card);
   // AedSmartx: not required = red; scheduled = the training date's colour; before that green once delivered, else yellow.
+  // Contacted (In process): blue.
   const border = card.logistics ? logiBorder(card) : card.fulfillment ? fulfilBorder(card) : card.notRequired ? "border-2 border-high" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
-    : card.aed ? `border-2 ${card.delivered ? "border-low" : "border-medium"}` : due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
+    : card.outreach?.inProcess ? "border-2 border-info" : card.aed ?`border-2 ${card.delivered ? "border-low" : "border-medium"}` : due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
   return (
     <button
       onClick={onClick}
@@ -382,7 +384,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
         </div>
       )}
       {due && <div className="mt-1"><DueChip due={due} /></div>}
-      {card.aed && !card.notRequired && !card.schedule && (
+      {card.outreach?.inProcess && !card.notRequired && !card.schedule ? <ContactedLines o={card.outreach} /> : card.aed && !card.notRequired && !card.schedule && (
         <div className="mt-1">
           <span className={`rounded px-1 text-[10.5px] font-bold uppercase tracking-wide ${card.delivered ? "bg-low-bg text-low" : "bg-medium-bg text-medium"}`}>
             {card.delivered ? (card.logiAed ? "Delivered" : "Ready for Scheduling") : "Not delivered yet"}
@@ -397,6 +399,22 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
         </div>
       )}
     </ItemShell>
+  );
+}
+
+/** Contacted card: how many calls and emails, and when the last of each was — to the minute. */
+function ContactedLines({ o }: { o: NonNullable<CardView["outreach"]> }) {
+  const call = o.calls.at(-1);
+  const mail = o.sent.at(-1);
+  return (
+    <div className="mt-1 space-y-px text-[11px]">
+      <div className={call ? "text-ink-2" : "text-faint"}>
+        {call ? <><b className="num font-semibold text-info">{o.calls.length}</b> call{o.calls.length === 1 ? "" : "s"} · <span className="num">{fmtStamp(call.at)}</span></> : "Not called yet"}
+      </div>
+      <div className={mail ? "text-ink-2" : "text-faint"}>
+        {mail ? <><b className="num font-semibold text-info">{o.sent.length}</b> email{o.sent.length === 1 ? "" : "s"} · <span className="num">{fmtStamp(mail.at)}</span></> : "No email yet"}
+      </div>
+    </div>
   );
 }
 
@@ -727,9 +745,10 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const lost = useMemo(() => board.lostCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const potential = useMemo(() => board.potentialCards.filter(visible), [board, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const aedCols = useMemo(() => {
-    if (!aedBoard) return { aed_invoices: [], aed_training: [], aed_completed: [], aed_not_required: [] };
+    if (!aedBoard) return { aed_invoices: [], aed_contacted: [], aed_training: [], aed_completed: [], aed_not_required: [] };
     return {
       aed_invoices: aedBoard.invoiceCards.filter(visible),
+      aed_contacted: aedBoard.contactedCards.filter(visible),
       aed_training: aedBoard.scheduledCards.filter(visible),
       aed_completed: aedBoard.completedCards.filter(visible),
       aed_not_required: aedBoard.notRequiredCards.filter(visible),
@@ -784,7 +803,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
               </>
             ) : aedMode ? (
               <>
-                {aedCols.aed_invoices.length} invoices · {aedCols.aed_training.length} scheduled · {aedCols.aed_completed.length} completed · {aedCols.aed_not_required.length} not required
+                {aedCols.aed_invoices.length} invoices · {aedCols.aed_contacted.length} contacted · {aedCols.aed_training.length} scheduled · {aedCols.aed_completed.length} completed · {aedCols.aed_not_required.length} not required
                 {aed.data?.windowStart && <> · AED invoices since {fmtDate(aed.data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
               </>
             ) : <>

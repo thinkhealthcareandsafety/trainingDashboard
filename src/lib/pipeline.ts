@@ -1,4 +1,4 @@
-import type { AedInvoice, CardEvent, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
+import type { AedInvoice, CardEvent, CardEventKind, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { fmtDate, fmtINR } from "./dates";
 import { type AedDetails, type AedExtra, aedExtras, parseAedLine } from "./aedParse";
 import type { LogiAedInfo, LogiInfo } from "./logistics";
@@ -112,7 +112,97 @@ export interface CardView {
   logistics?: LogiInfo;
   /** Logistics board, AED Delivered Status: hidden by Arti, and whether Priyanka moved it on. */
   logiAed?: LogiAedInfo;
+  /** AedSmartx board only: In process (Contacted column), the customer's numbers and emails, calls and emails sent. */
+  outreach?: AedOutreach;
 }
+
+/** A number or email Priyanka can use: from the invoice / customer in Zoho, or added by her. */
+export interface AedContact { value: string; person?: string; source: string; added?: boolean }
+/**
+ * AedSmartx Contacted (Priyanka). Numbers and emails belong to the customer name — every AED invoice of theirs shows
+ * them, on the AedSmartx board only; calls and emails sent are counted per invoice.
+ */
+export interface AedOutreach {
+  inProcess?: { at: string; by: string; eventId: string };
+  phones: AedContact[];
+  emails: AedContact[];
+  /** Where the emails go: the one set last for this customer, else the first from Zoho. */
+  email?: string;
+  /** This invoice: the email above was checked (or set, or already written to). */
+  emailConfirmed: boolean;
+  /** This invoice's calls and emails, oldest first. */
+  calls: { at: string; by: string; to: string; person?: string }[];
+  sent: { at: string; by: string; to: string; step: number; messageId?: string; threaded?: boolean }[];
+  /** The last call to this customer, on any of their AED invoices. */
+  lastCall?: { at: string; by: string; to: string; person?: string; cardId: string };
+}
+
+/** Contacted: the customer's events (numbers, emails, calls) replayed over what Zoho has for this invoice. */
+function aedOutreach(inv: AedInvoice, contact: ZohoLead | undefined, own: CardEvent[], shared: CardEvent[]): AedOutreach {
+  const base = new Map<string, AedContact>();
+  const addBase = (v: string | undefined, person: string | undefined, source: string) => {
+    const k = v ? normPhone(v) : "";
+    if (k && !base.has(k)) base.set(k, { value: v!.trim(), person: person?.trim() || undefined, source });
+  };
+  addBase(inv.shipPhone, inv.shipAttention, "Ship-to");
+  for (const c of inv.contacts) for (const p of [c.mobile, c.phone]) addBase(p, c.name, "Invoice");
+  if (contact) for (const p of [contact.mobile, contact.phone]) addBase(p, undefined, "Customer");
+  const baseMail = new Map<string, AedContact>();
+  for (const c of inv.contacts) if (c.email && !baseMail.has(normEmail(c.email))) baseMail.set(normEmail(c.email), { value: c.email.trim(), person: c.name?.trim() || undefined, source: "Invoice" });
+  if (contact?.email && !baseMail.has(normEmail(contact.email))) baseMail.set(normEmail(contact.email), { value: contact.email.trim(), source: "Customer" });
+
+  const added = new Map<string, AedContact>();
+  const addedMail = new Map<string, AedContact>();
+  const gone = new Set<string>();
+  const goneMail = new Set<string>();
+  let email: string | undefined;
+  let lastCall: AedOutreach["lastCall"];
+  const addedBy = (name: string) => `Added by ${name.split(" ")[0]}`;
+  for (const e of shared) {
+    const v = e.value ?? "";
+    switch (e.kind) {
+      case "aed_add_phone": {
+        const k = normPhone(v);
+        if (!k) break;
+        gone.delete(k);
+        added.delete(k);
+        added.set(k, { value: v.trim(), person: e.person, source: addedBy(e.by), added: true });
+        break;
+      }
+      case "aed_remove_phone": gone.add(normPhone(v)); break;
+      case "aed_set_email": {
+        const k = normEmail(v);
+        if (!k) break;
+        goneMail.delete(k);
+        if (!baseMail.has(k)) { addedMail.delete(k); addedMail.set(k, { value: v.trim(), source: addedBy(e.by), added: true }); }
+        email = v.trim();
+        break;
+      }
+      case "aed_remove_email": goneMail.add(normEmail(v)); break;
+      case "aed_call": lastCall = { at: e.at, by: e.by, to: v, person: e.person, cardId: e.cardIds[0] }; break;
+    }
+  }
+  // Newest added first, then what Zoho has; hidden ones left out.
+  const phones = [...[...added.values()].reverse(), ...base.values()]
+    .filter((p, i, all) => !gone.has(normPhone(p.value)) && all.findIndex((x) => normPhone(x.value) === normPhone(p.value)) === i);
+  const emails = [...[...addedMail.values()].reverse(), ...baseMail.values()].filter((m) => !goneMail.has(normEmail(m.value)));
+  if (!email || goneMail.has(normEmail(email))) email = emails[0]?.value;
+  const inProcess = own.filter((e) => e.kind === "aed_in_process").at(-1);
+  const same = (x?: string) => Boolean(email && x && normEmail(x) === normEmail(email));
+  return {
+    inProcess: inProcess ? { at: inProcess.at, by: inProcess.by, eventId: inProcess.id } : undefined,
+    phones,
+    emails,
+    email,
+    emailConfirmed: own.some((e) => (e.kind === "aed_confirm_email" || e.kind === "aed_set_email" || e.kind === "aed_email") && same(e.value)),
+    calls: own.filter((e) => e.kind === "aed_call").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", person: e.person })),
+    sent: own.filter((e) => e.kind === "aed_email").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", step: e.step ?? 1, messageId: e.messageId, threaded: e.threaded })),
+    lastCall,
+  };
+}
+
+/** Customer-wide Contacted entries (numbers, emails, calls) — grouped by customer name, like aliases. */
+const AED_SHARED = new Set<CardEventKind>(["aed_add_phone", "aed_remove_phone", "aed_set_email", "aed_remove_email", "aed_call"]);
 
 /** A set_training_date value: one day, several days ("2026-10-05,2026-10-06,2026-10-09"), or TBD. */
 export const trainingDays = (v?: string): string[] => (!v || v === "TBD" ? [] : v.split(",").filter(Boolean));
@@ -772,6 +862,10 @@ export function zohoNotices(events: CardEvent[], exists: Set<string>, cards: Map
   return out;
 }
 
+/** The AedSmartx emails: the first one, then the reminders (the last template is used again after that). */
+export const AED_MAIL_STEPS = ["First contact", "1st reminder", "2nd reminder"];
+export const aedMailStep = (step: number) => AED_MAIL_STEPS[Math.min(Math.max(step, 1), AED_MAIL_STEPS.length) - 1];
+
 /** Change-log line for an event. */
 export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string): string {
   const v = e.value ?? "";
@@ -816,6 +910,14 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_wip": return v === "on" ? "Marked Work in progress" : "Unmarked Work in progress";
     case "logi_hide": return "Hidden from AED Delivered Status (Logistics)";
     case "logi_merge": return `Merged Sent to Logistics with Payment Received${v ? ` (${v})` : ""} — moved to Payment Received`;
+    case "aed_in_process": return "In process — moved to Contacted";
+    case "aed_add_phone": return `Added contact number ${v}${e.person ? ` (${e.person})` : ""} — on every AED invoice of this customer`;
+    case "aed_remove_phone": return `Removed contact number ${v} — not the concerned person`;
+    case "aed_set_email": return `Email set to ${v}${e.before ? ` (was ${e.before})` : ""} — on every AED invoice of this customer`;
+    case "aed_remove_email": return `Removed email ${v} — not the concerned person`;
+    case "aed_confirm_email": return `Checked the email: ${v}`;
+    case "aed_call": return `Called ${v}${e.person ? ` (${e.person})` : ""}`;
+    case "aed_email": return `Email sent to ${v} — ${aedMailStep(e.step ?? 1)}${e.threaded ? ", as a reply in the same thread" : ""}`;
     case "set_logistics": {
       if (v.startsWith("expected:")) return `Not reached yet — expected ${fmtDay(v.slice("expected:".length))} · moved to Received by Client`;
       const text: Record<string, string> = {
@@ -846,6 +948,13 @@ export function fmtWhen(v: string): string {
   if (!time) return d;
   const [h, m] = time.split(":").map(Number);
   return `${d}, ${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+}
+
+/** When something happened, to the minute (India time): "8 Oct 2026, 3:42 pm". */
+export function fmtStamp(iso: string): string {
+  const d = new Date(iso);
+  const day = d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+  return `${day}, ${d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }).toLowerCase()}`;
 }
 
 const nextDay = (ymd: string) => new Date(Date.parse(ymd) + 86_400_000).toISOString().slice(0, 10);
@@ -887,6 +996,12 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
   const active = events.filter((e) => !e.revertedAt && e.cardIds.some((id) => ids.has(id))).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
   for (const e of active) for (const id of e.cardIds) if (ids.has(id)) byCard.set(id, [...(byCard.get(id) ?? []), e]);
   const contacts = new Map(leads.map((l) => [l.contactId, l]));
+  // Contacted: numbers, emails and calls go by the customer's name (Zoho has duplicate records), like aliases.
+  const nameOf = customerNameKeys(leads, [], [], [], [], invoices);
+  const groupOf = (cid: string) => nameOf.get(cid) || `id:${cid}`;
+  const shared = new Map<string, CardEvent[]>();
+  const sharedEvents = events.filter((x) => !x.revertedAt && AED_SHARED.has(x.kind) && x.ref).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  for (const e of sharedEvents) shared.set(groupOf(e.ref!), [...(shared.get(groupOf(e.ref!)) ?? []), e]);
 
   const cards = new Map<string, CardView>();
   for (const inv of invoices) {
@@ -916,6 +1031,7 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
       delivered: (() => { const d = evs.filter((e) => e.kind === "set_delivered").at(-1); return d ? { at: d.at, by: d.by } : undefined; })(),
       notes: evs.filter((e) => e.kind === "add_note" && e.value).map((e) => ({ id: e.id, text: e.value!, by: e.by, at: e.at })).reverse(),
       aed: { lines, extras: aedExtras(inv) },
+      outreach: aedOutreach(inv, contact, evs, shared.get(groupOf(inv.customerId)) ?? []),
     };
     card.search = [card.name, ...card.aliases, ...emails.map((e) => e.value), ...phones.map((p) => p.value), ...phones.map((p) => normPhone(p.value)),
       inv.number, inv.reference, ...inv.items.map((i) => i.name), ...lines.flatMap((l) => l.serials)].filter(Boolean).join(" ").toLowerCase();
@@ -926,7 +1042,9 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
   const all = [...cards.values()];
   return {
     cards,
-    invoiceCards: all.filter((c) => !c.schedule && !c.notRequired),
+    invoiceCards: all.filter((c) => !c.schedule && !c.notRequired && !c.outreach?.inProcess),
+    // In process: being contacted (calls, emails) — until a training date is set.
+    contactedCards: all.filter((c) => !c.schedule && !c.notRequired && c.outreach?.inProcess),
     // Soonest training first; to-be-decided at the end.
     scheduledCards: all.filter((c) => c.schedule && !c.schedule.completed && !c.notRequired)
       .sort((a, b) => (a.schedule!.date ?? "9999").localeCompare(b.schedule!.date ?? "9999")),

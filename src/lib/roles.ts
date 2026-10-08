@@ -44,6 +44,7 @@ function boardOfCard(id: string): BoardKind {
 
 /** May this member record this (new) change? Zoho notices are recorded by whoever's browser notices them. */
 export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): boolean {
+  if (e.kind === "aed_email") return false; // only the server records a sent email (/api/mail/aed), once it has gone out
   if (e.kind === "zoho_change" || hasFullAccess(m)) return true;
   const boards = boardsFor(m);
   return e.cardIds.length > 0 && e.cardIds.every((id) => {
@@ -57,5 +58,5 @@ export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): b
   });
 }
 
-/** Your own changes; Admin may revert anyone's. */
-export const canRevert = (m: Who, e: Pick<CardEvent, "by">) => isAdmin(m) || e.by === m.name;
+/** Your own changes; Admin may revert anyone's. A sent email can't be unsent, so it's never reverted. */
+export const canRevert = (m: Who, e: Pick<CardEvent, "by"> & { kind?: CardEvent["kind"] }) => e.kind !== "aed_email" && (isAdmin(m) || e.by === m.name);

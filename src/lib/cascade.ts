@@ -4,7 +4,8 @@ import type { CardEvent, CardEventKind } from "./types";
  * Reverting a step reverts the later steps of the same flow, so a card never ends up half-way (every board):
  *   - Training: merges, training dates (schedule / postpone / change / to be decided), Training completed, invoice and
  *     payment merges — following the card into whatever it was merged into afterwards.
- *   - AedSmartx: delivered → schedule → completed, or not required / resale.
+ *   - AedSmartx: delivered → In process (Contacted) → schedule → completed, or not required / resale. Calls and emails
+ *     sent stay (they happened).
  *   - Fulfillment: stage moves (and Work in progress).   - Logistics: merge → packages → shipments → received; hide.
  * Notes and edits (name, aliases, contacts, type, sector) are never rolled back. Other boards' steps aren't either: a
  * Fulfillment or Logistics card whose training is reverted just stops showing, and comes back with its steps if the
@@ -13,7 +14,7 @@ import type { CardEvent, CardEventKind } from "./types";
 
 /** Steps that move a card along — reverting one of these reverts the steps after it. */
 const TRIGGERS = new Set<CardEventKind>([
-  "merge", "set_training_date", "complete_training", "set_not_required", "set_resale", "set_delivered",
+  "merge", "set_training_date", "complete_training", "set_not_required", "set_resale", "set_delivered", "aed_in_process",
   "set_fulfillment", "logi_merge", "set_logistics",
 ]);
 /** What gets reverted along with them: the same steps, plus toggles that only make sense after them. */

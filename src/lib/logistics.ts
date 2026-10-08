@@ -94,9 +94,11 @@ export function buildLogisticsBoard(
     else if (c.schedule) {
       const first = evs(c.id).find((e) => e.kind === "set_training_date");
       moved = { to: "Training scheduled", by: first?.by ?? c.schedule.by, at: first?.at ?? c.schedule.at };
-    }
+    } else if (c.outreach?.inProcess) moved = { to: "Contacted", by: c.outreach.inProcess.by, at: c.outreach.inProcess.at };
     const card: CardView = {
       ...c,
+      outreach: undefined, // Priyanka's contacts and calls stay on her board
+
       logiAed: { hidden: hide ? { at: hide.at, by: hide.by, eventId: hide.id } : undefined, moved },
       logistics: { column: "aed", origin: c },
     };

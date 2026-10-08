@@ -256,7 +256,17 @@ export type CardEventKind =
   | "set_wip" // Fulfillment board, List Received: value "on" = Work in progress, "off" = not
   | "logi_hide" // Logistics board, AED Delivered Status: hides the AED card (cardIds [aed:<invoice id>]); Unhide = revert it
   | "logi_merge" // Logistics board: cardIds [logi:<pi/quote card id>, logipay:<payment card id>] — Sent to Logistics + its fully paid invoice's payment(s)
-  | "set_logistics"; // Logistics board: value = step (packages, pack_process, pack_hold, shipments, ship_dispatched, ship_hold, expected:YYYY-MM-DD, received)
+  | "set_logistics" // Logistics board: value = step (packages, pack_process, pack_hold, shipments, ship_dispatched, ship_hold, expected:YYYY-MM-DD, received)
+  // AedSmartx board, Contacted (Priyanka). Contacts and emails belong to the customer name (ref = Zoho contact id) and
+  // show only on the AedSmartx board; calls and emails sent are counted per invoice card.
+  | "aed_in_process" // cardIds [aed:<invoice id>]: In process — the card moves to Contacted
+  | "aed_add_phone" // cardIds [aedcustomer:<contact id>, aed:<id>], ref = contact id: value = number, person = whose
+  | "aed_remove_phone" // same ids: value = a non-concerned person's number, hidden on the AedSmartx board
+  | "aed_set_email" // same ids: value = the email to write to, before = the previous one
+  | "aed_remove_email" // same ids: value = an email hidden on the AedSmartx board
+  | "aed_confirm_email" // cardIds [aed:<id>]: value = the email, checked as the right one for this invoice
+  | "aed_call" // cardIds [aed:<id>, aedcustomer:<contact id>], ref = contact id: a call to value (number), person = who
+  | "aed_email"; // written by the server only, never reverted: an email sent from Zoho Mail — value = to, step = template
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every
@@ -273,6 +283,10 @@ export interface CardEvent {
   trainers?: string[]; // set_training_date: who gives the training on those dates (our trainers, then external names as typed)
   mode?: "change"; // set_training_date: "Change date" — the date was corrected (earlier or later), not postponed
   underName?: string; // set_training_date: the training is under this alias (none = the customer's own name)
+  person?: string; // aed_add_phone / aed_call: whose number it is
+  step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)
+  messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)
+  threaded?: boolean; // aed_email: sent as a reply in the same thread
   at: string;
   by: string;
   revertedAt?: string;

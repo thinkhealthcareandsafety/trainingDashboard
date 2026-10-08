@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import type { Member } from "@/lib/types";
-import { type CardView, aedCardId, aedCustomerId, cardDue, fmtWhen, isAedDelivery } from "@/lib/pipeline";
+import { type CardView, aedCardId, aedCustomerId, cardDue, fmtWhen, isAedDelivery, normEmail, normPhone } from "@/lib/pipeline";
 import { fmtDate } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
 import { celebrate } from "@/lib/confetti";
+import { ContactedSection } from "./AedContacted";
 import { canMarkDelivered, canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
@@ -128,7 +129,21 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
             ) : !s ? (
               <>
                 {card.delivered ? (
-                  <button className={btn.primary} onClick={() => open()}>Schedule training</button>
+                  <>
+                    <button className={btn.primary} onClick={() => open()}>Schedule training</button>
+                    {/* Or contact the customer first: the card moves to Contacted (calls, emails) until a date is set. */}
+                    {!card.outreach?.inProcess && (
+                      <button
+                        className="press inline-flex h-9 items-center justify-center rounded-full bg-info px-4 text-[13px] font-semibold text-white hover:brightness-110"
+                        onClick={() => {
+                          const [ev] = addCardEvents([{ cardIds: [card.id], kind: "aed_in_process", by: member.name }]);
+                          undoToast(`${card.name} moved to Contacted`, ev.id);
+                        }}
+                      >
+                        In process
+                      </button>
+                    )}
+                  </>
                 ) : (
                   <button disabled title="Mark the AED as delivered first" className="inline-flex h-9 cursor-not-allowed items-center justify-center gap-1.5 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-muted">
                     <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden><rect x="4.5" y="9" width="11" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
@@ -324,12 +339,23 @@ export function AedDocsSection({ card, options }: { card: CardView; options: Boa
   );
 }
 
+/** Numbers and emails Priyanka removed as "not the concerned person" don't show on this board (Zoho keeps them). */
+function withoutRemoved(card: CardView): CardView {
+  const o = card.outreach;
+  if (!o) return card;
+  const phones = new Set(o.phones.map((p) => normPhone(p.value)));
+  const emails = new Set(o.emails.map((m) => normEmail(m.value)));
+  return { ...card, phones: card.phones.filter((p) => phones.has(normPhone(p.value))), emails: card.emails.filter((m) => emails.has(normEmail(m.value))) };
+}
+
 export function AedCardModal({ card, cards, member, options, onClose }: { card: CardView; cards: Cards; member: Member; options: BoardOptions; onClose: () => void }) {
   const { addCardEvents } = useStore();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { setDraft(null); setError(""); }, [card.id]);
   const inv = card.invoice!;
+  // Contacted: calls and emails, until a training date is set (or it's not required).
+  const contacting = Boolean(card.outreach?.inProcess && !card.schedule && !card.notRequired);
 
   const startEdit = () => setDraft({
     name: card.name, aliases: [...card.aliases], emails: card.emails.map((e) => ({ ...e })), phones: card.phones.map((p) => ({ ...p })),
@@ -358,12 +384,13 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
       <Header kind="invoice" sub={`${inv.number} · ${dateLong(inv.date)} · AedSmartx`} title={card.name} onClose={onClose} />
       <div className="grid gap-3 p-4 xl:grid-cols-2">
         <div className="space-y-3">
-          {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
+          {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={withoutRemoved(card)} /></>}
           <AedNotesSection card={card} member={member} options={options} />
           <AedDocsSection card={card} options={options} />
         </div>
         <div className="space-y-3">
           <AedTrainingSection card={card} member={member} />
+          {contacting && <ContactedSection card={card} member={member} />}
           <ItemDescriptionSection card={card} cards={cards} member={member} />
         </div>
       </div>
