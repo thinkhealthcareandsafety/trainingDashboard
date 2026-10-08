@@ -537,7 +537,8 @@ function SlideButton({ dir, disabled, onClick }: { dir: "left" | "right"; disabl
 /** "Clear logs" (Admin only): wipe the Changes log for everything, one customer, or one deal cycle — PIN confirmed. */
 type ClearTarget = { key: string; label: string; sub?: string; ids: string[]; count: number };
 
-function ClearLogs({ member, cards }: { member: Member; cards: Map<string, CardView> }) {
+/** Works on the board that's open: its cards only, so clearing an AedSmartx card leaves the training card's log alone. */
+function ClearLogs({ member, cards, boardName }: { member: Member; cards: Map<string, CardView>; boardName: string }) {
   const { cardEvents, clearCardEvents, toast } = useStore();
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<"all" | "customer" | "cycle">("all");
@@ -563,7 +564,8 @@ function ClearLogs({ member, cards }: { member: Member; cards: Map<string, CardV
     const withLog = new Set(clearable.flatMap((e) => e.cardIds.map((id) => cards.get(id)?.customerId)).filter((x): x is string => !!x));
     return [...withLog]
       .map((cid) => {
-        const own = ids.get(cid) ?? [];
+        // AedSmartx: customer-wide entries (reseller, contacts, calls) are logged on aedcustomer:<id> too.
+        const own = [...(ids.get(cid) ?? []), ...((ids.get(cid) ?? []).some((id) => id.startsWith("aed:")) ? [`aedcustomer:${cid}`] : [])];
         const name = cards.get(`lead:${cid}`)?.name ?? cards.get(own[0])?.name ?? cid;
         return { key: cid, label: name, ids: own, count: countFor(own) };
       })
@@ -635,8 +637,10 @@ function ClearLogs({ member, cards }: { member: Member; cards: Map<string, CardV
             <div className="mt-4">
               <p className="mb-2 text-[13px] text-muted">
                 {scope === "customer"
-                  ? "Removes every change on this customer's cards — lead, quotations, PIs, invoices and payments."
-                  : "Removes every change on one deal's documents (quotation → PI → invoice → payment): merges, training dates, edits. The documents go back to separate cards as Zoho shows them; the lead's own edits stay."}
+                  ? `Removes every change on this customer's cards on the ${boardName} board${boardName === "Training" ? " — lead, quotations, PIs, invoices and payments" : ""}.`
+                  : boardName === "Training"
+                    ? "Removes every change on one deal's documents (quotation → PI → invoice → payment): merges, training dates, edits. The documents go back to separate cards as Zoho shows them; the lead's own edits stay."
+                    : `Removes every change on one ${boardName} card (its steps, notes, edits) — the other boards' changes stay.`}
               </p>
               <input
                 className={`${inputCls} !h-9 text-[13px]`}
@@ -813,7 +817,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {member.id === "admin" && <ClearLogs member={member} cards={board.cards} />}
+          {member.id === "admin" && <ClearLogs member={member} boardName={BOARD_LABEL[boardKind]} cards={(aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : logiMode ? logiBoard?.cards : undefined) ?? board.cards} />}
           <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
             <Avatar name={member.name} />
             <span className="font-medium text-ink">{member.name}</span>
