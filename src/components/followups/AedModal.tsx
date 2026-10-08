@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Member } from "@/lib/types";
-import { type CardView, aedCardId, aedCustomerId, cardDue, fmtWhen, isAedDelivery, normEmail, normPhone } from "@/lib/pipeline";
+import type { Member, Phase } from "@/lib/types";
+import { type AedContact, type CardView, type ContactEntry, aedCardId, aedCustomerId, cardDue, fmtWhen, isAedDelivery, normEmail, normPhone } from "@/lib/pipeline";
 import { fmtDate } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
@@ -70,7 +70,7 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
     const ev = addCardEvents([{ cardIds: [card.id], kind: "set_delivered", by: member.name }])[0];
     undoToast(`${card.docNumber} marked as delivered — ready for scheduling`, ev.id);
   };
-  const tone = card.notRequired ? "border-high" : s ? SCHEDULE_TONE[s.status].border : "border-transparent";
+  const tone = card.notRequired ? "border-purple" : s ? SCHEDULE_TONE[s.status].border : "border-transparent";
   return (
     <Section title="Training">
       {!card.notRequired && (
@@ -92,7 +92,7 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
       <div className={`rounded-xl border-2 bg-brand-soft px-4 py-2.5 ${tone}`}>
         <div className="text-[12px] font-bold uppercase tracking-wide text-brand">Training date &amp; time</div>
         {card.notRequired ? (
-          <div className="mt-0.5 text-[20px] font-semibold text-high">Training not required</div>
+          <div className="mt-0.5 text-[20px] font-semibold text-purple">Training not required</div>
         ) : s ? (
           <div className={`mt-0.5 flex flex-wrap items-center gap-2 text-[20px] font-semibold ${s.status === "tbd" ? "text-high" : "text-ink"}`}>
             <span className="num">{s.status === "tbd" || !s.date ? "To be decided" : fmtWhen(s.date)}</span>
@@ -151,7 +151,7 @@ function AedTrainingSection({ card, member }: { card: CardView; member: Member }
                   </button>
                 )}
                 <button
-                  className="press inline-flex h-9 items-center justify-center rounded-full border border-high/40 bg-surface px-4 text-[13px] font-semibold text-high hover:bg-high-bg"
+                  className="press inline-flex h-9 items-center justify-center rounded-full border border-purple/40 bg-surface px-4 text-[13px] font-semibold text-purple hover:bg-purple-bg"
                   onClick={() => undoToast(`${card.name} moved to Training not required`, record("set_not_required").id)}
                 >
                   Training not required
@@ -222,22 +222,22 @@ function ResaleOptions({ card, cards, member }: { card: CardView; cards: Cards; 
   // Resale moves invoices to Training not required — not for Arti (she only marks deliveries).
   // Unticking is reverting: only whoever ticked it (or Admin).
   const locked = isDeliveryOnly(member) || Boolean(resale && !canRevert(member, resale)) || Boolean(reseller && !canRevert(member, reseller));
-  const box = (on: boolean) => `flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13.5px] ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${on ? "border-high/40 bg-high-bg" : `border-line ${locked ? "" : "hover:border-line-strong"}`}`;
+  const box = (on: boolean) => `flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-[13.5px] ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${on ? "border-purple/40 bg-purple-bg" : `border-line ${locked ? "" : "hover:border-line-strong"}`}`;
   return (
     <div className="mt-2">
       <div className="mb-1 text-[12px] font-bold uppercase tracking-wide text-muted">Mark for resale — moves to Training not required</div>
       <div className="grid gap-2 sm:grid-cols-2">
         <label className={box(Boolean(resale))}>
-          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--high)]" checked={Boolean(resale)} onChange={toggleInvoice} disabled={locked} />
+          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--purple)]" checked={Boolean(resale)} onChange={toggleInvoice} disabled={locked} />
           <span>
-            <b className={resale ? "text-high" : "text-ink"}>This invoice is for resale</b>
+            <b className={resale ? "text-purple" : "text-ink"}>This invoice is for resale</b>
             <span className="block text-[12.5px] text-muted">Only this invoice</span>
           </span>
         </label>
         <label className={box(Boolean(reseller))}>
-          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--high)]" checked={Boolean(reseller)} onChange={toggleCustomer} disabled={locked} />
+          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--purple)]" checked={Boolean(reseller)} onChange={toggleCustomer} disabled={locked} />
           <span>
-            <b className={reseller ? "text-high" : "text-ink"}>Customer is a Reseller</b>
+            <b className={reseller ? "text-purple" : "text-ink"}>Customer is a Reseller</b>
             <span className="block text-[12.5px] text-muted">All {theirs.length} AED invoice{theirs.length === 1 ? "" : "s"}, now and later</span>
           </span>
         </label>
@@ -339,13 +339,16 @@ export function AedDocsSection({ card, options }: { card: CardView; options: Boa
   );
 }
 
-/** Numbers and emails Priyanka removed as "not the concerned person" don't show on this board (Zoho keeps them). */
+/**
+ * On this board the Contact section shows what Contacted shows: the card's numbers and emails plus the ones Priyanka
+ * added, without the ones she removed as "not the concerned person" (Zoho keeps those).
+ */
 function withoutRemoved(card: CardView): CardView {
   const o = card.outreach;
   if (!o) return card;
-  const phones = new Set(o.phones.map((p) => normPhone(p.value)));
-  const emails = new Set(o.emails.map((m) => normEmail(m.value)));
-  return { ...card, phones: card.phones.filter((p) => phones.has(normPhone(p.value))), emails: card.emails.filter((m) => emails.has(normEmail(m.value))) };
+  const entry = (list: ContactEntry[], norm: (v: string) => string) => (x: AedContact): ContactEntry =>
+    list.find((e) => norm(e.value) === norm(x.value)) ?? { value: x.value, phases: [x.source as Phase], at: "" };
+  return { ...card, phones: o.phones.map(entry(card.phones, normPhone)), emails: o.emails.map(entry(card.emails, normEmail)) };
 }
 
 export function AedCardModal({ card, cards, member, options, onClose }: { card: CardView; cards: Cards; member: Member; options: BoardOptions; onClose: () => void }) {

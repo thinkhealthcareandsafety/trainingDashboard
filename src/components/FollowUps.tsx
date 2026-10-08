@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
-import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerContacts, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
 import { type BoardKind, boardsFor } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
@@ -38,7 +38,7 @@ const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] =
   { key: "aed_contacted", label: "Contacted", header: "bg-info-bg", dot: "bg-info" },
   { key: "aed_training", label: "Training scheduled", header: "bg-brand-soft", dot: "bg-brand" },
   { key: "aed_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
-  { key: "aed_not_required", label: "Training not required", header: "bg-high-bg", dot: "bg-high" },
+  { key: "aed_not_required", label: "Training not required", header: "bg-purple-bg", dot: "bg-purple" },
 ];
 /** Fulfillment board (Shreya): certificates for completed trainings, carried over from the training board. */
 const FULFIL_COLUMNS: { key: Stage; label: string; header: string; dot: string }[] = [
@@ -281,9 +281,9 @@ function fulfilBorder(c: CardView): string {
 function ItemShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
   // Invoices / payments: red overdue, blue due, green paid. Training scheduled: green = date, red = to be decided.
   const due = card.aed ? undefined : cardDue(card);
-  // AedSmartx: not required = red; scheduled = the training date's colour; before that green once delivered, else yellow.
+  // AedSmartx: not required = purple; scheduled = the training date's colour; before that green once delivered, else yellow.
   // Contacted (In process): blue.
-  const border = card.logistics ? logiBorder(card) : card.fulfillment ? fulfilBorder(card) : card.notRequired ? "border-2 border-high" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
+  const border = card.logistics ? logiBorder(card) : card.fulfillment ? fulfilBorder(card) : card.notRequired ? "border-2 border-purple" : card.aed && card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}`
     : card.outreach?.inProcess ? "border-2 border-info" : card.aed ?`border-2 ${card.delivered ? "border-low" : "border-medium"}` : due ? `border-2 ${DUE_TONE[due.tone].border}` : card.schedule ? `border-2 ${SCHEDULE_TONE[card.schedule.status].border}` : `border hover:border-line-strong ${flagged(card) ? "border-high/40" : "border-line"}`;
   return (
     <button
@@ -379,7 +379,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
       )}
       {card.notRequired && (
         <div className="mt-1">
-          <span className="rounded bg-high-bg px-1 text-[10.5px] font-bold uppercase tracking-wide text-high">Training not required</span>
+          <span className="rounded bg-purple-bg px-1 text-[10.5px] font-bold uppercase tracking-wide text-purple">Training not required</span>
           {(card.reseller || card.resale) && <span className="ml-1 text-[11px] text-ink-2">{card.reseller ? "Reseller" : "For resale"}</span>}
         </div>
       )}
@@ -719,13 +719,16 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(stages.length);
   const { pageRef, colH } = useFitHeight();
 
-  // Aliases go by the customer's name: one added on any card, on any board, shows on every card under that name.
-  const aliases = useMemo(() => {
+  // Aliases, contact numbers and emails go by the customer's name: one added on any card, on any board, shows on every
+  // card under that name.
+  const { aliases, contacts } = useMemo(() => {
     const [leads, quotes, pis, invoices, payments, aedInv] = [data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], aed.data?.invoices ?? []];
-    return customerAliases(cardEvents, cardCustomers(leads, quotes, pis, invoices, payments, aedInv, cardEvents), customerNameKeys(leads, quotes, pis, invoices, payments, aedInv));
+    const customerOf = cardCustomers(leads, quotes, pis, invoices, payments, aedInv, cardEvents);
+    const nameOf = customerNameKeys(leads, quotes, pis, invoices, payments, aedInv);
+    return { aliases: customerAliases(cardEvents, customerOf, nameOf), contacts: customerContacts(cardEvents, customerOf, nameOf) };
   }, [data, aed.data, cardEvents]);
-  const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents, aliases), [data, cardEvents, aliases]);
-  const aedBoard = useMemo(() => (aedMode || logiMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents, aliases) : null), [aedMode, logiMode, data, aed.data, cardEvents, aliases]);
+  const board = useMemo(() => buildBoard(data?.leads ?? [], data?.quotes ?? [], data?.pis ?? [], data?.invoices ?? [], data?.payments ?? [], cardEvents, aliases, contacts), [data, cardEvents, aliases, contacts]);
+  const aedBoard = useMemo(() => (aedMode || logiMode ? buildAedBoard(data?.leads ?? [], aed.data?.invoices ?? [], cardEvents, aliases, contacts) : null), [aedMode, logiMode, data, aed.data, cardEvents, aliases, contacts]);
   const fulBoard = useMemo(() => (fulfilMode || logiMode ? buildFulfillmentBoard(board, cardEvents) : null), [fulfilMode, logiMode, board, cardEvents]);
   const logiBoard = useMemo(() => (logiMode && fulBoard && aedBoard ? buildLogisticsBoard(board, fulBoard, aedBoard, cardEvents) : null), [logiMode, board, fulBoard, aedBoard, cardEvents]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
