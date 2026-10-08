@@ -1,9 +1,14 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 6 Oct 2026, end of session 3. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 7 Oct 2026, end of session 4. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all three sessions), the
+Read this end to end before touching code. It records what the owner asked for (every prompt, all four sessions), the
 business rules that came out of it, how the code works **now**, what was verified, and what is still open.
+
+**Session 4 in one paragraph:** checked the Zoho sync (data matched Zoho exactly; GitHub's hourly job never ran — no
+`CRON_SECRET`) and added a **Sync log**; built the **Logistics** board for Arti; added **per-person permissions** enforced on the
+server; made **undo run forward on every board** (with a confirm popup); made **aliases apply to every card under the customer's
+name**. All pushed and live (last commit `b146419`).
 
 ---
 
@@ -11,19 +16,23 @@ business rules that came out of it, how the code works **now**, what was verifie
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard`, branch `master`, last pushed commit `42c1046` (6 Oct).
-  This final HANDOFF.md update may still be uncommitted — check `git status`.
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `b146419`
+  (7 Oct). This final HANDOFF.md update may still be uncommitted — check `git status`.
 - **After every release** the team must press **Ctrl + Shift + R** once: the app is a single-page app, so an open tab keeps the
   old code until a full reload (this is why "confetti works for me but not for others" happened).
 - **Zoho sync** was broken from Mon 5 Oct 3 pm to Tue 9:19 am (automatic syncs depended on page visits + one daily cron, and
   failures were silent). Fixed in session 3 (§3 "Zoho copy + sync"); verified the live site synced on its own at 10:00:17.
+  On 7 Oct the Mongo copy matched live Zoho record by record (0 differences). Since 7 Oct ~10 am every sync is in the
+  **Sync log** (sidebar). Syncs currently happen only while someone has the site open (+ Vercel's daily 9 am cron) — the
+  GitHub hourly job skips until the `CRON_SECRET` repo secret is added (§10 #11).
 - **Database:** MongoDB Atlas cluster **Cluster0** (the cluster in `MONGODB_URI`), database `thinkhealth_dashboard`
   (free tier, ~1% used). It is **not** the "Directory" cluster the owner sees in their own Atlas project — Cluster0 sits
   in another project/account; a colleague added `0.0.0.0/0` to its IP access list for Vercel.
 - **Stack:** Next.js **16.3** (Turbopack) + React 19 + Tailwind v4 + MongoDB + Zoho Books (India DC).
   `AGENTS.md`: this Next.js differs from training data — read `node_modules/next/dist/docs/` before Next-specific code.
-- **People using it (real, live data):** Shikha Dixit, Ashish Dalal, Sumit A Shah (training board), **Priyanka**
-  (AedSmartx trainer), **Arti Sirohi** (AED deliveries), **Shreya** (certificates — Fulfillment board), and **Admin** (the
+- **People using it (real, live data):** Shikha Dixit, Ashish Dalal, Sumit A Shah (all boards), **Priyanka** (AedSmartx
+  trainer), **Arti Sirohi** (Logistics — AED deliveries and certificate shipping; she already moved Paccar to *Received by
+  Client* and Heritage Village Goa to *Shipments* on 7 Oct), **Shreya** (certificates — Fulfillment board), and **Admin** (the
   owner). Their changes live in MongoDB `cardEvents` — **never write test data to the shared database** (see §9).
 - **Four boards** on `/follow-up`, picked with the **Board** switch (Training · AedSmartx · Fulfillment · Logistics): the
   **Training follow-ups** board (9 columns), the **AedSmartx Training** board (4), the **Fulfillment** board (5) and the
@@ -64,10 +73,13 @@ npx next build                       # production build (passes)
   → `/api/cron/sync` (Vercel Hobby allows daily crons only — and fires anywhere within that hour).
 - **Hourly scheduler** = GitHub Actions `.github/workflows/zoho-sync.yml` (`32,50 3-13 * * 1-6` UTC) → `/api/cron/sync`. Needs the
   repo secret **`CRON_SECRET`** (same value as Vercel's); without it the workflow just logs a warning. A failed sync answers 502,
-  so the run fails and GitHub emails the repo owner. **The owner was asked to add this secret — not confirmed done** (no `gh` CLI
-  here; check the repo's Actions tab). Until then, syncing still happens whenever anyone has the site open (heartbeat).
+  so the run fails and GitHub emails the repo owner. The workflow calls `/api/cron/sync?source=github` so the Sync log labels
+  it. **Checked 7 Oct: the secret is missing** (both runs on 6 Oct skipped; the public API shows runs + annotations:
+  `api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/actions/runs`). The owner was told where to add it.
 - Dependencies added in session 3: `canvas-confetti` (+ `@types/canvas-confetti`). `npm audit` flags **Next.js 16.3 (critical)**
   and `source-map-js` (high) — pre-existing, not fixed (upgrading Next is a separate, careful job).
+- No Python on this machine; use Node for scripts. When editing with scripts, beware `\b` inside JS template strings
+  (becomes a backspace) — the Edit tool is safer for exact replacements.
 
 ---
 
@@ -126,6 +138,10 @@ browser ◄──► /api/store (team data: cardEvents, members, …; 60 s pull,
 - **The server stamps the change log**: new `cardEvents` get the signed-in member's name (from the `members` collection; Admin =
   "Admin"; `zoho_change` notices keep "Zoho Books"); existing entries can only be reverted (server sets `revertedAt`/`revertedBy`);
   only Admin can delete entries or write `members`. Clear logs needs the Admin session **and** the PIN.
+- **The server enforces permissions** (`stampCardEvents` in `/api/store`, rules in `src/lib/roles.ts`): a new change outside
+  the member's board/actions (`canWriteEvent`) is silently dropped; a revert of someone else's entry is dropped unless it is
+  part of the cascade of one of the member's own reverts (`cascadeOf`). Refused changes vanish from the browser at the next
+  60-s pull (the pull replaces local data with the server's).
 
 ### Event model (both boards)
 A card = Zoho data + every **non-reverted** `CardEvent` replayed in order; nothing from Zoho is overwritten, so **Revert** = mark the
@@ -135,22 +151,31 @@ event reverted. Card ids: `lead:`, `quote:`, `pi:`, `invoice:`, `payment:` + Zoh
 several days comma-separated `2026-10-05,2026-10-06`, `YYYY-MM-DDTHH:mm` on AED, or `TBD`; carries `trainers` (may include
 external names), optional `mode: "change"` (Change date — not a postponement) and `underName` (alias the training is under)),
 `complete_training`, `zoho_change`, `add_potential` / `set_potential_date`, `set_not_required`, `set_reseller`, `set_resale`,
-`set_delivered`, `add_note`, `set_fulfillment` (stage), `set_wip` (on/off). **Clear logs** archives to `cardEventsArchive` first
-and keeps `add_potential` events. Instalment folding (an invoice's other payments joining its merged payment) is computed, not an event.
+`set_delivered`, `add_note`, `set_fulfillment` (stage), `set_wip` (on/off), and on Logistics `logi_hide`, `logi_merge`
+(`[logi:<doc>, logipay:<payment card id>]`), `set_logistics` (step). Logistics card ids: `logi:<pi or quote card id>`,
+`logipay:<training payment card id>`. Alias events carry `ref` = Zoho contact id (aliases are applied by customer **name**).
+**Revert cascades forward** (`src/lib/cascade.ts`, §1). **Clear logs** archives to `cardEventsArchive` first and keeps
+`add_potential` events. Instalment folding (an invoice's other payments joining its merged payment) is computed, not an event.
 
 ### Key files
 | File | Role |
 |---|---|
 | `src/lib/zohoSync.ts` | Mongo copy, schedule, lock, budget, incremental/full sync; `pipelineData` / `aedData` / `trainingsData` / `metaData` builders. |
 | `src/lib/zoho.ts` | Zoho client (token cached in Mongo `kv`, call counter, retries), list/detail building blocks, pure mappers, `QUOTE_TRAINING_ITEMS`, `AED_EXCLUDED`. |
-| `src/lib/pipeline.ts` | Board logic: `buildBoard` (training), `buildAedBoard`, `buildFulfillmentBoard`, flags, merges (incl. instalment folding, `receivedOn` / `sumMatches`), schedules (`trainingDays`, `fmtDays`), `dueStatus`, `describeEvent`, `mergeCandidates`, trainers (`externalTrainers`, `busyTrainers`), potential cards, role helpers (`isAedTrainer`, `isAedDelivery`, `isFulfilmentUser`). |
+| `src/lib/pipeline.ts` | Board logic: `buildBoard` (training), `buildAedBoard`, `buildFulfillmentBoard`, flags, merges (incl. instalment folding, `receivedOn` / `sumMatches`), schedules (`trainingDays`, `fmtDays`), `dueStatus`, `describeEvent`, `mergeCandidates`, trainers (`externalTrainers`, `busyTrainers`), potential cards, name-wide aliases (`customerAliases`, `cardCustomers`, `customerNameKeys`). |
+| `src/lib/logistics.ts` | `buildLogisticsBoard` (AED Delivered Status, Sent to Logistics, Payment Received, Packages, Shipments, Received by Client), step labels. |
+| `src/lib/roles.ts` | Who sees which board (`boardsFor`), `canMarkDelivered`, `canWriteEvent`, `canRevert` — used by the boards and the server. |
+| `src/lib/cascade.ts` | `laterInFlow` / `cascadeOf`: what reverting a step takes along (every board). |
+| `src/components/RevertConfirm.tsx` | "Revert this change?" popup listing the later steps (rendered once in AppShell; store `pendingRevert`). |
+| `src/components/SyncLog.tsx`, `src/app/api/zoho/sync-log/route.ts` | Sidebar Sync log window (hour by hour) and its API. |
+| `src/components/followups/LogisticsModal.tsx` | `LogiAedModal` (delivery, hide) and `LogisticsModal` (merge, packing, shipping, reached popup, Ship to). |
 | `src/lib/aedParse.ts` | Reads the AED line description: model, year, serials, battery/pads expiry; the five extras. |
 | `src/lib/confetti.ts` | `celebrate()` (Custom Shapes, Training completed) and `fireworks()` (Certificates Generated); loads `canvas-confetti` on demand. |
 | `src/components/FollowUps.tsx` | Board page: column window (◀ ▶ / keys / swipe, fit to screen), columns + customer boxes, F / R toggles, Clear logs, **Board** switch (`boardsFor`), card borders per board. |
 | `src/components/followups/CardModal.tsx` | Training card modal, merge view, schedule (dates, trainers, Name), Potential add modal, shared modal pieces (exported: sections, `NotesPanel`, `PaymentsLink`, `Shell`, `Header`, `ChangeLog`…). |
 | `src/components/followups/DaysPicker.tsx` / `DateFilter.tsx` | Multi-day calendar picker / the board's date Filter. |
 | `src/components/followups/FulfillmentModal.tsx` | Fulfillment card modal (step choices under Notes, "Also send to Logistics?" popup, the training card's sections). |
-| `src/components/followups/AedModal.tsx` | AedSmartx card modal (delivery, schedule date+time, notes, item description, resale; `canMarkDelivered`, `isDeliveryOnly`). |
+| `src/components/followups/AedModal.tsx` | AedSmartx card modal (delivery, schedule date+time, notes, item description, resale); exports `AedNotesSection`, `AedDocsSection`, `ItemDescriptionSection` (reused by Logistics). |
 | `src/components/followups/MembersScreen.tsx` | Sign-in card (names, PIN, Admin, + Add new member). |
 | `src/components/AppShell.tsx` | Shell, sidebar (hide to rail), global sign-in gate, `MemberPill`, `PageHeader`, **SyncPanel** (`useZohoSync`: heartbeat, Sync now, Last / Next sync). |
 | `src/lib/store.tsx` / `src/app/api/store/route.ts` | Shared team data (pull 60 s, diff push; `ZOHO_SYNCED` event) / server stamping. |
@@ -173,7 +198,8 @@ and keeps `add_potential` events. Instalment folding (an invoice's other payment
   `cardCustomers`, `customerNameKeys` in pipeline.ts; new alias events carry `ref` = contact id. Search finds them all by alias.
 - **One modal for every phase**: customer name (mandatory) + aliases, emails, contact numbers (mandatory; tagged by phase), type
   (`cf_type`), sector (`cf_sector`), created in Zoho, phase-aware sales person, locked IDs & dates with Zoho links, training block,
-  Notes, Merged, Payment line (invoice/payment cards), and the **Changes** panel with Revert on every entry. Edit and Delete.
+  Notes, Merged, Payment line (invoice/payment cards), and the **Changes** panel (Revert on your own entries; Admin on all).
+  Edit and Delete.
 - **Flags (red F) and merges** — forward only, each a revertable event; the target absorbs the earlier card's identity:
   Lead ↔ Quote (same customer) · Quote ↔ PI (**only** the PI's `reference_number` citing the quote) · Lead ↔ PI (PI citing no synced
   quote) · Completed training ↔ Invoice (invoice reference cites the PI) · Invoice ↔ Payment (payment applied to that invoice) —
@@ -243,11 +269,13 @@ and keeps `add_potential` events. Instalment folding (an invoice's other payment
   delivered, green = delivered, **blue = Priyanka moved it on** (scheduled / completed / not required) — the modal says
   *Moved by <name>* · where to. Its Changes panel shows only delivery, hide and notes. AED cards stop here.
 - **Sent to Logistics**: Fulfillment cards at *Sent to Logistics*, labelled by PI; card id `logi:<pi or quote card id>`.
-  **Flagged** with its payment card once that exists → *Merge & move to Payment Received* (event `logi_merge`, cardIds
-  `[logi:<doc>, logipay:<payment card id>]`). Otherwise *Waiting for payment — …* (part paid / not paid / no invoice).
+  **Flagged** with its payment card once that exists → green border, *Please Merge to Payment* → *Merge & move to Payment
+  Received* (event `logi_merge`, cardIds `[logi:<doc>, logipay:<payment card id>]`). Otherwise yellow, *Awaiting Payment* (the
+  modal says why: part paid / not paid / no invoice).
 - **Payment Received**: only training-board payment cards **merged with their invoice** (so paid in full; instalments are one
   card — checked again with payments + TDS = total). Matched to certificates by the PI in the payment's merge chain. Not merged
-  yet: flagged with its STL card, or *Waiting for Certificates* (with the Fulfillment stage). Merged card modal: training,
+  yet: flagged with its STL card (green, *Certificates Received, Merge Required*), or yellow *Waiting for Certificates* (the
+  modal shows the Fulfillment stage). Merged card modal: training,
   alias, people, **Ship to** (invoice `shipping_address`, new `ZohoInvoice.shipTo` / `shipPhone`), payment(s), documents; above
   Merged: ☐ *Ready for Packaging?* + *Confirm* (greyed until ticked) → Packages.
 - **Packages**: *Packaging in Process* (green) / *On hold* (yellow) / *Ready to Dispatch* (→ Shipments).
@@ -255,8 +283,8 @@ and keeps `add_potential` events. Instalment folding (an invoice's other payment
   **"Has the shipment reached the client?"** — *Yes* → Received by Client, green, **confetti** (`confettiPop`); or an
   *expected date* → Received by Client, yellow, *Expected <date>*; opening it asks again; *Reached* button → green + confetti.
 - Steps are `set_logistics` events on `logi:<doc>` (values packages, pack_process, pack_hold, shipments, ship_dispatched,
-  ship_hold, `expected:YYYY-MM-DD`, received). **Undo runs forward**: reverting a step (or the merge) also reverts every later
-  step of that card; reverting *delivered* also unhides (`CASCADE` in `store.tsx`). If Shreya moves certificates back or a
+  ship_hold, `expected:YYYY-MM-DD`, received). **Undo runs forward** (`cascade.ts`, like every board): reverting a step (or the
+  merge) also reverts every later step of that card; reverting *delivered* also unhides. If Shreya moves certificates back or a
   payment is unmerged on the training board, the merge simply stops applying (nothing is reverted across boards).
 - Columns ordered by training date, latest first. Notes on logistics cards are their own plus the training card's.
 
@@ -272,8 +300,11 @@ and keeps `add_potential` events. Instalment folding (an invoice's other payment
   To be decided / Training completed); **Item description** (model, year, serials + total with a mismatch warning, battery & pads
   expiry, five extras ticked from the description or separate items: SmartX, Fast Response Kit, wall cabinet, 3D signage,
   infant/child key); **Mark for resale** (this invoice / whole customer is a Reseller → Training not required, now and later).
-- **Delivered**: **Arti, Shikha, Sumit, Ashish and Admin** can mark/undo (`canMarkDelivered`). **Schedule training is locked until the AED is delivered** (first schedule and from To be decided); *Training not required* stays available. **Arti only marks deliveries** (`isDeliveryOnly`): no scheduling, not-required or resale ticks — notes are fine. **Admin can do everything** (both boards, delivery, remove any note, Clear logs). Not delivered → yellow border + *Not delivered yet*; delivered → green + *Ready for
-  Scheduling* (replaces the paid/due chip on AED cards). Green **R n** next to a column name shows only ready cards.
+- **Delivered**: marked by **Arti (from Logistics), Shikha, Sumit, Ashish and Admin** (`canMarkDelivered` in roles.ts) —
+  **not Priyanka**; undo only by whoever marked it (or Admin). **Schedule training is locked until the AED is delivered** (first
+  schedule and from To be decided); *Training not required* stays available. Not delivered → yellow border + *Not delivered yet*;
+  delivered → green + *Ready for Scheduling* (replaces the paid/due chip on AED cards). Green **R n** next to a column name shows
+  only ready cards. (`isDeliveryOnly` in AedModal is now unused in practice — Arti no longer opens AedSmartx.)
 
 ### Layout preferences (see also §8)
 Columns side by side as a sliding window (as many as fit at ≥184 px with full names; ◀ ▶, arrow keys, swipe); board fits the screen
@@ -409,7 +440,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 115 | New **Logistics** board for Arti (6 phases, merge STL ↔ fully paid payment by PI, Ready for Packaging → Packages → Shipments → Received by Client, confetti on reached, undo cascades forward). Restated with 5 questions; answers: Arti marks AED deliveries only on Logistics; permissions later; column "AED Delivered Status", blue + "Moved by Priyanka" when moved on, hideable; "Waiting for Certificates" cards shown; Reached → green + simple confetti | Built (§4 Logistics board); full flow, cascade, hide/unhide and role views tested on a throwaway copy of live data (dropped). `3b19816`. |
 | 116 | Card wording before the merge: STL "Please Merge to Payment" (green) / "Awaiting Payment" (yellow); payment "Certificates Received, Merge Required" (green) / "Waiting for Certificates" (yellow); push | `b65032e`. |
 | 117 | **Permissions list** (Priyanka AED minus delivered; Arti Logistics; Shreya Fulfillment; Ashish/Shikha/Sumit all; Admin all + sole clear-logs); "any revert reverts everything after it". Asked 3 questions → everyone reverts their own; global cascade; other boards stop applying rather than revert | `roles.ts` + `cascade.ts` + server enforcement + confirm popup (see §1). Tested: server refusals per member with real session tokens, cascade across merges on the training board, Ashish 4 boards, Priyanka no delivered button. |
-| 118 | "Whenever an alias is added, it updates on all the cards" | Aliases made customer-wide; then "I searched sahar, only one Chalet showed — literally all cards under that name" → matched by **name** across duplicate Zoho records. Tested on a throwaway copy (search sahar: all 8 Chalet Hotels Limited cards + the 2nd record's lead). |
+| 118 | "Whenever an alias is added, it updates on all the cards" | Aliases made customer-wide; then "I searched sahar, only one Chalet showed — literally all cards under that name" (the change wasn't pushed yet when they tried) → matched by **name** across duplicate Zoho records. Tested on a throwaway copy (search sahar: all 8 Chalet Hotels Limited cards + the 2nd record's lead). |
+| 119 | "push it to github" | `b146419` (live after ~75 s). |
+| 120 | "Write down the handoff for next session, and a text for messaging everything I did today" | This update of HANDOFF.md; team message given in chat (not a file). |
 
 ---
 
@@ -451,6 +484,8 @@ request in session 1 (twice) and by Shikha once in session 2; Admin/Shikha may c
 - They test with real cards and screenshots; when something "didn't come through", find the concrete cause in the data
   (e.g. #1923's `overdue` status, TDS) before changing rules — and check the real numbers before agreeing to a rule.
 - They like small celebrations (confetti / fireworks) and plain-language summaries they can send to the team.
+- They answer questions as short numbered replies ("1) … 2) yeah 3) yes too"); offering a recommended default for each works well.
+  They try changes on the live site right away — if something "doesn't work", first check whether it was pushed yet.
 - Permissions: see §1 (roles.ts). Admin does everything and is the only one who clears logs.
 
 ---
@@ -462,9 +497,15 @@ No test suite. Pattern used throughout:
    never print it). To see **another member's view** (role checks use `member.id === "admin"` and the member *name*): put
    `{member:{id:"arti",name:"Arti Sirohi"},token:<admin token>}` in `localStorage th.session` **and intercept
    `POST /api/members/session`** to answer `{ok:true,memberId:"arti"}` — data still loads with the admin cookie, saves stay blocked.
-   Remember `localStorage th.board` (training / aed / fulfil) picks the board.
-3. For anything that must write (e.g. server stamping), run a second server against a **throwaway database**:
-   `npx next build` then `MONGODB_DB=thinkhealth_qa npx next start -p 3001`, seed, test, **drop the DB**, stop the server.
+   Remember `localStorage th.board` (training / aed / fulfil / logistics) picks the board. Note: a stand-in view still *saves* as
+   Admin (the cookie decides), so it can't test server permissions — see 3.
+3. For anything that must write (e.g. server stamping, permissions, full click-through flows), run a second server against a
+   **throwaway database**: copy the live data **read-only** into `thinkhealth_qa` (zohoDocs, zohoCustomers, zohoPayments,
+   members, **cardEvents**, and kv `zoho_state` / `zoho_items` / `zoho_users` / `zoho_access_token`; set `zoho_state.syncedAt`
+   to now so it doesn't sync), then `npx next build` and `MONGODB_DB=thinkhealth_qa CRON_SECRET=<any> npx next start -p 3001`;
+   test (writes are fine there), then **drop `thinkhealth_qa`** and stop the server. To act **as a member** against it, compute
+   their session token in the script exactly like `sessionToken()` in `pins.ts` (HMAC with `SESSION_SECRET`, or its fallback
+   derived from `MONGODB_URI` + `ADMIN_PIN`) — never print it, and only send it to the :3001 server.
 4. Data-route changes: save the route outputs first and compare record by record afterwards.
 5. Afterwards confirm the shared `cardEvents` has no test entries. For Zoho probing reuse the cached token in Mongo `kv`
    (`zoho_access_token`) — read-only calls only. Fixtures: sagealpha, Checkmate Security, The Ritz Carlton, Mewar Hotels,
@@ -506,3 +547,8 @@ No test suite. Pattern used throughout:
     *name* (e.g. a member named "Arti …"); renaming a member changes what they can do.
 15. The GitHub repo is **public** (anyone can read the code; Actions minutes are free). Decide whether it should be private.
 16. The Overview page (`/`) is 131 px wider than a 390 px phone screen (pre-existing; Follow-ups and Calendar fit).
+17. **Open question to the owner (7 Oct):** should Ashish, Shikha and Sumit be able to revert *anyone's* changes? Today only
+    Admin can; everyone else reverts their own (`canRevert` in roles.ts — one line to widen).
+18. Aliases match by exact name (ignoring case/spaces/punctuation). "Chalet Hotel Limited" (singular, 7 docs) is probably the
+    same company as "Chalet Hotels Limited" — the owner was told to fix the name in Zoho or ask for looser matching.
+19. Vercel Hobby keeps runtime logs ~1 hour only — the Sync log (Mongo `zohoSyncLog`, 90 days) is the record of syncs.
