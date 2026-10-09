@@ -244,6 +244,9 @@ export type CardEventKind =
   | "merge"
   | "set_training_date" // value: YYYY-MM-DD, several days comma-separated ("2026-10-05,2026-10-06"), or "TBD"; the first date schedules, later ones postpone
   | "complete_training" // moves the card to Training completed
+  // Certificates: one value per customer name (ref = Zoho contact id), the latest wins on every card of that name.
+  | "set_cert_alias" // value = the alias printed as the location ("course conducted at"), "" = the customer's own name; before = previous
+  | "set_concerned_email" // value = the concerned person's email (participant list, gratitude emails), "" = not set; before = previous
   | "zoho_change" // recorded automatically when a Zoho document disappears and a card moves because of it
   | "add_potential" // creates a Potential training card: cardIds [potential:<id>], ref = Zoho contact id, value = expected month (YYYY-MM) or none
   | "set_potential_date" // value: new expected month (YYYY-MM) or "" for not set; before: previous
@@ -282,7 +285,7 @@ export interface CardEvent {
   phase?: Phase; // where an email/phone was added
   trainers?: string[]; // set_training_date: who gives the training on those dates (our trainers, then external names as typed)
   mode?: "change"; // set_training_date: "Change date" — the date was corrected (earlier or later), not postponed
-  underName?: string; // set_training_date: the training is under this alias (none = the customer's own name)
+  underName?: string; // set_training_date (before set_cert_alias): the training is under this alias (none = the customer's own name)
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)
   messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)

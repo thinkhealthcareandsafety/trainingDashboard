@@ -9,7 +9,7 @@ import { fireworks } from "@/lib/confetti";
 import { btn } from "../ui";
 import {
   type BoardOptions, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection,
-  SalesSection, Shell, TrainingSection,
+  SalesSection, Shell, TrainingSection, certEvents,
 } from "./CardModal";
 
 // Shreya's Fulfillment board: every completed training, carried over from the training board with everything it had
@@ -104,6 +104,7 @@ function FulfillmentSteps({ card, member }: { card: CardView; member: Member }) 
 export function FulfillmentModal({ card, cards, trainingCards, member, options, onClose }: {
   card: CardView; cards: Cards; trainingCards: Cards; member: Member; options: BoardOptions; onClose: () => void;
 }) {
+  const { addCardEvents } = useStore();
   const done = card.schedule?.completed;
   const sub = `${FULFIL_LABEL[card.fulfillment!.stage]} · ${card.docNumber ?? ""}${done ? ` · training completed ${dateLong(done.at)}` : ""}`;
   // The training card it came from (what was merged into it), shown as on the training board.
@@ -141,7 +142,7 @@ export function FulfillmentModal({ card, cards, trainingCards, member, options, 
           {payLeft && payment}
         </div>
         <div ref={rightRef} className="space-y-3">
-          <TrainingSection card={card} />
+          <TrainingSection card={card} needEmail onCert={(cert) => addCardEvents(certEvents(card, cert, member.name))} />
           {!payLeft && payment}
           <SalesSection card={card} />
           <DocsSection card={card} options={options} />

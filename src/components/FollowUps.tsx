@@ -371,7 +371,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
           )}
         </div>
         {card.schedule.trainers.length > 0 && <div className="mt-0.5 truncate text-[11px] text-ink-2">{card.schedule.trainers.map((t) => t.split(" ")[0]).join(", ")}</div>}
-        {(f || card.logistics) && card.schedule.underName && <div className="mt-0.5 truncate text-[11px] text-ink-2">Under name: <span className="font-semibold">{card.schedule.underName}</span></div>}
+        {(f || card.logistics) && card.certAlias && <div className="mt-0.5 truncate text-[11px] text-ink-2">Alias: <span className="font-semibold">{card.certAlias}</span></div>}
         {card.piSkipped && card.kind === "quote" && <div className="mt-0.5 text-[11px] font-semibold text-medium">PI needed</div>}
         </>
       ) : (

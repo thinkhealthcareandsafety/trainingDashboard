@@ -34,7 +34,7 @@ export interface TrainingSchedule {
   date?: string; // first training day, YYYY-MM-DD; none when TBD
   dates: string[]; // every training day, in order — one, a range, or scattered days; none when TBD
   trainers: string[]; // who gives it (none when TBD)
-  underName?: string; // the alias the training is under, when it isn't the customer's own name
+  underName?: string; // older trainings: the alias they were scheduled under (shown now: CardView.certAlias)
   at: string;
   by: string;
   completed?: { at: string; by: string }; // "Training completed" pressed
@@ -84,6 +84,10 @@ export interface CardView {
   search: string;
   /** Quotes/PIs: training date once set — the card then lives in Training Scheduled (or Completed). */
   schedule?: TrainingSchedule;
+  /** Certificates: the alias printed as the location (none = the customer's own name) — per customer name, the latest set. */
+  certAlias?: string;
+  /** The concerned person's email (participant list, gratitude emails) — per customer name, the latest set. */
+  concernedEmail?: string;
   /** Quotes/PIs with nothing left to merge (no flags) can get a training date. */
   canSchedule: boolean;
   /** PI merged and ready, but no date yet: offer to schedule when opened. */
@@ -449,6 +453,45 @@ export function customerContacts(events: CardEvent[], customerOf: Map<string, st
   for (const [customer, key] of nameOf) { const c = byName.get(key); if (c) out.set(customer, c); }
   for (const [key, c] of byName) if (key.startsWith("id:")) out.set(key.slice(3), c);
   return out;
+}
+
+/** Per customer: the alias for certificates and the concerned person's email ("" = cleared / the customer's own name). */
+export type CustomerCert = Map<string, { alias?: string; email?: string }>;
+
+/**
+ * The alias for certificates and the concerned person's email go by the customer's name, like aliases: the latest one
+ * set on any card — when scheduling, or on the Fulfillment card — shows on every card under that name. Trainings
+ * scheduled under an alias before these existed count as setting it then. Returns contact id → values.
+ */
+export function customerCert(events: CardEvent[], customerOf: Map<string, string>, nameOf: Map<string, string>): CustomerCert {
+  const byName = new Map<string, { alias?: string; email?: string }>();
+  const keyOf = (customer: string) => nameOf.get(customer) || `id:${customer}`;
+  const evs = events.filter((e) => !e.revertedAt && (e.kind === "set_cert_alias" || e.kind === "set_concerned_email" || (e.kind === "set_training_date" && e.underName)))
+    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+  for (const e of evs) {
+    const customer = e.ref ?? e.cardIds.map((id) => customerOf.get(id)).find(Boolean);
+    if (!customer) continue;
+    const key = keyOf(customer);
+    const c = byName.get(key) ?? {};
+    byName.set(key, c);
+    if (e.kind === "set_concerned_email") c.email = e.value?.trim() || undefined;
+    else c.alias = (e.kind === "set_cert_alias" ? e.value : e.underName)?.trim() || undefined;
+  }
+  const out: CustomerCert = new Map();
+  for (const [customer, key] of nameOf) { const c = byName.get(key); if (c) out.set(customer, c); }
+  for (const [key, c] of byName) if (key.startsWith("id:")) out.set(key.slice(3), c);
+  return out;
+}
+
+/** Give each card its customer's alias for certificates and concerned email (the email is searchable). */
+function applyCustomerCert(cards: Map<string, CardView>, cert: CustomerCert) {
+  for (const c of cards.values()) {
+    const s = cert.get(c.customerId);
+    if (!s) continue;
+    c.certAlias = s.alias;
+    c.concernedEmail = s.email;
+    if (s.email) c.search = `${c.search} ${s.email.toLowerCase()}`;
+  }
 }
 
 function mergeEntries(list: ContactEntry[], changes: Map<string, ContactEntry | null>, norm: (v: string) => string): ContactEntry[] {
@@ -817,8 +860,9 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
 
   applyCustomerAliases(cards, aliases ?? customerAliases(events, cardCustomers(leads, quotes, pis, invoices, payments, [], events), customerNameKeys(leads, quotes, pis, invoices, payments, [])));
   applyCustomerContacts(cards, sharedContacts ?? customerContacts(events, cardCustomers(leads, quotes, pis, invoices, payments, [], events), customerNameKeys(leads, quotes, pis, invoices, payments, [])));
+  applyCustomerCert(cards, customerCert(events, cardCustomers(leads, quotes, pis, invoices, payments, [], events), customerNameKeys(leads, quotes, pis, invoices, payments, [])));
 
-  const live = [...cards.values()].filter((c) => !c.mergedInto);
+  const live =[...cards.values()].filter((c) => !c.mergedInto);
   const inTraining = (c: CardView) => (c.kind === "quote" || c.kind === "pi") && Boolean(c.schedule) && !c.lost;
   const column = (k: CardKind) => live.filter((c) => c.kind === k && !inTraining(c) && !c.lost);
   // Soonest training first; to-be-decided at the end.
@@ -943,7 +987,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_training_date": {
       const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDays(x));
       const who = (e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "") + (e.underName ? ` · Under name: ${e.underName}` : "");
-      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : " · under the customer's own name"}`;
+      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : ""}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
       if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)${who}`;
       if (e.before && e.mode === "change") return `Training date changed from ${show(e.before)} to ${show(v)}${who}`;
@@ -952,6 +996,8 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
       return `Training scheduled for ${show(v)}${skip}${who}`;
     }
     case "complete_training": return "Training marked completed — moved to Training completed";
+    case "set_cert_alias": return `Alias for certificates: ${v ? `“${v}”` : "the customer's own name"}${e.before ? ` (was “${e.before}”)` : ""} — on every card under this customer name`;
+    case "set_concerned_email": return `Concerned person's email: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — on every card under this customer name`;
     case "zoho_change": return v;
     case "add_potential": return `Added to Potential training${v ? ` — training expected around ${fmtMonth(v)}` : ""}`;
     case "set_potential_date": return `Expected training: ${fmtMonth(e.before) || "not set"} → ${fmtMonth(v) || "not set"}`;
@@ -1168,7 +1214,7 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
         stage: (moved?.value as FulfilStage) ?? "completed", at: moved?.at, by: moved?.by,
         wip: wip?.value === "on" ? { at: wip.at, by: wip.by } : undefined,
       },
-      search: `${h.search} ${h.schedule?.underName ?? ""}`.toLowerCase(),
+      search: `${h.search} ${h.certAlias ?? ""}`.toLowerCase(),
     });
   }
 
