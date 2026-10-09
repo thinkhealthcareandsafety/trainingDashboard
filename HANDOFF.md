@@ -1,14 +1,21 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 7 Oct 2026, end of session 4. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 8 Oct 2026, end of session 5. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all four sessions), the
+Read this end to end before touching code. It records what the owner asked for (every prompt, all five sessions), the
 business rules that came out of it, how the code works **now**, what was verified, and what is still open.
+
+**Session 5 in one paragraph:** gave Priyanka's AedSmartx board a **Contacted** column (In process → call log, contacts by
+customer name, email check) and **onboarding emails sent from Zoho Mail** (hello@thinkhealth.in — first contact, then two
+reminders as replies in the same thread; templates in MongoDB; Admin connected the mailbox, the owner received a test);
+fixed **Clear logs** to work on every board; made **contact numbers / emails customer-wide** (like aliases); **locked the
+customer name** (it's their Zoho identity); team changes now show within **15 s**; **Training not required is purple**. All
+pushed and live (last commit `1738416`).
 
 **Session 4 in one paragraph:** checked the Zoho sync (data matched Zoho exactly; GitHub's hourly job never ran — no
 `CRON_SECRET`) and added a **Sync log**; built the **Logistics** board for Arti; added **per-person permissions** enforced on the
 server; made **undo run forward on every board** (with a confirm popup); made **aliases apply to every card under the customer's
-name**. All pushed and live (last commit `b146419`).
+name** (`b146419`).
 
 ---
 
@@ -16,8 +23,11 @@ name**. All pushed and live (last commit `b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `b146419`
-  (7 Oct). This final HANDOFF.md update may still be uncommitted — check `git status`.
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `1738416`
+  (8 Oct). This final HANDOFF.md update may still be uncommitted — check `git status`.
+- **Zoho Mail is connected** for **hello@thinkhealth.in** (Admin did it on 8 Oct through the dashboard's *Connect it* popup;
+  token in Mongo kv `zoho_mail:hello@thinkhealth.in`). The owner received a **[TEST]** first-contact email. Threaded reminders
+  (reply API) are **not yet confirmed** in real use — see §10 #20.
 - **After every release** the team must press **Ctrl + Shift + R** once: the app is a single-page app, so an open tab keeps the
   old code until a full reload (this is why "confetti works for me but not for others" happened).
 - **Zoho sync** was broken from Mon 5 Oct 3 pm to Tue 9:19 am (automatic syncs depended on page visits + one daily cron, and
@@ -35,7 +45,7 @@ name**. All pushed and live (last commit `b146419`).
   Client* and Heritage Village Goa to *Shipments* on 7 Oct), **Shreya** (certificates — Fulfillment board), and **Admin** (the
   owner). Their changes live in MongoDB `cardEvents` — **never write test data to the shared database** (see §9).
 - **Four boards** on `/follow-up`, picked with the **Board** switch (Training · AedSmartx · Fulfillment · Logistics): the
-  **Training follow-ups** board (9 columns), the **AedSmartx Training** board (4), the **Fulfillment** board (5) and the
+  **Training follow-ups** board (9 columns), the **AedSmartx Training** board (5, Contacted added in session 5), the **Fulfillment** board (5) and the
   **Logistics** board (6, session 4). Plus the Dashboard (`/`) and Calendar pages.
 - **Permissions (owner's list, 7 Oct — `src/lib/roles.ts`, enforced by the boards AND by `/api/store`):**
   Priyanka → AedSmartx only, everything except marking delivered · Arti → Logistics only, everything there · Shreya →
@@ -65,7 +75,11 @@ npx next build                       # production build (passes)
 - **Secrets live only in `.env.local`** (gitignored) and in Vercel's Environment Variables:
   `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`, `ZOHO_ORG_ID`, `ZOHO_API_BASE`, `ZOHO_ACCOUNTS_URL`,
   `MONGODB_URI`, `MONGODB_DB`, `ADMIN_PIN`, `CLEAR_LOGS_PIN`; Vercel also has `ZOHO_DAILY_LIMIT` (2500) and `CRON_SECRET`.
-  Optional: `SESSION_SECRET` (changing it signs everyone out). Documented in `.env.example` (no values).
+  Optional: `SESSION_SECRET` (changing it signs everyone out); `ZOHO_MAIL_API` (default `https://mail.zoho.in`),
+  `ZOHO_MAIL_CLIENT_ID` / `ZOHO_MAIL_CLIENT_SECRET` (fallbacks for the Connect popup — not set; the popup's values are stored in
+  Mongo kv instead). Documented in `.env.example` (no values).
+  **Zoho Mail credentials are NOT env vars:** each mailbox's client id/secret + refresh token live in Mongo kv
+  `zoho_mail:<address>` (written by `POST /api/mail/connect`, Admin only; never returned to the browser). Never print them.
   **Never print, copy or commit secret or PIN values** — a push was once blocked because a PIN had been written into
   this file; scan diffs for PIN digits before every push.
 - Git identity is repo-local (`thinkhealthcareandsafety` / `sshah@thinkhealth.in`). Follow the session's commit-attribution reminder.
@@ -90,8 +104,27 @@ npx next build                       # production build (passes)
 Zoho Books ──(src/lib/zoho.ts: client, fetchers, mappers)──► src/lib/zohoSync.ts ──► MongoDB copy
                                                                  │  zohoDocs, zohoCustomers, zohoPayments, kv
 browser ──(cookie)──► /api/pipeline · /api/aed · /api/trainings · /api/zoho/meta ──(read the copy, no Zoho calls)
-browser ◄──► /api/store (team data: cardEvents, members, …; 60 s pull, diff push; server stamps who did what)
+browser ◄──► /api/store (team data: cardEvents, members, …; 15 s pull + on tab focus, diff push; server stamps who did what)
+browser ──► /api/mail/aed ──(src/lib/zohoMail.ts, templates src/lib/mailTemplates.ts)──► Zoho Mail API (mail.zoho.in)
+                 └─ records the sent email as an `aed_email` event in cardEvents (server only)
 ```
+
+### Zoho Mail (session 5) — `src/lib/zohoMail.ts`, `src/lib/mailTemplates.ts`, `src/app/api/mail/{aed,connect}`
+- Separate from the Zoho Books client. A mailbox is connected once by **Admin** with the *Connect it* popup (AedSmartx →
+  Contacted card → Send email): a one-time code from **api-console.zoho.in → Self Client → Generate Code** (signed in as that
+  mailbox), scope `ZohoMail.messages.ALL,ZohoMail.accounts.READ`, plus that Self Client's Client ID + Secret. `connectMailbox()`
+  swaps the code for a refresh token, finds the Zoho Mail account that can send as the address (`GET /api/accounts`), and saves
+  `{accountId, clientId, clientSecret, refreshToken, token}` in kv `zoho_mail:<address>`. Access tokens are refreshed and saved there.
+- `sendMail(from, {to, subject, html, replyTo})`: `POST /api/accounts/{id}/messages`; with `replyTo` (a Zoho messageId) it posts
+  to `/messages/{messageId}` with `action: "reply"`; **if the reply call fails it sends a new email** with the same subject
+  (event `threaded: false`). The send response's `data.messageId` is stored on the event.
+- Templates: Mongo **`mailTemplates`**, one doc per flow (`aed_onboarding`: from, signature, subject with `{invoice}`, 3 steps).
+  Created from the defaults in `mailTemplates.ts` the first time; edit the Mongo doc to change wording (no release needed).
+  `buildMail()` fills `{invoice}`, reminders get `Re:` and quote the earlier emails (newest on top, "On … wrote:").
+- `GET /api/mail/aed?card=aed:<id>&to=` = preview (connected?, step, label, subject, text); `POST {card, to, step}` sends
+  (refuses if `step` isn't still the next one — no double sends) and inserts the `aed_email` event; `POST {…, testTo}` sends a
+  **[TEST]** copy to any address and records nothing. Only members whose boards include AedSmartx may call it.
+- Built for reuse: Shreya (Fulfillment) is expected to get the same kind of emails later — add a template doc + a route.
 
 ### Zoho copy + sync (`src/lib/zohoSync.ts`)
 - Zoho data is **stored in MongoDB**, not server memory: `zohoDocs` (tracked quotations / sales orders / invoices with full
@@ -141,7 +174,7 @@ browser ◄──► /api/store (team data: cardEvents, members, …; 60 s pull,
 - **The server enforces permissions** (`stampCardEvents` in `/api/store`, rules in `src/lib/roles.ts`): a new change outside
   the member's board/actions (`canWriteEvent`) is silently dropped; a revert of someone else's entry is dropped unless it is
   part of the cascade of one of the member's own reverts (`cascadeOf`). Refused changes vanish from the browser at the next
-  60-s pull (the pull replaces local data with the server's).
+  pull, every 15 s (the pull replaces local data with the server's).
 
 ### Event model (both boards)
 A card = Zoho data + every **non-reverted** `CardEvent` replayed in order; nothing from Zoho is overwritten, so **Revert** = mark the
@@ -154,6 +187,15 @@ external names), optional `mode: "change"` (Change date — not a postponement) 
 `set_delivered`, `add_note`, `set_fulfillment` (stage), `set_wip` (on/off), and on Logistics `logi_hide`, `logi_merge`
 (`[logi:<doc>, logipay:<payment card id>]`), `set_logistics` (step). Logistics card ids: `logi:<pi or quote card id>`,
 `logipay:<training payment card id>`. Alias events carry `ref` = Zoho contact id (aliases are applied by customer **name**).
+**Contact numbers / emails** (`add_phone` / `remove_phone` / `add_email` / `remove_email`, from Edit on any card) are also applied
+by customer **name** across every board since session 5 (`customerContacts` / `applyCustomerContacts` in pipeline.ts; new events
+carry `ref`, old ones are matched through their card). **`set_name` is refused by the server and no longer applied** — the
+customer name always comes from Zoho (old renames only show in the log).
+AedSmartx Contacted kinds (session 5, fields `person`, `step`, `messageId`, `threaded`): `aed_in_process` (`[aed:<id>]`, a
+cascade trigger), `aed_add_phone` / `aed_remove_phone` / `aed_set_email` / `aed_remove_email` (`[aedcustomer:<cid>, aed:<id>]`,
+`ref` = cid — by customer name, **AedSmartx board only**), `aed_confirm_email` (`[aed:<id>]`), `aed_call`
+(`[aed:<id>, aedcustomer:<cid>]`), `aed_email` (**server-written only**, never revertable — `canWriteEvent` refuses it from
+browsers, `canRevert` and the store route refuse reverting it).
 **Revert cascades forward** (`src/lib/cascade.ts`, §1). **Clear logs** archives to `cardEventsArchive` first and keeps
 `add_potential` events. Instalment folding (an invoice's other payments joining its merged payment) is computed, not an event.
 
@@ -169,6 +211,8 @@ external names), optional `mode: "change"` (Change date — not a postponement) 
 | `src/components/RevertConfirm.tsx` | "Revert this change?" popup listing the later steps (rendered once in AppShell; store `pendingRevert`). |
 | `src/components/SyncLog.tsx`, `src/app/api/zoho/sync-log/route.ts` | Sidebar Sync log window (hour by hour) and its API. |
 | `src/components/followups/LogisticsModal.tsx` | `LogiAedModal` (delivery, hide) and `LogisticsModal` (merge, packing, shipping, reached popup, Ship to). |
+| `src/components/followups/AedContacted.tsx` | AedSmartx **Contacted** section: contacts (radio, + Add contact, Remove → "Remove the non-concerned person's contact details?"), Log call, email check flag (Same email / Change), Send email preview popup (+ Send a test), Connect Zoho Mail popup (Admin), calls & emails history. |
+| `src/lib/zohoMail.ts`, `src/lib/mailTemplates.ts`, `src/app/api/mail/{aed,connect}/route.ts` | Zoho Mail connection + send (reply in thread), email templates in Mongo, preview/send and connect APIs. |
 | `src/lib/aedParse.ts` | Reads the AED line description: model, year, serials, battery/pads expiry; the five extras. |
 | `src/lib/confetti.ts` | `celebrate()` (Custom Shapes, Training completed) and `fireworks()` (Certificates Generated); loads `canvas-confetti` on demand. |
 | `src/components/FollowUps.tsx` | Board page: column window (◀ ▶ / keys / swipe, fit to screen), columns + customer boxes, F / R toggles, Clear logs, **Board** switch (`boardsFor`), card borders per board. |
@@ -178,7 +222,7 @@ external names), optional `mode: "change"` (Change date — not a postponement) 
 | `src/components/followups/AedModal.tsx` | AedSmartx card modal (delivery, schedule date+time, notes, item description, resale); exports `AedNotesSection`, `AedDocsSection`, `ItemDescriptionSection` (reused by Logistics). |
 | `src/components/followups/MembersScreen.tsx` | Sign-in card (names, PIN, Admin, + Add new member). |
 | `src/components/AppShell.tsx` | Shell, sidebar (hide to rail), global sign-in gate, `MemberPill`, `PageHeader`, **SyncPanel** (`useZohoSync`: heartbeat, Sync now, Last / Next sync). |
-| `src/lib/store.tsx` / `src/app/api/store/route.ts` | Shared team data (pull 60 s, diff push; `ZOHO_SYNCED` event) / server stamping. |
+| `src/lib/store.tsx` / `src/app/api/store/route.ts` | Shared team data (pull 15 s + on tab focus, diff push; `ZOHO_SYNCED` event) / server stamping. |
 | `src/lib/auth.ts`, `src/lib/pins.ts`, `src/lib/session.tsx`, `src/app/api/members/*` | Sign-in, PINs, cookie, session. |
 | `src/app/api/{pipeline,aed,trainings,zoho/meta,zoho/sync,cron/sync,store/clear-logs}/route.ts` | API routes (`zoho/sync`: GET heartbeat, POST Sync now). |
 | `.github/workflows/zoho-sync.yml` | Hourly GitHub Actions call to `/api/cron/sync` (needs the `CRON_SECRET` repo secret). |
@@ -196,7 +240,12 @@ external names), optional `mode: "change"` (Change date — not a postponement) 
   every Zoho customer with the **same name** (case, spaces, punctuation ignored; Zoho has duplicates, e.g. two "Chalet Hotels
   Limited" records). "Chalet Hotel Limited" (singular) or "… Pune" are different names and don't get it. `customerAliases`,
   `cardCustomers`, `customerNameKeys` in pipeline.ts; new alias events carry `ref` = contact id. Search finds them all by alias.
-- **One modal for every phase**: customer name (mandatory) + aliases, emails, contact numbers (mandatory; tagged by phase), type
+- **Customer name is locked** (session 5, owner: "it's their identity that connects them to Zoho"): shown read-only with a
+  lock in Edit (*From Zoho Books — can't be changed. Add an alias instead.*); the server refuses `set_name`; old renames no
+  longer apply. Change names in Zoho Books.
+- **Contact numbers and emails go by customer name** (session 5): added or removed with Edit on any card, on any board, they
+  show on (or leave) every card under that customer name — incl. the AedSmartx modal and Priyanka's Contacted list.
+- **One modal for every phase**: customer name (read-only) + aliases, emails, contact numbers (mandatory; tagged by phase), type
   (`cf_type`), sector (`cf_sector`), created in Zoho, phase-aware sales person, locked IDs & dates with Zoho links, training block,
   Notes, Merged, Payment line (invoice/payment cards), and the **Changes** panel (Revert on your own entries; Admin on all).
   Edit and Delete.
@@ -238,7 +287,10 @@ external names), optional `mode: "change"` (Change date — not a postponement) 
   *Certificates Generated* (Fulfillment) fires **Fireworks** (~4 s). Both show even when Windows animation effects are off
   (the owner asked to override reduced motion).
 - **Delete** a document card → hidden, customer back in Leads. Leads can't be deleted.
-- **Clear logs** (Admin only, PIN): Everything / One customer / One deal cycle.
+- **Clear logs** (Admin only, PIN): Everything / One customer / One deal cycle. Since session 5 it works on **the board that's
+  open** (its cards only — e.g. an AedSmartx invoice like 2026-01-442 is found on AedSmartx, and clearing it leaves the
+  training card's log alone; One customer on AedSmartx also clears `aedcustomer:` entries). Only cards with changes are listed.
+  *Everything* still clears every board. Clearing an AED card also clears its sent-email count (next email = First contact again).
 - **Filter** (next to *Show deleted*, both boards; `DateFilter.tsx`): one or several months, or a from–to range. Each card is
   matched on the date it shows — training days once scheduled, else quote/PI/invoice/payment date, expected date (Potential),
   created date (Leads). Not saved; header counts follow the filter.
@@ -289,7 +341,22 @@ external names), optional `mode: "change"` (Change date — not a postponement) 
 - Columns ordered by training date, latest first. Notes on logistics cards are their own plus the training card's.
 
 ### AedSmartx Training board
-**Invoices sent → Training scheduled → Training completed → Training not required**
+**Invoices sent → Contacted → Training scheduled → Training completed → Training not required** (purple, session 5)
+- **Contacted** (session 5, `AedContacted.tsx`): once delivered, the card offers **In process** (→ Contacted, blue border) next to
+  *Schedule training* (works from either column; scheduling moves the card on and skips Contacted). Section under Training:
+  - **Last contacted** (number, person, when — any invoice of the customer) and a **Calls** counter for this invoice; pick the
+    number called (radio) → **Log call**; **+ Add contact** (name optional) → popup *"Remove the non-concerned person's contact
+    details?"* **Yes, remove / Keep it** (about the previously selected number); each number has *Remove*. Removing only hides
+    it on this board (Zoho keeps it).
+  - **Email**: the current email with a yellow flag *"Is this the concerned person's email? You might want to change it."* →
+    **Same email** / **Change** (change asks whether to remove the old one). **Send email · <step>** is enabled once checked.
+  - **Send email** opens a preview (From hello@thinkhealth.in, To, Subject *Invoice# <no.> Request for Details for Client
+    Onboarding - AED Smartx*, body) → **Send**. Email 1 = first contact, 2 = 1st reminder, 3+ = 2nd reminder (repeats), sent as
+    replies in the first email's thread with the earlier emails quoted. **Send a test to** = same email, *[TEST]*, uncounted.
+  - Card tile in Contacted: *n calls · last <date, time>* / *n emails · last <date, time>*. *All calls & emails* = full list.
+  - Numbers / emails / last call that Priyanka adds are **per customer name, AedSmartx board only** (owner: "strictly her
+    dashboard"; Admin/Sumit/Shikha/Ashish see them there). Logistics shows the AED card as *Moved by Priyanka · Contacted*.
+  - Undo runs forward: reverting delivered also reverts In process; reverting In process reverts later steps; calls and emails stay.
 - Who: **Priyanka** sees only this board; **Sumit, Shikha, Ashish and Admin** open it with the **Board** switch. Arti now
   marks deliveries from the Logistics board. Everyone else: training board.
 - Cards = invoices from **1 Sept 2026** (`AED_SINCE`) with an item whose Item Identifier is **All AEDs**, excluding the AED trainers
@@ -304,7 +371,9 @@ external names), optional `mode: "change"` (Change date — not a postponement) 
   **not Priyanka**; undo only by whoever marked it (or Admin). **Schedule training is locked until the AED is delivered** (first
   schedule and from To be decided); *Training not required* stays available. Not delivered → yellow border + *Not delivered yet*;
   delivered → green + *Ready for Scheduling* (replaces the paid/due chip on AED cards). Green **R n** next to a column name shows
-  only ready cards. (`isDeliveryOnly` in AedModal is now unused in practice — Arti no longer opens AedSmartx.)
+  only ready cards (not Contacted ones). (`isDeliveryOnly` in AedModal is now unused in practice — Arti no longer opens AedSmartx.)
+- **Training not required** is **purple** (session 5): column header, card border + chip, modal training box and button, and
+  the resale / Reseller tick boxes (token `--purple` / `--purple-bg`, light and dark).
 
 ### Layout preferences (see also §8)
 Columns side by side as a sliding window (as many as fit at ≥184 px with full names; ◀ ▶, arrow keys, swipe); board fits the screen
@@ -442,7 +511,24 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 117 | **Permissions list** (Priyanka AED minus delivered; Arti Logistics; Shreya Fulfillment; Ashish/Shikha/Sumit all; Admin all + sole clear-logs); "any revert reverts everything after it". Asked 3 questions → everyone reverts their own; global cascade; other boards stop applying rather than revert | `roles.ts` + `cascade.ts` + server enforcement + confirm popup (see §1). Tested: server refusals per member with real session tokens, cascade across merges on the training board, Ashish 4 boards, Priyanka no delivered button. |
 | 118 | "Whenever an alias is added, it updates on all the cards" | Aliases made customer-wide; then "I searched sahar, only one Chalet showed — literally all cards under that name" (the change wasn't pushed yet when they tried) → matched by **name** across duplicate Zoho records. Tested on a throwaway copy (search sahar: all 8 Chalet Hotels Limited cards + the 2nd record's lead). |
 | 119 | "push it to github" | `b146419` (live after ~75 s). |
-| 120 | "Write down the handoff for next session, and a text for messaging everything I did today" | This update of HANDOFF.md; team message given in chat (not a file). |
+| 120 | "Write down the handoff for next session, and a text for messaging everything I did today" | Session 4 handoff; team message given in chat (not a file). |
+
+### Session 5 (8 Oct 2026)
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 121 | "Read the previous handoff" | Summary of where things stand. |
+| 122 | Priyanka: new **In process** button (only once ready for scheduling) → new column **Contacted**; modal *Contacted* section under the training date: last contacted number + counter, add another contact (then "Remove non-concerned person's contact details? Yes / Keep it"), kept per customer name only on her dashboard; email with a "might want to change" flag (same / change, remove old?); **Send email** from Zoho Mail (hello@thinkhealth.in) with the first-contact template, then 1st / 2nd reminders as the counter grows; Schedule training still available. Restated with 5 questions → "1) yes 2) email and phone counters separate 3) keep sending the 3rd template, exact count + date/time on the card; skipped if a date is set 4) totally 5) **B** (send via Zoho Mail API) — Shreya will get the same later" | Built (§4 AedSmartx, §3 Zoho Mail). Logic tested on synthetic data; a browser test on a throwaway copy of live data was **blocked by the auto-mode safety classifier** (PII), so no click-through was done. |
+| 123 | "run it locally" | Dev server (localhost + LAN). |
+| 124 | "Not sure if the Self Client is the same — do I show you the client id?" | Told: never paste secrets in chat — type them only in the Connect popup; fill all three fields. |
+| 125 | Screenshot "Connected — emails can be sent now", "what's next" | Added **Send a test** (any address, [TEST], uncounted) so the real card's count isn't spent on a test. |
+| 126 | "It's peak, I received the email. Push it" | `4871d3c` (session 4 handoff) + `886bdc2` (Contacted + Zoho Mail). |
+| 127 | Clear logs → One deal cycle → "2026-01-442: No match" | Bug: Clear logs only listed Training-board cards. Now the open board's cards. |
+| 128 | "push it all" | `a2a2a03`. |
+| 129 | A contact number added by editing a card should show up in the modal, immediately; Priyanka should get it too | Bug: AedSmartx Contact section hid edit-added numbers. Numbers / emails now customer-wide on every board and in Contacted; Priyanka's added numbers show in her Contact section; pull every 15 s + on tab focus. |
+| 130 | "Make Training not required cards and the whole column purple" | Purple token + column, cards, modal. `e70cbf4`. |
+| 131 | "Don't allow anyone to change the customer's name — it's their identity that connects them to Zoho"; "push" | Name read-only, server refuses `set_name`, old renames ignored. `1738416` (live after ~40 s). |
+| 132 | "push everything" | Nothing left — already pushed. |
+| 133 | "Write me a handoff and the things I did for a message" | This update; team message in chat. |
 
 ---
 
@@ -467,6 +553,8 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 ## 7. MongoDB `thinkhealth_dashboard` (Cluster0)
 Team data: `cardEvents` (live change log), `cardEventsArchive` (cleared logs), `members`, `memberPins` (hashed), `entries`,
 `followUps`, `announcements`, `removedTriggers`. Zoho copy: `zohoDocs`, `zohoCustomers`, `zohoPayments`, `kv`.
+Session 5: **`mailTemplates`** (email wording, doc `aed_onboarding`), kv **`zoho_mail:hello@thinkhealth.in`** (Zoho Mail
+connection — secret). Sent emails are `aed_email` events in `cardEvents`.
 Legacy: `leads` (4,105 docs, unused since session 1) — drop only with the owner's OK. History: `cardEvents` was cleared by
 request in session 1 (twice) and by Shikha once in session 2; Admin/Shikha may clear again (archive keeps copies).
 
@@ -487,6 +575,10 @@ request in session 1 (twice) and by Shikha once in session 2; Admin/Shikha may c
 - They answer questions as short numbered replies ("1) … 2) yeah 3) yes too"); offering a recommended default for each works well.
   They try changes on the live site right away — if something "doesn't work", first check whether it was pushed yet.
 - Permissions: see §1 (roles.ts). Admin does everything and is the only one who clears logs.
+- Data identity: the **customer name comes from Zoho and is never edited** in the dashboard; aliases, numbers and emails
+  follow the customer name across every board.
+- Secrets: the owner asked whether to show the Client ID/secret — the answer is always "type it only into the app's own
+  popup / Vercel, never in chat".
 
 ---
 
@@ -519,6 +611,12 @@ No test suite. Pattern used throughout:
 8. Modal fit: measure `[role=dialog] .no-scrollbar.min-h-0.flex-1.overflow-y-auto` → `scrollHeight - clientHeight`
    (0, or 16 = only the bottom padding, is fine) on several real cards, including long merge chains and multi-day trainings.
 9. Animations (confetti): screenshot frames ~100–300 ms after the click; a `body > canvas` with z-index 9999 means it fired.
+10. **Session 5: the auto-mode safety classifier refused copying live data into `thinkhealth_qa`** (PII) and then even code
+    searches toward that test. Don't retry it on your own: either ask the owner to allow it (permission rule) or test with
+    synthetic data — e.g. the esbuild pattern (#7) with made-up leads/invoices/events (used for the Contacted logic, the
+    templates, customer-wide contacts and the name lock), or a browser with every `/api/*` request answered by fake JSON.
+11. **Emails**: never send a real email to a customer while testing. A QA database has no `zoho_mail:` doc, so sends fail
+    there by design; on live, use **Send a test** (records nothing).
 
 ---
 
@@ -552,3 +650,12 @@ No test suite. Pattern used throughout:
 18. Aliases match by exact name (ignoring case/spaces/punctuation). "Chalet Hotel Limited" (singular, 7 docs) is probably the
     same company as "Chalet Hotels Limited" — the owner was told to fix the name in Zoho or ask for looser matching.
 19. Vercel Hobby keeps runtime logs ~1 hour only — the Sync log (Mongo `zohoSyncLog`, 90 days) is the record of syncs.
+20. **Unconfirmed: threaded reminders.** The Zoho Mail reply call (`action: "reply"` on the first email's messageId) hasn't run
+    for real yet. After Priyanka's first reminder, check that card's log: "…, as a reply in the same thread" = works; without
+    it, Zoho refused the reply and it went as a new email (same subject) — then check `[zoho mail] reply failed` and fix.
+21. **Not click-tested in a browser** (session 5, see §9 #10): the Contacted section, popups, Clear logs per board, purple, name
+    lock. Modal fit at 1728×958 with the Contacted section is unmeasured — the AedSmartx right column (Training + Contacted +
+    Item description) may now scroll; if so, collapse Item description while a card is in Contacted.
+22. Email templates: edit the Mongo `mailTemplates` doc to change wording (the owner's text kept as given, incl. "if wrongly
+    address"). No editing screen yet. Shreya's emails (Fulfillment) are expected next — same mechanism, new template + route.
+23. The dashboard now pulls team data every 15 s (was 60 s) — 4× the `/api/store` reads; fine for this team, revisit if it grows.
