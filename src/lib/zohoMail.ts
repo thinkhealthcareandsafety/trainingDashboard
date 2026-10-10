@@ -1,17 +1,18 @@
 import "server-only";
 import { db } from "./db";
+import { clientOf, tokenRequest } from "./zohoOAuth";
 
 /*
- * Zoho Mail (India data centre): sends emails from a team mailbox — today hello@thinkhealth.in for the AedSmartx
- * onboarding emails; other mailboxes (e.g. Shreya's) connect the same way. Separate from the Zoho Books client: each
- * mailbox is connected once by Admin with a one-time code from the Zoho API console, signed in as that mailbox. Its
- * refresh token lives only in MongoDB kv `zoho_mail:<address>` and never reaches the browser.
+ * Zoho Mail (India data centre): sends emails from a team address — hello@thinkhealth.in for the AedSmartx onboarding
+ * emails, learn@thinkhealth.in (an alias on Shikha's mailbox) for the Fulfillment gratitude emails. Separate from the
+ * Zoho Books client: each address is connected once by Admin with a one-time code from the Zoho API console, signed in
+ * as the mailbox that owns it. Its refresh token lives only in MongoDB kv `zoho_mail:<address>` and never reaches the
+ * browser. For learn@ the dashboard also reads the replies to the threads it started (nothing else in that mailbox).
  */
 
-const ACCOUNTS = process.env.ZOHO_ACCOUNTS_URL ?? "https://accounts.zoho.in";
 const MAIL_API = process.env.ZOHO_MAIL_API ?? "https://mail.zoho.in";
 /** What the one-time code must be generated with (Zoho API console → Self Client → Generate Code). */
-export const MAIL_SCOPES = "ZohoMail.messages.ALL,ZohoMail.accounts.READ";
+export const MAIL_SCOPES = "ZohoMail.messages.ALL,ZohoMail.accounts.READ,ZohoMail.folders.ALL";
 
 type Mailbox = {
   _id: string;
@@ -21,6 +22,7 @@ type Mailbox = {
   clientSecret: string;
   refreshToken: string;
   token?: { value: string; expiresAt: number };
+  folders?: { inbox: string; sent: string; named?: Record<string, string> }; // read once, for checking replies and filing sent emails
   connectedAt: string;
   connectedBy: string;
 };
@@ -32,13 +34,6 @@ const kv = async () => (await db()).collection<Mailbox>("kv");
 export async function mailboxInfo(address: string): Promise<MailboxInfo | null> {
   const m = await (await kv()).findOne({ _id: keyOf(address) });
   return m ? { address: m.address, connectedAt: m.connectedAt, connectedBy: m.connectedBy } : null;
-}
-
-async function tokenRequest(params: Record<string, string>) {
-  const res = await fetch(`${ACCOUNTS}/oauth/v2/token`, { method: "POST", body: new URLSearchParams(params), cache: "no-store" });
-  const json = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string };
-  if (!res.ok || !json.access_token) throw new Error(json.error === "invalid_code" ? "That code has expired or was already used — generate a new one" : `Zoho refused the code (${json.error ?? res.status})`);
-  return json;
 }
 
 async function mailApi<T>(token: string, path: string, init?: RequestInit): Promise<{ status: number; json: T }> {
@@ -57,9 +52,7 @@ async function mailApi<T>(token: string, path: string, init?: RequestInit): Prom
  */
 export async function connectMailbox(input: { address: string; code: string; clientId?: string; clientSecret?: string; by: string }): Promise<MailboxInfo> {
   const address = input.address.trim().toLowerCase();
-  const clientId = input.clientId?.trim() || process.env.ZOHO_MAIL_CLIENT_ID || process.env.ZOHO_CLIENT_ID || "";
-  const clientSecret = input.clientSecret?.trim() || process.env.ZOHO_MAIL_CLIENT_SECRET || process.env.ZOHO_CLIENT_SECRET || "";
-  if (!clientId || !clientSecret) throw new Error("Client ID and secret are needed");
+  const { clientId, clientSecret } = clientOf(input);
   const t = await tokenRequest({ grant_type: "authorization_code", client_id: clientId, client_secret: clientSecret, code: input.code.trim() });
   if (!t.refresh_token) throw new Error("Zoho didn't return a refresh token — generate a new code and try again");
   type Account = { accountId: string; primaryEmailAddress?: string; mailboxAddress?: string; emailAddress?: { mailId: string }[]; sendMailDetails?: { fromAddress: string }[] };
@@ -114,4 +107,76 @@ export async function sendMail(from: string, mail: { to: string; subject: string
   const r = await send(false);
   if (r.status >= 300) throw new Error(`Zoho Mail didn't send it: ${r.json.data?.moreInfo ?? r.json.status?.description ?? r.status}`);
   return { messageId: r.json.data?.messageId != null ? String(r.json.data.messageId) : undefined, threaded: false };
+}
+
+/* ---------------- Reading replies and filing sent emails (learn@ — the gratitude emails) ---------------- */
+
+export type MailItem = { messageId: string; threadId?: string; folderId: string; fromAddress: string; subject: string; receivedTime: number; summary?: string };
+type RawItem = { messageId?: string | number; threadId?: string | number; folderId?: string | number; fromAddress?: string; sender?: string; subject?: string; receivedTime?: string | number; summary?: string };
+
+/** A call on the mailbox's account, refreshing the token once if Zoho says it's no longer valid. */
+async function mailboxCall<T>(m: Mailbox, path: string, init?: RequestInit): Promise<T> {
+  let r = await mailApi<{ data?: T; status?: { description?: string } }>(await accessFor(m), `/accounts/${m.accountId}${path}`, init);
+  if (r.status === 401) r = await mailApi(await accessFor(m, true), `/accounts/${m.accountId}${path}`, init);
+  if (r.status >= 300) throw new Error(`Zoho Mail: ${r.json.status?.description ?? r.status}${r.status === 403 || r.status === 401 ? " — Admin may need to connect it again with the scopes shown in the Connect popup" : ""}`);
+  return r.json.data as T;
+}
+const mailboxGet = <T>(m: Mailbox, path: string) => mailboxCall<T>(m, path);
+
+async function mailbox(address: string): Promise<Mailbox> {
+  const m = await (await kv()).findOne({ _id: keyOf(address) });
+  if (!m) throw new Error(`Zoho Mail isn't connected for ${address} yet — Admin connects it once`);
+  return m;
+}
+
+/** The mailbox's Inbox and Sent folder ids (read once, then kept with the connection). */
+async function folderIds(m: Mailbox): Promise<{ inbox: string; sent: string }> {
+  if (m.folders?.inbox && m.folders.sent) return m.folders;
+  const list = await mailboxGet<{ folderId: string | number; folderType?: string; folderName?: string }[]>(m, "/folders");
+  const find = (type: string) => list.find((f) => (f.folderType ?? f.folderName ?? "").toLowerCase() === type);
+  const inbox = find("inbox");
+  const sent = find("sent");
+  if (!inbox || !sent) throw new Error("Zoho Mail: couldn't find the Inbox and Sent folders");
+  const folders = { inbox: String(inbox.folderId), sent: String(sent.folderId) };
+  await (await kv()).updateOne({ _id: m._id }, { $set: { "folders.inbox": folders.inbox, "folders.sent": folders.sent } });
+  return folders;
+}
+
+type Folder = { folderId: string | number; folderName?: string; folderType?: string };
+
+/** A folder's id by its name (top level) — created when it isn't there yet. Kept with the connection. */
+async function folderNamed(m: Mailbox, name: string): Promise<string> {
+  const known = m.folders?.named?.[name];
+  if (known) return known;
+  const list = await mailboxGet<Folder[]>(m, "/folders");
+  const found = list.find((f) => (f.folderName ?? "").trim().toLowerCase() === name.toLowerCase());
+  const id = String(found?.folderId ?? (await mailboxCall<Folder>(m, "/folders", { method: "POST", body: JSON.stringify({ folderName: name }) })).folderId);
+  await (await kv()).updateOne({ _id: m._id }, { $set: { [`folders.named.${name}`]: id } });
+  return id;
+}
+
+/** Moves emails this mailbox sent into the named folder (e.g. the gratitude emails → "Gratitude Emails Sent"). */
+export async function fileSentMail(address: string, messageIds: string[], folderName: string): Promise<void> {
+  if (!messageIds.length) return;
+  const m = await mailbox(address);
+  const destfolderId = await folderNamed(m, folderName);
+  await mailboxCall(m, "/updatemessage", { method: "PUT", body: JSON.stringify({ mode: "moveMessage", messageId: messageIds, destfolderId }) });
+}
+
+/** The newest emails in the mailbox's Inbox, Sent, or a named folder (one call, up to 200). */
+export async function latestMail(address: string, folder: "inbox" | "sent" | { name: string }, limit = 200): Promise<MailItem[]> {
+  const m = await mailbox(address);
+  const folderId = typeof folder === "string" ? (await folderIds(m))[folder] : await folderNamed(m, folder.name);
+  const rows = (await mailboxGet<RawItem[]>(m, `/messages/view?folderId=${folderId}&limit=${limit}&sortorder=false`)) ?? [];
+  return rows.filter((r) => r.messageId != null).map((r) => ({
+    messageId: String(r.messageId), threadId: r.threadId != null ? String(r.threadId) : undefined, folderId: String(r.folderId ?? folderId),
+    fromAddress: (r.fromAddress ?? r.sender ?? "").toLowerCase(), subject: r.subject ?? "", receivedTime: Number(r.receivedTime ?? 0), summary: r.summary,
+  }));
+}
+
+/** One email's body (HTML), to show a reply on the card. */
+export async function mailContent(address: string, folderId: string, messageId: string): Promise<string> {
+  const m = await mailbox(address);
+  const data = await mailboxGet<{ content?: string }>(m, `/folders/${folderId}/messages/${messageId}/content`);
+  return data?.content ?? "";
 }

@@ -255,8 +255,14 @@ export type CardEventKind =
   | "set_resale" // AedSmartx board: this one invoice was bought for resale — needs no training
   | "set_delivered" // AedSmartx board: the AED has been delivered (marked by Arti) — ready for scheduling
   | "add_note" // a free-text note on the card (value = the note); removing it = reverting the event
-  | "set_fulfillment" // Fulfillment board (Shreya): cardIds [fulfil:<pi/quote card id>], value = stage (completed / hold / received / generated / logistics)
-  | "set_wip" // Fulfillment board, List Received: value "on" = Work in progress, "off" = not
+  | "set_fulfillment" // Fulfillment board (Shreya): cardIds [fulfil:<pi/quote card id>], value = stage (generated / logistics; older: hold / received)
+  | "set_wip" // Fulfillment board (before 10 Oct 2026), List Received: value "on" = Work in progress, "off" = not
+  | "set_cert_status" // Fulfillment board, Certificates Generated: value "process" (In process) or "hold" (On hold)
+  | "fulfil_mail_opened" // Fulfillment board: the reply was opened in Zoho Mail from the card — clears its star
+  // Written by the server only, never reverted (they happened outside the dashboard):
+  | "fulfil_email" // the gratitude email sent from Zoho Mail (learn@) — value = to, subject, messageId
+  | "fulfil_reply" // a reply to it found in the mailbox — value = from, subject, messageId, folderId, at = when it arrived
+  | "fulfil_certs" // participants added to the master sheet — value = how many, certs = the rows
   | "logi_hide" // Logistics board, AED Delivered Status: hides the AED card (cardIds [aed:<invoice id>]); Unhide = revert it
   | "logi_merge" // Logistics board: cardIds [logi:<pi/quote card id>, logipay:<payment card id>] — Sent to Logistics + its fully paid invoice's payment(s)
   | "set_logistics" // Logistics board: value = step (packages, pack_process, pack_hold, shipments, ship_dispatched, ship_hold, expected:YYYY-MM-DD, received)
@@ -290,10 +296,24 @@ export interface CardEvent {
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)
   messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)
   threaded?: boolean; // aed_email: sent as a reply in the same thread
+  subject?: string; // fulfil_email / fulfil_reply: the email's subject
+  folderId?: string; // fulfil_reply: Zoho Mail folder it sits in (to read it)
+  certs?: CertRow[]; // fulfil_certs: the rows added to the master sheet
+  design?: string; // fulfil_certs: which certificate design (certDesigns id)
   at: string;
   by: string;
   revertedAt?: string;
   revertedBy?: string;
+}
+
+/** One certificate as written to the master sheet (and printed). */
+export interface CertRow {
+  serial: number;
+  certNo: string; // FAT-OD/<dd-mm-yyyy>/<serial>
+  name: string;
+  location: string; // "course conducted at": the alias for certificates, or the customer's name
+  course: string;
+  date: string; // training date, YYYY-MM-DD
 }
 
 export interface Announcement {

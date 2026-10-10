@@ -17,7 +17,7 @@ import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal,
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
   | "aed_invoices" | "aed_contacted" | "aed_training" | "aed_completed" | "aed_not_required"
-  | "ful_completed" | "ful_hold" | "ful_received" | "ful_generated" | "ful_logistics"
+  | "ful_completed" | "ful_gratitude" | "ful_generated" | "ful_logistics"
   | "logi_aed" | "logi_stl" | "logi_paid" | "logi_packages" | "logi_shipments" | "logi_received";
 
 const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
@@ -43,8 +43,7 @@ const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] =
 /** Fulfillment board (Shreya): certificates for completed trainings, carried over from the training board. */
 const FULFIL_COLUMNS: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "ful_completed", label: FULFIL_LABEL.completed, header: "bg-surface-2", dot: "bg-faint" },
-  { key: "ful_hold", label: FULFIL_LABEL.hold, header: "bg-low-bg", dot: "bg-low" },
-  { key: "ful_received", label: FULFIL_LABEL.received, header: "bg-medium-bg", dot: "bg-medium" },
+  { key: "ful_gratitude", label: FULFIL_LABEL.gratitude, header: "bg-info-bg", dot: "bg-info" },
   { key: "ful_generated", label: FULFIL_LABEL.generated, header: "bg-brand-soft", dot: "bg-brand-2" },
   { key: "ful_logistics", label: FULFIL_LABEL.logistics, header: "bg-low-bg", dot: "bg-brand" },
 ];
@@ -268,14 +267,29 @@ function logiStatus(c: CardView): { text: string; tone: string } | undefined {
 }
 
 /**
- * Fulfillment board borders: Training Completed plain; Process on hold green; List Received green once Work in
- * progress, else yellow; Certificates Generated and Sent to Logistics green.
+ * Fulfillment board borders: Training Completed plain; Gratitude Email Sent blue; Certificates Generated green while
+ * In process, yellow On hold; Sent to Logistics green.
  */
 function fulfilBorder(c: CardView): string {
   const f = c.fulfillment!;
   if (f.stage === "completed") return "border hover:border-line-strong border-line";
-  if (f.stage === "received") return `border-2 ${f.wip ? "border-low" : "border-medium"}`;
+  if (f.stage === "gratitude") return "border-2 border-info";
+  if (f.stage === "generated" && f.certStatus === "hold") return "border-2 border-medium";
   return "border-2 border-low";
+}
+
+/** What a Fulfillment card says under its training. */
+function fulfilStatus(f: NonNullable<CardView["fulfillment"]>): { text: string; tone: string } | undefined {
+  switch (f.stage) {
+    case "gratitude":
+      if (f.certs && !f.certsReverted) return { text: "Certificates ready to download", tone: "text-low" };
+      if (f.star) return { text: "Reply received", tone: "text-medium" };
+      if (f.replies.length) return { text: "Replied · add the list", tone: "text-info" };
+      return f.email ? { text: "Email Sent, Awaiting Reply", tone: "text-info" } : { text: "List received earlier", tone: "text-info" };
+    case "generated": return f.certStatus === "hold" ? { text: "On hold", tone: "text-medium" } : { text: "In process", tone: "text-low" };
+    case "logistics": return { text: "Sent to Logistics", tone: "text-low" };
+    default: return undefined;
+  }
 }
 
 function ItemShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
@@ -288,8 +302,12 @@ function ItemShell({ card, onClick, children }: { card: CardView; onClick: () =>
   return (
     <button
       onClick={onClick}
-      className={`block w-full rounded-lg bg-surface px-2.5 py-2 text-left text-[12px] text-muted transition hover:shadow-card ${border} ${card.deleted || card.logiAed?.hidden ? "opacity-50" : ""}`}
+      className={`relative block w-full rounded-lg bg-surface px-2.5 py-2 text-left text-[12px] text-muted transition hover:shadow-card ${border} ${card.deleted || card.logiAed?.hidden ? "opacity-50" : ""}`}
     >
+      {/* Fulfillment: a reply to the gratitude email came in — until it's opened in Zoho Mail (or the list is added). */}
+      {card.fulfillment?.star && (
+        <span className="pulse-dot absolute left-1/2 top-1 grid size-[18px] -translate-x-1/2 place-items-center rounded-full bg-medium text-[11px] leading-none text-white" title="New reply to the gratitude email" aria-label="New reply">★</span>
+      )}
       {children}
     </button>
   );
@@ -393,11 +411,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
       )}
       {card.readyToSchedule && <div className="mt-1 text-[11px] font-semibold text-low">Ready to schedule</div>}
       {logi && <div className={`mt-1 text-[11.5px] font-semibold ${logi.tone}`}>{logi.text}</div>}
-      {f && f.stage !== "completed" && (
-        <div className={`mt-1 text-[11.5px] font-semibold ${f.stage === "received" && !f.wip ? "text-medium" : "text-low"}`}>
-          {f.stage === "hold" ? "Waiting for List" : f.stage === "received" ? (f.wip ? "Work in progress" : "List received") : f.stage === "generated" ? "Certificates generated" : "Sent to Logistics"}
-        </div>
-      )}
+      {f && fulfilStatus(f) && <div className={`mt-1 text-[11.5px] font-semibold ${fulfilStatus(f)!.tone}`}>{fulfilStatus(f)!.text}</div>}
     </ItemShell>
   );
 }
@@ -762,11 +776,10 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
     };
   }, [aedBoard, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const fulCols = useMemo(() => {
-    if (!fulBoard) return { ful_completed: [], ful_hold: [], ful_received: [], ful_generated: [], ful_logistics: [] };
+    if (!fulBoard) return { ful_completed: [], ful_gratitude: [], ful_generated: [], ful_logistics: [] };
     return {
       ful_completed: fulBoard.completedCards.filter(visible),
-      ful_hold: fulBoard.holdCards.filter(visible),
-      ful_received: fulBoard.receivedCards.filter(visible),
+      ful_gratitude: fulBoard.gratitudeCards.filter(visible),
       ful_generated: fulBoard.generatedCards.filter(visible),
       ful_logistics: fulBoard.logisticsCards.filter(visible),
     };
@@ -805,7 +818,7 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
               </>
             ) : fulfilMode ? (
               <>
-                {fulCols.ful_completed.length} training completed · {fulCols.ful_hold.length} on hold · {fulCols.ful_received.length} list received · {fulCols.ful_generated.length} certificates generated · {fulCols.ful_logistics.length} sent to logistics
+                {fulCols.ful_completed.length} training completed · {fulCols.ful_gratitude.length} gratitude email sent · {fulCols.ful_generated.length} certificates generated · {fulCols.ful_logistics.length} sent to logistics
                 {" "}· completed trainings from the training board
               </>
             ) : aedMode ? (

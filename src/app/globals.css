@@ -219,6 +219,12 @@ h1, h2, h3 { letter-spacing: -0.018em; }
 }
 .rise { animation: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 
+/* Certificates loader: a flower turning very slowly clockwise (kept even with reduced motion — it shows work is going on). */
+@keyframes flower-turn { to { transform: rotate(360deg); } }
+.flower-turn { animation: flower-turn 9s linear infinite; transform-origin: 50% 50%; }
+@keyframes flower-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+.flower-breathe { animation: flower-breathe 2.4s ease-in-out infinite; transform-origin: 50% 50%; transform-box: fill-box; }
+
 @media (prefers-reduced-motion: reduce) {
   .ticker-track, .pulse-dot, .flash, .rise, .modal-in, .fade-in { animation: none !important; }
   .card-hover:hover { transform: none; }

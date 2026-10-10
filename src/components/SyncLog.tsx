@@ -25,6 +25,8 @@ type Entry = {
   payments?: string[];
   customers?: string[];
   customersRemoved?: number;
+  replies?: number; // replies to Fulfillment gratitude emails found
+  mailError?: string; // checking them failed (the Books sync still counts)
 };
 type Log = { enabled?: boolean; day: string; entries: Entry[]; calls: number; logSince?: string; hours: number[]; fullHours: number[] };
 
@@ -54,13 +56,15 @@ function whoLabel(e: Entry): string {
   }
 }
 const isSync = (e: Entry) => e.result === "ok" || e.result === "failed" || e.result === "paused";
-const changeCount = (e: Entry) => (e.docs?.length ?? 0) + (e.payments?.length ?? 0) + (e.customers?.length ?? 0) + (e.customersRemoved ?? 0);
+const changeCount = (e: Entry) => (e.docs?.length ?? 0) + (e.payments?.length ?? 0) + (e.customers?.length ?? 0) + (e.customersRemoved ?? 0) + (e.replies ?? 0) + (e.mailError ? 1 : 0);
 function changeSummary(e: Entry): string {
   const parts = [
     e.docs?.length ? plural(e.docs.length, "document") : "",
     e.payments?.length ? plural(e.payments.length, "payment update") : "",
     e.customers?.length ? plural(e.customers.length, "customer") : "",
     e.customersRemoved ? `${e.customersRemoved} customer${e.customersRemoved === 1 ? "" : "s"} removed` : "",
+    e.replies ? `${e.replies} gratitude ${e.replies === 1 ? "reply" : "replies"}` : "",
+    e.mailError ? "replies not checked" : "",
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "No changes";
 }
@@ -113,6 +117,8 @@ function RunLine({ e, main }: { e: Entry; main?: boolean }) {
           {e.payments?.length ? <div><span className="text-faint">Payments re-read for</span> {e.payments.join(", ")}</div> : null}
           {e.customers?.length ? <div><span className="text-faint">Customers new/changed:</span> {e.customers.join(", ")}</div> : null}
           {e.customersRemoved ? <div><span className="text-faint">Customers no longer active:</span> {e.customersRemoved}</div> : null}
+          {e.replies ? <div><span className="text-faint">Replies to gratitude emails (Zoho Mail):</span> {e.replies}</div> : null}
+          {e.mailError ? <div className="text-high"><span className="text-faint">Checking gratitude replies failed:</span> {e.mailError}</div> : null}
         </div>
       )}
     </div>

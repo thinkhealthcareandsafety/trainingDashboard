@@ -1,4 +1,4 @@
-import type { AedInvoice, CardEvent, CardEventKind, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
+import type { AedInvoice, CardEvent, CardEventKind, CertRow, Phase, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { fmtDate, fmtINR } from "./dates";
 import { type AedDetails, type AedExtra, aedExtras, parseAedLine } from "./aedParse";
 import type { LogiAedInfo, LogiInfo } from "./logistics";
@@ -108,8 +108,8 @@ export interface CardView {
   delivered?: { at: string; by: string };
   /** Notes typed on the card, newest first. */
   notes?: { id: string; text: string; by: string; at: string }[];
-  /** Fulfillment board: where the certificates are (moved by hand), who moved it there and when. */
-  fulfillment?: { stage: FulfilStage; at?: string; by?: string; wip?: { at: string; by: string } };
+  /** Fulfillment board: where the certificates are, who moved it there and when; the gratitude email, its replies, the certificates. */
+  fulfillment?: FulfilInfo;
   /** AedSmartx board: what the invoice's AED lines say (model, serials, expiries) and the extras sold with them. */
   aed?: { lines: AedDetails[]; extras: AedExtra[] };
   /** Logistics board: which column, the card it's built from, its step and merge (see logistics.ts). */
@@ -1006,8 +1006,16 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "add_note": return `Note: “${v}”`;
     case "set_resale": return `Marked ${e.before ?? "this invoice"} for resale — moved to Training not required`;
     case "set_reseller": return `Marked ${e.before ?? "the customer"} as a Reseller — all their AED invoices moved to Training not required`;
-    case "set_fulfillment": return `Moved to ${FULFIL_LABEL[v as FulfilStage] ?? v}${e.before ? ` (was ${FULFIL_LABEL[e.before as FulfilStage] ?? e.before})` : ""}`;
+    case "set_fulfillment": return `Moved to ${fulfilLabel(v)}${e.before ? ` (was ${fulfilLabel(e.before)})` : ""}`;
     case "set_wip": return v === "on" ? "Marked Work in progress" : "Unmarked Work in progress";
+    case "set_cert_status": return `Certificates: ${v === "hold" ? "On hold" : "In process"}`;
+    case "fulfil_email": return `Gratitude email sent to ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
+    case "fulfil_reply": return `Reply received from ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
+    case "fulfil_mail_opened": return "Opened the reply in Zoho Mail";
+    case "fulfil_certs": {
+      const rows = e.certs ?? [];
+      return `${v} participant${v === "1" ? "" : "s"} added to the master sheet${rows.length ? ` — serial ${rows[0].serial}${rows.length > 1 ? `–${rows.at(-1)!.serial}` : ""}` : ""}`;
+    }
     case "logi_hide": return "Hidden from AED Delivered Status (Logistics)";
     case "logi_merge": return `Merged Sent to Logistics with Payment Received${v ? ` (${v})` : ""} — moved to Payment Received`;
     case "aed_in_process": return "In process — moved to Contacted";
@@ -1160,14 +1168,38 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
 /* ---------------- Fulfillment board (Shreya): certificates for completed trainings ---------------- */
 
 /**
- * Training Completed → Process on hold → List Received → Certificates Generated → Sent to Logistics.
- * Moved from the card (tick boxes / buttons under Notes); List Received cards can be marked Work in progress.
+ * Training Completed → Gratitude Email Sent → Certificates Generated → Sent to Logistics.
+ *   - Training Completed: Send Gratitude Email (from Zoho Mail, learn@) moves the card on.
+ *   - Gratitude Email Sent: replies are found by the hourly check and star the card until it's opened in Zoho Mail;
+ *     Generate Certificate adds the participants to the master sheet and makes the PDF — downloading it moves the card on.
+ *   - Certificates Generated: In process (green) or On hold (yellow); Sent to Logistics only while In process.
+ * Cards moved before 10 Oct 2026 to "Process on hold" / "List Received" (columns since removed) sit in Gratitude Email Sent.
  */
-export type FulfilStage = "completed" | "hold" | "received" | "generated" | "logistics";
-export const FULFIL_STAGES: FulfilStage[] = ["completed", "hold", "received", "generated", "logistics"];
+export type FulfilStage = "completed" | "gratitude" | "generated" | "logistics";
+export const FULFIL_STAGES: FulfilStage[] = ["completed", "gratitude", "generated", "logistics"];
 export const FULFIL_LABEL: Record<FulfilStage, string> = {
-  completed: "Training Completed", hold: "Process on hold", received: "List Received", generated: "Certificates Generated", logistics: "Sent to Logistics",
+  completed: "Training Completed", gratitude: "Gratitude Email Sent", generated: "Certificates Generated", logistics: "Sent to Logistics",
 };
+const OLD_FULFIL_LABEL: Record<string, string> = { hold: "Process on hold", received: "List Received" };
+const fulfilLabel = (v?: string) => (v ? FULFIL_LABEL[v as FulfilStage] ?? OLD_FULFIL_LABEL[v] ?? v : "");
+
+export interface FulfilInfo {
+  stage: FulfilStage;
+  at?: string; // moved there (by hand, or by sending the email)
+  by?: string;
+  /** Moved to Process on hold / List Received before those columns were removed. */
+  legacy?: "hold" | "received";
+  email?: { at: string; by: string; to: string; subject?: string };
+  replies: { id: string; at: string; from: string; subject?: string; messageId?: string; folderId?: string }[];
+  /** A reply came after the last time the card's reply was opened in Zoho Mail — until the list is added. */
+  star: boolean;
+  /** The participants added to the master sheet (the latest batch). */
+  certs?: { id: string; at: string; by: string; rows: CertRow[]; design?: string };
+  /** The move to Certificates Generated was undone after the rows went to the sheet — check the sheet before adding again. */
+  certsReverted?: boolean;
+  /** Certificates Generated: In process (default) or On hold. */
+  certStatus: "process" | "hold";
+}
 /** Keyed by the training's own document (its PI, or the quotation that skipped it), so it stays put as the deal moves on to invoice and payment. */
 export const fulfilCardId = (trainingCardId: string) => `fulfil:${trainingCardId}`;
 /** Shreya works only on the Fulfillment board. */
@@ -1190,16 +1222,29 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
 
   const ids = new Set([...holders.keys()].map(fulfilCardId));
   const byCard = new Map<string, CardEvent[]>();
-  for (const e of events.filter((x) => !x.revertedAt).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))) {
-    for (const id of e.cardIds) if (ids.has(id)) byCard.set(id, [...(byCard.get(id) ?? []), e]);
+  const undone = new Map<string, CardEvent[]>(); // reverted moves to Certificates Generated
+  for (const e of [...events].sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))) {
+    for (const id of e.cardIds) {
+      if (!ids.has(id)) continue;
+      if (!e.revertedAt) byCard.set(id, [...(byCard.get(id) ?? []), e]);
+      else if (e.kind === "set_fulfillment" && e.value === "generated") undone.set(id, [...(undone.get(id) ?? []), e]);
+    }
   }
 
   const cards = new Map<string, CardView>();
   for (const [doc, h] of holders) {
     const id = fulfilCardId(doc);
     const evs = byCard.get(id) ?? [];
-    const moved = evs.filter((e) => e.kind === "set_fulfillment" && FULFIL_STAGES.includes(e.value as FulfilStage)).at(-1);
-    const wip = evs.filter((e) => e.kind === "set_wip").at(-1);
+    const moved = evs.filter((e) => e.kind === "set_fulfillment" && (e.value === "generated" || e.value === "logistics" || e.value === "hold" || e.value === "received")).at(-1);
+    const sent = evs.filter((e) => e.kind === "fulfil_email").at(-1);
+    const certs = evs.filter((e) => e.kind === "fulfil_certs").at(-1);
+    const opened = evs.filter((e) => e.kind === "fulfil_mail_opened").at(-1);
+    const status = evs.filter((e) => e.kind === "set_cert_status").at(-1);
+    const replies = evs.filter((e) => e.kind === "fulfil_reply")
+      .map((e) => ({ id: e.id, at: e.at, from: e.value ?? "", subject: e.subject, messageId: e.messageId, folderId: e.folderId }));
+    const legacy = moved?.value === "hold" || moved?.value === "received" ? moved.value : undefined;
+    const stage: FulfilStage = moved && !legacy ? (moved.value as FulfilStage) : sent || legacy ? "gratitude" : "completed";
+    const last = stage === "gratitude" && !legacy ? sent : moved;
     const own = evs.filter((e) => e.kind === "add_note" && e.value).map((e) => ({ id: e.id, text: e.value!, by: e.by, at: e.at }));
     cards.set(id, {
       ...h,
@@ -1211,8 +1256,13 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
       readyToSchedule: false,
       notes: [...own, ...(h.notes ?? [])].sort((a, b) => b.at.localeCompare(a.at)),
       fulfillment: {
-        stage: (moved?.value as FulfilStage) ?? "completed", at: moved?.at, by: moved?.by,
-        wip: wip?.value === "on" ? { at: wip.at, by: wip.by } : undefined,
+        stage, at: last?.at, by: last?.by, legacy,
+        email: sent ? { at: sent.at, by: sent.by, to: sent.value ?? "", subject: sent.subject } : undefined,
+        replies,
+        star: !certs && stage === "gratitude" && replies.some((r) => !opened || r.at > opened.at),
+        certs: certs ? { id: certs.id, at: certs.at, by: certs.by, rows: certs.certs ?? [], design: certs.design } : undefined,
+        certsReverted: Boolean(certs && stage === "gratitude" && undone.get(id)?.some((e) => e.at > certs.at)),
+        certStatus: status?.value === "hold" ? "hold" : "process",
       },
       search: `${h.search} ${h.certAlias ?? ""}`.toLowerCase(),
     });
@@ -1223,5 +1273,8 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
   const trainedOn = (c: CardView) => c.schedule?.dates.at(-1)?.slice(0, 10) ?? "";
   const column = (s: FulfilStage) => all.filter((c) => c.fulfillment!.stage === s)
     .sort((a, b) => trainedOn(b).localeCompare(trainedOn(a)) || a.name.localeCompare(b.name));
-  return { cards, completedCards: column("completed"), holdCards: column("hold"), receivedCards: column("received"), generatedCards: column("generated"), logisticsCards: column("logistics") };
+  return { cards, completedCards: column("completed"), gratitudeCards: column("gratitude"), generatedCards: column("generated"), logisticsCards: column("logistics") };
 }
+
+/** The date printed on the certificates and written to the sheet: the training day (a multi-day training: its last day). */
+export const certDate = (c: CardView) => c.schedule?.dates.at(-1)?.slice(0, 10) ?? "";

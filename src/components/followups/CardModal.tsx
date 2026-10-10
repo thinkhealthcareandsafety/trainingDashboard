@@ -348,7 +348,7 @@ function CertPickers({ card, value, onChange }: { card: CardView; value: CertCho
 /**
  * The concerned person's email: one of the customer's emails ("Same as original" — there can be several) or a new one.
  */
-function EmailPicker({ card, value, onChange }: { card: CardView; value: string; onChange: (v: string) => void }) {
+export function EmailPicker({ card, value, onChange }: { card: CardView; value: string; onChange: (v: string) => void }) {
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
   const NEW = "\u0000new";
@@ -705,11 +705,13 @@ function CertEditor({ card, initial, saveLabel = "Save", note, onSave, onClose }
   );
 }
 
-export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn, onCert, needEmail }: {
+export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn, onCert, needEmail, footer }: {
   card: CardView; compact?: boolean; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn;
   /** Set the alias for certificates and the concerned email (no training date needed). */
   onCert?: (cert: CertChoice) => void;
   needEmail?: boolean;
+  /** Under the training (Fulfillment: the gratitude email and the certificates). */
+  footer?: React.ReactNode;
 }) {
   const quoted = card.kind === "pi" ? card.linkedQuote : undefined;
   const showSchedule = card.kind !== "lead" && Boolean(card.schedule || onSchedule);
@@ -766,6 +768,7 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
           })}
         </div>
       )}
+      {footer}
     </Section>
   );
 }

@@ -42,9 +42,12 @@ function boardOfCard(id: string): BoardKind {
   return "training";
 }
 
+/** Recorded only by the server, once they've happened in Zoho (an email sent, a reply found, rows added to the sheet) — never reverted. */
+export const SERVER_KINDS = new Set<CardEvent["kind"]>(["aed_email", "fulfil_email", "fulfil_reply", "fulfil_certs"]);
+
 /** May this member record this (new) change? Zoho notices are recorded by whoever's browser notices them. */
 export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): boolean {
-  if (e.kind === "aed_email") return false; // only the server records a sent email (/api/mail/aed), once it has gone out
+  if (SERVER_KINDS.has(e.kind)) return false; // only the server records these (/api/mail/*, /api/certificates)
   if (e.kind === "set_name") return false; // the customer's name is their Zoho identity — nobody renames it here
   if (e.kind === "zoho_change" || hasFullAccess(m)) return true;
   const boards = boardsFor(m);
@@ -59,5 +62,5 @@ export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): b
   });
 }
 
-/** Your own changes; Admin may revert anyone's. A sent email can't be unsent, so it's never reverted. */
-export const canRevert = (m: Who, e: Pick<CardEvent, "by"> & { kind?: CardEvent["kind"] }) => e.kind !== "aed_email" && (isAdmin(m) || e.by === m.name);
+/** Your own changes; Admin may revert anyone's. A sent email can't be unsent (nor a reply, nor sheet rows), so those are never reverted. */
+export const canRevert = (m: Who, e: Pick<CardEvent, "by"> & { kind?: CardEvent["kind"] }) => !(e.kind && SERVER_KINDS.has(e.kind)) && (isAdmin(m) || e.by === m.name);

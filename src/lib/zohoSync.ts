@@ -3,6 +3,7 @@ import { after } from "next/server";
 import type { AedInvoice, PipelineDoc, Training, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { fiscalYearStart, syncWindowStart, ymd } from "./dates";
 import { db, mongoConfigured } from "./db";
+import { checkGratitudeReplies } from "./gratitudeReplies";
 import {
   type ItemSets, type Kind, type ZDoc, type ZItem, KINDS, OPEN_ORDER, OPEN_QUOTE, docIdOf, fetchAllLeads, fetchDetail, fetchInvoicePaymentRows,
   fetchItems, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
@@ -108,6 +109,8 @@ export type SyncLogEntry = SyncTrigger & {
   payments?: string[]; // invoice numbers whose payments were (re)read
   customers?: string[]; // new or changed customers
   customersRemoved?: number;
+  replies?: number; // new replies to Fulfillment gratitude emails (Zoho Mail, learn@)
+  mailError?: string; // checking them failed — the Zoho Books sync itself still counts
 };
 const LOG_DAYS = 90;
 const LOG_LIST_MAX = 60; // names kept per entry (counts stay exact)
@@ -335,6 +338,13 @@ export async function runSync({ force = false, ...who }: { force?: boolean } & P
     // Documents and payments.
     changed += fullDue ? await reconcile(state, sets, log.docs!) : await incremental(state, sets, log.docs!);
     changed += await syncPayments(sets, log.payments!);
+    // Replies to the gratitude emails ride along with the hourly sync; a mail problem never fails the Books sync.
+    try {
+      log.replies = (await checkGratitudeReplies()) || undefined;
+    } catch (e) {
+      log.mailError = e instanceof Error ? e.message : String(e);
+      console.error(`[zoho mail] checking replies failed: ${log.mailError}`);
+    }
     return "done";
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);

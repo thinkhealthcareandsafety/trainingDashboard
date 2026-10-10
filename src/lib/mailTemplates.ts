@@ -79,6 +79,27 @@ Think Health Care and Safety`,
       },
     ],
   },
+  // PLACEHOLDER wording until the owner sends the real template. Keep "Thank you for hosting" in the subject: Shikha's
+  // Zoho Mail filter forwards replies to digital@ by it, and {ref} (the PI) keeps each customer's thread apart.
+  fulfil_gratitude: {
+    _id: "fulfil_gratitude",
+    from: "learn@thinkhealth.in",
+    signature: "Think Health Care and Safety",
+    subject: "Thank you for hosting our training - {location} ({ref})",
+    steps: [
+      {
+        label: "Gratitude email",
+        body: `Dear Sir/ Ma'am,
+
+Thank you for hosting our {course} at {location} on {dates}. It was a pleasure working with your team.
+
+To issue the participation certificates, please reply to this email with the full names of all participants, exactly as they should appear on the certificates (one name per line).
+
+Best regards,
+Think Health Care and Safety`,
+      },
+    ],
+  },
 };
 
 export async function getTemplate(id: string): Promise<MailTemplate> {

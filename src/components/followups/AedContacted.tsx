@@ -125,22 +125,25 @@ function SendEmail({ card, to, onClose, onConnect }: { card: CardView; to: strin
   );
 }
 
-/** Admin connects the mailbox once, with a one-time code from the Zoho API console (signed in as that mailbox). */
-function ConnectMailbox({ member, onClose }: { member: Member; onClose: () => void }) {
+/**
+ * Admin connects a mailbox once, with a one-time code from the Zoho API console, signed in as the mailbox that owns the
+ * address (`signInAs`: an alias's own mailbox, e.g. learn@ → Shikha's).
+ */
+export function ConnectMailbox({ member, onClose, address = MAILBOX, signInAs, where = "any Contacted card" }: { member: Member; onClose: () => void; address?: string; signInAs?: string; where?: string }) {
   const [code, setCode] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [state, setState] = useState<{ busy?: boolean; error?: string; done?: string }>({});
   const [scopes, setScopes] = useState("ZohoMail.messages.ALL,ZohoMail.accounts.READ");
   useEffect(() => {
-    fetch(`/api/mail/connect?address=${MAILBOX}`).then((r) => r.json()).then((j: { scopes?: string; mailbox?: { connectedAt: string; connectedBy: string } | null }) => {
+    fetch(`/api/mail/connect?address=${encodeURIComponent(address)}`).then((r) => r.json()).then((j: { scopes?: string; mailbox?: { connectedAt: string; connectedBy: string } | null }) => {
       if (j.scopes) setScopes(j.scopes);
       if (j.mailbox) setState({ done: `Connected by ${j.mailbox.connectedBy} on ${fmtStamp(j.mailbox.connectedAt)}. Connect again only if sending stops working.` });
     }).catch(() => {});
-  }, []);
+  }, [address]);
   const connect = async () => {
     setState({ busy: true });
-    const r = await fetch("/api/mail/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address: MAILBOX, code, clientId, clientSecret }) }).catch(() => null);
+    const r = await fetch("/api/mail/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address, code, clientId, clientSecret }) }).catch(() => null);
     const j = r ? ((await r.json()) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
     setState(j.ok ? { done: "Connected — emails can be sent now." } : { error: j.error ?? "Couldn't connect" });
     if (j.ok) setCode("");
@@ -148,13 +151,13 @@ function ConnectMailbox({ member, onClose }: { member: Member; onClose: () => vo
   return (
     <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/30 p-4" onMouseDown={onClose}>
       <div role="dialog" aria-label="Connect Zoho Mail" className="modal-in w-full max-w-lg rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
-        <h3 className="text-[17px] font-bold tracking-tight text-ink">Connect Zoho Mail · {MAILBOX}</h3>
+        <h3 className="text-[17px] font-bold tracking-tight text-ink">Connect Zoho Mail · {address}</h3>
         {!isAdmin(member) ? (
-          <p className="mt-2 text-[13.5px] text-muted">Admin connects the mailbox once. Ask Admin to open any Contacted card and press <b>Connect it</b>.</p>
+          <p className="mt-2 text-[13.5px] text-muted">Admin connects the mailbox once. Ask Admin to open {where} and press <b>Connect it</b>.</p>
         ) : (
           <>
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-[13px] text-ink-2">
-              <li>Sign in to <a className="font-semibold text-brand underline" href="https://api-console.zoho.in" target="_blank" rel="noreferrer">api-console.zoho.in</a> as <b>{MAILBOX}</b>.</li>
+              <li>Sign in to <a className="font-semibold text-brand underline" href="https://api-console.zoho.in" target="_blank" rel="noreferrer">api-console.zoho.in</a> as <b>{signInAs ?? address}</b>{signInAs && <> ({address} is an alias of that mailbox)</>}.</li>
               <li>Open <b>Self Client</b> (create one if asked) → <b>Generate Code</b>.</li>
               <li>Scope: <code className="select-all rounded bg-surface-2 px-1 text-[12px]">{scopes}</code> · Time: 10 minutes · Create.</li>
               <li>Paste the code here. If that Self Client isn&apos;t the one used for Zoho Books, also paste its Client ID and Secret (Client Secret tab).</li>

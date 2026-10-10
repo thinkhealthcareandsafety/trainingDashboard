@@ -6,7 +6,8 @@ import type { CardEvent, CardEventKind } from "./types";
  *     payment merges — following the card into whatever it was merged into afterwards.
  *   - AedSmartx: delivered → In process (Contacted) → schedule → completed, or not required / resale. Calls and emails
  *     sent stay (they happened).
- *   - Fulfillment: stage moves (and Work in progress).   - Logistics: merge → packages → shipments → received; hide.
+ *   - Fulfillment: stage moves (and In process / On hold). The gratitude email, its replies and the rows added to the
+ *     master sheet stay (they happened outside the dashboard).   - Logistics: merge → packages → shipments → received; hide.
  * Notes and edits (name, aliases, contacts, type, sector) are never rolled back. Other boards' steps aren't either: a
  * Fulfillment or Logistics card whose training is reverted just stops showing, and comes back with its steps if the
  * training is completed again.
@@ -18,7 +19,7 @@ const TRIGGERS = new Set<CardEventKind>([
   "set_fulfillment", "logi_merge", "set_logistics",
 ]);
 /** What gets reverted along with them: the same steps, plus toggles that only make sense after them. */
-const FOLLOWERS = new Set<CardEventKind>([...TRIGGERS, "set_wip", "logi_hide"]);
+const FOLLOWERS = new Set<CardEventKind>([...TRIGGERS, "set_wip", "set_cert_status", "logi_hide"]);
 
 const after = (a: CardEvent, b: CardEvent) => a.at > b.at || (a.at === b.at && a.id > b.id);
 

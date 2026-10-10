@@ -1,6 +1,6 @@
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
-import { canRevert, canWriteEvent, isAdmin } from "@/lib/roles";
+import { SERVER_KINDS, canRevert, canWriteEvent, isAdmin } from "@/lib/roles";
 import { cascadeOf } from "@/lib/cascade";
 import type { CardEvent } from "@/lib/types";
 
@@ -53,7 +53,7 @@ async function stampCardEvents(upserts: Doc[], me: { id: string; name: string })
     }
     const { _id, ...prev } = had;
     if (prev.revertedAt || !doc.revertedAt) return [prev as Doc]; // nothing to change, or already reverted
-    if (prev.kind === "aed_email") return [prev as Doc]; // a sent email can't be unsent
+    if (SERVER_KINDS.has(prev.kind as CardEvent["kind"])) return [prev as Doc]; // a sent email can't be unsent (nor a reply, nor sheet rows)
     if (allowed && !allowed.has(_id)) return [prev as Doc]; // someone else's change
     return [{ ...prev, revertedAt: new Date().toISOString(), revertedBy: me.name } as Doc];
   });
