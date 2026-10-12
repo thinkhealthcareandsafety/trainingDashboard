@@ -51,6 +51,8 @@ export function Lock() {
 
 /** Inside the narrow merge panels, sections go flat and labels sit above values. */
 const Compact = createContext(false);
+/** Merge view with 3 or more cards open: every panel puts labels above values (narrow panels), the same in all of them. */
+const Stacked = createContext(false);
 
 /** Inside a popup form, the pickers become rows: label and hint on the left, the control on the right. */
 const FormRows = createContext(false);
@@ -82,14 +84,16 @@ export function Section({ title, aside, children }: { title: string; aside?: Rea
 
 export function Row({ label, required, locked, children }: { label: string; required?: boolean; locked?: boolean; children: React.ReactNode }) {
   const compact = useContext(Compact);
+  const stacked = useContext(Stacked);
   return (
-    <div className={`grid border-b border-line first:pt-0 last:border-b-0 last:pb-0 ${compact ? "grid-cols-[118px_1fr] gap-2 py-1.5" : "grid-cols-[150px_1fr] gap-4 py-2"}`}>
+    // Merge panels: label beside the value with one or two panels; above it once three or more share the width.
+    <div className={`grid border-b border-line first:pt-0 last:border-b-0 last:pb-0 ${!compact ? "grid-cols-[150px_1fr] gap-4 py-2" : stacked ? "gap-0.5 py-1.5" : "grid-cols-[118px_1fr] gap-2 py-1.5"}`}>
       <dt className={`flex items-start gap-1 pt-0.5 font-medium text-muted ${compact ? "text-[12px]" : "text-[13px]"}`}>
         {label}
         {required && <span className="text-high">*</span>}
         {locked && <Lock />}
       </dt>
-      <dd className={`min-w-0 text-ink-2 [overflow-wrap:anywhere] ${compact ? "text-[13px]" : "text-[14px]"}`}>{children}</dd>
+      <dd className={`min-w-0 text-ink-2 break-words ${compact ? "text-[13px]" : "text-[14px]"}`}>{children}</dd>
     </div>
   );
 }
@@ -753,6 +757,7 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
   useEffect(() => setCertEditing(false), [card.id]);
   const closeCert = useCallback(() => setCertEditing(false), []);
   const showCert = !compact && !isCustomerCard(card.kind);
+  const stacked = useContext(Stacked);
   return (
     <Section title="Training">
       {card.training.length === 0 ? (
@@ -765,12 +770,12 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
             // Narrow merge panels: training and head-count side by side on one line.
             if (compact) {
               return (
-                <div key={i} className={`grid grid-cols-[1fr_auto] items-end gap-3 rounded-xl border-2 bg-brand-soft px-3 py-2 ${tone}`}>
+                <div key={i} className={`grid gap-x-3 gap-y-1.5 rounded-xl border-2 bg-brand-soft px-3 py-2 ${stacked ? "" : "grid-cols-[1fr_auto] items-end"} ${tone}`}>
                   <div className="min-w-0">
                     <div className="text-[11px] font-bold uppercase tracking-wide text-brand">Type of Training</div>
                     <div className="text-[14px] font-semibold leading-snug text-ink">{t.name}</div>
                   </div>
-                  <div className="text-right">
+                  <div className={stacked ? "" : "text-right"}>
                     <div className="text-[11px] font-bold uppercase tracking-wide text-brand">{card.peopleLabel.replace("No. of People", "People")}</div>
                     <div className="num text-[16px] font-semibold text-ink">{t.qty}</div>
                   </div>
@@ -920,11 +925,14 @@ function BackfillCompletion({ card, member, busyOn }: { card: CardView; member: 
 }
 
 export function SalesSection({ card }: { card: CardView }) {
+  const who = card.salespeople.length ? salespersonLabel(card.salespeople) : <span className="font-normal text-faint">—</span>;
+  // Narrow merge panels: the name under the title.
+  if (useContext(Compact)) return <Section title="Sales person" aside={<Lock />}><p className="text-[13px] font-medium text-ink">{who}</p></Section>;
   return (
     // One line: the name sits beside the title (read-only, from Zoho).
     <Section title="Sales person" aside={
       <span className="flex min-w-0 items-center gap-2 text-right text-[14px] font-medium text-ink">
-        {card.salespeople.length ? salespersonLabel(card.salespeople) : <span className="font-normal text-faint">—</span>}
+        {who}
         <Lock />
       </span>
     } />
@@ -1526,9 +1534,9 @@ function PhasePanel({ kind, list, selected, onSelect, cards, onOpen }: {
 }) {
   return (
     <section className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-surface ${STAGE_TONE[kind].ring}`}>
-      <div className={`flex items-center justify-between gap-2 px-4 py-3 ${STAGE_TONE[kind].head}`}>
-        <h3 className="text-[16px] font-bold tracking-tight text-ink">{KIND_LABEL[kind]}</h3>
-        <button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => onOpen(selected.id)}>Open &amp; edit</button>
+      <div className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-4 py-3 ${STAGE_TONE[kind].head}`}>
+        <h3 className="min-w-0 text-[16px] font-bold leading-tight tracking-tight text-ink">{KIND_LABEL[kind]}</h3>
+        <button className="shrink-0 whitespace-nowrap text-[13px] font-semibold text-brand hover:underline" onClick={() => onOpen(selected.id)}>Open &amp; edit</button>
       </div>
       {kind === "payment" && list.length > 1 && selected.linkedInvoice ? (
         // An invoice's payments all merge together (into the newest), so no picking — just what's included.
@@ -1701,6 +1709,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   return (
     <Shell label="Review and merge" onClose={onClose} footer={footer} side={<ChangeLog cardIds={members.flatMap((c) => c.historyIds)} cards={cards} member={member} />}>
       <Header sub={`Same client in ${shownKinds.map((k) => KIND_LABEL[k]).join(", ")}`} title={name} flagged onClose={onClose} />
+      <Stacked.Provider value={shownKinds.length >= 3}>
       <div className="flex items-stretch gap-2 p-3">
         {shownKinds.map((k, i) => (
           <div key={k} className="flex min-w-0 flex-1 items-stretch gap-2">
@@ -1709,6 +1718,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
           </div>
         ))}
       </div>
+      </Stacked.Provider>
     </Shell>
   );
 }

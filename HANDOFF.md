@@ -749,7 +749,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 161 | Column colours: Training scheduled **#FFAC00**, Training completed **#26B0D2** | Tokens `--scheduled` / `--completed` (+ `-bg` tints, light and dark) in globals.css; Training **and** AedSmartx boards' columns (header tint + dot; card borders unchanged). |
 | 162 | "Push to github" | `7025bbe`, live after ~75 s. |
 | 163 | "Give an option to set the invoice date as training completed date for invoices before August — so I can push old cards to complete them" → agreed defaults (trainers popup with Not recorded; invoices with no PI complete on the invoice itself; completion only, no merges; up to 31 Jul 2026) | **Completed on invoice date** (§4 Training board). 40 training invoices dated ≤ July: 27 PIs never scheduled (all still flagged: 16 with their quote, 11 with a lead — so the button sits on the invoice card, not the PI), 10 invoices with no synced PI, 3 done. Click-tested on real cards with saves blocked (Arrowline, Lucasfilm, 2025-01-136 → all on Fulfillment). |
-| 164 | "push it to github" | This commit. |
+| 164 | "push it to github" | `3a5b002`, live after ~90 s. |
+| 165 | Screenshot of Review & merge with 5 panels (Arrowline): "UI distorted, dynamically scale on the basis of cards opened" | `Stacked` context in CardModal: **3 or more panels** → labels above values in every panel (same layout in all; per-panel container queries were tried first but the first panel is wider — no arrow — so layouts mixed), training box stacks, Sales person under its title; 1–2 panels unchanged. Values wrap at spaces (`break-words`, was `overflow-wrap:anywhere`). "Open & edit" wraps under the heading. Checked on real 5- and 3-panel views. |
+| 166 | "push it to github" | This commit. |
 
 ---
 
