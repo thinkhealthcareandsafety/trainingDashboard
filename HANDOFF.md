@@ -451,6 +451,14 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   before **Clear all logs** enables; the server refuses an everything-clear without `confirm: "confirm"` too. To **undo a
   clear**: copy the batch back from `cardEventsArchive` (`clearedAt` = the batch) with `_id = eventId`, dropping
   `eventId/clearedAt/clearedBy/clearedScope`; skip entries the team has redone since (same kind + cardIds + value) — see §5 #146.
+- **Completed on invoice date** (session 7, for trainings from before the dashboard): an **invoice card dated up to
+  `BACKFILL_UNTIL` (2026-07-31)** whose training was never marked shows *"Trained before the dashboard?"* + **Completed on
+  invoice date** → popup (date fixed to the invoice date, trainers or **Not recorded**) → `set_training_date` (value = invoice
+  date, `mode: "invoice"`) + `complete_training` (`mode: "invoice"`) on `CardView.backfill.cardId`: the invoice's **PI**
+  when it is on the board (even while flagged with its quote / lead — all 27 such PIs were), else the **invoice itself**.
+  Not offered when that card already has a schedule. No merges are made. Downstream: Fulfillment and Logistics take the
+  invoice as the training's document when there's no PI (`docOf` / holders: pi ?? quote ?? invoice), and a payment may merge
+  with an invoice that holds its own completed training. Undo via the toast / Revert (cascade reverts the completion).
 - **Filter** (next to *Show deleted*, both boards; `DateFilter.tsx`): one or several months, or a from–to range. Each card is
   matched on the date it shows — training days once scheduled, else quote/PI/invoice/payment date, expected date (Potential),
   created date (Leads). Not saved; header counts follow the filter.
@@ -739,6 +747,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 159 | "push it all to github" | `cb906d4`, live after ~105 s. |
 | 160 | Screenshots of Shreya's live tests (gratitude email, reply, names, undone moves on JW Sahar 2026-01-352 and Ritz Carlton Payment #1791): "remove them, move the cards back to Training Completed" | Direct Mongo delete **refused by the safety classifier** ("Modify Shared Resources"). Owner told to use Clear logs → One deal cycle on the Fulfillment board (on that board it covers only the fulfil: card — checked: 6 + 5 entries, all tests) and to delete the 9 test rows SN 2136–2144 from the master sheet by hand. |
 | 161 | Column colours: Training scheduled **#FFAC00**, Training completed **#26B0D2** | Tokens `--scheduled` / `--completed` (+ `-bg` tints, light and dark) in globals.css; Training **and** AedSmartx boards' columns (header tint + dot; card borders unchanged). |
+| 162 | "Push to github" | `7025bbe`, live after ~75 s. |
+| 163 | "Give an option to set the invoice date as training completed date for invoices before August — so I can push old cards to complete them" → agreed defaults (trainers popup with Not recorded; invoices with no PI complete on the invoice itself; completion only, no merges; up to 31 Jul 2026) | **Completed on invoice date** (§4 Training board). 40 training invoices dated ≤ July: 27 PIs never scheduled (all still flagged: 16 with their quote, 11 with a lead — so the button sits on the invoice card, not the PI), 10 invoices with no synced PI, 3 done. Click-tested on real cards with saves blocked (Arrowline, Lucasfilm, 2025-01-136 → all on Fulfillment). |
+| 164 | "push it to github" | This commit. |
 
 ---
 

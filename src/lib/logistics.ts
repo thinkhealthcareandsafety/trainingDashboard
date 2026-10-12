@@ -63,7 +63,8 @@ export function parseStep(value?: string): { step?: LogiStep; expected?: string 
 }
 
 /** The training's PI card id (or its quote's, when the PI was skipped) somewhere in a card's merge chain. */
-const docOf = (c: CardView) => c.historyIds.find((id) => kindOfId(id) === "pi") ?? c.historyIds.find((id) => kindOfId(id) === "quote");
+// The training's document: its PI, the quotation that skipped it, or (trainings completed on the invoice date with no PI) the invoice.
+const docOf = (c: CardView) => c.historyIds.find((id) => kindOfId(id) === "pi") ?? c.historyIds.find((id) => kindOfId(id) === "quote") ?? c.historyIds.find((id) => kindOfId(id) === "invoice");
 /** Payments + TDS cover the invoice total. */
 const paidInFull = (p: CardView) => sumMatches(p.linkedInvoice?.total, receivedOn(p.payments ?? (p.payment ? [p.payment] : [])));
 const trainedOn = (c: CardView) => c.schedule?.dates.at(-1)?.slice(0, 10) ?? "";

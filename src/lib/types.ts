@@ -292,7 +292,8 @@ export interface CardEvent {
   trainers?: string[]; // set_training_date: who gives the training on those dates (our trainers, then external names as typed)
   // set_training_date "change": "Change date" — the date was corrected (earlier or later), not postponed.
   // set_fulfillment "done": Mark as Completed — done before the dashboard (no email, no certificates here), on to Logistics.
-  mode?: "change" | "done";
+  // set_training_date / complete_training "invoice": completed on the invoice date — a training from before the dashboard.
+  mode?: "change" | "done" | "invoice";
   underName?: string; // set_training_date (before set_cert_alias): the training is under this alias (none = the customer's own name)
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)

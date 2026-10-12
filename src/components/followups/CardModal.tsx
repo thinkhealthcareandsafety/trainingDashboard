@@ -844,6 +844,81 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
   );
 }
 
+/**
+ * Invoices from before the dashboard (dated up to BACKFILL_UNTIL): the training happened but was never marked here.
+ * One step records it on the invoice date — on the invoice's PI (or the invoice itself when there's no PI) — scheduled
+ * and completed, so it goes on to Fulfillment. Trainers may be left "Not recorded". Undo as usual.
+ */
+function BackfillCompletion({ card, member, busyOn }: { card: CardView; member: Member; busyOn: BusyFn }) {
+  const { addCardEvents, revertCardEvent, toast } = useStore();
+  const b = card.backfill!;
+  const [open, setOpen] = useState(false);
+  const [trainers, setTrainers] = useState<string[]>([]);
+  const [unknown, setUnknown] = useState(false);
+  useEffect(() => { setOpen(false); setTrainers([]); setUnknown(false); }, [card.id]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") (e.stopPropagation(), setOpen(false)); };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+  const busy = busyOn([b.date]);
+  const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
+  const day = dateLong(b.date);
+  const elsewhere = b.cardId !== card.id;
+  const save = () => {
+    const evs = addCardEvents([
+      { cardIds: [b.cardId], kind: "set_training_date", value: b.date, trainers: unknown ? [] : chosen, mode: "invoice", by: member.name },
+      { cardIds: [b.cardId], kind: "complete_training", mode: "invoice", by: member.name },
+    ]);
+    setOpen(false);
+    toast({ text: `${card.name}: training completed on ${day} — it now shows on Fulfillment`, actionLabel: "Undo", onAction: () => revertCardEvent(evs[0].id, member.name) });
+  };
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line px-3 py-2.5">
+      <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-ink-2">
+        <b className="font-semibold text-ink">Trained before the dashboard?</b> Invoiced {day} — complete the training on that date{elsewhere ? <> (recorded on {b.on})</> : null}.
+      </p>
+      <button className={`${btn.primary} shrink-0`} onClick={() => setOpen(true)}>Completed on invoice date</button>
+      {open && (
+        <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={() => setOpen(false)}>
+          <div role="alertdialog" aria-label="Completed on invoice date" className="modal-in w-full max-w-[680px] rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="px-6 pb-4 pt-5">
+              <h3 className="text-[18px] font-bold tracking-tight text-ink">Completed on invoice date</h3>
+              <p className="mt-1 text-[13.5px] leading-relaxed text-ink-2">
+                <b className="font-semibold text-ink">{card.name}</b> — the training is recorded as given and completed on the invoice date{elsewhere ? <>, on <b className="font-semibold text-ink">{b.on}</b></> : null}. It then shows on Fulfillment.
+              </p>
+            </div>
+            <FormRows.Provider value={true}>
+              <div className="border-y border-line px-6">
+                <FieldRow label="Training date" hint={`The date of invoice ${card.docNumber}`}>
+                  <span className="num inline-flex h-8 items-center text-[14px] font-semibold text-ink">{day}</span>
+                </FieldRow>
+                <TrainerPicker
+                  selected={trainers}
+                  onChange={(t) => { setTrainers(t); if (t.length) setUnknown(false); }}
+                  busy={busy}
+                  days={1}
+                  after={
+                    <label className={chipCls(unknown)}>
+                      <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={unknown} onChange={(e) => { setUnknown(e.target.checked); if (e.target.checked) setTrainers([]); }} />
+                      Not recorded
+                    </label>
+                  }
+                />
+              </div>
+            </FormRows.Provider>
+            <div className="flex justify-end gap-2 px-6 py-4">
+              <button className={btn.ghost} onClick={() => setOpen(false)}>Cancel</button>
+              <button className={btn.primary} disabled={!chosen.length && !unknown} title={!chosen.length && !unknown ? "Pick the trainers, or Not recorded" : undefined} onClick={save}>Mark completed on {day}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SalesSection({ card }: { card: CardView }) {
   return (
     // One line: the name sits beside the title (read-only, from Zoho).
@@ -1432,7 +1507,8 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
               <PotentialSection card={card} onChange={setExpected} />
             ) : (
               <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} busyOn={busyOn}
-                onCert={card.deleted ? undefined : (cert) => addCardEvents(certEvents(card, cert, member.name))} />
+                onCert={card.deleted ? undefined : (cert) => addCardEvents(certEvents(card, cert, member.name))}
+                footer={card.backfill && !card.deleted ? <BackfillCompletion card={card} member={member} busyOn={busyOn} /> : undefined} />
             )}
             <SalesSection card={card} />
             <DocsSection card={card} options={options} />

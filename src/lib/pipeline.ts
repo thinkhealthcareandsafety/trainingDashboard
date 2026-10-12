@@ -96,6 +96,12 @@ export interface CardView {
   piSkipped: boolean;
   /** A quotation that no PI in Zoho references yet. */
   piMissing: boolean;
+  /**
+   * Invoices dated up to BACKFILL_UNTIL whose training was never marked on the dashboard (it happened before the board
+   * existed): "Completed on invoice date" records the training on `cardId` — the invoice's PI when it is on the board,
+   * else the invoice itself — dated `date` (the invoice date).
+   */
+  backfill?: { cardId: string; date: string; on: string };
   /** A quotation declined (rejected) in Zoho Books — the deal is lost; it sits in Deal lost for good. */
   lost: boolean;
   /** AedSmartx board: marked "Training not required" (its deal-lost column) — itself, or because the customer is a reseller. */
@@ -210,6 +216,8 @@ const AED_SHARED = new Set<CardEventKind>(["aed_add_phone", "aed_remove_phone", 
 
 /** A set_training_date value: one day, several days ("2026-10-05,2026-10-06,2026-10-09"), or TBD. */
 export const trainingDays = (v?: string): string[] => (!v || v === "TBD" ? [] : v.split(",").filter(Boolean));
+/** Invoices dated up to this day can have their training completed on the invoice date (trainings from before the dashboard). */
+export const BACKFILL_UNTIL = "2026-07-31";
 export const daysValue = (days: string[]) => [...new Set(days)].sort().join(",");
 
 /** A new date only counts as postponed when it replaces a date; after TBD (or first time) it's scheduling. */
@@ -824,7 +832,8 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
     const p = pay.payment!;
     const cited = [...openInvoiceByNumber.keys()].find((n) => n && p.reference?.includes(n));
     const target = openInvoiceById.get(p.invoiceId) ?? (cited ? openInvoiceByNumber.get(cited) : undefined);
-    const hasTraining = (ids: string[]) => ids.some((id) => kindOfId(id) === "pi" || kindOfId(id) === "quote");
+    // An invoice completed on its own invoice date (no PI on the board) holds its training itself.
+    const hasTraining = (ids: string[]) => Boolean(target?.schedule?.completed) || ids.some((id) => kindOfId(id) === "pi" || kindOfId(id) === "quote");
     if (target && !target.paidInFull) {
       pay.waitingOn = `${partPaidText(target.invoice!, target.received ?? 0)}. This payment waits here; once the payments add up to the invoice total, the invoice merges with all of them together.`;
       continue;
@@ -844,6 +853,16 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
       : holder && holder.id !== invCard.id
         ? `Invoice ${p.invoiceNumber} is already merged into ${holder.docNumber}.`
         : `Invoice ${p.invoiceNumber} is deleted from the board.`;
+  }
+
+  // Trainings from before the dashboard (owner, 12 Oct): an invoice dated July 2026 or earlier with no training on the
+  // board can be completed on its invoice date — on its PI (even one still flagged with its quote / lead), else on itself.
+  for (const inv of open.filter((c) => c.kind === "invoice" && c.invoice && c.invoice.date <= BACKFILL_UNTIL)) {
+    const piId = piCardByNumber.get(refPINumber(inv.invoice) ?? "");
+    const pi = piId ? cards.get(piId) : undefined;
+    const holder = pi?.mergedInto ? cards.get(pi.mergedInto) : pi;
+    const target = holder && !holder.deleted && !holder.lost ? holder : pi ? undefined : inv;
+    if (target && !target.schedule && !inv.schedule) inv.backfill = { cardId: target.id, date: inv.invoice!.date, on: target.docNumber ?? "" };
   }
 
   // Phases 4-5: a quote or PI with nothing left to merge can be scheduled; with a date (or TBD) it moves
@@ -987,6 +1006,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_training_date": {
       const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDays(x));
       const who = (e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "") + (e.underName ? ` · Under name: ${e.underName}` : "");
+      if (e.mode === "invoice") return `Training date set to the invoice date, ${show(v)} — before the dashboard${e.trainers?.length ? who : " · Trainers not recorded"}`;
       if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : ""}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
       if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)${who}`;
@@ -995,7 +1015,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
       const skip = kindOfId(e.cardIds[0]) === "quote" ? " — moved directly from Quotation to Training scheduled; its PI is still needed before the training can be completed" : "";
       return `Training scheduled for ${show(v)}${skip}${who}`;
     }
-    case "complete_training": return "Training marked completed — moved to Training completed";
+    case "complete_training": return e.mode === "invoice" ? "Training marked completed on the invoice date (before the dashboard)" : "Training marked completed — moved to Training completed";
     case "set_cert_alias": return `Alias for certificates: ${v ? `“${v}”` : "the customer's own name"}${e.before ? ` (was “${e.before}”)` : ""} — on every card under this customer name`;
     case "set_concerned_email": return `Concerned person's email: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — on every card under this customer name`;
     case "zoho_change": return v;
@@ -1220,7 +1240,8 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
   const holders = new Map<string, CardView>();
   for (const c of board.cards.values()) {
     if (c.mergedInto || c.deleted || c.lost || isCustomerCard(c.kind) || !c.schedule?.completed) continue;
-    const doc = c.historyIds.find((id) => kindOfId(id) === "pi") ?? c.historyIds.find((id) => kindOfId(id) === "quote");
+    // Its PI, or the quotation that skipped it — or, for a training completed on its invoice date with no PI, the invoice.
+    const doc = c.historyIds.find((id) => kindOfId(id) === "pi") ?? c.historyIds.find((id) => kindOfId(id) === "quote") ?? c.historyIds.find((id) => kindOfId(id) === "invoice");
     if (doc) holders.set(doc, c);
   }
 
