@@ -852,9 +852,11 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
 /**
  * Invoices from before the dashboard (dated up to BACKFILL_UNTIL): the training happened but was never marked here.
  * One step records it on the invoice date — on the invoice's PI (or the invoice itself when there's no PI) — scheduled
- * and completed, so it goes on to Fulfillment. Trainers may be left "Not recorded". Undo as usual.
+ * and completed, so it goes on to Fulfillment; then the deal moves on and stays there (owner, 12 Oct): PI → Invoice, and
+ * Invoice → Payment received when the invoice has a payment (a part-paid one waits until it's paid in full, as merges do).
+ * Trainers may be left "Not recorded". Undo takes everything back.
  */
-function BackfillCompletion({ card, member, busyOn }: { card: CardView; member: Member; busyOn: BusyFn }) {
+function BackfillCompletion({ card, cards, member, busyOn }: { card: CardView; cards: Cards; member: Member; busyOn: BusyFn }) {
   const { addCardEvents, revertCardEvent, toast } = useStore();
   const b = card.backfill!;
   const [open, setOpen] = useState(false);
@@ -871,13 +873,23 @@ function BackfillCompletion({ card, member, busyOn }: { card: CardView; member: 
   const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
   const day = dateLong(b.date);
   const elsewhere = b.cardId !== card.id;
+  const pi = elsewhere ? cards.get(b.cardId) : undefined;
+  // The invoice's payments still on their own; it merges into the newest (the others fold in with it).
+  const payments = [...cards.values()]
+    .filter((c) => c.kind === "payment" && !c.mergedInto && !c.deleted && c.payment && c.payment.invoiceId === card.invoice?.invoiceId)
+    .sort((x, y) => y.payment!.date.localeCompare(x.payment!.date) || Number(y.payment!.number) - Number(x.payment!.number));
+  const payment = payments[0];
+  const endsIn = payment ? "Payment Received" : "Invoice sent";
   const save = () => {
+    const merge = (from: CardView, to: CardView) => ({ cardIds: [from.id, to.id], kind: "merge" as const, before: cardLabel(from), value: cardLabel(to), by: member.name });
     const evs = addCardEvents([
       { cardIds: [b.cardId], kind: "set_training_date", value: b.date, trainers: unknown ? [] : chosen, mode: "invoice", by: member.name },
       { cardIds: [b.cardId], kind: "complete_training", mode: "invoice", by: member.name },
+      ...(pi ? [merge(pi, card)] : []),
+      ...(payment ? [merge(card, payment)] : []),
     ]);
     setOpen(false);
-    toast({ text: `${card.name}: training completed on ${day} — it now shows on Fulfillment`, actionLabel: "Undo", onAction: () => revertCardEvent(evs[0].id, member.name) });
+    toast({ text: `${card.name}: training completed on ${day} — moved to ${endsIn}, and on Fulfillment`, actionLabel: "Undo", onAction: () => revertCardEvent(evs.map((e) => e.id), member.name) });
   };
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-line px-3 py-2.5">
@@ -891,7 +903,8 @@ function BackfillCompletion({ card, member, busyOn }: { card: CardView; member: 
             <div className="px-6 pb-4 pt-5">
               <h3 className="text-[18px] font-bold tracking-tight text-ink">Completed on invoice date</h3>
               <p className="mt-1 text-[13.5px] leading-relaxed text-ink-2">
-                <b className="font-semibold text-ink">{card.name}</b> — the training is recorded as given and completed on the invoice date{elsewhere ? <>, on <b className="font-semibold text-ink">{b.on}</b></> : null}. It then shows on Fulfillment.
+                <b className="font-semibold text-ink">{card.name}</b> — the training is recorded as given and completed on the invoice date{elsewhere ? <>, on <b className="font-semibold text-ink">{b.on}</b></> : null}, and
+                the deal moves on to <b className="font-semibold text-ink">{endsIn}</b>{pi || payment ? <> ({[pi && `${pi.docNumber} → ${card.docNumber}`, payment && `${card.docNumber} → ${payment.docNumber}${payments.length > 1 ? ` + ${payments.length - 1} more` : ""}`].filter(Boolean).join(", ")})</> : null}. It also shows on Fulfillment.
               </p>
             </div>
             <FormRows.Provider value={true}>
@@ -1516,7 +1529,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
             ) : (
               <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} busyOn={busyOn}
                 onCert={card.deleted ? undefined : (cert) => addCardEvents(certEvents(card, cert, member.name))}
-                footer={card.backfill && !card.deleted ? <BackfillCompletion card={card} member={member} busyOn={busyOn} /> : undefined} />
+                footer={card.backfill && !card.deleted ? <BackfillCompletion card={card} cards={cards} member={member} busyOn={busyOn} /> : undefined} />
             )}
             <SalesSection card={card} />
             <DocsSection card={card} options={options} />
@@ -1619,10 +1632,12 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   // A PI citing no quotation on the board stays when clicked; otherwise the PI is the selected quotation's.
   const orphanPI = picked && !quoteOf(picked) ? picked : undefined;
   const pi = quote ? piOf(quote) ?? orphanPI : chosen("pi");
-  // No PI references the selected quotation: no PI panel (nor the invoice / payment after it).
-  const shownKinds = kinds.filter((k) => pi || !(k === "pi" || k === "invoice" || k === "payment"));
-  const invoice = pi ? chosen("invoice") : undefined;
-  const payment = pi ? chosen("payment") : undefined;
+  // No PI references the selected quotation: no PI panel (nor the invoice / payment after it). Without a quotation in
+  // the group — e.g. after Merge PI → Invoice, when the invoice already holds its PI — the invoice and payment still show.
+  const afterPI = Boolean(pi) || !quote;
+  const shownKinds = kinds.filter((k) => afterPI || !(k === "pi" || k === "invoice" || k === "payment"));
+  const invoice = afterPI ? chosen("invoice") : undefined;
+  const payment = afterPI ? chosen("payment") : undefined;
   const selectCard = (k: CardKind, id: string) =>
     setSel((s) => {
       const next = { ...s, [k]: id };

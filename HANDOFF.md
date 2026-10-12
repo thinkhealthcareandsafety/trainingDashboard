@@ -456,7 +456,9 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   invoice date** → popup (date fixed to the invoice date, trainers or **Not recorded**) → `set_training_date` (value = invoice
   date, `mode: "invoice"`) + `complete_training` (`mode: "invoice"`) on `CardView.backfill.cardId`: the invoice's **PI**
   when it is on the board (even while flagged with its quote / lead — all 27 such PIs were), else the **invoice itself**.
-  Not offered when that card already has a schedule. No merges are made. Downstream: Fulfillment and Logistics take the
+  Not offered when that card already has a schedule. Then it **merges on** (owner, #168): PI → Invoice, and Invoice → the newest
+  payment of that invoice when there is one (instalments fold in; part paid waits) — the deal ends in Payment Received (or
+  Invoice sent). Downstream: Fulfillment and Logistics take the
   invoice as the training's document when there's no PI (`docOf` / holders: pi ?? quote ?? invoice), and a payment may merge
   with an invoice that holds its own completed training. Undo via the toast / Revert (cascade reverts the completion).
 - **Filter** (next to *Show deleted*, both boards; `DateFilter.tsx`): one or several months, or a from–to range. Each card is
@@ -751,7 +753,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 163 | "Give an option to set the invoice date as training completed date for invoices before August — so I can push old cards to complete them" → agreed defaults (trainers popup with Not recorded; invoices with no PI complete on the invoice itself; completion only, no merges; up to 31 Jul 2026) | **Completed on invoice date** (§4 Training board). 40 training invoices dated ≤ July: 27 PIs never scheduled (all still flagged: 16 with their quote, 11 with a lead — so the button sits on the invoice card, not the PI), 10 invoices with no synced PI, 3 done. Click-tested on real cards with saves blocked (Arrowline, Lucasfilm, 2025-01-136 → all on Fulfillment). |
 | 164 | "push it to github" | `3a5b002`, live after ~90 s. |
 | 165 | Screenshot of Review & merge with 5 panels (Arrowline): "UI distorted, dynamically scale on the basis of cards opened" | `Stacked` context in CardModal: **3 or more panels** → labels above values in every panel (same layout in all; per-panel container queries were tried first but the first panel is wider — no arrow — so layouts mixed), training box stacks, Sales person under its title; 1–2 panels unchanged. Values wrap at spaces (`break-words`, was `overflow-wrap:anywhere`). "Open & edit" wraps under the heading. Checked on real 5- and 3-panel views. |
-| 166 | "push it to github" | This commit. |
+| 166 | "push it to github" | `85f13c2`, live after ~45 s. |
+| 167 | Screenshots: Duet India Hotels — after **Merge PI → Invoice**, Review & merge showed an empty window ("works with the first option, the 2nd should work too") | MergeModal hid Invoice/Payment whenever no PI panel showed — meant for "quotation without its PI", but after PI → Invoice the group is Invoice + Payment with no PI. Now hidden only when a quotation shows without its PI. Reproduced on 2025-01-219 (saves blocked): Review & merge → Invoice + Payment, "Merge Invoice → Payment Received". |
+| 168 | "push it; for any invoice I click Completed on invoice date — if there's a payment received, just move it (merge with payment received) and leave it there; only July 2026 and before" | Completed on invoice date now also merges **PI → Invoice** (when the PI held it) and **Invoice → its newest payment** (instalments fold in; part paid waits as usual); one Undo takes it all back. `liveMerges`: an invoice may join its payment when it holds its **own** `complete_training` (no-PI case) recorded before the merge. Tested (saves blocked): Diana Builwell 2025-01-219 → one card Payment #1149; Pinkerton 2025-01-182 (no PI) → Payment #1097. Pushed with #167. |
 
 ---
 

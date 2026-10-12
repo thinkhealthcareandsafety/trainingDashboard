@@ -584,10 +584,13 @@ function liveMerges(active: CardEvent[], exists: Set<string>, paid: Set<string>)
     if (kindOfId(to) === "payment" && kindOfId(from) === "invoice" && !paid.has(from)) continue;
     if (exists.has(from) && exists.has(to) && STAGE_RANK[kindOfId(from)] < STAGE_RANK[kindOfId(to)]) (into.set(from, to), at.set(from, e.at));
   }
-  // Step by step: an invoice joins its payment only if its completed training was merged into it first.
+  // Step by step: an invoice joins its payment only if its completed training was merged into it first — or, for a
+  // training completed on its invoice date with no PI (Completed on invoice date), recorded on the invoice itself first.
+  const selfTrained = new Map(active.filter((e) => e.kind === "complete_training" && kindOfId(e.cardIds[0]) === "invoice").map((e) => [e.cardIds[0], e.at]));
   for (const [from, to] of [...into]) {
     if (kindOfId(to) !== "payment") continue;
-    const ready = [...into].some(([f, t]) => t === from && kindOfId(f) !== "lead" && at.get(f)! < at.get(from)!);
+    const ready = [...into].some(([f, t]) => t === from && kindOfId(f) !== "lead" && at.get(f)! < at.get(from)!)
+      || (selfTrained.has(from) && selfTrained.get(from)! < at.get(from)!);
     if (!ready) into.delete(from);
   }
   return into;
