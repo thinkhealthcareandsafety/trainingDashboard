@@ -736,7 +736,9 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 156 | "Impeccable update" | `npx impeccable update` found no skill folder (it's a Claude Code plugin — update via `/plugin`); owner: "nvm". |
 | 157 | Screenshot of the **Ready for training** popup: "very cluttered, make it a bit wide, proper alignment" | 680 px; title + "Ready for training" tag; rows Training dates · Trainers · Add alias · Add concerned person's email (label + hint left, control right, `FormRows` context in CardModal). Certificate details popup the same. Inline schedule row unchanged. |
 | 158 | "the serial number must be auto incremented when names come" | Already: max SN + 1 per name (and certificate no. on its own count), re-read under the lock at Generate. |
-| 159 | "push it all to github" | This handoff + everything since `2156f46`. |
+| 159 | "push it all to github" | `cb906d4`, live after ~105 s. |
+| 160 | Screenshots of Shreya's live tests (gratitude email, reply, names, undone moves on JW Sahar 2026-01-352 and Ritz Carlton Payment #1791): "remove them, move the cards back to Training Completed" | Direct Mongo delete **refused by the safety classifier** ("Modify Shared Resources"). Owner told to use Clear logs → One deal cycle on the Fulfillment board (on that board it covers only the fulfil: card — checked: 6 + 5 entries, all tests) and to delete the 9 test rows SN 2136–2144 from the master sheet by hand. |
+| 161 | Column colours: Training scheduled **#FFAC00**, Training completed **#26B0D2** | Tokens `--scheduled` / `--completed` (+ `-bg` tints, light and dark) in globals.css; Training **and** AedSmartx boards' columns (header tint + dot; card borders unchanged). |
 
 ---
 

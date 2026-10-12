@@ -33,6 +33,11 @@
   --info-bg: #eef4ff;
   --purple: #7c3aed;
   --purple-bg: #f4effe;
+  /* Training scheduled / Training completed columns (owner's colours, 12 Oct) */
+  --scheduled: #ffac00;
+  --scheduled-bg: #fff4dc;
+  --completed: #26b0d2;
+  --completed-bg: #e3f5fa;
 
   --shadow: 0 0 0 1px rgb(0 0 0 / 0.035), 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 20px -12px rgb(0 0 0 / 0.12);
   --shadow-lg: 0 0 0 1px rgb(0 0 0 / 0.05), 0 24px 60px -20px rgb(0 0 0 / 0.28);
@@ -66,6 +71,10 @@
     --info-bg: #142036;
     --purple: #b794f6;
     --purple-bg: #221a36;
+    --scheduled: #ffac00;
+    --scheduled-bg: #2e2412;
+    --completed: #26b0d2;
+    --completed-bg: #0f2a31;
     --shadow: 0 0 0 1px rgb(255 255 255 / 0.05), 0 8px 24px -16px rgb(0 0 0 / 0.8);
     --shadow-lg: 0 0 0 1px rgb(255 255 255 / 0.07), 0 28px 70px -20px rgb(0 0 0 / 0.9);
     color-scheme: dark;
@@ -98,6 +107,10 @@
   --info-bg: #142036;
   --purple: #b794f6;
   --purple-bg: #221a36;
+  --scheduled: #ffac00;
+  --scheduled-bg: #2e2412;
+  --completed: #26b0d2;
+  --completed-bg: #0f2a31;
   --shadow: 0 0 0 1px rgb(255 255 255 / 0.05), 0 8px 24px -16px rgb(0 0 0 / 0.8);
   --shadow-lg: 0 0 0 1px rgb(255 255 255 / 0.07), 0 28px 70px -20px rgb(0 0 0 / 0.9);
   color-scheme: dark;
@@ -129,6 +142,10 @@
   --color-info-bg: var(--info-bg);
   --color-purple: var(--purple);
   --color-purple-bg: var(--purple-bg);
+  --color-scheduled: var(--scheduled);
+  --color-scheduled-bg: var(--scheduled-bg);
+  --color-completed: var(--completed);
+  --color-completed-bg: var(--completed-bg);
   --font-sans: var(--font-inter);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-lg);

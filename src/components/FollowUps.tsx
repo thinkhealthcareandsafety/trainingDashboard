@@ -24,8 +24,8 @@ const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "lead", label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
   { key: "quotation", label: "Quotations", header: "bg-brand-soft", dot: "bg-brand-2" },
   { key: "performa", label: "Performa invoice", header: "bg-medium-bg", dot: "bg-medium" },
-  { key: "training", label: "Training scheduled", header: "bg-brand-soft", dot: "bg-brand" },
-  { key: "training_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
+  { key: "training", label: "Training scheduled", header: "bg-scheduled-bg", dot: "bg-scheduled" },
+  { key: "training_completed", label: "Training completed", header: "bg-completed-bg", dot: "bg-completed" },
   { key: "invoiced", label: "Invoice sent", header: "bg-medium-bg", dot: "bg-medium" },
   { key: "paid", label: "Payment received", header: "bg-low-bg", dot: "bg-low" },
   { key: "lost", label: "Deal lost", header: "bg-high-bg", dot: "bg-high" },
@@ -36,8 +36,8 @@ const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
 const AED_STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
   { key: "aed_invoices", label: "Invoices sent", header: "bg-medium-bg", dot: "bg-medium" },
   { key: "aed_contacted", label: "Contacted", header: "bg-info-bg", dot: "bg-info" },
-  { key: "aed_training", label: "Training scheduled", header: "bg-brand-soft", dot: "bg-brand" },
-  { key: "aed_completed", label: "Training completed", header: "bg-low-bg", dot: "bg-low" },
+  { key: "aed_training", label: "Training scheduled", header: "bg-scheduled-bg", dot: "bg-scheduled" },
+  { key: "aed_completed", label: "Training completed", header: "bg-completed-bg", dot: "bg-completed" },
   { key: "aed_not_required", label: "Training not required", header: "bg-purple-bg", dot: "bg-purple" },
 ];
 /** Fulfillment board (Shreya): certificates for completed trainings, carried over from the training board. */
