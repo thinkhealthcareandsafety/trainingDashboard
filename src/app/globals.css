@@ -221,7 +221,8 @@ h1, h2, h3 { letter-spacing: -0.018em; }
 
 /* Certificates loader: a flower turning very slowly clockwise (kept even with reduced motion — it shows work is going on). */
 @keyframes flower-turn { to { transform: rotate(360deg); } }
-.flower-turn { animation: flower-turn 9s linear infinite; transform-origin: 50% 50%; }
+/* Turns in place: around the flower's own centre (an SVG group's 50% 50% is otherwise the whole drawing's corner area). */
+.flower-turn { animation: flower-turn 9s linear infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes flower-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
 .flower-breathe { animation: flower-breathe 2.4s ease-in-out infinite; transform-origin: 50% 50%; transform-box: fill-box; }
 

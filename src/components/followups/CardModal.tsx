@@ -52,11 +52,26 @@ export function Lock() {
 /** Inside the narrow merge panels, sections go flat and labels sit above values. */
 const Compact = createContext(false);
 
-export function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
+/** Inside a popup form, the pickers become rows: label and hint on the left, the control on the right. */
+const FormRows = createContext(false);
+
+function FieldRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-x-5 gap-y-1.5 border-t border-line py-3.5 first:border-t-0 sm:grid-cols-[208px_minmax(0,1fr)]">
+      <div>
+        <div className="pt-1.5 text-[13.5px] font-semibold leading-snug text-ink">{label}</div>
+        {hint && <div className="mt-0.5 text-[12px] leading-snug text-muted">{hint}</div>}
+      </div>
+      <div className="min-w-0 sm:pt-0">{children}</div>
+    </div>
+  );
+}
+
+export function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children?: React.ReactNode }) {
   const compact = useContext(Compact);
   return (
     <section className={compact ? "border-t border-line px-1 pt-2.5 first:border-t-0 first:pt-0" : "rounded-2xl border border-line bg-surface px-4 py-3.5"}>
-      <div className={`flex items-center justify-between gap-2 ${compact ? "mb-1.5" : "mb-2"}`}>
+      <div className={`flex items-center justify-between gap-2 ${children ? (compact ? "mb-1.5" : "mb-2") : ""}`}>
         <h3 className={`font-bold tracking-tight text-ink ${compact ? "text-[14px]" : "text-[16px]"}`}>{title}</h3>
         {aside}
       </div>
@@ -326,6 +341,13 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
 
 /** A picker's own row: label, what it's used for, then the control. */
 function PickerRow({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
+  if (useContext(FormRows)) {
+    return (
+      <FieldRow label={label[0] + label.slice(1).toLowerCase().replace("person's", "person’s")} hint={hint[0].toUpperCase() + hint.slice(1)}>
+        <span className="flex flex-wrap items-center gap-1.5">{children}</span>
+      </FieldRow>
+    );
+  }
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="text-[12px] font-bold uppercase tracking-wide text-brand">{label}</span>
@@ -337,13 +359,15 @@ function PickerRow({ label, hint, children }: { label: string; hint: string; chi
 
 /** Alias for certificates and the concerned person's email, each on its own row. */
 function CertPickers({ card, value, onChange }: { card: CardView; value: CertChoice; onChange: (v: CertChoice) => void }) {
-  return (
-    <div className="space-y-1.5">
-      <AliasPicker card={card} value={value.alias} onChange={(alias) => onChange({ ...value, alias })} />
-      <EmailPicker card={card} value={value.email} onChange={(email) => onChange({ ...value, email })} />
-    </div>
-  );
+  const pickers = <>
+    <AliasPicker card={card} value={value.alias} onChange={(alias) => onChange({ ...value, alias })} />
+    <EmailPicker card={card} value={value.email} onChange={(email) => onChange({ ...value, email })} />
+  </>;
+  return useContext(FormRows) ? pickers : <div className="space-y-1.5">{pickers}</div>;
 }
+
+/** The dropdowns: one width inside a popup form, as narrow as their text in the inline schedule row. */
+const pickerWidth = (rows: boolean, inline: string) => (rows ? "w-full max-w-[360px]" : inline);
 
 /**
  * The concerned person's email: one of the customer's emails ("Same as original" — there can be several) or a new one.
@@ -355,6 +379,7 @@ export function EmailPicker({ card, value, onChange }: { card: CardView; value: 
   const own = card.emails.find((e) => normEmail(e.value) === normEmail(value))?.value;
   const ok = EMAIL_RE.test(text.trim());
   const use = () => { if (ok) { onChange(text.trim()); setAdding(false); } };
+  const rows = useContext(FormRows);
   return (
     <PickerRow label="Add Concerned Person's Email" hint="will be used to send emails for gratitude and to ask for List of Participants">
       {adding ? (
@@ -374,7 +399,7 @@ export function EmailPicker({ card, value, onChange }: { card: CardView; value: 
         </>
       ) : (
         <select
-          className={`${selectCls} !h-8 w-auto max-w-[300px] truncate`}
+          className={`${selectCls} !h-8 ${pickerWidth(rows, "w-auto max-w-[300px]")} truncate`}
           value={own ?? value}
           onChange={(e) => (e.target.value === NEW ? (setText(""), setAdding(true)) : onChange(e.target.value))}
           aria-label="Concerned person's email"
@@ -402,6 +427,7 @@ function AliasPicker({ card, value, onChange }: { card: CardView; value: string;
   const [text, setText] = useState("");
   const NEW = "\u0000new";
   const known = card.aliases.includes(value) || !value;
+  const rows = useContext(FormRows);
   return (
     <PickerRow label="Add Alias" hint="will be used for Certificates as location">
       {adding ? (
@@ -420,7 +446,7 @@ function AliasPicker({ card, value, onChange }: { card: CardView; value: string;
         </>
       ) : (
         <select
-          className={`${selectCls} !h-8 w-auto max-w-[240px] truncate`}
+          className={`${selectCls} !h-8 ${pickerWidth(rows, "w-auto max-w-[240px]")} truncate`}
           value={value}
           onChange={(e) => (e.target.value === NEW ? (setText(""), setAdding(true)) : onChange(e.target.value))}
           aria-label="Alias for certificates"
@@ -469,10 +495,11 @@ function TrainerPicker({ selected, onChange, busy, days, after }: { selected: st
     setExternal(on);
     if (!on) onChange(selected.filter((t) => TRAINERS.includes(t)));
   };
-  return (
+  const rows = useContext(FormRows);
+  const body = (
     <div>
       <div role="group" aria-label="Trainers" className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[12px] font-bold uppercase tracking-wide text-brand">Trainers</span>
+        {!rows && <span className="mr-1 text-[12px] font-bold uppercase tracking-wide text-brand">Trainers</span>}
         {TRAINERS.map((t) => {
           const other = busy.get(t);
           const on = selected.includes(t) && !other;
@@ -534,6 +561,7 @@ function TrainerPicker({ selected, onChange, busy, days, after }: { selected: st
       })()}
     </div>
   );
+  return rows ? <FieldRow label="Trainers" hint="One or more — nobody can be on two trainings in a day">{body}</FieldRow> : body;
 }
 
 /** Training date next to "No. of People", with postpone (calendar), trainers and to-be-decided. */
@@ -599,7 +627,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
         </p>
       )}
       {s?.completed && (
-        <p className="mt-1.5 text-[13px] text-muted">Completed · marked by {s.completed.by} on {dateLong(s.completed.at)}</p>
+        <p className="mt-1.5 text-[13px] text-muted">Completed by {s.completed.by} · {dateLong(s.completed.at)}</p>
       )}
       {onSchedule && !s && !card.canSchedule && card.flaggedWith.length > 0 && (
         <p className="mt-1.5 text-[13px] text-muted">Merge the flagged cards first, then the training can be scheduled.</p>
@@ -669,7 +697,7 @@ function CertLines({ card, onChange, needEmail }: { card: CardView; onChange?: (
         <span className="shrink-0 font-semibold">Concerned email:</span>
         {card.concernedEmail
           ? <span className="truncate" title={card.concernedEmail}>{card.concernedEmail}</span>
-          : <span className={needEmail ? "font-medium text-medium" : "text-muted"}>{needEmail ? "not set — needed for certificates" : "not set"}</span>}
+          : <span className={needEmail ? "font-medium text-medium" : "text-muted"} title={needEmail ? "Needed for the gratitude email and the certificates" : undefined}>not set</span>}
         {onChange && <button type="button" className="ml-1 shrink-0 font-semibold text-brand hover:underline" onClick={onChange}>Change</button>}
       </p>
     </>
@@ -692,11 +720,15 @@ function CertEditor({ card, initial, saveLabel = "Save", note, onSave, onClose }
   }, [onClose]);
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={onClose}>
-      <div role="alertdialog" aria-label="Certificate details" className="modal-in w-full max-w-xl rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
-        <h3 className="text-[17px] font-bold tracking-tight text-ink">Certificate details</h3>
-        <p className="mb-3 mt-0.5 text-[13px] text-muted">{note ?? `Shows on every card under ${card.name}.`}</p>
-        <CertPickers card={card} value={cert} onChange={setCert} />
-        <div className="mt-4 flex justify-end gap-2">
+      <div role="alertdialog" aria-label="Certificate details" className="modal-in w-full max-w-[640px] rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="px-6 pb-4 pt-5">
+          <h3 className="text-[18px] font-bold tracking-tight text-ink">Certificate details</h3>
+          <p className="mt-0.5 text-[13px] text-muted">{note ?? `Shows on every card under ${card.name}.`}</p>
+        </div>
+        <FormRows.Provider value={true}>
+          <div className="border-y border-line px-6"><CertPickers card={card} value={cert} onChange={setCert} /></div>
+        </FormRows.Provider>
+        <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onClose}>Cancel</button>
           <button className={btn.primary} disabled={sameCert(cert, start)} onClick={() => { onSave(cert); onClose(); }}>{saveLabel}</button>
         </div>
@@ -782,23 +814,28 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
   const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
   return (
     <div className="fade-in absolute inset-0 z-20 grid place-items-center bg-black/25 p-4 backdrop-blur-[2px]" onMouseDown={onLater}>
-      <div role="alertdialog" aria-label="Ready for training" className="modal-in w-full max-w-md rounded-2xl border-2 border-low bg-surface p-6 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="text-[12px] font-bold uppercase tracking-wide text-low">Ready for training</div>
-        <h3 className="mt-1 text-[18px] font-bold leading-snug tracking-tight text-ink">{card.name} is ready</h3>
-        <p className="mt-1.5 text-[14px] text-muted">
-          Everything is merged into {card.docNumber}{card.training[0] ? ` for ${card.training[0].name} (${card.training[0].qty} people)` : ""}. Would you like to schedule their training right now?
-        </p>
-        <div className="mt-4">
-          <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Training dates:</span>
-          <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label="Training dates" />
+      <div role="alertdialog" aria-label="Ready for training" className="modal-in w-full max-w-[680px] rounded-2xl border-2 border-low bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="px-6 pb-4 pt-5">
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+            <h3 className="min-w-0 text-[19px] font-bold leading-snug tracking-tight text-ink">{card.name} is ready</h3>
+            <span className="mt-0.5 shrink-0 rounded-full bg-low-bg px-2.5 py-0.5 text-[12px] font-semibold text-low">Ready for training</span>
+          </div>
+          <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2">
+            Everything is merged into <b className="font-semibold text-ink">{card.docNumber}</b>
+            {card.training[0] && <> for <b className="font-semibold text-ink">{card.training[0].name}</b> ({card.training[0].qty} people)</>}. Would you like to schedule their training right now?
+          </p>
         </div>
-        <div className="mt-3">
-          <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
-        </div>
-        <div className="mt-3">
-          <CertPickers card={card} value={cert} onChange={setCert} />
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
+        <FormRows.Provider value={true}>
+          <div className="border-y border-line px-6">
+            <FieldRow label="Training dates" hint="Click each day, or drag for a range">
+              <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label="Training dates" />
+            </FieldRow>
+            <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
+            <AliasPicker card={card} value={cert.alias} onChange={(alias) => setCert({ ...cert, alias })} />
+            <EmailPicker card={card} value={cert.email} onChange={(email) => setCert({ ...cert, email })} />
+          </div>
+        </FormRows.Provider>
+        <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onLater}>Later</button>
           <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
         </div>
@@ -809,9 +846,13 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
 
 export function SalesSection({ card }: { card: CardView }) {
   return (
-    <Section title="Sales person" aside={<Lock />}>
-      <p className="text-[15px] font-medium text-ink">{card.salespeople.length ? salespersonLabel(card.salespeople) : <span className="font-normal text-faint">—</span>}</p>
-    </Section>
+    // One line: the name sits beside the title (read-only, from Zoho).
+    <Section title="Sales person" aside={
+      <span className="flex min-w-0 items-center gap-2 text-right text-[14px] font-medium text-ink">
+        {card.salespeople.length ? salespersonLabel(card.salespeople) : <span className="font-normal text-faint">—</span>}
+        <Lock />
+      </span>
+    } />
   );
 }
 

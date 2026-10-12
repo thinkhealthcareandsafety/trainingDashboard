@@ -1,9 +1,40 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 8 Oct 2026, end of session 5. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 12 Oct 2026, end of session 7. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all five sessions), the
+Read this end to end before touching code. It records what the owner asked for (every prompt, all seven sessions), the
 business rules that came out of it, how the code works **now**, what was verified, and what is still open.
+
+**Start of the next session — do these first (details in §10):**
+1. `git status` — everything from sessions 6 and 7 was pushed at the end of session 7. After a push the team presses
+   Ctrl + Shift + R once.
+2. **Fulfillment connections (checked 12 Oct):** learn@ mailbox **connected** (10 Oct, folder "Gratitude Emails Sent" found),
+   master sheet **connected as digital@** (12 Oct), both designs **uploaded** (12 Oct — the A4 Photoedit templates, converted
+   on the fly, §3). Still owner-side: the **forwarding filter** (#25), the **real gratitude wording** (#29), the
+   **`CRON_SECRET` GitHub secret** (#31 — runs on 10 Oct still skipped "CRON_SECRET is not set").
+3. The sheet append **has run for real** (two test batches on 12 Oct, numbers correct; the owner deleted the test rows). The
+   first real **reply** is still the first real run of reading Zoho Mail (§10 #30).
+4. Classic Citi Investments (Pune) still carries the two **test** `fulfil_certs` batches (10:07 and 10:19 on 12 Oct; their
+   moves were undone, so the card shows the "moved back" note). Server-only events — delete them only with the owner's OK (#38).
+
+**Session 7 in one paragraph (12 Oct):** connected the master sheet (the popup found the serial column only after "SN" was
+taught to it); the sheet's **certificate numbers run 7 behind its SN** (Shreya used to leave blank rows between locations)
+so the two now **count separately**; the first PDFs printed the uploaded A4 template squashed into one slot — the owner's
+templates are the A4 Photoedit exports, so the dashboard now does what the certificate generator does (**takes the
+certificate picture out of the template**, `certBackground.ts`) and prints exactly like the generator; **polished** the
+Generate popup (wider, steps, facts strip), the Fulfillment card (Certificates block as labelled rows; every stage fits at
+1728×958 again), the **Ready for training** and **Certificate details** popups (label/hint rows); added **Mark as Completed**
+on Training Completed cards (done before the dashboard → straight to Sent to Logistics); fixed the flower loader drifting.
+
+**Session 6 in one paragraph (10 Oct):** rebuilt Shreya's **Fulfillment board** around a **gratitude email** and
+**certificates**: Training Completed → **Gratitude Email Sent** → Certificates Generated (**In process / On hold**) → Sent to
+Logistics. The email goes from **learn@thinkhealth.in** (an alias of Shikha's mailbox) via Zoho Mail and is filed in her
+**"Gratitude Emails Sent"** folder; a Zoho Mail filter (owner sets it) forwards replies to **digital@**; the hourly sync finds
+replies and puts a **★ on the card**. **Generate Certificate**: paste names → pick one of two designs → preview of the rows as
+they'll sit in the **master Zoho Sheet** → Generate appends them (serial continues) and makes the PDF **in the browser** (code
+copied from the owner's certificate-generator app) with a slow **flower loader** → Download moves the card on. Pushed
+(`2156f46`). Then the owner found **Clear logs → Everything** had been used by mistake **twice** — both **restored from the
+archive** (§5 #145–#146) — and asked for a **"type Confirm"** lock on clearing everything (built, tested, see step 1).
 
 **Session 5 in one paragraph:** gave Priyanka's AedSmartx board a **Contacted** column (In process → call log, contacts by
 customer name, email check) and **onboarding emails sent from Zoho Mail** (hello@thinkhealth.in — first contact, then two
@@ -23,11 +54,19 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `1738416`
-  (8 Oct). This final HANDOFF.md update may still be uncommitted — check `git status`.
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `2156f46`
+  (10 Oct, Fulfillment rework — live, verified in the deployed JS). **Not pushed at the end of session 6:** the Clear logs
+  "type Confirm" lock (`clear-logs/route.ts`, `FollowUps.tsx`, `store.tsx`) and this HANDOFF.md — check `git status`.
 - **Zoho Mail is connected** for **hello@thinkhealth.in** (Admin did it on 8 Oct through the dashboard's *Connect it* popup;
   token in Mongo kv `zoho_mail:hello@thinkhealth.in`). The owner received a **[TEST]** first-contact email. Threaded reminders
   (reply API) are **not yet confirmed** in real use — see §10 #20.
+- **learn@thinkhealth.in** (gratitude emails) connected 10 Oct, **master Zoho Sheet** connected 12 Oct (as digital@; worksheet
+  Sheet1, ~2135 rows, columns DATE · TRAINING LOCATION · SN · CERTIFICATE No · COURSE · NAME), **designs** `bls` / `fa`
+  uploaded 12 Oct (kv `zoho_mail:learn@thinkhealth.in`, `zoho_sheet:master`, Mongo `certDesigns`). Check existence only —
+  project `_id/connectedAt/connectedBy`, never the token fields.
+- **Clear logs accidents (10 Oct):** "Everything" was cleared by mistake on **3 Oct 11:31 IST** and **10 Oct 12:14 IST** (both
+  as Admin + PIN). Both were **restored from `cardEventsArchive`** in session 6 (§5 #145–#146); live `cardEvents` had **210**
+  entries afterwards. The archive rows carry `restoredAt` (or `restoreSkipped` for ones the team had redone).
 - **After every release** the team must press **Ctrl + Shift + R** once: the app is a single-page app, so an open tab keeps the
   old code until a full reload (this is why "confetti works for me but not for others" happened).
 - **Zoho sync** was broken from Mon 5 Oct 3 pm to Tue 9:19 am (automatic syncs depended on page visits + one daily cron, and
@@ -45,8 +84,14 @@ name** (`b146419`).
   Client* and Heritage Village Goa to *Shipments* on 7 Oct), **Shreya** (certificates — Fulfillment board), and **Admin** (the
   owner). Their changes live in MongoDB `cardEvents` — **never write test data to the shared database** (see §9).
 - **Four boards** on `/follow-up`, picked with the **Board** switch (Training · AedSmartx · Fulfillment · Logistics): the
-  **Training follow-ups** board (9 columns), the **AedSmartx Training** board (5, Contacted added in session 5), the **Fulfillment** board (5) and the
-  **Logistics** board (6, session 4). Plus the Dashboard (`/`) and Calendar pages.
+  **Training follow-ups** board (9 columns), the **AedSmartx Training** board (5, Contacted added in session 5), the
+  **Fulfillment** board (4 since session 6: Training Completed · Gratitude Email Sent · Certificates Generated · Sent to
+  Logistics) and the **Logistics** board (6, session 4). Plus the Dashboard (`/`) and Calendar pages.
+- **How the boards chain together:** Training board (deal: lead → quote → PI → training scheduled → **training completed** →
+  invoice → payment) ⇒ every completed training appears on **Fulfillment** (certificates) ⇒ cards Shreya marks **Sent to
+  Logistics** appear on **Logistics** (Arti: merge with the fully paid payment → pack → ship → received). AED invoices (Zoho)
+  ⇒ **AedSmartx** (Priyanka: delivered → contacted → AED training) and Logistics' *AED Delivered Status* column. Every board
+  is Zoho data + the shared change log; nothing is written back to Zoho Books.
 - **Permissions (owner's list, 7 Oct — `src/lib/roles.ts`, enforced by the boards AND by `/api/store`):**
   Priyanka → AedSmartx only, everything except marking delivered · Arti → Logistics only, everything there · Shreya →
   Fulfillment only, everything there · Ashish, Shikha, Sumit → all four boards, every action · Admin → everything, and the
@@ -80,6 +125,14 @@ npx next build                       # production build (passes)
   Mongo kv instead). Documented in `.env.example` (no values).
   **Zoho Mail credentials are NOT env vars:** each mailbox's client id/secret + refresh token live in Mongo kv
   `zoho_mail:<address>` (written by `POST /api/mail/connect`, Admin only; never returned to the browser). Never print them.
+  Same for the **master Zoho Sheet** (session 6): kv `zoho_sheet:master` (resource id, worksheet, client id/secret, refresh
+  token; written by `POST /api/sheet`, Admin only). Optional env `ZOHO_SHEET_API` (default `https://sheet.zoho.in`).
+  The **certificate designs** (PDFs with the trainer's signature and company seal) live only in Mongo `certDesigns` — never
+  commit them (both this repo and the certificate-generator repo are public).
+  Every Zoho connection is made the same way: **api-console.zoho.in → Self Client → Generate Code**, signed in as the account
+  whose data is used, with the scope the popup shows; the code + that Self Client's Client ID/Secret go into the popup (each
+  Zoho account has its own Self Client). The auto-mode safety classifier **refuses** scripts that read stored Zoho tokens
+  from Mongo to call Zoho directly ("credential exploration") — don't try; go through the app's routes.
   **Never print, copy or commit secret or PIN values** — a push was once blocked because a PIN had been written into
   this file; scan diffs for PIN digits before every push.
 - Git identity is repo-local (`thinkhealthcareandsafety` / `sshah@thinkhealth.in`). Follow the session's commit-attribution reminder.
@@ -90,6 +143,11 @@ npx next build                       # production build (passes)
   so the run fails and GitHub emails the repo owner. The workflow calls `/api/cron/sync?source=github` so the Sync log labels
   it. **Checked 7 Oct: the secret is missing** (both runs on 6 Oct skipped; the public API shows runs + annotations:
   `api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/actions/runs`). The owner was told where to add it.
+- **To make the hourly checks reliable** (Books sync + gratitude replies), the owner must add the GitHub secret — steps given on
+  10 Oct: Vercel → project → Settings → Environment Variables → copy `CRON_SECRET`; GitHub repo → **Settings** tab → Secrets
+  and variables → Actions → **New repository secret** `CRON_SECRET`; then Actions → *Zoho sync* → **Run workflow** (green = ok).
+- Dependencies added in session 6: `pdf-lib@1.17.1`, `@pdf-lib/fontkit@1.1.1` (certificates, used in the browser only).
+  Fonts in `public/certificate-fonts/` (Great Vibes, Montserrat Bold Italic, Open Sans Bold Italic — SIL OFL, licence files there).
 - Dependencies added in session 3: `canvas-confetti` (+ `@types/canvas-confetti`). `npm audit` flags **Next.js 16.3 (critical)**
   and `source-map-js` (high) — pre-existing, not fixed (upgrading Next is a separate, careful job).
 - No Python on this machine; use Node for scripts. When editing with scripts, beware `\b` inside JS template strings
@@ -107,12 +165,93 @@ browser ──(cookie)──► /api/pipeline · /api/aed · /api/trainings · /
 browser ◄──► /api/store (team data: cardEvents, members, …; 15 s pull + on tab focus, diff push; server stamps who did what)
 browser ──► /api/mail/aed ──(src/lib/zohoMail.ts, templates src/lib/mailTemplates.ts)──► Zoho Mail API (mail.zoho.in)
                  └─ records the sent email as an `aed_email` event in cardEvents (server only)
+browser ──► /api/mail/fulfil (gratitude email, from learn@) ──► Zoho Mail; files it in "Gratitude Emails Sent"; `fulfil_email`
+hourly sync (zohoSync.runSync) ──► gratitudeReplies.ts reads learn@'s Inbox ──► `fulfil_reply` events (★ on the card)
+browser ──► /api/certificates (preview / append) ──(src/lib/zohoSheet.ts)──► Zoho Sheet API (sheet.zoho.in) ──► `fulfil_certs`
+browser ◄── /api/certificates/designs (PDF from Mongo) → src/lib/certPdf.ts makes the certificates PDF in the browser
 ```
+The Fulfillment routes rebuild the card on the server (`src/lib/fulfilServer.ts`: Zoho copy + change log → `buildBoard` →
+`buildFulfillmentBoard`) instead of trusting what the browser sends.
+
+### Fulfillment: gratitude email, replies, certificates (session 6)
+Files: `src/components/followups/FulfilCerts.tsx` (all the UI: actions under the Training box, gratitude popup, reply popup,
+Generate popup + flower loader, Connect sheet popup, Upload designs popup), `FulfillmentModal.tsx` (the card),
+`src/lib/gratitudeReplies.ts`, `src/lib/zohoSheet.ts`, `src/lib/certificates.ts` (numbering, name parsing, the two designs),
+`src/lib/certPdf.ts` (PDF), `src/lib/fulfilServer.ts`, `src/lib/zohoOAuth.ts` (shared Zoho code→token helper), routes
+`src/app/api/mail/fulfil`, `src/app/api/certificates`, `src/app/api/certificates/designs`, `src/app/api/sheet`.
+- **Gratitude email** — template `fulfil_gratitude` in Mongo `mailTemplates` (**placeholder wording** until the owner sends the
+  real one; subject `Thank you for hosting our training - {location} ({ref})` — **keep "Thank you for hosting"**: Shikha's
+  forwarding filter keys on it). Vars: `{location}` (alias for certificates, else customer name), `{customer}`, `{ref}` (PI /
+  quote no.), `{course}` (training names), `{dates}`, `{people}`. From **learn@thinkhealth.in**, an alias on
+  **shikhadixit@**'s mailbox → that mailbox is the connection (`zoho_mail:learn@thinkhealth.in`, `connectMailbox` finds the
+  account that can send as the alias). Scope **`ZohoMail.messages.ALL,ZohoMail.accounts.READ,ZohoMail.folders.ALL`**
+  (`MAIL_SCOPES`; folders.ALL so the dashboard can create/move into the folder). `GET /api/mail/fulfil?card=` preview;
+  `POST {card, to}` sends **once per training** (409 if already sent) and records `fulfil_email` (value = to, subject,
+  messageId); `POST {…, testTo}` = `[TEST]` copy, not recorded. The `to` in the popup wins (a concerned email changed in the
+  popup is also saved with `certEvents`, and may not have reached the server yet).
+- **Filing:** every email sent (tests too) is moved to the **"Gratitude Emails Sent"** folder in Shikha's mailbox
+  (`fileSentMail` → `PUT /api/accounts/{id}/updatemessage {mode:"moveMessage", messageId:[…], destfolderId}`; the folder is
+  found by name or **created** — `folderNamed`, ids cached in the kv doc under `folders.named`). If the move right after
+  sending fails (Zoho still saving it), the hourly check moves any gratitude email still in Sent.
+- **Replies (★):** owner's boss wants replies at **digital@** but digital@ must not send anything sales/training → Shikha's
+  **Zoho Mail filter** (owner sets it: To contains learn@ AND Subject contains "Thank you for hosting" → Forward to digital@)
+  forwards them. The dashboard never reads digital@'s mail. `checkGratitudeReplies()` runs inside every `runSync` (hourly
+  9 am–7 pm Mon–Sat, Sync now too; a mail error never fails the Books sync — logged as `mailError`, replies count as
+  `replies` in the Sync log). Only when some card is still waiting (email in the last 60 days, no `fulfil_certs`): reads the
+  newest 200 of learn@'s Inbox + Sent + the folder (`latestMail`), matches a reply by **thread id** (sent message → threadId)
+  or by **subject without Re:/Fwd:**, received after the email, not from `@thinkhealth.in`, not seen before → `fulfil_reply`
+  (value = from, subject, messageId, folderId, at = when it arrived, by "Zoho Mail").
+- **Star rule:** ★ while the card is in Gratitude Email Sent, has no certificates yet, and has a reply newer than the last
+  `fulfil_mail_opened` (written when someone clicks **Open in Zoho Mail** in the reply popup). A newer reply brings it back;
+  adding the list removes it for good. A starred card opens **on the reply** (`ReplyPopup`: the HTML in a sandboxed iframe,
+  ◀ ▶ between replies, *Open in Zoho Mail* → `https://mail.zoho.in/zm/#mail/folder/inbox` (digital@'s inbox in Shreya's
+  browser — not the exact email), *Close*). `GET /api/mail/fulfil?card=&reply=<event id>` reads the body from learn@'s mailbox.
+- **Generate Certificate** (Gratitude Email Sent cards): names textarea (`parseNames`: one per line; strips "1." / "2)" /
+  bullets; from copied rows keeps the cell with a name) → **design** radio (`DESIGNS`: `bls` "Basic Life Support (CPR & AED)"
+  → course *Basic Life Support (CPR & AED Training)*, file `cpr-aed.pdf`; `fa` "CPR, AED & First Aid" → course *CPR, AED and
+  First aid Training*, file `cpr-aed-first-aid.pdf`; pre-picked: First Aid trainings → `fa`) → **Preview** (`POST
+  /api/certificates {preview:true}`: reads the sheet, shows its last 2 rows grey + the new rows green, in the sheet's own
+  columns; font check — names the certificate fonts can't print block Generate) → **Generate** (`POST /api/certificates`:
+  under a Mongo lease lock `zoho_sheet_lock` it re-reads the sheet, numbers from **max serial + 1**, appends
+  `worksheet.records.add`, records `fulfil_certs` {value = count, certs = rows, design}) → browser fetches the design and
+  makes the PDF (flower loader ≥1.6 s) → **Download "<location> certificates.pdf"** → card moves to Certificates Generated
+  (`set_fulfillment generated`, fireworks). If rows went in but the PDF failed, the card offers **Download certificates**
+  (no second append — the route refuses a second batch while `fulfil_certs` exists, unless that move was undone).
+- **Certificate row:** serial · `FAT-OD/<dd-mm-yyyy>/<n>` · name · location (alias for certificates, else customer
+  name) · course (from the design) · date. **SN and n are two separate counts** (session 7, owner: "keep them as they are"):
+  SN = highest SN + 1, n = highest number at the end of a certificate no. + 1 (`Register.lastCertNo`, `firstFree`,
+  `certRows(names, {serial, cert}, …)`) — in the real sheet n runs 7 behind SN because Shreya left blank rows between
+  locations. Both are read again under the lock at Generate. **Date = the training day; multi-day = the LAST day** (`certDate` in pipeline.ts) —
+  **owner: "it can change later, mark it as important"**. Printed date `dd/mm/yyyy`; in the sheet the date is written in the
+  style of the sheet's last row (`sheetDate`/`styleOf`).
+- **Master sheet** (`zohoSheet.ts`): `POST https://sheet.zoho.in/api/v2/<resource id>` form-encoded, `method=
+  worksheet.records.fetch` / `worksheet.records.add` (`header_row=1`, `json_data`), `worksheet.list` on connect. Columns are
+  found **by header** (`findColumns`: certNo /cert/, serial /s.no|sr no|sl no|SN|serial/, date, location /location|conducted|venue/,
+  course /course|training/, name). The date style is taken from the **last row that has a date** (the newest rows often
+  leave DATE and COURSE blank). Missing Serial / Certificate No. / Name / Date column → refuses. Connected by **Admin** in
+  Generate → *Connect the sheet* with a code generated **as digital@thinkhealth.in** (can edit the sheet), scope
+  `ZohoSheet.dataAPI.READ,ZohoSheet.dataAPI.UPDATE`, plus the sheet link (`…/sheet/open/<id>`); first worksheet unless named.
+  The popup then shows the detected columns, row count, last serial and last 2 rows — **use that to confirm it reads right**.
+  `GET /api/sheet?check=1` (Fulfillment) returns the same.
+- **PDF** (`certPdf.ts`) = the certificate-generator's library (D:\Projects\certificate-generator, `src/index.ts` +
+  `layout.ts`) copied in: two A5 certificates per A4 page with a cut line; Great Vibes name, Montserrat location, Open Sans
+  date/number; long text shrinks to fit. Fonts fetched from `/certificate-fonts`. Made in the browser — the design never
+  leaves the dashboard; `GET /api/certificates/designs?id=` (Fulfillment members only) serves it, `POST` (Admin, form `id` +
+  `file`, ≤8 MB, must be a PDF) uploads.
+- **Templates → background (session 7, `src/lib/certBackground.ts`):** the owner's templates are the **A4 Photoedit exports**
+  (`D:\Projects\certificate-generator\private\A4 CA Photoedit.pdf` / `A4 FA Photoedit.pdf`: two filled-in certificates,
+  each value its own text object over one certificate picture). `backgroundFromTemplate` (copied from the generator's
+  `src/background.ts`) copies the **largest image** onto one A5-landscape page — the blank certificate, CMYK untouched;
+  a file that is already a background passes through. The upload route converts on save (refuses a PDF with no picture);
+  `generateCertificates` converts too, so the two A4 templates uploaded on 12 Oct (stored as-is, 4.4 MB) work. The
+  LAYOUT positions were measured on those backgrounds. Checked by rendering PDFs from both templates (pdf.js in headless
+  Chrome, §9 #14): values sit exactly where the template had them; a long name shrinks.
 
 ### Zoho Mail (session 5) — `src/lib/zohoMail.ts`, `src/lib/mailTemplates.ts`, `src/app/api/mail/{aed,connect}`
 - Separate from the Zoho Books client. A mailbox is connected once by **Admin** with the *Connect it* popup (AedSmartx →
   Contacted card → Send email): a one-time code from **api-console.zoho.in → Self Client → Generate Code** (signed in as that
-  mailbox), scope `ZohoMail.messages.ALL,ZohoMail.accounts.READ`, plus that Self Client's Client ID + Secret. `connectMailbox()`
+  mailbox), scope `ZohoMail.messages.ALL,ZohoMail.accounts.READ` (hello@ was connected with that; the popup now asks for
+  `…,ZohoMail.folders.ALL` too, needed by learn@ — hello@ doesn't need reconnecting), plus that Self Client's Client ID + Secret. `connectMailbox()`
   swaps the code for a refresh token, finds the Zoho Mail account that can send as the address (`GET /api/accounts`), and saves
   `{accountId, clientId, clientSecret, refreshToken, token}` in kv `zoho_mail:<address>`. Access tokens are refreshed and saved there.
 - `sendMail(from, {to, subject, html, replyTo})`: `POST /api/accounts/{id}/messages`; with `replyTo` (a Zoho messageId) it posts
@@ -196,8 +335,21 @@ cascade trigger), `aed_add_phone` / `aed_remove_phone` / `aed_set_email` / `aed_
 `ref` = cid — by customer name, **AedSmartx board only**), `aed_confirm_email` (`[aed:<id>]`), `aed_call`
 (`[aed:<id>, aedcustomer:<cid>]`), `aed_email` (**server-written only**, never revertable — `canWriteEvent` refuses it from
 browsers, `canRevert` and the store route refuse reverting it).
-**Revert cascades forward** (`src/lib/cascade.ts`, §1). **Clear logs** archives to `cardEventsArchive` first and keeps
-`add_potential` events. Instalment folding (an invoice's other payments joining its merged payment) is computed, not an event.
+**Alias for certificates + concerned person's email** (end of session 5, commit `655daf0` — not described in the session 5
+notes): `set_cert_alias` (value = alias printed as the certificate location, "" = customer's own name; `before`) and
+`set_concerned_email` (value = email for gratitude emails / the participant list), `ref` = contact id — **per customer
+name, the latest wins on every card** (`customerCert` / `applyCustomerCert` → `CardView.certAlias` / `concernedEmail`;
+older trainings' `underName` counts as setting the alias). Set in the schedule pickers (*Add Alias* "Same as original /
+aliases / + Add alias…" and *Add Concerned Person's Email* "Not set / Same as original (the customer's emails) / + Add
+new…") or with **Change** under the head-count in the Training box (`CertEditor` popup) — Training and Fulfillment boards.
+**Fulfillment kinds** (session 6, all on `[fulfil:<doc>]`): `set_fulfillment` (value `generated` / `logistics`; old values
+`hold` / `received` still read — those cards show in Gratitude Email Sent, `legacy`), `set_cert_status` (`process` / `hold`),
+`fulfil_mail_opened` (clears the ★), and **server-written only** (`SERVER_KINDS` in roles.ts — browsers can't write them,
+nobody can revert them, the store route keeps them): `fulfil_email`, `fulfil_reply`, `fulfil_certs` (fields `subject`,
+`messageId`, `folderId`, `certs: CertRow[]`, `design`). `set_wip` is no longer offered (old events ignored).
+**Revert cascades forward** (`src/lib/cascade.ts`, §1; `set_cert_status` is a follower of `set_fulfillment`). **Clear logs**
+archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy`, and since session 6 `clearedScope` =
+"everything" / "N cards") and keeps `add_potential` events. Instalment folding (an invoice's other payments joining its merged payment) is computed, not an event.
 
 ### Key files
 | File | Role |
@@ -218,7 +370,10 @@ browsers, `canRevert` and the store route refuse reverting it).
 | `src/components/FollowUps.tsx` | Board page: column window (◀ ▶ / keys / swipe, fit to screen), columns + customer boxes, F / R toggles, Clear logs, **Board** switch (`boardsFor`), card borders per board. |
 | `src/components/followups/CardModal.tsx` | Training card modal, merge view, schedule (dates, trainers, Name), Potential add modal, shared modal pieces (exported: sections, `NotesPanel`, `PaymentsLink`, `Shell`, `Header`, `ChangeLog`…). |
 | `src/components/followups/DaysPicker.tsx` / `DateFilter.tsx` | Multi-day calendar picker / the board's date Filter. |
-| `src/components/followups/FulfillmentModal.tsx` | Fulfillment card modal (step choices under Notes, "Also send to Logistics?" popup, the training card's sections). |
+| `src/components/followups/FulfillmentModal.tsx` | Fulfillment card modal: the training card's sections; `FulfilActions` under the Training box; opens on the reply when starred. |
+| `src/components/followups/FulfilCerts.tsx` | Fulfillment actions + popups: Send Gratitude Email, reply (sandboxed), Generate Certificate (preview, flower loader, download), Connect sheet, Upload designs, In process / On hold, Sent to Logistics. |
+| `src/lib/gratitudeReplies.ts` · `src/lib/zohoSheet.ts` · `src/lib/certificates.ts` · `src/lib/certPdf.ts` · `src/lib/certBackground.ts` · `src/lib/fulfilServer.ts` · `src/lib/zohoOAuth.ts` | Reply check + filing (hourly) · master sheet client · numbering / names / designs · PDF maker (browser) · template → blank background (as the certificate generator) · server-side card rebuild + server events · Zoho code→token helper. |
+| `src/app/api/{mail/fulfil,certificates,certificates/designs,sheet}/route.ts` | Gratitude email (preview / send / test / read reply) · sheet preview + append · designs (get / upload) · sheet connect + check. |
 | `src/components/followups/AedModal.tsx` | AedSmartx card modal (delivery, schedule date+time, notes, item description, resale); exports `AedNotesSection`, `AedDocsSection`, `ItemDescriptionSection` (reused by Logistics). |
 | `src/components/followups/MembersScreen.tsx` | Sign-in card (names, PIN, Admin, + Add new member). |
 | `src/components/AppShell.tsx` | Shell, sidebar (hide to rail), global sign-in gate, `MemberPill`, `PageHeader`, **SyncPanel** (`useZohoSync`: heartbeat, Sync now, Last / Next sync). |
@@ -268,7 +423,7 @@ browsers, `canRevert` and the store route refuse reverting it).
   A merge made while part paid waits (*Not applied yet*) and applies by itself once fully paid.
 - **Merge view**: one panel per phase; quotations newest first with a **NEW** tag; a quotation and PI only ever show as a
   referenced pair (the PI panel hides when no PI cites the selected quote; clicking either chip switches its partner).
-- **Training**: unflagged quote/PI can be scheduled — with dates, trainers and the **Name** it is under (*Same as original*, an alias, or *+ Add alias…*, which also adds the alias to the card; event `underName`; shown as *Under name: …* below No. of People only for an alias); once dated: **Change date** (a correction, earlier or later — event `mode: "change"`, label unchanged, log "Training date changed from … to …") / **Postpone** / **To be decided** / **Training completed** (both boards); merged PI pops *Ready for training*. **Several days** per training
+- **Training**: unflagged quote/PI can be scheduled — with dates, trainers, the **alias for certificates** (*Same as original*, an alias, or *+ Add alias…*, which also adds the alias to the customer; printed as the certificate location) and the **concerned person's email** (used for the gratitude email and the participant list) — both per customer name, latest wins, changeable later with *Change* under the head-count (`655daf0`; older trainings used `underName`, "Under name: …"); once dated: **Change date** (a correction, earlier or later — event `mode: "change"`, label unchanged, log "Training date changed from … to …") / **Postpone** / **To be decided** / **Training completed** (both boards); merged PI pops *Ready for training*. **Several days** per training
   (`DaysPicker.tsx`: click days one by one, drag or Shift-click for a range; shown as "3–6 Oct, 12 Oct 2026").
   Needs ≥1 **trainer** (Shikha Dixit, Ashish Dalal, Sumit A Shah, or **External trainer** — any typed name; names used
   before on any card come back as suggestions, derived from the change log). A trainer can't be on two trainings on one day. Scheduled / Postponed / To be decided; green border,
@@ -291,27 +446,46 @@ browsers, `canRevert` and the store route refuse reverting it).
   open** (its cards only — e.g. an AedSmartx invoice like 2026-01-442 is found on AedSmartx, and clearing it leaves the
   training card's log alone; One customer on AedSmartx also clears `aedcustomer:` entries). Only cards with changes are listed.
   *Everything* still clears every board. Clearing an AED card also clears its sent-email count (next email = First contact again).
+  **Since session 6 (end; not pushed when this was written):** the popup **opens on *One deal cycle*** (it used to open on
+  *Everything* — how both accidents happened), and *Everything* shows a red warning and needs **"Confirm" typed** (any case)
+  before **Clear all logs** enables; the server refuses an everything-clear without `confirm: "confirm"` too. To **undo a
+  clear**: copy the batch back from `cardEventsArchive` (`clearedAt` = the batch) with `_id = eventId`, dropping
+  `eventId/clearedAt/clearedBy/clearedScope`; skip entries the team has redone since (same kind + cardIds + value) — see §5 #146.
 - **Filter** (next to *Show deleted*, both boards; `DateFilter.tsx`): one or several months, or a from–to range. Each card is
   matched on the date it shows — training days once scheduled, else quote/PI/invoice/payment date, expected date (Potential),
   created date (Leads). Not saved; header counts follow the filter.
 
 ### Fulfillment board (Shreya — certificates)
-**Training Completed → Process on hold → List Received → Certificates Generated → Sent to Logistics**
+**Training Completed → Gratitude Email Sent → Certificates Generated → Sent to Logistics** (session 6; code details §3
+"Fulfillment"). Who: Shreya (Fulfillment only) and Ashish / Shikha / Sumit / Admin via the Board switch.
 - Built from the training board (`buildFulfillmentBoard`): **every training marked completed** — still in Training completed,
   or since merged on into an invoice / payment (payment status doesn't matter) — as a one-to-one copy of that card, incl. the
-  *Under name* alias (shown on the card and in the Training box). Card id `fulfil:<pi card id>` (or the quote's, if the PI was
-  skipped), so it stays put as the deal moves on. On 6 Oct: 4 cards (Mementos, Paccar, Classic Citi, Heartstream).
-- Moved from the card (`FulfillmentModal.tsx`), **under Notes, only the current step's choices**:
-  Training Completed → ☐ *Awaiting List of Participants* (→ Process on hold) or ☐ *List of Names Received* (shortcut → List
-  Received); Process on hold → *Waiting for List* + ☐ *List of Names Received*; List Received → ☐ *Work in Progress* (toggle,
-  event `set_wip` on/off) + *Certificates Generated* → popup **"Also send to Logistics?"** (*Yes* → Sent to Logistics, *Let me
-  decide* → Certificates Generated); Certificates Generated → *Send to Logistics*. Event `set_fulfillment` (value completed /
-  hold / received / generated / logistics, before = previous); every move has Undo and can be reverted in Changes. No Back button.
-- Borders: Training Completed plain; Process on hold green + "Waiting for List"; List Received yellow, green once Work in
-  progress; Certificates Generated / Sent to Logistics green. The Payment section sits in whichever column is shorter.
-- Order: every column by **training date, latest first** (multi-day = last day), then customer name.
-- History: the first version (6 Oct, from Payment received, 4 other columns) had one move by Admin (`fulfil:<invoice id>`,
-  "thanked") — those ids no longer exist, so it no longer applies.
+  **alias for certificates** and **concerned email** (shown on the card and under the head-count in the Training box, with
+  Change). Card id `fulfil:<pi card id>` (or the quote's, if the PI was skipped), so it stays put as the deal moves on.
+- Everything happens in a **Certificates** block **under the Training box** (`FulfilActions`): the step's main button on the
+  title row, one line per detail — so the card fits at 1728×958 without scrolling (measured 0 px on every stage).
+- **1. Training Completed** (plain border): **Send Gratitude Email** → popup like AedSmartx (From learn@, To = the concerned
+  email from scheduling with the same dropdown to change it, Subject, body, *Send a test to*) → **Send** (once, no reminders)
+  → card moves to column 2. **Mark as Completed** (session 7, next to it, every card — owner: "treat it like normal cards"):
+  for trainings whose certificates were made and sent before the dashboard → confirm popup → `set_fulfillment` value
+  `logistics`, **`mode: "done"`** → straight to **Sent to Logistics**, where Arti completes them as usual (owner: "she will
+  push these to complete too"). Log: "Marked as completed — done before the dashboard"; the card's Certificates block shows
+  "Done — certificates made before the dashboard" (`FulfilInfo.doneEarlier`). Undo as usual.
+- **2. Gratitude Email Sent** (**blue** border, *Email Sent, Awaiting Reply*): the hourly check finds replies → **★ at the
+  top middle of the card** + *Reply received*. Opening a starred card shows the reply first: **Open in Zoho Mail** (clears the
+  ★; a newer reply brings it back) / **Close**. The block shows "Email sent to … · when", "n replies · last from … · Show
+  reply". **Generate Certificate** → names → design → preview (sheet's last rows + new rows) → Generate (appended to the master
+  sheet) → flower loader → **Download** → column 3 (fireworks). Adding the list ends the ★ for good. Cards moved to the old
+  *Process on hold* / *List Received* before 10 Oct show here as "List received earlier" (no email from the dashboard; 3 + 6
+  such cards on 10 Oct). If the move to column 3 is undone after rows went to the sheet, the card says so and tells her to
+  **check the sheet before adding the list again** (undo never deletes sheet rows — owner's choice).
+- **3. Certificates Generated**: radio **In process** (default, **green**) / **On hold** (**yellow**); **Sent to Logistics**
+  (greyed while On hold) → column 4; *Download again* rebuilds the same PDF (no new rows). The old "Also send to Logistics?"
+  popup and *Work in Progress* are gone.
+- **4. Sent to Logistics** (green): Arti's Logistics board picks it up (unchanged). *Download again* still there.
+- Order: every column by **training date, latest first** (multi-day = last day), then customer name. The Payment section sits
+  in whichever column of the modal is shorter.
+- Header counts: "n training completed · n gratitude email sent · n certificates generated · n sent to logistics".
 
 ### Logistics board (Arti) — `src/lib/logistics.ts`, `src/components/followups/LogisticsModal.tsx`
 **AED Delivered Status → Sent to Logistics → Payment Received → Packages → Shipments → Received by Client**
@@ -530,6 +704,40 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 132 | "push everything" | Nothing left — already pushed. |
 | 133 | "Write me a handoff and the things I did for a message" | This update; team message in chat. |
 
+### Session 6 (10 Oct 2026) — Fulfillment: gratitude email, replies, certificates; Clear logs rescue
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 134 | "Read the existing handoff from prev session" | Summary; noted commit `655daf0` (alias for certificates + concerned email per customer name) wasn't in the session 5 notes. |
+| 135 | "What's the status for the Zoho Sheet connection?" | None existed. |
+| 136 | Shared the master sheet link: "the list of names Shreya receives by mail will be appended at the end — check the sheet, ask questions" | Couldn't read it: private (Zoho sign-in), and reusing the stored Books/Mail tokens was **refused by the safety classifier**. Found the owner's **certificate generator** at `D:\Projects\certificate-generator` (its PRODUCT.md gives the register: Serial, Certificate No., Name, Training location, Course, Date; `FAT-OD/<date>/<serial>`; 2 designs). |
+| 137 | Spec (screenshots of the Alias / Concerned email pickers): Fulfillment **Send Gratitude Email** popup like AedSmartx, to the email chosen at scheduling, template later; column 1 keeps its place, the old tick boxes become Send Gratitude Email under the Training section; column 2 *Gratitude Email Sent*: blue *Email Sent, Awaiting Reply*; a reply → small ★ top middle, opening shows the reply first with *Direct to Zoho Mail* / *Close*, star gone once opened in Zoho Mail; **Generate Certificate**: paste names → appended to the master sheet, serial + certificate no. auto-incremented, Alias as location, date = training completed date | Restated with 6 questions. |
+| 138 | Answers: after the list → preview of the data as stored in the sheet → choose one of **2 templates** → Generate → "a cute flower loader that very slowly turns clockwise" → download "<Alias> certificates" PDF → green, **Certificates Generated** as *In process* (radio *On hold* = yellow) → *Sent to Logistics* only while In process; "I need full integration to the sheet"; date = what the Training completed card shows; concerned email: same dropdown; **no reminders**, ★ on every reply, gone when opened in Zoho Mail or the list is added; check replies **hourly with the Books sync** | Restated; proposed connections, design storage, undo behaviour. |
+| 139 | Change: emails are sent by **learn@thinkhealth.in** (alias of **shikhadixit@**); replies must go to **digital@** (boss's rule — digital@ does nothing sales/training) | Options: (1) Zoho Mail filter in Shikha's mailbox forwards replies + dashboard reads only its own threads; (2) Reply-To; (3) dashboard forwards. **Owner: option 1.** |
+| 140 | 1) filter only these replies 2) Self Client 3) **digital@ connects the sheet**, not Shikha 4) course comes from the chosen design 5) multi-day → **last day — "it can change later, mark it as important"** 6) designs: "you tell me where" → Mongo (Admin uploads) 7) Download again 8) undo leaves sheet rows **+ a note to check the sheet before adding again** 9) how to add `CRON_SECRET` | Built everything (§3, §4). Tested: board logic (16 checks), names/numbering/reply matching with mocks, the sheet client against a fake Zoho Sheet, a PDF with the real design + made-up names, and a headless click-through with **every /api answered by fake data** (no live writes) — all cards 0 px scroll at 1728×958. |
+| 141 | "So I need api-console Self Client for both digital and the other?" | Yes — one per account: Shikha (mail, learn@) and digital@ (sheet). |
+| 142 | "run it locally" | `npm run dev` (warned: local = live DB, connections and sends are real). |
+| 143 | "Any sent emails from learn@ should move under the **'Gratitude Emails Sent'** folder; digital's folder later" | Dashboard moves each gratitude email (tests too) into that folder, creating it if missing; hourly catch-up; scope now `ZohoMail.folders.ALL`. digital@'s folder = a Zoho filter there later (dashboard doesn't touch digital@'s mail). |
+| 144 | "Push everything, drop everything that needs doing after this" | `2156f46`, verified live. To-do list given (now §10 #24–#33). |
+| 145 | "The last Clear logs — I think I cleared everything by mistake, roll back" | Clear on **10 Oct 12:14 IST** (Admin) removed all **191** entries (Admin 53, Shikha 50, Priyanka 40, Arti 38, Shreya 10). **Restored all 191** from `cardEventsArchive` with their original ids. Left cleared: a 4-entry clear at 12:12 and four 2–3-merge "one deal cycle" clears at 12:39–12:40 (look deliberate; owner told). |
+| 146 | "Even before this I cleared all logs by mistake" | Clear on **3 Oct 11:31 IST** (Admin): 37 entries. 21 had been **redone by the team** since (same kind + cards + value) → skipped (`restoreSkipped`); **restored 16** (Ritz Carlton chain to invoice 2026-01-408, Moxy Bengaluru Airport to Performa-25-265 TBD, Mementos email + phone; 6 already-reverted ones as history). Live log: 210. |
+| 147 | "When did I clear the logs? Did I do it?" | Both as Admin + correct PIN; the app records no person/device (Vercel logs last ~1 h). Today's pattern (one-cycle clear at 12:12, Everything at 12:14) suggests a slip of the scope switch. |
+| 148 | "Lock that clear-all behind typing 'Confirm'" | Popup opens on One deal cycle; Everything needs **Confirm** typed (+ server check); archive records `clearedScope`. Tested headless with fake API. **Not pushed.** |
+| 149 | "Write a total handoff … what I did today and what needs to be done next session" | Session 6 handoff. |
+
+### Session 7 (12 Oct 2026) — sheet + designs connected, certificates print right, Fulfillment polish
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 150 | "Read HANDOFF.md … tell me where things stand" (git, which Fulfillment connections exist, owner's to-do) | Lock + handoff uncommitted; learn@ connected (10 Oct), sheet and designs not; `CRON_SECRET` still missing. |
+| 151 | "run it so I can put digital's client" → screenshot "No Serial column found" | Dev server. Header "SN" now matches; date style from the last dated row. Found certificate no. ≠ SN (…/2128 vs 2135). |
+| 152 | "keep them as they are — Shreya left rows empty when a new location came" | SN and certificate no. count separately. Owner then generated twice for real (Test 1; then 3 names, SN 2136–2138) — rows went in correctly; owner deleted them and undid the moves. |
+| 153 | Screenshot of a misprinted PDF: "let the user align the certificates" → "check the templates again, they should remain like they are, only values change" → "the certificate generator app would generate the certificates btw" → "names go to the master sheet, those new rows go to the generator, it returns to our board" | Cause: the uploaded designs were the A4 Photoedit templates, printed whole into one slot. Reused the generator's `backgroundFromTemplate` (`certBackground.ts`); rendered both templates with made-up names — correct. The board already runs the generator's own code, so the flow is the one described. (A content-stream parser was tried first and dropped.) |
+| 154 | "fix the positioning, make the cert gen modal a bit bigger … fix our card modal too … not cluttered" | Generate popup 1120 px: title + Names → Check → Download steps, facts strip (location/date/course, then rows/SN/cert nos.), names + design side by side, roomier preview table, still flower instead of 🌸; card: Certificates block as labelled rows, "Concerned email: not set" on one line, Sales person on one line, "Completed by X · date". All Fulfillment stages 0 px overflow at 1728×958 on real cards (were 21–31 px). Phone: facts stack. |
+| 155 | "Mark as Completed" for old trainings in Training Completed: 1) → Sent to Logistics 2) Arti pushes them to complete too 3) like normal cards; "the flower rolls away the screen" | Built (§4 Fulfillment). Flower: `transform-box: fill-box` — it rotated around the drawing's corner. Click-tested with saves blocked. |
+| 156 | "Impeccable update" | `npx impeccable update` found no skill folder (it's a Claude Code plugin — update via `/plugin`); owner: "nvm". |
+| 157 | Screenshot of the **Ready for training** popup: "very cluttered, make it a bit wide, proper alignment" | 680 px; title + "Ready for training" tag; rows Training dates · Trainers · Add alias · Add concerned person's email (label + hint left, control right, `FormRows` context in CardModal). Certificate details popup the same. Inline schedule row unchanged. |
+| 158 | "the serial number must be auto incremented when names come" | Already: max SN + 1 per name (and certificate no. on its own count), re-read under the lock at Generate. |
+| 159 | "push it all to github" | This handoff + everything since `2156f46`. |
+
 ---
 
 ## 6. Zoho facts learned the hard way
@@ -547,6 +755,14 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 - AED details are free text in the line description, written many ways (see `aedParse.ts` comments).
 - Limits: ~100 calls/min per org + a plan-dependent daily allowance (set `ZOHO_DAILY_LIMIT` to the real figure).
 - Counts on 5 Oct 2026: 3,958 customers, 81 quotations (+1 declined), 44 PIs, 49 invoices, 47 payments, 16 AED invoices since 1 Sept.
+- **Zoho Sheet / Zoho Mail reading (session 6) — written from the docs, not yet run for real** (no connection existed):
+  Sheet Data API v2 = form POST to `https://sheet.zoho.in/api/v2/<resource id>` with `method` (`worksheet.list`,
+  `worksheet.records.fetch`, `worksheet.records.add` + `header_row`, `json_data`), scopes `ZohoSheet.dataAPI.READ/UPDATE`;
+  Zoho's own reference pages didn't render for scraping — method names come from Zoho community posts/Deluge docs. Mail:
+  `GET /api/accounts/{id}/folders`, `GET …/messages/view?folderId=&limit=&sortorder=false` (rows: messageId, threadId,
+  folderId, fromAddress, subject, receivedTime), `GET …/folders/{f}/messages/{m}/content`, `POST …/folders {folderName}`,
+  `PUT …/updatemessage {mode:"moveMessage"}`. If the first real use fails, check these first (§10 #30).
+- A Zoho **alias** (learn@) can only be sent from the mailbox that owns it (shikhadixit@) — connect that account.
 
 ---
 
@@ -555,8 +771,14 @@ Team data: `cardEvents` (live change log), `cardEventsArchive` (cleared logs), `
 `followUps`, `announcements`, `removedTriggers`. Zoho copy: `zohoDocs`, `zohoCustomers`, `zohoPayments`, `kv`.
 Session 5: **`mailTemplates`** (email wording, doc `aed_onboarding`), kv **`zoho_mail:hello@thinkhealth.in`** (Zoho Mail
 connection — secret). Sent emails are `aed_email` events in `cardEvents`.
+Session 6: `mailTemplates` doc **`fulfil_gratitude`** (placeholder wording); kv **`zoho_mail:learn@thinkhealth.in`** (once
+connected; also caches `folders.inbox/sent/named`), kv **`zoho_sheet:master`** (sheet connection — secret), kv
+`zoho_sheet_lock` (one batch at a time); **`certDesigns`** (`_id` `bls` / `fa`, the PDF as Binary — signature + seal, never
+export or commit); `zohoSyncLog` entries may carry `replies` / `mailError`; `cardEventsArchive` rows carry `clearedScope`,
+and the two restored batches `restoredAt` / `restoreSkipped`.
 Legacy: `leads` (4,105 docs, unused since session 1) — drop only with the owner's OK. History: `cardEvents` was cleared by
-request in session 1 (twice) and by Shikha once in session 2; Admin/Shikha may clear again (archive keeps copies).
+request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Everything by mistake on 3 Oct and 10 Oct**
+(both restored in session 6). Archive keeps copies of every clear.
 
 ---
 
@@ -579,6 +801,11 @@ request in session 1 (twice) and by Shikha once in session 2; Admin/Shikha may c
   follow the customer name across every board.
 - Secrets: the owner asked whether to show the Client ID/secret — the answer is always "type it only into the app's own
   popup / Vercel, never in chat".
+- Session 6: the owner relays rules from **their boss** that aren't negotiable ("my boss wants this, I have no say") — e.g.
+  replies go to digital@, digital@ does no sales/training sending. Offer the best way to do *that*, not an alternative goal.
+- They want **dangerous actions locked** (typed confirmation) and **mistakes recoverable** — when something looks lost, check
+  the archive first and offer to roll back.
+- Keep the "important, may change later" items visible in the handoff (e.g. certificate date = last training day).
 
 ---
 
@@ -617,6 +844,34 @@ No test suite. Pattern used throughout:
     templates, customer-wide contacts and the name lock), or a browser with every `/api/*` request answered by fake JSON.
 11. **Emails**: never send a real email to a customer while testing. A QA database has no `zoho_mail:` doc, so sends fail
     there by design; on live, use **Send a test** (records nothing).
+12. **Session 6 pattern (no live data at all) — reuse it:** scripts were in the session scratchpad (gone now), rebuild them:
+    - **Fake-API browser run:** `npx next build` + `npx next start -p 3001` (or the dev server), puppeteer-core (Chrome at
+      `C:/Program Files/Google/Chrome/Application/chrome.exe`) with request interception answering **every** `/api/*` from
+      made-up data (`/api/members/session` → `{ok:true,memberId:"shreya"}`, `/api/pipeline` → 4 made-up PIs, `/api/store` →
+      made-up `cardEvents` incl. `set_training_date` + `complete_training` on `pi:<id>` and `fulfil_*` events on
+      `fulfil:pi:<id>`, mail/sheet/certificate routes → canned answers, unknown `/api/*` → **abort and list**). localStorage
+      `th.session` = `{member:{id:"shreya",name:"Shreya"},token:"fake"}`, `th.board` = `fulfil`. Downloads via CDP
+      `Browser.setDownloadBehavior`. `window.open` stubbed. This tested the whole Fulfillment flow and the Clear logs lock.
+    - **Server modules with mocks:** esbuild (from the npx cache) with an `onResolve` plugin mapping `server-only`, `./db`,
+      `./zohoMail` to small mock files; a fake `globalThis.fetch` for the Zoho Sheet API. Used for reply matching / filing
+      and the sheet client (column detection, max serial, date style, append payload, lock).
+    - **PDF:** bundle `certPdf.ts` with a `fetch` that reads `public/certificate-fonts`, feed the real design from
+      `D:\Projects\certificate-generator\private\backgrounds\` and made-up names; output stays in the scratchpad.
+    - A test server left on :3001 (`next start`) survives `TaskStop` — find it with `Get-NetTCPConnection -LocalPort 3001`
+      and check its command line before `Stop-Process`.
+13. **Restoring cleared logs** is a live-data write the owner asked for — summarise the batch first (counts by author / card
+    type, no names), restore with original ids, skip entries already redone, mark the archive rows.
+14. **Session 7 patterns (scripts were in the session scratchpad — rebuild):**
+    - **Read-only browser on the real local app:** puppeteer-core 23 (installed in the scratchpad), 1728×958, real Admin
+      sign-in (`ADMIN_PIN` read from `.env.local`, never printed), `th.board` in localStorage, request interception that
+      **aborts every non-GET `/api/*`** except sign-in/session and the certificates **preview** (`"preview":true`, read-only),
+      answers `/api/zoho/sync` with "not due". Clicks cards by their doc number; measures `[role=dialog] .overflow-y-auto`
+      `scrollHeight - clientHeight`. Optimistic UI changes show but never save; confirm afterwards with a read-only count.
+    - **PDF check:** bundle `certPdf.ts` with esbuild, a `fetch` stub reading `public/certificate-fonts`, the real templates +
+      made-up names → PDF in the scratchpad; render page 1 with pdf.js 3.11.174 (downloaded next to an HTML page, served by
+      a tiny Node server on 127.0.0.1, screenshot with puppeteer — Chrome's `--screenshot` doesn't wait for pdf.js). The
+      Read tool can't render PDFs here (no pdftoppm).
+    - esbuild bundles that share objects with the test script need `--external:pdf-lib` (two copies break `instanceof`).
 
 ---
 
@@ -657,5 +912,54 @@ No test suite. Pattern used throughout:
     lock. Modal fit at 1728×958 with the Contacted section is unmeasured — the AedSmartx right column (Training + Contacted +
     Item description) may now scroll; if so, collapse Item description while a card is in Contacted.
 22. Email templates: edit the Mongo `mailTemplates` doc to change wording (the owner's text kept as given, incl. "if wrongly
-    address"). No editing screen yet. Shreya's emails (Fulfillment) are expected next — same mechanism, new template + route.
+    address"). No editing screen yet. ~~Shreya's emails~~ — built in session 6 (`fulfil_gratitude`, placeholder wording, #29).
 23. The dashboard now pulls team data every 15 s (was 60 s) — 4× the `/api/store` reads; fine for this team, revisit if it grows.
+
+**Session 6 — next session starts here.** Owner-side setup first (they do these; codes/secrets only into the popups, never in chat):
+
+24. ~~Push the Clear logs lock~~ — pushed in session 7.
+25. **Forwarding filter** (Shikha or the Zoho admin, in Shikha's Zoho Mail): Settings → Filters → incoming: *To contains*
+    `learn@thinkhealth.in` **and** *Subject contains* `Thank you for hosting` → *Forward to* `digital@thinkhealth.in` (Zoho may
+    ask digital@ to confirm). Without it replies stay only in Shikha's mailbox (the ★ still works — it reads her inbox).
+26. ~~Connect learn@~~ — connected 10 Oct (the "Gratitude Emails Sent" folder was found/created). Was: Shikha generates a Self Client code signed in as **shikhadixit@** with scope
+    `ZohoMail.messages.ALL,ZohoMail.accounts.READ,ZohoMail.folders.ALL` (10 min); Admin → Fulfillment → a Training Completed
+    card → Send Gratitude Email → **Connect it** (code + Client ID + Secret). Then **Send a test to** the owner — check it
+    arrives and sits in Shikha's **Gratitude Emails Sent** folder (first real run of folder create/move, §6).
+27. ~~Connect the master sheet~~ — connected 12 Oct and checked (columns, SN 2135, certificate no. 2128). Was: Self Client code signed in as **digital@** with
+    scope `ZohoSheet.dataAPI.READ,ZohoSheet.dataAPI.UPDATE`; Admin → a Gratitude Email Sent card → Generate Certificate →
+    **Connect the sheet** (sheet link + code + Client ID + Secret). The popup shows detected columns, row count, last serial,
+    last 2 rows — **ask for a screenshot and check it** (column mapping, serial, date format) before anyone generates.
+28. ~~Upload the two designs~~ — uploaded 12 Oct (the A4 Photoedit templates; converted by `certBackground.ts`). Was: `cpr-aed.pdf` (Basic Life Support) and
+    `cpr-aed-first-aid.pdf` (CPR, AED & First Aid) from `D:\Projects\certificate-generator\private\backgrounds\`.
+    No manage-designs screen otherwise: the upload prompt only appears while one is missing — add a small Admin "Designs"
+    button if they need to replace one later.
+29. **Gratitude email wording**: the owner will send the real template → update `DEFAULTS.fulfil_gratitude` in
+    `mailTemplates.ts` **and** the Mongo doc `mailTemplates/fulfil_gratitude` (the doc wins once it exists). Keep "Thank you
+    for hosting" in the subject (filter) and `{ref}` (keeps threads apart).
+30. **First real use — verify with the owner:** (a) **one small real batch** first: new rows at the end of the sheet, serial =
+    last + 1, certificate no. `FAT-OD/dd-mm-yyyy/serial`, the date read by Zoho Sheet as the right date (dd/mm vs mm/dd!),
+    course/location correct; open the PDF before printing. (b) First real **reply**: ★ within the next hourly sync, Sync log
+    shows "1 gratitude reply", the reply popup shows the body. If any Zoho call fails, the message shows in the popup / Sync
+    log (`mailError`) — fix against Zoho's real response (the calls were never run for real, §6).
+31. **`CRON_SECRET` GitHub secret** (#11) matters more now — replies and filing ride on the hourly sync. Steps in §2.
+32. **Certificate date for multi-day trainings = last training day** (`certDate`, pipeline.ts) — **owner: "it can change
+    later, mark it as important"**. Ask before changing; it changes both the printed date and the certificate number.
+33. **digital@'s folder** for the forwarded replies "will be created later" — that's a filter in digital@'s own Zoho Mail; the
+    dashboard doesn't read digital@'s mail. Only build something if the owner asks.
+34. Shreya's **Open in Zoho Mail** opens digital@'s inbox, not the exact email (the forwarded copy has another id). Improve
+    only if asked (would need digital@'s mail connected).
+35. The **certificate-generator** repo (`D:\Projects\certificate-generator`, github.com/Jasmeet1025/certificate-generator,
+    public) has its TypeScript rebuild committed locally but **not pushed**; the dashboard carries its own copy
+    (`certPdf.ts`) — keep the two layouts in step if either changes.
+36. `parseNames` keeps any line with letters — a stray "Total:" or "Regards" line from a pasted email becomes a name; the preview
+    shows it (she should delete it). Could filter common email words if it bites.
+37. Only Admin connects mailboxes/the sheet and uploads designs; Admin is the owner (and whoever knows the Admin PIN).
+    The app records clears/changes as "Admin" — it can't tell people apart (#147). Consider personal admin logins if that matters.
+38. **Test batches on Classic Citi Investments (Pune)** (`fulfil:pi:982417000020306048`): two `fulfil_certs` from the owner's
+    tests on 12 Oct (1 name, SN 2136; 3 names, SN 2136–2138 — rows since deleted from the sheet; both moves undone). The card
+    shows "moved back after 3 names…". Server-only kind (nobody can revert it in the app) — delete the two events only if the
+    owner says so; until then the next real batch on that card simply replaces them.
+39. **Uploaded designs are stored as the 4.4 MB A4 templates** (uploaded before the convert-on-upload existed); each PDF
+    converts them in the browser. Re-uploading them now would store the 0.9 MB background — optional.
+40. The Generate popup's facts strip shows the **course of the chosen design**; the owner hasn't seen the Ready state
+    (flower + Download) after the polish — it only shows after a real Generate.

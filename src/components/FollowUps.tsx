@@ -555,13 +555,16 @@ type ClearTarget = { key: string; label: string; sub?: string; ids: string[]; co
 function ClearLogs({ member, cards, boardName }: { member: Member; cards: Map<string, CardView>; boardName: string }) {
   const { cardEvents, clearCardEvents, toast } = useStore();
   const [open, setOpen] = useState(false);
-  const [scope, setScope] = useState<"all" | "customer" | "cycle">("all");
+  // Opens on one deal cycle — "Everything" is a deliberate choice, and needs "Confirm" typed.
+  const [scope, setScope] = useState<"all" | "customer" | "cycle">("cycle");
+  const [confirmText, setConfirmText] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const close = useCallback(() => { setOpen(false); setPin(""); setError(""); setQuery(""); setPicked(null); setScope("all"); }, []);
+  const close = useCallback(() => { setOpen(false); setPin(""); setError(""); setQuery(""); setPicked(null); setScope("cycle"); setConfirmText(""); }, []);
+  const confirmed = scope !== "all" || confirmText.trim().toLowerCase() === "confirm";
 
   // Cards added to Potential training are never cleared, so they don't count.
   const clearable = useMemo(() => cardEvents.filter((e) => e.kind !== "add_potential"), [cardEvents]);
@@ -619,10 +622,10 @@ function ClearLogs({ member, cards, boardName }: { member: Member; cards: Map<st
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pin || busy || total === 0) return;
+    if (!pin || busy || total === 0 || !confirmed) return;
     setBusy(true);
     setError("");
-    const res = await clearCardEvents(pin, member.name, scope === "all" ? undefined : target!.ids);
+    const res = await clearCardEvents(pin, member.name, scope === "all" ? undefined : target!.ids, confirmText);
     setBusy(false);
     if (!res.ok) return void (setError(res.error ?? "Couldn't clear the logs"), setPin(""));
     const what = scope === "all" ? "Logs cleared" : scope === "customer" ? `Logs cleared for ${target!.label}` : `Logs cleared for ${target!.label}`;
@@ -640,13 +643,19 @@ function ClearLogs({ member, cards, boardName }: { member: Member; cards: Map<st
         <form onSubmit={submit}>
           <Segmented
             value={scope}
-            onChange={(v) => { setScope(v); setPicked(null); setQuery(""); setError(""); }}
+            onChange={(v) => { setScope(v); setPicked(null); setQuery(""); setError(""); setConfirmText(""); }}
             options={[{ value: "all", label: "Everything" }, { value: "customer", label: "One customer" }, { value: "cycle", label: "One deal cycle" }]}
           />
           {scope === "all" ? (
-            <p className="mt-4 text-[13.5px] text-ink-2">
-              Removes all <b>{clearable.length}</b> entries in the Changes log for everyone — every edit, merge, deletion and training date. Cards go back to exactly what Zoho Books shows; customers added to Potential training stay.
-            </p>
+            <>
+              <p className="mt-4 rounded-lg border border-high/40 bg-high-bg px-3 py-2 text-[13.5px] text-high">
+                Removes all <b>{clearable.length}</b> entries in the Changes log for <b>everyone, on every board</b> — every edit, merge, deletion, training date and step. Cards go back to exactly what Zoho Books shows; customers added to Potential training stay.
+              </p>
+              <label className="mt-3 block">
+                <span className="mb-1.5 block text-[13px] font-semibold text-ink-2">Type <b className="text-high">Confirm</b> to clear all logs</span>
+                <input className={`${inputCls} !h-9 text-[13px]`} value={confirmText} onChange={(e) => { setConfirmText(e.target.value); setError(""); }} autoComplete="off" spellCheck={false} placeholder="Confirm" autoFocus />
+              </label>
+            </>
           ) : (
             <div className="mt-4">
               <p className="mb-2 text-[13px] text-muted">
@@ -698,7 +707,7 @@ function ClearLogs({ member, cards, boardName }: { member: Member; cards: Map<st
           <div className="mt-5 flex items-center justify-end gap-2">
             {scope !== "all" && <span className="mr-auto text-[13px] text-muted">{target ? <>Clears <b>{target.count}</b> change{target.count === 1 ? "" : "s"}</> : "Pick one above"}</span>}
             <button type="button" className={btn.ghost} onClick={close}>Cancel</button>
-            <button type="submit" className={`${btn.primary} !bg-high !text-white`} disabled={!pin || busy || total === 0}>{busy ? "Clearing…" : "Clear logs"}</button>
+            <button type="submit" className={`${btn.primary} !bg-high !text-white`} disabled={!pin || busy || total === 0 || !confirmed}>{busy ? "Clearing…" : scope === "all" ? "Clear all logs" : "Clear logs"}</button>
           </div>
         </form>
       </Modal>

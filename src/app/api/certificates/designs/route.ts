@@ -3,11 +3,13 @@ import { signedInMember, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { boardsFor, isAdmin } from "@/lib/roles";
 import { DESIGNS, isDesignId } from "@/lib/certificates";
+import { backgroundFromTemplate } from "@/lib/certBackground";
 
 export const dynamic = "force-dynamic";
 
-// The two certificate designs (blank backgrounds, one-page PDF, A5 landscape — they carry the trainer's signature and
-// the company seal). Uploaded once by Admin into MongoDB `certDesigns`, never committed (the repo is public).
+// The two certificate designs (they carry the trainer's signature and the company seal). Admin uploads the template —
+// the A4 Photoedit export ("A4 CA Photoedit.pdf" / "A4 FA Photoedit.pdf") — or a ready background; it is stored as the
+// blank background (one A5-landscape page, see certBackground.ts) in MongoDB `certDesigns`, never committed (the repo is public).
 // GET — which are uploaded; GET ?id= — the PDF (Fulfillment board only); POST form { id, file } — Admin uploads one.
 
 type Design = { _id: string; pdf: Binary; size: number; uploadedAt: string; uploadedBy: string };
@@ -42,8 +44,14 @@ export async function POST(request: Request) {
   const file = form?.get("file");
   if (!isDesignId(id) || !(file instanceof Blob)) return Response.json({ error: "Pick a design and a PDF" }, { status: 400 });
   if (file.size > MAX_BYTES) return Response.json({ error: "That PDF is too big (8 MB at most)" }, { status: 400 });
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (String.fromCharCode(...bytes.slice(0, 5)) !== "%PDF-") return Response.json({ error: "That isn't a PDF" }, { status: 400 });
+  const raw = new Uint8Array(await file.arrayBuffer());
+  if (String.fromCharCode(...raw.slice(0, 5)) !== "%PDF-") return Response.json({ error: "That isn't a PDF" }, { status: 400 });
+  let bytes: Uint8Array;
+  try {
+    bytes = await backgroundFromTemplate(raw);
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't read that PDF" }, { status: 400 });
+  }
   try {
     const doc: Design = { _id: id, pdf: new Binary(bytes), size: bytes.length, uploadedAt: new Date().toISOString(), uploadedBy: me.name };
     await (await col()).replaceOne({ _id: id }, doc, { upsert: true });

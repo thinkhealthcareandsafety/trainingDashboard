@@ -290,7 +290,9 @@ export interface CardEvent {
   ref?: string; // zoho_change: the merge event it reports on
   phase?: Phase; // where an email/phone was added
   trainers?: string[]; // set_training_date: who gives the training on those dates (our trainers, then external names as typed)
-  mode?: "change"; // set_training_date: "Change date" — the date was corrected (earlier or later), not postponed
+  // set_training_date "change": "Change date" — the date was corrected (earlier or later), not postponed.
+  // set_fulfillment "done": Mark as Completed — done before the dashboard (no email, no certificates here), on to Logistics.
+  mode?: "change" | "done";
   underName?: string; // set_training_date (before set_cert_alias): the training is under this alias (none = the customer's own name)
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)

@@ -2,8 +2,8 @@ import type { CertRow } from "./types";
 
 /*
  * Participation certificates (Fulfillment board). Numbering and the two designs follow the certificate generator
- * (D:\Projects\certificate-generator — github.com/Jasmeet1025/certificate-generator): FAT-OD/<training date>/<serial>,
- * where the serial is the row's serial in the master sheet. The designs themselves (they carry the trainer's signature
+ * (D:\Projects\certificate-generator — github.com/Jasmeet1025/certificate-generator): FAT-OD/<training date>/<n>,
+ * where n continues the certificate numbers in the master sheet (not its serial column — see `certRows`). The designs themselves (they carry the trainer's signature
  * and the company seal) are uploaded once by Admin into MongoDB `certDesigns` — never committed: this repo is public.
  */
 
@@ -21,7 +21,7 @@ export const designFor = (trainingNames: string[]): DesignId => (trainingNames.s
 const dmy = (ymd: string, sep: string) => ymd.slice(0, 10).split("-").reverse().join(sep);
 /** The date as printed after "Training Date:" — 06/10/2026. */
 export const printedDate = (ymd: string) => dmy(ymd, "/");
-/** FAT-OD/<training date>/<serial in the master sheet> — e.g. FAT-OD/06-10-2026/2077. */
+/** FAT-OD/<training date>/<certificate count> — e.g. FAT-OD/06-10-2026/2077. */
 export const certificateNumber = (ymd: string, serial: number) => `FAT-OD/${dmy(ymd, "-")}/${serial}`;
 
 /**
@@ -39,10 +39,13 @@ export function parseNames(text: string): string[] {
     .filter((n) => /[A-Za-z\u00C0-\u024F]/.test(n));
 }
 
-/** The batch's rows, numbered from `firstSerial`. */
-export function certRows(names: string[], firstSerial: number, t: { location: string; course: string; date: string }): CertRow[] {
+/**
+ * The batch's rows. The sheet's serial and the number at the end of the certificate no. are two separate counts
+ * (rows left blank between locations took a serial but no certificate), so each continues from its own last value.
+ */
+export function certRows(names: string[], first: { serial: number; cert: number }, t: { location: string; course: string; date: string }): CertRow[] {
   return names.map((name, i) => ({
-    serial: firstSerial + i, certNo: certificateNumber(t.date, firstSerial + i), name, location: t.location, course: t.course, date: t.date,
+    serial: first.serial + i, certNo: certificateNumber(t.date, first.cert + i), name, location: t.location, course: t.course, date: t.date,
   }));
 }
 

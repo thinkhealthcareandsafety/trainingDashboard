@@ -1,5 +1,6 @@
 import { PDFDocument, type PDFEmbeddedPage, type PDFFont, type PDFPage, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+import { DESIGN, backgroundFromTemplate } from "./certBackground";
 import { printedDate } from "./certificates";
 import type { CertRow } from "./types";
 
@@ -10,8 +11,7 @@ import type { CertRow } from "./types";
  * Fonts (SIL Open Font License) are served from /certificate-fonts.
  */
 
-// Where each field goes, measured from the Canva templates: PDF points on the design (A5 landscape), y = baseline.
-const DESIGN = { width: 595.72, height: 420.91 };
+// Where each field goes, measured from the templates: PDF points on the background (A5 landscape), y = baseline.
 type FontKey = "name" | "location" | "label";
 type FieldLayout = { x: number; y: number; size: number; maxWidth: number; align: "left" | "center"; font: FontKey; color: [number, number, number] };
 const TEAL: [number, number, number] = [14, 63, 81]; // #0E3F51
@@ -103,7 +103,8 @@ export async function generateCertificates(background: ArrayBuffer, rows: CertRo
   const fonts = await embedFonts(pdf);
   const problems = rows.flatMap((r, i) => problemsOf(fonts, printed(r)).map((p) => `#${i + 1} ${r.name || "(no name)"}: ${p}`));
   if (problems.length) throw new Error(`Some certificates can't be printed:\n${problems.join("\n")}`);
-  const [design] = await pdf.embedPdf(background, [0]);
+  // A design uploaded as the A4 template is turned into its background first (a background passes through as it is).
+  const [design] = await pdf.embedPdf(await backgroundFromTemplate(background), [0]);
   const h = DESIGN.height * (A4.width / DESIGN.width);
   for (let i = 0; i < rows.length; i += 2) {
     const page = pdf.addPage([A4.width, A4.height]);

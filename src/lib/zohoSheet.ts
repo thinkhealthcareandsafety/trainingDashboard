@@ -89,7 +89,7 @@ async function sheetCall(params: Record<string, string>): Promise<SheetRes> {
 export type Columns = { serial?: string; certNo?: string; name?: string; location?: string; course?: string; date?: string };
 const COLUMN_TESTS: [keyof Columns, RegExp, RegExp?][] = [
   ["certNo", /cert/i],
-  ["serial", /^\s*(s\.?\s*no|sr\.?\s*no|sl\.?\s*no|serial|#)/i],
+  ["serial", /^\s*(s\.?\s*no|sr\.?\s*no|sl\.?\s*no|s\.?\s*n\b|serial|#)/i],
   ["date", /date/i],
   ["location", /location|conducted|venue|place|organi[sz]ation|company/i],
   ["course", /course|training|program/i],
@@ -116,6 +116,8 @@ export type Register = {
   missing: string[]; // fields with no column — rows can't be added until fixed
   count: number;
   lastSerial: number;
+  /** Highest number at the end of a certificate no. (FAT-OD/…/2128 → 2128) — its own count, behind the serial. */
+  lastCertNo: number;
   /** The last rows as they sit in the sheet, oldest first (header → value). */
   last: Record<string, string>[];
   dateStyle: DateStyle;
@@ -159,13 +161,16 @@ export async function readRegister(): Promise<Register> {
   const missing = REQUIRED.filter((f) => !columns[f]).map((f) => FIELD_LABEL[f]);
   // Highest serial in the sheet (not just the last row's, in case rows were sorted).
   const serials = columns.serial ? records.map((x) => Number.parseInt(x[columns.serial!].replace(/[^\d]/g, ""), 10)).filter(Number.isFinite) : [];
+  const certNos = columns.certNo ? records.map((x) => Number.parseInt(/(\d+)\s*$/.exec(x[columns.certNo!] ?? "")?.[1] ?? "", 10)).filter(Number.isFinite) : [];
   const filled = records.filter((x) => Object.values(x).some((v) => v.trim()));
   return {
     headers, columns, missing,
     count: filled.length,
     lastSerial: serials.length ? Math.max(...serials) : 0,
+    lastCertNo: certNos.length ? Math.max(...certNos) : 0,
     last: filled.slice(-2),
-    dateStyle: styleOf(columns.date ? filled.at(-1)?.[columns.date] : undefined),
+    // From the last row that has a date (recent rows may have it blank).
+    dateStyle: styleOf(columns.date ? filled.findLast((x) => x[columns.date!]?.trim())?.[columns.date] : undefined),
   };
 }
 
@@ -211,13 +216,15 @@ async function lock<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * Appends the batch at the end of the sheet. Serials are taken again from the sheet right now (one batch at a time),
- * so two people never get the same numbers; `make` builds the rows from the first free serial.
+ * so two people never get the same numbers; `make` builds the rows from the first free serial and certificate no.
  */
-export async function appendBatch(make: (firstSerial: number) => CertRow[]): Promise<{ rows: CertRow[]; register: Register }> {
+export const firstFree = (reg: Register) => ({ serial: reg.lastSerial + 1, cert: reg.lastCertNo + 1 });
+
+export async function appendBatch(make: (first: { serial: number; cert: number }) => CertRow[]): Promise<{ rows: CertRow[]; register: Register }> {
   return lock(async () => {
     const register = await readRegister();
     if (register.missing.length) throw new Error(`The sheet has no ${register.missing.join(", ")} column — check its first row`);
-    const rows = make(register.lastSerial + 1);
+    const rows = make(firstFree(register));
     await sheetCall({ method: "worksheet.records.add", header_row: "1", json_data: JSON.stringify(sheetRows(register, rows)) });
     return { rows, register };
   });

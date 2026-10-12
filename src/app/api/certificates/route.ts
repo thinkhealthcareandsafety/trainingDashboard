@@ -1,7 +1,7 @@
 import { fulfilContext, recordServerEvent } from "@/lib/fulfilServer";
 import { DESIGNS, certRows, isDesignId } from "@/lib/certificates";
 import { certDate } from "@/lib/pipeline";
-import { appendBatch, readRegister, sheetRows } from "@/lib/zohoSheet";
+import { appendBatch, firstFree, readRegister, sheetRows } from "@/lib/zohoSheet";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
     if (body.preview) {
       const register = await readRegister();
-      const rows = certRows(names, register.lastSerial + 1, batch);
+      const rows = certRows(names, firstFree(register), batch);
       return Response.json({ rows, sheet: sheetRows(register, rows), headers: register.headers, columns: register.columns, missing: register.missing, last: register.last, count: register.count });
     }
 

@@ -28,7 +28,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type Design = (typeof DESIGNS)[number] & { uploaded: { at: string; by: string } | null };
 
 /** A popup over the card (Escape / outside click closes it unless it's busy). */
-function Popup({ label, wide, busy, onClose, children }: { label: string; wide?: boolean; busy?: boolean; onClose: () => void; children: React.ReactNode }) {
+const POPUP_WIDTH = { md: "max-w-xl", lg: "max-w-3xl", xl: "max-w-[1120px]" };
+
+function Popup({ label, size = "md", busy, onClose, children }: { label: string; size?: keyof typeof POPUP_WIDTH; busy?: boolean; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) (e.stopPropagation(), onClose()); };
     window.addEventListener("keydown", onKey, true);
@@ -36,7 +38,7 @@ function Popup({ label, wide, busy, onClose, children }: { label: string; wide?:
   }, [busy, onClose]);
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={busy ? undefined : onClose}>
-      <div role="dialog" aria-label={label} className={`modal-in flex max-h-[90vh] w-full flex-col rounded-2xl bg-surface shadow-pop ${wide ? "max-w-3xl" : "max-w-xl"}`} onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label={label} className={`modal-in flex max-h-[90vh] w-full flex-col rounded-2xl bg-surface shadow-pop ${POPUP_WIDTH[size]}`} onMouseDown={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>
@@ -44,21 +46,46 @@ function Popup({ label, wide, busy, onClose, children }: { label: string; wide?:
 }
 
 const serials = (rows: CertRow[]) => (rows.length ? `${rows[0].serial}${rows.length > 1 ? `–${rows.at(-1)!.serial}` : ""}` : "");
+/** FAT-OD/17-09-2026/2129–2132 */
+const certNos = (rows: CertRow[]) => (rows.length ? `${rows[0].certNo}${rows.length > 1 ? `–${rows.at(-1)!.certNo.split("/").at(-1)}` : ""}` : "");
+
+/** Where Generate is: names → check against the sheet → download. */
+function Steps({ at }: { at: number }) {
+  return (
+    <ol className="flex items-center gap-1 text-[12.5px]" aria-label="Steps">
+      {["Names", "Check", "Download"].map((s, i) => (
+        <li key={s} className="flex items-center gap-1" aria-current={i === at ? "step" : undefined}>
+          {i > 0 && <span className={`h-px w-5 ${i <= at ? "bg-brand" : "bg-line"}`} aria-hidden />}
+          <span className={`inline-flex h-7 items-center gap-1.5 rounded-full pl-1 pr-2.5 ${i === at ? "bg-brand-soft font-semibold text-brand" : i < at ? "text-ink-2" : "text-faint"}`}>
+            <span className={`num grid size-5 place-items-center rounded-full text-[11px] font-bold ${i < at ? "bg-brand text-white" : i === at ? "border-2 border-brand" : "border border-line"}`}>{i + 1}</span>
+            {s}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Flower({ turning, className }: { turning?: boolean; className: string }) {
+  const petals = [0, 45, 90, 135, 180, 225, 270, 315];
+  return (
+    <svg viewBox="-50 -50 100 100" className={className} aria-hidden>
+      <g className={turning ? "flower-turn" : undefined}>
+        {petals.map((a, i) => (
+          <ellipse key={a} cx="0" cy="-24" rx="11" ry="21" transform={`rotate(${a})`} fill={i % 2 ? "var(--brand-2)" : "var(--purple)"} opacity={i % 2 ? 0.85 : 0.6} />
+        ))}
+        <circle r="12" fill="var(--medium)" className={turning ? "flower-breathe" : undefined} />
+        <circle r="5" cx="-3" cy="-3" fill="white" opacity="0.45" />
+      </g>
+    </svg>
+  );
+}
 
 /** A flower turning very slowly clockwise while the certificates are made. */
 export function FlowerLoader({ text }: { text: string }) {
-  const petals = [0, 45, 90, 135, 180, 225, 270, 315];
   return (
     <div className="grid place-items-center gap-3 py-8" role="status" aria-live="polite">
-      <svg viewBox="-50 -50 100 100" className="size-24" aria-hidden>
-        <g className="flower-turn">
-          {petals.map((a, i) => (
-            <ellipse key={a} cx="0" cy="-24" rx="11" ry="21" transform={`rotate(${a})`} fill={i % 2 ? "var(--brand-2)" : "var(--purple)"} opacity={i % 2 ? 0.85 : 0.6} />
-          ))}
-          <circle r="12" fill="var(--medium)" className="flower-breathe" />
-          <circle r="5" cx="-3" cy="-3" fill="white" opacity="0.45" />
-        </g>
-      </svg>
+      <Flower turning className="size-24" />
       <p className="text-[13.5px] font-medium text-ink-2">{text}</p>
     </div>
   );
@@ -224,7 +251,7 @@ export function ReplyPopup({ card, member, onClose }: { card: CardView; member: 
     addCardEvents([{ cardIds: [card.id], kind: "fulfil_mail_opened", value: reply?.from, by: member.name }]);
   };
   return (
-    <Popup label="Reply" wide onClose={onClose}>
+    <Popup label="Reply" size="lg" onClose={onClose}>
       <div className="flex flex-wrap items-start gap-x-3 px-5 pt-5">
         <div className="min-w-0 flex-1">
           <h3 className="text-[17px] font-bold tracking-tight text-ink">{card.fulfillment?.star && <span className="text-medium">★ </span>}Reply · {card.certAlias || card.name}</h3>
@@ -254,16 +281,17 @@ export function ReplyPopup({ card, member, onClose }: { card: CardView; member: 
 
 /* ---------------- Setup (Admin): the master sheet and the two designs ---------------- */
 
-type Register = { headers: string[]; columns: Record<string, string | undefined>; missing: string[]; count: number; lastSerial: number; last: Record<string, string>[] };
+type Register = { headers: string[]; columns: Record<string, string | undefined>; missing: string[]; count: number; lastSerial: number; lastCertNo?: number; last: Record<string, string>[] };
 
 /** The sheet's rows as they sit there: every column visible (long names, places and courses wrap). */
-function RegisterTable({ headers, rows, fresh }: { headers: string[]; rows: Record<string, string>[]; fresh?: Record<string, string>[] }) {
-  const cell = (h: string) => `px-2 py-1 align-top ${/cert|s.?s*no|serial|date/i.test(h) ? "whitespace-nowrap" : ""}`;
+function RegisterTable({ headers, rows, fresh, tall }: { headers: string[]; rows: Record<string, string>[]; fresh?: Record<string, string>[]; tall?: boolean }) {
+  // Numbers, dates and the course stay on one line; names and places wrap when they must.
+  const cell = (h: string) => `px-3 py-1.5 align-top ${/cert|^s*s.?s*n|serial|date|course/i.test(h) ? "whitespace-nowrap" : ""}`;
   return (
-    <div className="no-scrollbar max-h-[38vh] overflow-auto rounded-xl border border-line">
-      <table className="w-full text-left text-[12px] leading-snug">
+    <div className={`no-scrollbar overflow-auto rounded-xl border border-line ${tall ? "max-h-[46vh]" : "max-h-[38vh]"}`}>
+      <table className="w-full text-left text-[12.5px] leading-snug">
         <thead className="sticky top-0 bg-surface-2 text-[11.5px] uppercase tracking-wide text-muted">
-          <tr>{headers.map((h) => <th key={h} className="whitespace-nowrap px-2 py-1.5 font-bold">{h}</th>)}</tr>
+          <tr>{headers.map((h) => <th key={h} className="whitespace-nowrap px-3 py-2 font-bold">{h}</th>)}</tr>
         </thead>
         <tbody className="divide-y divide-line">
           {rows.map((r, i) => <tr key={`old${i}`} className="text-faint">{headers.map((h) => <td key={h} className={cell(h)}>{r[h]}</td>)}</tr>)}
@@ -296,7 +324,7 @@ function ConnectSheet({ member, onClose }: { member: Member; onClose: () => void
   };
   const reg = state.register;
   return (
-    <Popup label="Connect the master sheet" wide onClose={onClose}>
+    <Popup label="Connect the master sheet" size="lg" onClose={onClose}>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
         <h3 className="text-[17px] font-bold tracking-tight text-ink">Master certificate sheet (Zoho Sheet)</h3>
         {!isAdmin(member) ? (
@@ -324,7 +352,7 @@ function ConnectSheet({ member, onClose }: { member: Member; onClose: () => void
         {reg && (
           <div className="mt-3 space-y-2">
             <p className="text-[13px] text-ink-2">
-              Worksheet <b>{state.worksheet}</b> · {reg.count} rows · last serial <b className="num">{reg.lastSerial}</b>.{" "}
+              Worksheet <b>{state.worksheet}</b> · {reg.count} rows · last serial <b className="num">{reg.lastSerial}</b> · last certificate no. <b className="num">{reg.lastCertNo ?? "—"}</b>.{" "}
               Columns: {(["serial", "certNo", "name", "location", "course", "date"] as const).map((k) => `${k} → ${reg.columns[k] ?? "—"}`).join(" · ")}
             </p>
             {reg.missing.length > 0 && <p className="text-[13px] font-medium text-high">No {reg.missing.join(", ")} column found — check the sheet&apos;s first row.</p>}
@@ -447,55 +475,73 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
   };
 
   const busy = phase === "working";
+  const batch = ready?.rows ?? preview?.rows;
+  const designInfo = DESIGNS.find((d) => d.id === design)!;
+  // The strip under the title: what goes on the certificates, then — once checked — the numbers they get.
+  const facts: [string, string][] = phase === "names" || !batch
+    ? [["Location on the certificate", location], ["Training date", date ? printedDate(date) : "—"], ["Course", designInfo.course]]
+    : [["New rows", String(batch.length)], ["SN", serials(batch)], ["Certificate no.", certNos(batch)]];
   return (
-    <Popup label="Generate certificates" wide busy={busy} onClose={onClose}>
-      <div className="px-5 pt-5">
-        <h3 className="text-[17px] font-bold tracking-tight text-ink">Generate certificates · {location}</h3>
-        <p className="mt-0.5 text-[12.5px] text-muted">
-          Training date <b className="num text-ink-2">{date ? printedDate(date) : "—"}</b> · location on the certificate <b className="text-ink-2">{location}</b>
-        </p>
-      </div>
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pt-3">
+    <Popup label="Generate certificates" size="xl" busy={busy} onClose={onClose}>
+      <header className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3 px-6 pb-4 pt-5">
+        <div className="min-w-0">
+          <h3 className="text-[18px] font-bold tracking-tight text-ink">Generate certificates</h3>
+          <p className="mt-0.5 truncate text-[13px] text-muted">{card.name}</p>
+        </div>
+        <Steps at={phase === "names" ? 0 : phase === "preview" ? 1 : 2} />
+      </header>
+      <dl className="grid border-y border-line bg-surface-2/50 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        {facts.map(([k, v], i) => (
+          <div key={k} className={`flex min-w-0 items-baseline justify-between gap-3 px-4 py-2 sm:block sm:px-6 sm:py-2.5 ${i ? "border-t border-line sm:border-l sm:border-t-0" : ""}`}>
+            <dt className="text-[12px] font-medium text-muted">{k}</dt>
+            <dd className="num min-w-0 truncate text-[14px] font-semibold text-ink sm:mt-0.5" title={v}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {phase === "names" && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {card.fulfillment?.certsReverted && <RevertedNote card={card} />}
-            <label className="block">
-              <span className="mb-1 flex items-baseline justify-between text-[13px] font-semibold text-ink-2">
-                Participants&apos; names <span className="text-[12px] font-normal text-muted">one per line · {names.length} {names.length === 1 ? "name" : "names"}</span>
-              </span>
-              <textarea className={`${inputCls} !h-44 resize-none py-2 leading-relaxed`} placeholder={"Paste the list from the reply — one name per line"} value={text} onChange={(e) => setText(e.target.value)} autoFocus />
-            </label>
-            <fieldset>
-              <legend className="mb-1 text-[13px] font-semibold text-ink-2">Certificate design</legend>
-              <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid items-start gap-6 md:grid-cols-[minmax(0,1fr)_340px]">
+              <label className="block">
+                <span className="mb-1.5 flex items-baseline justify-between gap-3">
+                  <span className="text-[13.5px] font-semibold text-ink">Participants&apos; names</span>
+                  <span className="num text-[12.5px] text-muted">{names.length} {names.length === 1 ? "name" : "names"}</span>
+                </span>
+                <textarea className={`${inputCls} !h-[min(300px,36vh)] resize-none py-2.5 leading-relaxed`} placeholder="Paste the list from the reply — one name per line" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
+                <span className="mt-1.5 block text-[12.5px] text-muted">One per line. Numbering and bullets are dropped; from copied sheet rows the name cell is kept.</span>
+              </label>
+              <fieldset className="space-y-2">
+                <legend className="mb-1.5 text-[13.5px] font-semibold text-ink">Certificate design</legend>
                 {(designs ?? DESIGNS.map((d) => ({ ...d, uploaded: null }))).map((d) => (
-                  <label key={d.id} className={`flex cursor-pointer items-start gap-2 rounded-xl border-2 px-3 py-2 text-[13px] ${design === d.id ? "border-brand bg-brand-soft" : "border-line hover:border-line-strong"}`}>
-                    <input type="radio" name="design" className="mt-0.5 size-4 accent-[var(--brand)]" checked={design === d.id} onChange={() => setDesign(d.id)} />
-                    <span>
+                  <label key={d.id} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border-2 px-3.5 py-2.5 text-[13px] transition-colors ${design === d.id ? "border-brand bg-brand-soft" : "border-line hover:border-line-strong"}`}>
+                    <input type="radio" name="design" className="mt-0.5 size-4 shrink-0 accent-[var(--brand)]" checked={design === d.id} onChange={() => setDesign(d.id)} />
+                    <span className="min-w-0">
                       <span className="block font-semibold text-ink">{d.label}</span>
-                      <span className="block text-[12px] text-muted">Course: {d.course}{designs && !d.uploaded ? " · not uploaded yet" : ""}</span>
+                      <span className="block text-[12.5px] leading-snug text-muted">{d.course}{designs && !d.uploaded ? " · not uploaded yet" : ""}</span>
                     </span>
                   </label>
                 ))}
-              </div>
-            </fieldset>
-            {blocked && (
-              <p className="rounded-lg border border-medium/50 bg-medium-bg px-3 py-2 text-[13px] font-medium text-medium">
-                {blocked}{" "}
-                {isAdmin(member)
-                  ? <button className="font-semibold text-brand underline" onClick={() => setSetup(sheet === false ? "sheet" : "designs")}>{sheet === false ? "Connect the sheet" : "Upload the designs"}</button>
-                  : "Ask Admin to set it up."}
-              </p>
-            )}
+                {blocked && (
+                  <p className="rounded-lg border border-medium/50 bg-medium-bg px-3 py-2 text-[13px] font-medium text-medium">
+                    {blocked}{" "}
+                    {isAdmin(member)
+                      ? <button className="font-semibold text-brand underline" onClick={() => setSetup(sheet === false ? "sheet" : "designs")}>{sheet === false ? "Connect the sheet" : "Upload the designs"}</button>
+                      : "Ask Admin to set it up."}
+                  </p>
+                )}
+              </fieldset>
+            </div>
           </div>
         )}
         {phase === "preview" && preview && (
-          <div className="space-y-2">
-            <p className="text-[13px] text-ink-2">
-              How they&apos;ll sit in the master sheet: the last {preview.last.length} rows already there (grey), then these <b>{preview.rows.length}</b> (green), serial <b className="num">{serials(preview.rows)}</b>.
-              Nothing is written until you press Generate; the serial is checked again then.
+          <div className="space-y-3">
+            <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-ink-2">
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-faint/60" aria-hidden />Already in the sheet</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-low" aria-hidden />New rows</span>
+              <span className="text-muted">Nothing is written until you press Generate — the numbers are checked again then.</span>
             </p>
-            <RegisterTable headers={preview.headers} rows={preview.last} fresh={preview.sheet} />
+            <RegisterTable headers={preview.headers} rows={preview.last} fresh={preview.sheet} tall />
             {preview.missing.length > 0 && <p className="text-[13px] font-medium text-high">The sheet has no {preview.missing.join(", ")} column — Admin needs to check it.</p>}
             {preview.problems.length > 0 && (
               <div className="rounded-lg border border-high/40 bg-high-bg px-3 py-2 text-[13px] text-high">
@@ -510,15 +556,15 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
           <div className="grid place-items-center gap-2 py-8 text-center">
             {ready ? (
               <>
-                <div className="text-[34px]" aria-hidden>🌸</div>
-                <p className="text-[15px] font-semibold text-ink">{ready.rows.length} certificates are ready</p>
-                <p className="text-[13px] text-muted">Added to the master sheet as serial {serials(ready.rows)}. Downloading moves the card to Certificates Generated.</p>
+                <Flower className="mb-1 size-16" />
+                <p className="text-[16px] font-semibold text-ink">{ready.rows.length} {ready.rows.length === 1 ? "certificate is" : "certificates are"} ready</p>
+                <p className="text-[13px] text-muted">Added to the master sheet. Downloading moves the card to Certificates Generated.</p>
               </>
             ) : <p className="text-[13px] text-muted">The PDF couldn&apos;t be made here.</p>}
           </div>
         )}
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2 p-5">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
         {error && <span className="mr-auto max-w-[60%] text-[13px] font-medium text-high">{error}</span>}
         {phase === "names" && (
           <>
@@ -548,18 +594,28 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
 function RevertedNote({ card }: { card: CardView }) {
   const c = card.fulfillment!.certs!;
   return (
-    <p className="rounded-lg border border-medium/50 bg-medium-bg px-3 py-2 text-[12.5px] font-medium text-medium">
-      This card was moved back after {c.rows.length} names went to the master sheet (serial {serials(c.rows)}, {fmtStamp(c.at)}). Check the sheet — remove those rows if they were wrong — before adding the list again.
+    <p className="rounded-lg border border-medium/50 bg-medium-bg px-3 py-1.5 text-[12.5px] font-medium leading-snug text-medium">
+      Moved back after {c.rows.length} {c.rows.length === 1 ? "name" : "names"} went to the master sheet (SN {serials(c.rows)}, {fmtStamp(c.at)}). Check the sheet before adding the list again.
     </p>
   );
 }
 
 /* ---------------- Under the Training box ---------------- */
 
+/** One labelled line of the Certificates block. */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <>
+      <dt className="text-[12px] font-semibold leading-[1.45rem] text-muted">{label}</dt>
+      <dd className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12.5px] leading-[1.45rem] text-ink-2">{children}</dd>
+    </>
+  );
+}
+
 export function FulfilActions({ card, member, onShowReply }: { card: CardView; member: Member; onShowReply: () => void }) {
   const { addCardEvents, revertCardEvent, toast } = useStore();
   const f = card.fulfillment!;
-  const [popup, setPopup] = useState<"email" | "generate" | null>(null);
+  const [popup, setPopup] = useState<"email" | "generate" | "done" | null>(null);
   useEffect(() => setPopup(null), [card.id]);
   const { download, busy, error } = useDownload(card, member);
   const certs = f.certs && !f.certsReverted ? f.certs : undefined;
@@ -573,72 +629,109 @@ export function FulfilActions({ card, member, onShowReply }: { card: CardView; m
     const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_fulfillment", value: "logistics", before: f.stage, by: member.name }]);
     toast({ text: `${card.name} sent to Logistics`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
   };
-  const line = "flex flex-wrap items-center gap-x-1.5 text-[12.5px] leading-snug text-muted";
+  // A training whose certificates were made and sent before the dashboard: no email, no certificates — on to Logistics.
+  const markDone = () => {
+    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_fulfillment", value: "logistics", before: f.stage, mode: "done", by: member.name }]);
+    setPopup(null);
+    toast({ text: `${card.name} marked as completed — moved to Sent to Logistics`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+  };
   const link = "font-semibold text-brand hover:underline disabled:opacity-40";
-  // The step's main action sits on the title row and the details are one line each, so the card still fits without scrolling.
+  const b = "font-semibold text-ink";
+  // The step's main action sits on the title row and every detail is one labelled line, so the card still fits without scrolling.
   const action =
-    f.stage === "completed" ? <button className={btn.primary} onClick={() => setPopup("email")}>Send Gratitude Email</button>
+    f.stage === "completed" ? (
+      <span className="flex flex-wrap justify-end gap-2">
+        <button className={btn.ghost} onClick={() => setPopup("done")} title="Certificates already made and sent before the dashboard">Mark as Completed</button>
+        <button className={btn.primary} onClick={() => setPopup("email")}>Send Gratitude Email</button>
+      </span>
+    )
     : f.stage === "gratitude" ? (certs
       ? <button className={btn.primary} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download certificates"}</button>
       : <button className={btn.primary} onClick={() => setPopup("generate")}>Generate Certificate</button>)
     : f.stage === "generated" ? <button className={btn.primary} onClick={toLogistics} disabled={f.certStatus === "hold"} title={f.certStatus === "hold" ? "Set it to In process first" : undefined}>Sent to Logistics</button>
-    : null;
+    : <span className="text-[12.5px] font-semibold text-low">Sent to Logistics — Arti takes it from here</span>;
+  const sheetRow = f.certs && (f.stage !== "gratitude" || certs) && (
+    <Row label="Sheet">
+      <span><b className={b}>{f.certs.rows.length}</b> {f.certs.rows.length === 1 ? "name" : "names"} · SN <span className="num">{serials(f.certs.rows)}</span></span>
+      {f.stage !== "gratitude" && <>· <button className={link} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download again"}</button></>}
+    </Row>
+  );
 
   return (
-    <div className="mt-3 space-y-1.5 rounded-xl border border-line px-3 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <span className="text-[12px] font-bold uppercase tracking-wide text-brand">
-          Certificates{f.at && f.stage !== "completed" && <span className="ml-1.5 font-normal normal-case tracking-normal text-muted">· {f.by}, {fmtStamp(f.at)}</span>}
-        </span>
+    <div className="mt-3 rounded-xl border border-line">
+      <div className="flex min-h-12 items-center justify-between gap-3 px-3 py-1.5">
+        <span className="text-[12px] font-bold uppercase tracking-wide text-brand">Certificates</span>
         {action}
       </div>
-
-      {f.stage === "completed" && (
-        <div className={line}>from {GRATITUDE_FROM} to {card.concernedEmail ?? <span className="font-medium text-medium">the concerned email (choose it in the popup)</span>}</div>
-      )}
-
-      {f.stage === "gratitude" && (
-        <>
-          <div className={line}>
-            {f.email
-              ? <>Email sent to <b className="text-ink-2">{f.email.to}</b> · {fmtStamp(f.email.at)}</>
-              : <>Moved to {f.legacy === "hold" ? "Process on hold" : "List Received"} before gratitude emails — no email from the dashboard.</>}
-          </div>
-          {lastReply ? (
-            <div className={line}>
-              {f.star && <span className="text-[14px] leading-none text-medium" aria-label="New reply">★</span>}
-              <span>{f.replies.length} {f.replies.length === 1 ? "reply" : "replies"} · last from <b className="text-ink-2">{lastReply.from}</b>, {fmtStamp(lastReply.at)} ·</span>
-              <button className={link} onClick={onShowReply}>Show reply</button>
-            </div>
-          ) : f.email && <div className={`${line} font-medium !text-info`}>Awaiting reply · checked hourly</div>}
-          {certs && <div className={line}>{certs.rows.length} names in the master sheet · serial {serials(certs.rows)}</div>}
+      <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-0.5 border-t border-line px-3 py-2 empty:hidden">
+        {f.stage === "completed" && (
+          <Row label="Email">
+            <span className="min-w-0 truncate">
+              Not sent yet · to {card.concernedEmail ? <b className={b}>{card.concernedEmail}</b> : <span className="font-medium text-medium">the concerned email — choose it in the popup</span>}
+            </span>
+          </Row>
+        )}
+        {f.stage === "gratitude" && (
+          <>
+            <Row label="Email">
+              {f.email
+                ? <span className="min-w-0 truncate">Sent to <b className={b}>{f.email.to}</b> · {fmtStamp(f.email.at)}</span>
+                : <span>Not sent from the dashboard — list received earlier</span>}
+            </Row>
+            {(lastReply || f.email) && (
+              <Row label="Replies">
+                {lastReply ? (
+                  <>
+                    {f.star && <span className="text-[14px] leading-none text-medium" aria-label="New reply">★</span>}
+                    <span className="min-w-0 truncate"><b className={b}>{f.replies.length}</b> · last from {lastReply.from}, {fmtStamp(lastReply.at)}</span>
+                    <button className={`${link} shrink-0`} onClick={onShowReply}>Show reply</button>
+                  </>
+                ) : <span className="font-medium text-info">Awaiting reply · checked hourly</span>}
+              </Row>
+            )}
+            {sheetRow}
+          </>
+        )}
+        {f.stage === "generated" && (
+          <>
+            <Row label="Status">
+              <span role="radiogroup" aria-label="Certificates status" className="inline-flex gap-1.5 py-0.5">
+                {(["process", "hold"] as const).map((v) => (
+                  <label key={v} className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border-2 px-2.5 text-[12.5px] font-semibold ${f.certStatus === v ? (v === "hold" ? "border-medium bg-medium-bg text-medium" : "border-low bg-low-bg text-low") : "border-line text-ink-2 hover:border-line-strong"}`}>
+                    <input type="radio" name={`cert-status-${card.id}`} className="size-3.5" checked={f.certStatus === v} onChange={() => setStatus(v)} />
+                    {v === "hold" ? "On hold" : "In process"}
+                  </label>
+                ))}
+              </span>
+            </Row>
+            {sheetRow}
+          </>
+        )}
+        {f.stage === "logistics" && (f.certs ? sheetRow : f.doneEarlier && <Row label="Done">Marked as completed — certificates made before the dashboard</Row>)}
+      </dl>
+      {(f.certsReverted || error) && (
+        <div className="space-y-1.5 px-3 pb-2.5">
           {f.certsReverted && <RevertedNote card={card} />}
-        </>
-      )}
-
-      {f.stage === "generated" && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-          <div role="radiogroup" aria-label="Certificates status" className="inline-flex gap-1.5">
-            {(["process", "hold"] as const).map((v) => (
-              <label key={v} className={`inline-flex h-8 cursor-pointer items-center gap-2 rounded-full border-2 px-3 text-[13px] font-semibold ${f.certStatus === v ? (v === "hold" ? "border-medium bg-medium-bg text-medium" : "border-low bg-low-bg text-low") : "border-line text-ink-2 hover:border-line-strong"}`}>
-                <input type="radio" name={`cert-status-${card.id}`} className="size-3.5" checked={f.certStatus === v} onChange={() => setStatus(v)} />
-                {v === "hold" ? "On hold" : "In process"}
-              </label>
-            ))}
-          </div>
-          {f.certs && <span className={line}>{f.certs.rows.length} names · serial {serials(f.certs.rows)} · <button className={link} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download again"}</button></span>}
+          {error && <p className="text-[12.5px] font-medium text-high">{error}</p>}
         </div>
       )}
-
-      {f.stage === "logistics" && (
-        <div className={line}>
-          <span className="font-semibold text-low">Sent to Logistics — Arti takes it from here.</span>
-          {f.certs && <>{f.certs.rows.length} names · serial {serials(f.certs.rows)} · <button className={link} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download again"}</button></>}
-        </div>
-      )}
-      {error && <p className="text-[12.5px] font-medium text-high">{error}</p>}
 
       {popup === "email" && <GratitudePopup card={card} member={member} onClose={() => setPopup(null)} />}
+      {popup === "done" && (
+        <Popup label="Mark as completed" onClose={() => setPopup(null)}>
+          <div className="p-5">
+            <h3 className="text-[17px] font-bold tracking-tight text-ink">Mark as completed?</h3>
+            <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">
+              For a training whose certificates were already made and sent before the dashboard. No gratitude email goes out and
+              no certificates are made here — <b className="text-ink">{card.certAlias || card.name}</b> moves to <b className="text-ink">Sent to Logistics</b>, where Arti completes it.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button className={btn.ghost} onClick={() => setPopup(null)} autoFocus>Cancel</button>
+              <button className={btn.primary} onClick={markDone}>Mark as Completed</button>
+            </div>
+          </div>
+        </Popup>
+      )}
       {popup === "generate" && <GeneratePopup card={card} member={member} onClose={() => setPopup(null)} />}
     </div>
   );

@@ -1006,7 +1006,9 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "add_note": return `Note: “${v}”`;
     case "set_resale": return `Marked ${e.before ?? "this invoice"} for resale — moved to Training not required`;
     case "set_reseller": return `Marked ${e.before ?? "the customer"} as a Reseller — all their AED invoices moved to Training not required`;
-    case "set_fulfillment": return `Moved to ${fulfilLabel(v)}${e.before ? ` (was ${fulfilLabel(e.before)})` : ""}`;
+    case "set_fulfillment": return e.mode === "done"
+      ? `Marked as completed — done before the dashboard, moved to ${fulfilLabel(v)}`
+      : `Moved to ${fulfilLabel(v)}${e.before ? ` (was ${fulfilLabel(e.before)})` : ""}`;
     case "set_wip": return v === "on" ? "Marked Work in progress" : "Unmarked Work in progress";
     case "set_cert_status": return `Certificates: ${v === "hold" ? "On hold" : "In process"}`;
     case "fulfil_email": return `Gratitude email sent to ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
@@ -1199,6 +1201,8 @@ export interface FulfilInfo {
   certsReverted?: boolean;
   /** Certificates Generated: In process (default) or On hold. */
   certStatus: "process" | "hold";
+  /** Marked as completed from Training Completed — certificates done before the dashboard. */
+  doneEarlier?: boolean;
 }
 /** Keyed by the training's own document (its PI, or the quotation that skipped it), so it stays put as the deal moves on to invoice and payment. */
 export const fulfilCardId = (trainingCardId: string) => `fulfil:${trainingCardId}`;
@@ -1263,6 +1267,7 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
         certs: certs ? { id: certs.id, at: certs.at, by: certs.by, rows: certs.certs ?? [], design: certs.design } : undefined,
         certsReverted: Boolean(certs && stage === "gratitude" && undone.get(id)?.some((e) => e.at > certs.at)),
         certStatus: status?.value === "hold" ? "hold" : "process",
+        doneEarlier: moved?.mode === "done",
       },
       search: `${h.search} ${h.certAlias ?? ""}`.toLowerCase(),
     });

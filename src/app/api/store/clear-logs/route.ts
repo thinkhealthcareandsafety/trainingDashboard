@@ -3,8 +3,9 @@ import { memberIdOf, signedInMember } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-// POST { pin, by, cardIds? }: wipes the Follow-ups change log for the whole team — everything, or only the events
-// touching cardIds (one customer, or one deal cycle). Admin only: the button shows for Admin, and the PIN is checked here.
+// POST { pin, by, cardIds?, confirm? }: wipes the Follow-ups change log for the whole team — everything, or only the
+// events touching cardIds (one customer, or one deal cycle). Everything also needs confirm = "Confirm" (typed in the
+// popup) — it was cleared by mistake twice (3 and 10 Oct 2026). Admin only: the button shows for Admin, and the PIN is checked here.
 // The PIN lives in CLEAR_LOGS_PIN (or, if unset, ADMIN_PIN) on the server; cleared events are copied to cardEventsArchive first.
 // Cards added by hand to Potential training (add_potential) are kept — they aren't in Zoho to come back from.
 export async function POST(request: Request) {
@@ -13,10 +14,11 @@ export async function POST(request: Request) {
   if (!mongoConfigured()) return Response.json({ error: "Shared storage isn't configured" }, { status: 400 });
   const expected = process.env.CLEAR_LOGS_PIN || process.env.ADMIN_PIN;
   if (!expected) return Response.json({ error: "Clearing logs is disabled (no PIN set on the server)" }, { status: 403 });
-  const { pin, cardIds } = (await request.json().catch(() => ({}))) as { pin?: unknown; cardIds?: unknown };
+  const { pin, cardIds, confirm } = (await request.json().catch(() => ({}))) as { pin?: unknown; cardIds?: unknown; confirm?: unknown };
   const by = (await signedInMember(request))?.name ?? "Admin"; // recorded by the server, not the browser
   const scope = Array.isArray(cardIds) ? cardIds.filter((x): x is string => typeof x === "string") : null;
   if (scope && !scope.length) return Response.json({ error: "Nothing selected to clear" }, { status: 400 });
+  if (!scope && String(confirm ?? "").trim().toLowerCase() !== "confirm") return Response.json({ error: "Type Confirm to clear all logs" }, { status: 400 });
   if (String(pin ?? "") !== expected) {
     await new Promise((r) => setTimeout(r, 800)); // slow down guessing
     return Response.json({ error: "Wrong PIN" }, { status: 403 });
@@ -27,7 +29,9 @@ export async function POST(request: Request) {
     if (events.length) {
       const clearedAt = new Date().toISOString();
       const clearedBy = by;
-      await d.collection("cardEventsArchive").insertMany(events.map(({ _id, ...e }) => ({ ...e, eventId: _id, clearedAt, clearedBy })));
+      // What was asked for, so a mistake can be told apart later (and rolled back from the archive).
+      const clearedScope = scope ? `${scope.length} card${scope.length === 1 ? "" : "s"}` : "everything";
+      await d.collection("cardEventsArchive").insertMany(events.map(({ _id, ...e }) => ({ ...e, eventId: _id, clearedAt, clearedBy, clearedScope })));
       await d.collection("cardEvents").deleteMany({ _id: { $in: events.map((e) => e._id) } });
     }
     return Response.json({ ok: true, cleared: events.length });

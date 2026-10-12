@@ -119,7 +119,8 @@ interface Store {
   confirmRevert: () => void;
   cancelRevert: () => void;
   /** Wipes every card event for the whole team (PIN-locked on the server). */
-  clearCardEvents: (pin: string, by: string, cardIds?: string[]) => Promise<{ ok: boolean; cleared?: number; error?: string }>;
+  /** No cardIds = everything, which also needs `confirm` (the word typed in the popup). */
+  clearCardEvents: (pin: string, by: string, cardIds?: string[], confirm?: string) => Promise<{ ok: boolean; cleared?: number; error?: string }>;
 
   announcements: Announcement[];
 
@@ -463,9 +464,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [pendingRevert, applyRevert]);
   const cancelRevert = useCallback(() => setPendingRevert(null), []);
 
-  const clearCardEvents = useCallback(async (pin: string, by: string, cardIds?: string[]) => {
+  const clearCardEvents = useCallback(async (pin: string, by: string, cardIds?: string[], confirm?: string) => {
     try {
-      const res = await fetch("/api/store/clear-logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, by, ...(cardIds ? { cardIds } : {}) }) });
+      const res = await fetch("/api/store/clear-logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, by, ...(cardIds ? { cardIds } : { confirm }) }) });
       const json = (await res.json()) as { ok?: boolean; cleared?: number; error?: string };
       if (!res.ok || !json.ok) return { ok: false, error: json.error ?? "Couldn't clear the logs" };
       // Those events are gone on the server (cards added to Potential training are kept); drop them here too,
