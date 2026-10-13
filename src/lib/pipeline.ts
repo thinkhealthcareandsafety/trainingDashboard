@@ -463,7 +463,7 @@ export function customerContacts(events: CardEvent[], customerOf: Map<string, st
   return out;
 }
 
-/** Per customer: the alias for certificates and the concerned person's email ("" = cleared / the customer's own name). */
+/** Per customer: the alias for certificates ("" = the customer's own name, chosen) and the concerned person's email. */
 export type CustomerCert = Map<string, { alias?: string; email?: string }>;
 
 /**
@@ -483,7 +483,8 @@ export function customerCert(events: CardEvent[], customerOf: Map<string, string
     const c = byName.get(key) ?? {};
     byName.set(key, c);
     if (e.kind === "set_concerned_email") c.email = e.value?.trim() || undefined;
-    else c.alias = (e.kind === "set_cert_alias" ? e.value : e.underName)?.trim() || undefined;
+    // "" = "Same as original" was chosen (the customer's own name); undefined = never chosen — scheduling asks for it.
+    else c.alias = (e.kind === "set_cert_alias" ? e.value : e.underName)?.trim() ?? "";
   }
   const out: CustomerCert = new Map();
   for (const [customer, key] of nameOf) { const c = byName.get(key); if (c) out.set(customer, c); }
@@ -951,13 +952,16 @@ export function cardLabel(c: CardView | undefined): string {
  * When a merged document disappears from Zoho Books (deleted there, or older than the synced
  * fiscal years) the cards move back apart. Returns one notice per affected merge; the id is
  * derived from the merge so every browser records the same notice only once.
+ * `dataAt` = when the Zoho copy the board shows was synced: a merge made after that can't be judged by it (a tab woken
+ * from sleep pulls the team's changes before its Zoho data — on 12–13 Oct that wrote 8 false notices).
  */
-export function zohoNotices(events: CardEvent[], exists: Set<string>, cards: Map<string, CardView>): CardEvent[] {
+export function zohoNotices(events: CardEvent[], exists: Set<string>, cards: Map<string, CardView>, dataAt: string): CardEvent[] {
   const noted = new Set(events.filter((e) => e.kind === "zoho_change").map((e) => e.ref));
   const now = new Date().toISOString();
   const out: CardEvent[] = [];
+  if (!dataAt) return out;
   for (const e of events) {
-    if (e.kind !== "merge" || e.revertedAt || noted.has(e.id)) continue;
+    if (e.kind !== "merge" || e.revertedAt || noted.has(e.id) || e.at > dataAt) continue;
     const [from, to] = e.cardIds;
     const fromGone = !exists.has(from);
     const toGone = !exists.has(to);
@@ -1305,5 +1309,8 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
   return { cards, completedCards: column("completed"), gratitudeCards: column("gratitude"), generatedCards: column("generated"), logisticsCards: column("logistics") };
 }
 
-/** The date printed on the certificates and written to the sheet: the training day (a multi-day training: its last day). */
-export const certDate = (c: CardView) => c.schedule?.dates.at(-1)?.slice(0, 10) ?? "";
+/**
+ * The training days, in order. Each participant's certificate (and sheet row) carries the day they were trained:
+ * a multi-day training trains different people each day, so Generate asks for the names day by day.
+ */
+export const certDays = (c: CardView) => [...new Set((c.schedule?.dates ?? []).map((d) => d.slice(0, 10)))].sort();

@@ -57,11 +57,11 @@ const Stacked = createContext(false);
 /** Inside a popup form, the pickers become rows: label and hint on the left, the control on the right. */
 const FormRows = createContext(false);
 
-function FieldRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function FieldRow({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="grid gap-x-5 gap-y-1.5 border-t border-line py-3.5 first:border-t-0 sm:grid-cols-[208px_minmax(0,1fr)]">
       <div>
-        <div className="pt-1.5 text-[13.5px] font-semibold leading-snug text-ink">{label}</div>
+        <div className="pt-1.5 text-[13.5px] font-semibold leading-snug text-ink">{label}{required && <span className="text-high"> *</span>}</div>
         {hint && <div className="mt-0.5 text-[12px] leading-snug text-muted">{hint}</div>}
       </div>
       <div className="min-w-0 sm:pt-0">{children}</div>
@@ -319,11 +319,17 @@ const ALLOW_PAST_TRAINING_DATES = true;
 export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
 export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
-/** For certificates, per customer name: the alias printed as the location ("" = the customer's own name) and the concerned person's email ("" = not set). */
-export type CertChoice = { alias: string; email: string };
+/**
+ * For certificates, per customer name: the alias printed as the location ("" = the customer's own name, null = not
+ * chosen yet) and the concerned person's email ("" = not set). Both are required to schedule a training (owner, 13 Oct:
+ * so nothing is missing at the gratitude email).
+ */
+export type CertChoice = { alias: string | null; email: string };
 type ScheduleFn = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => void;
 
-export const certOf = (card: CardView): CertChoice => ({ alias: card.certAlias ?? "", email: card.concernedEmail ?? "" });
+export const certOf = (card: CardView): CertChoice => ({ alias: card.certAlias ?? null, email: card.concernedEmail ?? "" });
+/** Both chosen: an alias (or "Same as original") and a valid email. */
+export const certReady = (c: CertChoice) => c.alias !== null && EMAIL_RE.test(c.email.trim());
 const sameCert = (a: CertChoice, b: CertChoice) => a.alias === b.alias && normEmail(a.email) === normEmail(b.email);
 
 /**
@@ -334,11 +340,11 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
   if (!cert) return [];
   const base = { cardIds: [card.id], ref: card.customerId, by };
   const now = certOf(card);
-  const alias = cert.alias.trim();
+  const alias = cert.alias?.trim() ?? null; // null: not chosen — left as it is
   const email = cert.email.trim();
   return [
     ...(alias && alias !== card.name && !card.aliases.includes(alias) ? [{ ...base, kind: "add_alias" as const, value: alias }] : []),
-    ...(alias !== now.alias ? [{ ...base, kind: "set_cert_alias" as const, value: alias, before: now.alias }] : []),
+    ...(alias !== null && alias !== now.alias ? [{ ...base, kind: "set_cert_alias" as const, value: alias, before: now.alias ?? "" }] : []),
     ...(normEmail(email) !== normEmail(now.email) ? [{ ...base, kind: "set_concerned_email" as const, value: email, before: now.email }] : []),
   ];
 }
@@ -347,14 +353,14 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
 function PickerRow({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
   if (useContext(FormRows)) {
     return (
-      <FieldRow label={label[0] + label.slice(1).toLowerCase().replace("person's", "person’s")} hint={hint[0].toUpperCase() + hint.slice(1)}>
+      <FieldRow label={label[0] + label.slice(1).toLowerCase().replace("person's", "person’s")} hint={hint[0].toUpperCase() + hint.slice(1)} required>
         <span className="flex flex-wrap items-center gap-1.5">{children}</span>
       </FieldRow>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] font-bold uppercase tracking-wide text-brand">{label}</span>
+      <span className="text-[12px] font-bold uppercase tracking-wide text-brand">{label}<span className="text-high"> *</span></span>
       <span className="text-[12px] text-muted">({hint})</span>
       <span className="inline-flex flex-wrap items-center gap-1.5">{children}</span>
     </div>
@@ -408,7 +414,7 @@ export function EmailPicker({ card, value, onChange }: { card: CardView; value: 
           onChange={(e) => (e.target.value === NEW ? (setText(""), setAdding(true)) : onChange(e.target.value))}
           aria-label="Concerned person's email"
         >
-          <option value="">Not set</option>
+          <option value="" disabled>Select an email…</option>
           {card.emails.length > 0 && (
             <optgroup label="Same as original">
               {card.emails.map((e) => <option key={e.value} value={e.value}>{e.value}</option>)}
@@ -426,11 +432,12 @@ export function EmailPicker({ card, value, onChange }: { card: CardView; value: 
  * Alias for certificates (printed as the location): the customer's own name, one of their aliases, or a new alias
  * (added to the customer's aliases when saved).
  */
-function AliasPicker({ card, value, onChange }: { card: CardView; value: string; onChange: (v: string) => void }) {
+function AliasPicker({ card, value, onChange }: { card: CardView; value: string | null; onChange: (v: string) => void }) {
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
   const NEW = "\u0000new";
-  const known = card.aliases.includes(value) || !value;
+  const NONE = "\u0000none";
+  const known = !value || card.aliases.includes(value);
   const rows = useContext(FormRows);
   return (
     <PickerRow label="Add Alias" hint="will be used for Certificates as location">
@@ -451,11 +458,12 @@ function AliasPicker({ card, value, onChange }: { card: CardView; value: string;
       ) : (
         <select
           className={`${selectCls} !h-8 ${pickerWidth(rows, "w-auto max-w-[240px]")} truncate`}
-          value={value}
+          value={value ?? NONE}
           onChange={(e) => (e.target.value === NEW ? (setText(""), setAdding(true)) : onChange(e.target.value))}
           aria-label="Alias for certificates"
-          title={value ? `Alias: ${value}` : `Same name as original: ${card.name}`}
+          title={value === null ? "Choose the name printed on the certificates" : value ? `Alias: ${value}` : `Same name as original: ${card.name}`}
         >
+          {value === null && <option value={NONE} disabled>Select…</option>}
           <option value="">Same as original</option>
           {card.aliases.map((a) => <option key={a} value={a}>Alias: {a}</option>)}
           {!known && <option value={value}>Alias: {value} (new)</option>}
@@ -585,7 +593,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
   // Same days as now: only the trainers, the alias or the email change.
   const sameDate = postponing && daysValue(days) === s!.dates.join(",");
   const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t)) && sameCert(cert, certOf(card));
-  const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && !unchanged;
+  const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && certReady(cert) && !unchanged;
   // "Change date" corrects the date (earlier or later) and keeps the label; "Postpone" marks it postponed.
   const [changing, setChanging] = useState(false);
   const open = (change = false) => {
@@ -643,16 +651,16 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
             <div className="w-full space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={postponing ? "New training dates" : "Training dates"} autoOpen={!postponing} />
-                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
+                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid} title={certReady(cert) ? undefined : "Choose the alias and the concerned person's email first"}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={`${btn.quiet} shrink-0`} onClick={close}>Cancel</button>
                 {/* On this row so the card doesn't grow; opens the labelled pickers — saved with the training date. */}
                 <button
                   type="button"
-                  className="ml-auto shrink-0 text-[13px] font-semibold text-brand hover:underline"
+                  className={`ml-auto shrink-0 text-[13px] font-semibold hover:underline ${certReady(cert) ? "text-brand" : "text-high"}`}
                   onClick={() => setCertOpen(true)}
-                  title={`Alias: ${cert.alias || "Same as original"} · Concerned email: ${cert.email || "not set"}`}
+                  title={`Alias: ${cert.alias === null ? "not chosen" : cert.alias || "Same as original"} · Concerned email: ${cert.email || "not set"}`}
                 >
-                  Alias &amp; email{sameCert(cert, certOf(card)) ? "" : " ✓"}
+                  {certReady(cert) ? <>Alias &amp; email{sameCert(cert, certOf(card)) ? "" : " ✓"}</> : <>Alias &amp; email required *</>}
                 </button>
               </div>
               <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
@@ -734,7 +742,7 @@ function CertEditor({ card, initial, saveLabel = "Save", note, onSave, onClose }
         </FormRows.Provider>
         <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onClose}>Cancel</button>
-          <button className={btn.primary} disabled={sameCert(cert, start)} onClick={() => { onSave(cert); onClose(); }}>{saveLabel}</button>
+          <button className={btn.primary} disabled={!certReady(cert) || (sameCert(cert, start) && saveLabel !== "Use")} onClick={() => { onSave(cert); onClose(); }}>{saveLabel}</button>
         </div>
       </div>
     </div>
@@ -842,7 +850,7 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
         </FormRows.Provider>
         <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
+          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length || !certReady(cert)} title={certReady(cert) ? undefined : "Choose the alias and the concerned person's email first"} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
         </div>
       </div>
     </div>

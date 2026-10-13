@@ -172,10 +172,14 @@ function usePipeline() {
     load();
     const t = setInterval(() => load(), 3 * 60_000);
     const onSynced = () => load();
+    // A tab coming back (e.g. after the laptop slept) gets fresh Zoho data right away, like the team data.
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
     window.addEventListener(ZOHO_SYNCED, onSynced);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(t);
       window.removeEventListener(ZOHO_SYNCED, onSynced);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [load]);
   return { data, loading, refresh: () => load(true) };
@@ -757,10 +761,11 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
 
   // A merged quote/PI that disappeared from Zoho moves its cards apart — log why, once.
-  // Only trust a complete, error-free Zoho snapshot so a failed sync never looks like a deletion.
+  // Only trust a complete, error-free Zoho snapshot so a failed sync never looks like a deletion — and only for merges
+  // made before that snapshot was synced (an older copy simply doesn't know the newer documents yet).
   useEffect(() => {
     if (!data || data.source !== "zoho" || data.error || !data.leads.length) return;
-    recordCardEvents(zohoNotices(cardEvents, board.exists, board.cards));
+    recordCardEvents(zohoNotices(cardEvents, board.exists, board.cards, data.syncedAt));
   }, [data, board, cardEvents, recordCardEvents]);
 
   const needle = q.trim().toLowerCase();

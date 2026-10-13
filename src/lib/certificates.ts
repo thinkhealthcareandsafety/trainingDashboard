@@ -39,14 +39,32 @@ export function parseNames(text: string): string[] {
     .filter((n) => /[A-Za-z\u00C0-\u024F]/.test(n));
 }
 
+/** The participants of one training day (a multi-day training trains different people each day). */
+export type DayNames = { date: string; names: string[] };
+
 /**
- * The batch's rows. The sheet's serial and the number at the end of the certificate no. are two separate counts
- * (rows left blank between locations took a serial but no certificate), so each continues from its own last value.
+ * The batch's rows, day by day in date order — each row carries its own training day (sheet date, certificate no.,
+ * printed date). The sheet's serial and the number at the end of the certificate no. are two separate counts (rows
+ * left blank between locations took a serial but no certificate), so each continues from its own last value.
  */
-export function certRows(names: string[], first: { serial: number; cert: number }, t: { location: string; course: string; date: string }): CertRow[] {
-  return names.map((name, i) => ({
-    serial: first.serial + i, certNo: certificateNumber(t.date, first.cert + i), name, location: t.location, course: t.course, date: t.date,
+export function certRows(days: DayNames[], first: { serial: number; cert: number }, t: { location: string; course: string }): CertRow[] {
+  const people = [...days].sort((a, b) => a.date.localeCompare(b.date)).flatMap((d) => d.names.map((name) => ({ name, date: d.date })));
+  return people.map(({ name, date }, i) => ({
+    serial: first.serial + i, certNo: certificateNumber(date, first.cert + i), name, location: t.location, course: t.course, date,
   }));
+}
+
+/** Names given on more than one day (one person is trained on one day only) — "Asha Rao (13/10/2026, 14/10/2026)". */
+export function namesOnSeveralDays(days: DayNames[]): string[] {
+  const seen = new Map<string, { name: string; dates: string[] }>();
+  for (const d of days) {
+    for (const name of new Set(d.names.map((n) => n.toLowerCase().replace(/\s+/g, " ").trim()))) {
+      const s = seen.get(name) ?? { name: d.names.find((n) => n.toLowerCase().replace(/\s+/g, " ").trim() === name)!, dates: [] };
+      s.dates.push(d.date);
+      seen.set(name, s);
+    }
+  }
+  return [...seen.values()].filter((s) => s.dates.length > 1).map((s) => `${s.name} (${s.dates.map(printedDate).join(", ")})`);
 }
 
 /** "<Alias> certificates.pdf", safe as a file name. */

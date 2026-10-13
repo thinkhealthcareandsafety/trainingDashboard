@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CardEvent, CertRow, Member } from "@/lib/types";
-import { type CardView, certDate, fmtStamp, normEmail } from "@/lib/pipeline";
+import { type CardView, certDays, fmtDays, fmtStamp, normEmail } from "@/lib/pipeline";
 import { useStore } from "@/lib/store";
 import { isAdmin } from "@/lib/roles";
 import { fireworks } from "@/lib/confetti";
-import { DESIGNS, type DesignId, designFor, parseNames, pdfName, printedDate } from "@/lib/certificates";
+import { DESIGNS, type DesignId, designFor, namesOnSeveralDays, parseNames, pdfName, printedDate } from "@/lib/certificates";
 import { btn, inputCls } from "../ui";
 import { EmailPicker, certEvents } from "./CardModal";
 import { ConnectMailbox } from "./AedContacted";
@@ -46,8 +46,13 @@ function Popup({ label, size = "md", busy, onClose, children }: { label: string;
 }
 
 const serials = (rows: CertRow[]) => (rows.length ? `${rows[0].serial}${rows.length > 1 ? `–${rows.at(-1)!.serial}` : ""}` : "");
-/** FAT-OD/17-09-2026/2129–2132 */
-const certNos = (rows: CertRow[]) => (rows.length ? `${rows[0].certNo}${rows.length > 1 ? `–${rows.at(-1)!.certNo.split("/").at(-1)}` : ""}` : "");
+/** FAT-OD/17-09-2026/2129–2132 — or, across several training days, FAT-OD/…/2129–2140 · 3 days. */
+const certNos = (rows: CertRow[]) => {
+  if (!rows.length) return "";
+  const days = new Set(rows.map((r) => r.date)).size;
+  const range = rows.length > 1 ? `–${rows.at(-1)!.certNo.split("/").at(-1)}` : "";
+  return days > 1 ? `FAT-OD/…/${rows[0].certNo.split("/").at(-1)}${range} · ${days} days` : `${rows[0].certNo}${range}`;
+};
 
 /** Where Generate is: names → check against the sheet → download. */
 function Steps({ at }: { at: number }) {
@@ -175,7 +180,7 @@ function GratitudePopup({ card, member, onClose }: { card: CardView; member: Mem
     setBusy(true); setError("");
     try {
       // A new concerned email chosen here is kept on the customer, like one set when scheduling.
-      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { alias: card.certAlias ?? "", email: to }, member.name));
+      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { alias: card.certAlias ?? null, email: to }, member.name));
       const j = await post({});
       recordCardEvents([j.event!]);
       toast({ text: `Gratitude email sent to ${to} — ${card.name} moved to Gratitude Email Sent` });
@@ -415,8 +420,13 @@ type Preview = { rows: CertRow[]; sheet: Record<string, string>[]; headers: stri
 
 function GeneratePopup({ card, member, onClose }: { card: CardView; member: Member; onClose: () => void }) {
   const { recordCardEvents } = useStore();
-  const [text, setText] = useState("");
-  const names = useMemo(() => parseNames(text), [text]);
+  // One names box per training day: a multi-day training trains different people each day.
+  const dates = useMemo(() => certDays(card), [card]);
+  const [texts, setTexts] = useState<Record<string, string>>({});
+  const days = useMemo(() => dates.map((date) => ({ date, names: parseNames(texts[date] ?? "") })), [dates, texts]);
+  const total = days.reduce((n, d) => n + d.names.length, 0);
+  const emptyDays = days.filter((d) => !d.names.length);
+  const twice = useMemo(() => namesOnSeveralDays(days), [days]);
   const [design, setDesign] = useState<DesignId>(designFor(card.training.map((t) => t.name)));
   const [designs, setDesigns] = useState<Design[] | null>(null);
   const [sheet, setSheet] = useState<boolean | null>(null);
@@ -426,7 +436,6 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
   const [ready, setReady] = useState<{ blob: Blob; rows: CertRow[] } | null>(null);
   const [error, setError] = useState("");
   const { download } = useDownload(card, member);
-  const date = certDate(card);
   const location = card.certAlias || card.name;
   const chosen = designs?.find((d) => d.id === design);
 
@@ -440,7 +449,7 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
   const showPreview = async () => {
     setError("");
     try {
-      const r = await fetch("/api/certificates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, design, names, preview: true }) });
+      const r = await fetch("/api/certificates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, design, days, preview: true }) });
       const j = (await r.json()) as Omit<Preview, "problems"> & { error?: string };
       if (!r.ok) throw new Error(j.error ?? "Couldn't read the sheet");
       const { checkCertificates } = await import("@/lib/certPdf");
@@ -457,7 +466,7 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
     const started = Date.now();
     let added: CertRow[] | null = null;
     try {
-      const r = await fetch("/api/certificates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, design, names }) });
+      const r = await fetch("/api/certificates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, design, days }) });
       const j = (await r.json()) as { ok?: boolean; event?: CardEvent; rows?: CertRow[]; error?: string };
       if (!r.ok || !j.event || !j.rows) throw new Error(j.error ?? "Couldn't add them to the sheet");
       recordCardEvents([j.event]);
@@ -479,7 +488,7 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
   const designInfo = DESIGNS.find((d) => d.id === design)!;
   // The strip under the title: what goes on the certificates, then — once checked — the numbers they get.
   const facts: [string, string][] = phase === "names" || !batch
-    ? [["Location on the certificate", location], ["Training date", date ? printedDate(date) : "—"], ["Course", designInfo.course]]
+    ? [["Location on the certificate", location], [dates.length > 1 ? `Training dates (${dates.length} days)` : "Training date", dates.length > 1 ? fmtDays(dates.join(",")) : dates[0] ? printedDate(dates[0]) : "—"], ["Course", designInfo.course]]
     : [["New rows", String(batch.length)], ["SN", serials(batch)], ["Certificate no.", certNos(batch)]];
   return (
     <Popup label="Generate certificates" size="xl" busy={busy} onClose={onClose}>
@@ -503,14 +512,7 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
           <div className="space-y-4">
             {card.fulfillment?.certsReverted && <RevertedNote card={card} />}
             <div className="grid items-start gap-6 md:grid-cols-[minmax(0,1fr)_340px]">
-              <label className="block">
-                <span className="mb-1.5 flex items-baseline justify-between gap-3">
-                  <span className="text-[13.5px] font-semibold text-ink">Participants&apos; names</span>
-                  <span className="num text-[12.5px] text-muted">{names.length} {names.length === 1 ? "name" : "names"}</span>
-                </span>
-                <textarea className={`${inputCls} !h-[min(300px,36vh)] resize-none py-2.5 leading-relaxed`} placeholder="Paste the list from the reply — one name per line" value={text} onChange={(e) => setText(e.target.value)} autoFocus />
-                <span className="mt-1.5 block text-[12.5px] text-muted">One per line. Numbering and bullets are dropped; from copied sheet rows the name cell is kept.</span>
-              </label>
+              <NamesByDay days={days} total={total} twice={twice} onChange={(date, text) => setTexts((t) => ({ ...t, [date]: text }))} texts={texts} />
               <fieldset className="space-y-2">
                 <legend className="mb-1.5 text-[13.5px] font-semibold text-ink">Certificate design</legend>
                 {(designs ?? DESIGNS.map((d) => ({ ...d, uploaded: null }))).map((d) => (
@@ -569,7 +571,7 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
         {phase === "names" && (
           <>
             <button className={btn.ghost} onClick={onClose}>Cancel</button>
-            <button className={btn.primary} onClick={showPreview} disabled={!names.length || !date || Boolean(blocked) || designs === null || sheet === null}>Preview</button>
+            <button className={btn.primary} onClick={showPreview} disabled={!dates.length || emptyDays.length > 0 || twice.length > 0 || Boolean(blocked) || designs === null || sheet === null}>Preview</button>
           </>
         )}
         {phase === "preview" && (
@@ -588,6 +590,50 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
       {setup === "sheet" && <ConnectSheet member={member} onClose={() => { setSetup(null); loadSetup(); }} />}
       {setup === "designs" && designs && <UploadDesigns designs={designs} onDone={loadSetup} onClose={() => setSetup(null)} />}
     </Popup>
+  );
+}
+
+/** The names boxes: one for a one-day training; one per day (Day 1 · 13 Oct …) for a multi-day one — each day needs its names. */
+function NamesByDay({ days, texts, total, twice, onChange }: { days: { date: string; names: string[] }[]; texts: Record<string, string>; total: number; twice: string[]; onChange: (date: string, text: string) => void }) {
+  const many = days.length > 1;
+  const cols = days.length >= 3 ? "sm:grid-cols-3" : many ? "sm:grid-cols-2" : "";
+  const tall = days.length <= 3 ? (many ? "!h-[min(270px,32vh)]" : "!h-[min(300px,36vh)]") : "!h-[min(130px,15vh)]";
+  return (
+    <div>
+      <span className="mb-1.5 flex items-baseline justify-between gap-3">
+        <span className="text-[13.5px] font-semibold text-ink">Participants&apos; names{many ? " — day by day" : ""}</span>
+        <span className="num text-[12.5px] text-muted">{total} {total === 1 ? "name" : "names"}</span>
+      </span>
+      <div className={`grid gap-3 ${cols}`}>
+        {days.map((d, i) => (
+          <label key={d.date} className="block min-w-0">
+            {many && (
+              <span className="mb-1 flex items-baseline justify-between gap-2 text-[12.5px]">
+                <span className="truncate font-semibold text-ink-2">Day {i + 1} · {fmtDays(d.date)}</span>
+                <span className={`num shrink-0 ${d.names.length ? "text-muted" : "font-medium text-medium"}`}>{d.names.length ? `${d.names.length} ${d.names.length === 1 ? "name" : "names"}` : "no names yet"}</span>
+              </span>
+            )}
+            <textarea
+              className={`${inputCls} ${tall} resize-none py-2.5 leading-relaxed`}
+              placeholder={many ? `Trained on ${fmtDays(d.date)} — one name per line` : "Paste the list from the reply — one name per line"}
+              value={texts[d.date] ?? ""}
+              onChange={(e) => onChange(d.date, e.target.value)}
+              autoFocus={i === 0}
+            />
+          </label>
+        ))}
+      </div>
+      <span className="mt-1.5 block text-[12.5px] text-muted">
+        {many ? "Each person goes under the day they were trained — their certificate and sheet row carry that date. Every day needs its names. " : ""}
+        One per line. Numbering and bullets are dropped; from copied sheet rows the name cell is kept.
+      </span>
+      {twice.length > 0 && (
+        <div className="mt-2 rounded-lg border border-high/40 bg-high-bg px-3 py-2 text-[13px] text-high">
+          <b>One person, one day — these names are on more than one day:</b>
+          <ul className="mt-1 list-disc pl-5">{twice.map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
+      )}
+    </div>
   );
 }
 

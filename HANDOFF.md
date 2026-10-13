@@ -226,8 +226,12 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   name) · course (from the design) · date. **SN and n are two separate counts** (session 7, owner: "keep them as they are"):
   SN = highest SN + 1, n = highest number at the end of a certificate no. + 1 (`Register.lastCertNo`, `firstFree`,
   `certRows(names, {serial, cert}, …)`) — in the real sheet n runs 7 behind SN because Shreya left blank rows between
-  locations. Both are read again under the lock at Generate. **Date = the training day; multi-day = the LAST day** (`certDate` in pipeline.ts) —
-  **owner: "it can change later, mark it as important"**. Printed date `dd/mm/yyyy`; in the sheet the date is written in the
+  locations. Both are read again under the lock at Generate. **Date = the day that person was trained** (session 8, owner:
+  different people are trained on each day of a multi-day training): a multi-day training shows **one names box per day**
+  (`certDays` in pipeline.ts, `NamesByDay` in FulfilCerts.tsx); **every day needs names**; a name on two days is refused
+  ("one person, one day", `namesOnSeveralDays`); rows go in date order (`certRows(days, …)`), SN / certificate no. run on
+  across the days; one PDF; one design. The route takes `days: [{date, names}]` (dates must match the card's, else 409);
+  `names` alone is still accepted for a one-day training. (Was: everyone got the LAST day.) Printed date `dd/mm/yyyy`; in the sheet the date is written in the
   style of the sheet's last row (`sheetDate`/`styleOf`).
 - **Master sheet** (`zohoSheet.ts`): `POST https://sheet.zoho.in/api/v2/<resource id>` form-encoded, `method=
   worksheet.records.fetch` / `worksheet.records.add` (`header_row=1`, `json_data`), `worksheet.list` on connect. Columns are
@@ -430,7 +434,7 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   A merge made while part paid waits (*Not applied yet*) and applies by itself once fully paid.
 - **Merge view**: one panel per phase; quotations newest first with a **NEW** tag; a quotation and PI only ever show as a
   referenced pair (the PI panel hides when no PI cites the selected quote; clicking either chip switches its partner).
-- **Training**: unflagged quote/PI can be scheduled — with dates, trainers, the **alias for certificates** (*Same as original*, an alias, or *+ Add alias…*, which also adds the alias to the customer; printed as the certificate location) and the **concerned person's email** (used for the gratitude email and the participant list) — both per customer name, latest wins, changeable later with *Change* under the head-count (`655daf0`; older trainings used `underName`, "Under name: …"); once dated: **Change date** (a correction, earlier or later — event `mode: "change"`, label unchanged, log "Training date changed from … to …") / **Postpone** / **To be decided** / **Training completed** (both boards); merged PI pops *Ready for training*. **Several days** per training
+- **Training**: unflagged quote/PI can be scheduled — with dates, trainers, the **alias for certificates** (*Same as original*, an alias, or *+ Add alias…*, which also adds the alias to the customer; printed as the certificate location) and the **concerned person's email** (used for the gratitude email and the participant list) — both per customer name, latest wins, **both mandatory since session 8** (red *; Schedule / Postpone / Change date and the *Ready for training* popup stay disabled until an alias — *Same as original* counts — and a valid email are chosen; the email dropdown has no *Not set*; a customer who never chose an alias starts at *Select…*, because an explicit *Same as original* is now kept as "" in `customerCert`), changeable later with *Change* under the head-count (`655daf0`; older trainings used `underName`, "Under name: …"); once dated: **Change date** (a correction, earlier or later — event `mode: "change"`, label unchanged, log "Training date changed from … to …") / **Postpone** / **To be decided** / **Training completed** (both boards); merged PI pops *Ready for training*. **Several days** per training
   (`DaysPicker.tsx`: click days one by one, drag or Shift-click for a range; shown as "3–6 Oct, 12 Oct 2026").
   Needs ≥1 **trainer** (Shikha Dixit, Ashish Dalal, Sumit A Shah, or **External trainer** — any typed name; names used
   before on any card come back as suggestions, derived from the change log). A trainer can't be on two trainings on one day. Scheduled / Postponed / To be decided; green border,
@@ -738,7 +742,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 145 | "The last Clear logs — I think I cleared everything by mistake, roll back" | Clear on **10 Oct 12:14 IST** (Admin) removed all **191** entries (Admin 53, Shikha 50, Priyanka 40, Arti 38, Shreya 10). **Restored all 191** from `cardEventsArchive` with their original ids. Left cleared: a 4-entry clear at 12:12 and four 2–3-merge "one deal cycle" clears at 12:39–12:40 (look deliberate; owner told). |
 | 146 | "Even before this I cleared all logs by mistake" | Clear on **3 Oct 11:31 IST** (Admin): 37 entries. 21 had been **redone by the team** since (same kind + cards + value) → skipped (`restoreSkipped`); **restored 16** (Ritz Carlton chain to invoice 2026-01-408, Moxy Bengaluru Airport to Performa-25-265 TBD, Mementos email + phone; 6 already-reverted ones as history). Live log: 210. |
 | 147 | "When did I clear the logs? Did I do it?" | Both as Admin + correct PIN; the app records no person/device (Vercel logs last ~1 h). Today's pattern (one-cycle clear at 12:12, Everything at 12:14) suggests a slip of the scope switch. |
-| 148 | "Lock that clear-all behind typing 'Confirm'" | Popup opens on One deal cycle; Everything needs **Confirm** typed (+ server check); archive records `clearedScope`. Tested headless with fake API. **Not pushed.** |
+| 148 | "Lock that clear-all behind typing 'Confirm'" | Popup opens on One deal cycle; Everything needs **Confirm** typed (+ server check); archive records `clearedScope`. Tested headless with fake API. Pushed in session 8. |
 | 149 | "Write a total handoff … what I did today and what needs to be done next session" | Session 6 handoff. |
 
 ### Session 7 (12 Oct 2026) — sheet + designs connected, certificates print right, Fulfillment polish
@@ -771,7 +775,10 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 |---|---|---|
 | 170 | "Read HANDOFF.md … tell me where things stand" | Summary; `CRON_SECRET` still missing (12 Oct 20:24 UTC run skipped). |
 | 171 | "Yesterday I deleted some PIs etc. in Zoho Books — they didn't go from here; recheck" → "we have a sync button, that should check all changes no?" | Sync log: the deletions came after the 2 pm full check; quick syncs (incl. Sync now) never see deletions; the **13 Oct 9 am full check removed** Performa-25-757, Performa-25-698, Quotation-24-001976, invoices 2026-01-346 / 2026-01-198, and the board recorded the zoho_change notices. Also found: quick syncs stored edited **AED invoices dated before 1 Sept** that the next full check removed (8 on 12 Oct, harmless — boards filter by `AED_SINCE`). |
-| 172 | "push it to github" | **Sync now = full check** (unless one ran in the last 10 min) + quick syncs ignore AED invoices before `AED_SINCE` (`classify`). |
+| 172 | "push it to github" | **Sync now = full check** (unless one ran in the last 10 min) + quick syncs ignore AED invoices before `AED_SINCE` (`classify`). `01f028c`, live after ~60 s. |
+| 173 | Multi-day trainings train different people each day: let Shreya add names per date; sheet rows and certificates carry their own date. "Tell me what you understood first" → answers: 1) every day must have names 2) one PDF 3) one design 4) one person, one day 5) postpone/undo don't touch the sheet | Built (§3). Click-tested on the real local app with saves blocked (Classic Citi shown as 15–17 Sept in the browser only): 3 boxes, duplicate + empty-day block Preview, request carries `days`, preview rows dated per day, fits 1728×958. Pushed in session 8. |
+| 174 | (found while testing) 8 **false** "no longer in Zoho Books" notices (12 Oct 16:03, 16:41 IST; 13 Oct 09:13 IST — Shreya's tab woke from sleep: team data pulled before its day-old Zoho data) | Fix: `zohoNotices` ignores merges newer than the board's Zoho data (`data.syncedAt`); the board reloads Zoho data when a tab becomes visible. Pushed in session 8. The 8 entries are still in `cardEvents` (#44). |
+| 175 | "Make Alias and Email mandatory in training scheduling so nothing is missed at the gratitude email" | `certReady` in CardModal.tsx gates every scheduling button; pickers start at *Select…*; Certificate details popup needs both. Click-tested on Duet India Performa-25-1097 with saves blocked. Not enforced on the server; *Completed on invoice date* (old trainings) still asks for neither. Pushed in session 8. |
 
 ---
 
@@ -984,8 +991,9 @@ No test suite. Pattern used throughout:
     shows "1 gratitude reply", the reply popup shows the body. If any Zoho call fails, the message shows in the popup / Sync
     log (`mailError`) — fix against Zoho's real response (the calls were never run for real, §6).
 31. **`CRON_SECRET` GitHub secret** (#11) matters more now — replies and filing ride on the hourly sync. Steps in §2.
-32. **Certificate date for multi-day trainings = last training day** (`certDate`, pipeline.ts) — **owner: "it can change
-    later, mark it as important"**. Ask before changing; it changes both the printed date and the certificate number.
+32. ~~Certificate date for multi-day trainings = last training day~~ — **changed in session 8**: names are given per training
+    day and each certificate / sheet row carries that person's day (§3). Built and click-tested with saves blocked; not yet
+    used for real — check the first real multi-day batch in the sheet.
 33. **digital@'s folder** for the forwarded replies "will be created later" — that's a filter in digital@'s own Zoho Mail; the
     dashboard doesn't read digital@'s mail. Only build something if the owner asks.
 34. Shreya's **Open in Zoho Mail** opens digital@'s inbox, not the exact email (the forwarded copy has another id). Improve
@@ -1011,5 +1019,9 @@ No test suite. Pattern used throughout:
     The 20 rows SN 2165–2184 are in the master sheet (the sheet had grown to 2164 by hand in between).
 42. **Completed on invoice date leaves unmerged quotations** in Quotations (e.g. Diana Builwell's Quotation-24-002198, Arrowline's
     Quotation-24-001524): the PI is merged on, its quote never was. Offered to tidy them; the owner hasn't answered.
+44. **8 false `zoho_change` entries** in live `cardEvents` (docs all still in Zoho): ids `zoho:ql3b4gnmc4wr70qj`, `zoho:nve84dkr3ag3zg7e`,
+    `zoho:met74bzrkmi1as31`, `zoho:5t69w2o5lx83q2kj`, `zoho:rcpbmxm0q6jaxtt3`, `zoho:f5x909f637yanabu`, `zoho:tvnmuma6krmur7m5`,
+    `zoho:yejx5jxvuf3yu7za`. Text only (cards unaffected), but each blocks a real notice for that merge later. Delete only
+    with the owner's OK. The 2 real ones (13 Oct 09:04 IST, Performa-25-698 / -757) stay.
 43. **Shreya tests on the live board** with her own gmail as the concerned email. Suggest the owner tell her to use
     **Send a test to** (nothing recorded) instead — every real send / Generate is permanent (server-only events, sheet rows).
