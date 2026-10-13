@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { CalendarEntry, EntryType, Priority, Training } from "@/lib/types";
+import Link from "next/link";
+import type { BoardTraining, CalendarEntry, EntryType, Priority } from "@/lib/types";
 import { addDays, fmtDate, parseYmd, ymd } from "@/lib/dates";
 import { PRIORITY_CLASSES, PRIORITY_META, PRIORITY_RANK, highestPriority } from "@/lib/priority";
 import { newId, useStore } from "@/lib/store";
+import { useSession } from "@/lib/session";
+import { boardsFor } from "@/lib/roles";
 import { Combobox, Field, IconButton, Modal, PriorityBadge, PriorityPicker, Segmented, btn, inputCls } from "./ui";
 
 const TYPE_LABEL: Record<EntryType, string> = { meeting: "Meeting", note: "Note", date: "Important date" };
@@ -156,8 +159,14 @@ function EntryModal({ open, onClose, initial, date }: { open: boolean; onClose: 
 
 /* ---------------- Shared data hook ---------------- */
 
+/**
+ * The boards' trainings on each of their days: the Training board for everyone who isn't only on AedSmartx; AedSmartx
+ * trainings for members with that board (Priyanka sees only hers).
+ */
 function useCalendarData(filter: Priority | "all", showTrainings: boolean) {
   const { entries, data } = useStore();
+  const { member } = useSession();
+  const boards = member ? boardsFor(member) : [];
   const byDate = useMemo(() => {
     const m = new Map<string, CalendarEntry[]>();
     entries.filter((e) => filter === "all" || e.priority === filter).forEach((e) => m.set(e.date, [...(m.get(e.date) ?? []), e]));
@@ -165,17 +174,20 @@ function useCalendarData(filter: Priority | "all", showTrainings: boolean) {
     return m;
   }, [entries, filter]);
   const trainingsByDate = useMemo(() => {
-    const m = new Map<string, Training[]>();
-    if (showTrainings) (data?.trainings ?? []).forEach((t) => m.set(t.trainingDate, [...(m.get(t.trainingDate) ?? []), t]));
+    const m = new Map<string, BoardTraining[]>();
+    if (!showTrainings) return m;
+    const aedOnly = boards.includes("aed") && !boards.includes("training");
+    const list = [...(aedOnly ? [] : data?.board ?? []), ...(boards.includes("aed") ? data?.aedBoard ?? [] : [])];
+    for (const t of list) for (const d of t.status === "tbd" ? [] : t.dates) m.set(d, [...(m.get(d) ?? []), t]);
     return m;
-  }, [data, showTrainings]);
+  }, [data, showTrainings, boards.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   return { byDate, trainingsByDate };
 }
 
 /* ---------------- Day agenda ---------------- */
 
 function DayAgenda({ date, entries, trainings, onAdd, onEdit, isToday }: {
-  date: string; entries: CalendarEntry[]; trainings: Training[]; onAdd: () => void; onEdit: (e: CalendarEntry) => void; isToday: boolean;
+  date: string; entries: CalendarEntry[]; trainings: BoardTraining[]; onAdd: () => void; onEdit: (e: CalendarEntry) => void; isToday: boolean;
 }) {
   return (
     <div>
@@ -211,23 +223,35 @@ function DayAgenda({ date, entries, trainings, onAdd, onEdit, isToday }: {
               </button>
             </li>
           ))}
-          {trainings.map((t) => (
-            <li key={t.id} className="flex items-start gap-3 py-2.5">
-              <span className="w-12 shrink-0 pt-px text-xs text-muted">Training</span>
-              <span className="mt-1 h-4 w-[3px] shrink-0 rounded-full bg-brand" aria-hidden />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px] font-medium text-ink">{t.trainingType}</span>
-                <span className="block truncate text-xs text-muted">
-                  {t.customerName} · {t.participants} pax{t.trainer && t.trainer !== "None" ? ` · ${t.trainer}` : ""}
-                </span>
-              </span>
-              {t.zohoPriority && <PriorityBadge p={t.zohoPriority} compact />}
-            </li>
-          ))}
+          {trainings.map((t) => {
+            const day = t.dates.indexOf(date) + 1;
+            return (
+              <li key={t.id}>
+                <Link href={`/follow-up?q=${encodeURIComponent(t.docNumber)}`} className="-mx-2 flex w-[calc(100%+1rem)] items-start gap-3 rounded-lg px-2 py-2.5 text-left hover:bg-surface-2/70">
+                  <span className="w-12 shrink-0 pt-px text-xs text-muted num">{t.time ?? (t.board === "aed" ? "AED" : "Training")}</span>
+                  <span className={`mt-1 h-4 w-[3px] shrink-0 rounded-full ${t.board === "aed" ? "bg-purple" : "bg-brand"}`} aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13.5px] font-medium text-ink">{t.alias || t.customerName}</span>
+                    <span className="block truncate text-xs text-muted">
+                      {t.training}{t.dates.length > 1 ? ` · day ${day} of ${t.dates.length}` : ""}{t.people ? ` · ${t.people} people` : ""}{t.trainers.length ? ` · ${t.trainers.map((n) => n.split(" ")[0]).join(", ")}` : ""}
+                    </span>
+                  </span>
+                  <TrainingTag t={t} />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
   );
+}
+
+/** Completed / postponed — scheduled ones need no tag. */
+function TrainingTag({ t }: { t: BoardTraining }) {
+  if (t.status === "completed") return <span className="shrink-0 rounded-full bg-low-bg px-2 py-0.5 text-[11px] font-semibold text-low">Completed</span>;
+  if (t.status === "postponed") return <span className="shrink-0 rounded-full bg-medium-bg px-2 py-0.5 text-[11px] font-semibold text-medium">Postponed</span>;
+  return null;
 }
 
 /* ---------------- Month navigation ---------------- */
@@ -377,7 +401,7 @@ export function FullCalendar({ initialDate }: { initialDate?: string }) {
           />
           <label className="inline-flex items-center gap-2 text-[13px] text-ink-2">
             <input type="checkbox" checked={showTrainings} onChange={(e) => setShowTrainings(e.target.checked)} className="size-4 accent-[var(--brand)]" />
-            Zoho trainings
+            Trainings
           </label>
           <a
             href="https://calendar.zoho.in"
@@ -449,9 +473,13 @@ export function FullCalendar({ initialDate }: { initialDate?: string }) {
                         <span className="truncate">{it.e.title}</span>
                       </div>
                     ) : (
-                      <div key={it.t.id} className="rounded-md bg-brand-soft px-1.5 py-1 text-[11.5px] leading-tight" title={`${it.t.trainingType} · ${it.t.customerName}`}>
-                        <div className="truncate font-medium text-ink">{it.t.trainingType}</div>
-                        <div className="truncate text-muted">{it.t.customerName}</div>
+                      <div
+                        key={it.t.id}
+                        className={`rounded-md px-1.5 py-1 text-[11.5px] leading-tight ${it.t.board === "aed" ? "bg-purple-bg" : "bg-brand-soft"} ${it.t.status === "completed" ? "opacity-70" : ""}`}
+                        title={`${it.t.training} · ${it.t.alias || it.t.customerName}${it.t.people ? ` · ${it.t.people} people` : ""}${it.t.status === "completed" ? " · completed" : ""}`}
+                      >
+                        <div className="truncate font-medium text-ink">{it.t.alias || it.t.customerName}</div>
+                        <div className="truncate text-muted">{it.t.time ? `${it.t.time} · ` : ""}{it.t.training}</div>
                       </div>
                     ),
                   )}
@@ -465,7 +493,8 @@ export function FullCalendar({ initialDate }: { initialDate?: string }) {
           {(["high", "medium", "low"] as Priority[]).map((p) => (
             <span key={p} className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: PRIORITY_VAR[p] }} />{PRIORITY_META[p].label}</span>
           ))}
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-brand-soft ring-1 ring-brand/30" />Zoho training</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-brand-soft ring-1 ring-brand/30" />Training</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-sm bg-purple-bg ring-1 ring-purple/30" />AED training</span>
           <span className="ml-auto hidden text-faint md:inline">Double-click a day or press N to add · drag to move</span>
         </div>
       </section>

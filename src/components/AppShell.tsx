@@ -11,7 +11,6 @@ import type { Member } from "@/lib/types";
 import { Ticker } from "./Ticker";
 import { SyncLogWindow } from "./SyncLog";
 import { RevertConfirm } from "./RevertConfirm";
-import { effectiveStatus } from "@/lib/followups";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
@@ -218,10 +217,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const sidebar = useSidebar();
   // Every page needs a signed-in member (the data behind them is protected).
   const session = useSession();
-  const { now, followUps, toasts, dismissToast, storage, ready } = useStore();
+  const { now, toasts, dismissToast, storage, ready } = useStore();
   // Only mention storage when something is wrong (team database not reachable).
   const storageWarn = ready && storage !== "team";
-  const overdue = followUps.filter((f) => effectiveStatus(f, now) === "overdue").length;
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   const router = useRouter();
   const zoho = useZohoSync(Boolean(session.ready && session.member));
@@ -259,7 +257,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={`press relative grid size-9 place-items-center rounded-[10px] ${isOn(n.href) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"}`}
               >
                 <Icon>{n.icon}</Icon>
-                {n.href === "/follow-up" && overdue > 0 && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-high" />}
               </Link>
             ))}
             <button onClick={session.signOut} aria-label="Sign out" title={`Sign out (${session.member.name})`} className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
@@ -307,9 +304,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <Icon>{n.icon}</Icon>
                 <span className="flex-1">{n.label}</span>
-                {n.href === "/follow-up" && overdue > 0 && (
-                  <span className="rounded-md bg-high-bg px-1.5 text-[11px] font-semibold text-high num">{overdue}</span>
-                )}
               </Link>
             ))}
           </nav>
@@ -350,7 +344,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOn(n.href) ? "text-ink" : "text-muted"}`}>
             <Icon>{n.icon}</Icon>
             {n.label}
-            {n.href === "/follow-up" && overdue > 0 && <span className="absolute right-[30%] top-1.5 size-1.5 rounded-full bg-high" />}
           </Link>
         ))}
       </nav>

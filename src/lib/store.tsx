@@ -7,6 +7,7 @@ import { followUpsFromPipeline, followUpsFromTrainings, seedManualFollowUps } fr
 import { buildTickerItems } from "./ticker";
 import { cascadeOf } from "./cascade";
 import { useSession } from "./session";
+import { boardsFor } from "./roles";
 
 // Calendar entries, follow-ups and announcements are cached in the browser and, when the server has
 // MONGODB_URI configured, shared with the whole team through /api/store (only changed documents are sent).
@@ -146,7 +147,7 @@ export function newId() {
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   // The team data and Zoho data need a signed-in session (the API refuses otherwise).
-  const { verified } = useSession();
+  const { verified, member } = useSession();
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const [data, setData] = useState<TrainingsResponse | null>(null);
@@ -323,6 +324,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener(ZOHO_SYNCED, onSynced);
     };
   }, [refresh, verified]);
+  // The Overview, calendar and ticker count the boards' trainings: reload them a few seconds after the team changes a card
+  // (one reload for a burst of changes).
+  const eventsKey = useMemo(() => `${cardEvents.length}:${cardEvents.reduce((m, e) => (e.at > m ? e.at : m), "")}:${cardEvents.filter((e) => e.revertedAt).length}`, [cardEvents]);
+  const firstKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!verified) return;
+    if (firstKey.current === null) { firstKey.current = eventsKey; return; }
+    if (firstKey.current === eventsKey) return;
+    firstKey.current = eventsKey;
+    const t = setTimeout(() => refresh(), 3000);
+    return () => clearTimeout(t);
+  }, [eventsKey, verified, refresh]);
 
   // Reconcile with the current data source:
   // - once Zoho is live, sample (demo) items disappear;
@@ -489,10 +502,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const ticker = useMemo(() => {
     if (!data) return [];
-    return buildTickerItems(data.trainings, followUps, entries, announcements, now).filter(
-      (i) => !tickerSnooze[i.id] || new Date(tickerSnooze[i.id]) < now,
+    // Upcoming Training-board trainings: everyone but the AedSmartx-only trainer (Priyanka), who sees her AED trainings;
+    // AED trainings: members with that board; invoices, renewals and pace: members with the Training board.
+    const boards: string[] = member ? boardsFor(member) : ["training"];
+    const aedOnly = boards.includes("aed") && !boards.includes("training");
+    const mine = (i: TickerItem) => i.id.startsWith("up:") && i.board === "training" ? !aedOnly : !i.board || boards.includes(i.board);
+    return buildTickerItems(data.trainings, data.board ?? [], data.aedBoard ?? [], entries, announcements, now).filter(
+      (i) => mine(i) && (!tickerSnooze[i.id] || new Date(tickerSnooze[i.id]) < now),
     );
-  }, [data, followUps, entries, announcements, now, tickerSnooze]);
+  }, [data, entries, announcements, now, tickerSnooze, member]);
 
   const value: Store = {
     ready,

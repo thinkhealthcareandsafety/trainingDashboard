@@ -580,6 +580,26 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
 - **Training not required** is **purple** (session 5): column header, card border + chip, modal training box and button, and
   the resale / Reseller tick boxes (token `--purple` / `--purple-bg`, light and dark).
 
+### Overview, Calendar, ticker (session 8) — from the boards
+- `/api/trainings` also returns **`board`** (Training board) and **`aedBoard`** (AedSmartx) as `BoardTraining[]` + `aedWaiting`,
+  built on the server (`boardTrainings` / `boardsNow` in fulfilServer.ts: Zoho copy + change log, as the boards do): **one per
+  deal** (its latest live card, multi-day = one), dates, trainers, people (= No. of People; AED: 0), alias, status. The store
+  reloads it 3 s after any team change (and every 5 min / after a Zoho sync).
+- **Targets** (`kpi.ts`): 10 trainings and **300 people** a month, 120 and **3000** a fiscal year (Apr–Mar); only trainings
+  marked **completed** count, in the month of their **last** training day; dated ones not completed show as "n scheduled" /
+  "n more in scheduled trainings". Revenue stays from the Zoho invoices. Tiles: Month · Year (trainings + people meters) ·
+  Revenue · **Coming up (next 15 days)**. Trend chart + table + "Completed by type / client / trainer" from the board.
+  "Needs attention" (legacy follow-ups) is now **Upcoming trainings** (next 15 days).
+- **Priyanka** (AedSmartx only) gets her own Overview: AED trainings this month / year (no targets), AED invoices without a
+  date, coming up, her trend; no Pipeline card. AED trainings never count toward the team targets.
+- **Calendar**: the boards' trainings on every training day (alias/customer, training, day n of m, people, trainers, Completed /
+  Postponed tag; AED ones purple, with time); click → `/follow-up?q=<doc>`. Training board for all but Priyanka; AED for members
+  with that board.
+- **Ticker**: upcoming trainings first (next **15** days, soonest first: Today / Tomorrow / "Sun, 18 Oct", day n of m, people,
+  trainers), then overdue invoices, renewals, high calendar entries, pace (trainings + people), news. The legacy follow-up
+  items ("Payment follow-up … · 35d late", "Chase quote …") and the sidebar's red follow-ups count are gone. Who sees what:
+  Training-board trainings everyone but Priyanka; AED trainings members with AedSmartx; money / pace members with Training.
+
 ### Layout preferences (see also §8)
 Columns side by side as a sliding window (as many as fit at ≥184 px with full names; ◀ ▶, arrow keys, swipe); board fits the screen
 with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden scrollbars; sidebar can hide to a rail.
@@ -788,6 +808,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 172 | "push it to github" | **Sync now = full check** (unless one ran in the last 10 min) + quick syncs ignore AED invoices before `AED_SINCE` (`classify`). `01f028c`, live after ~60 s. |
 | 173 | Multi-day trainings train different people each day: let Shreya add names per date; sheet rows and certificates carry their own date. "Tell me what you understood first" → answers: 1) every day must have names 2) one PDF 3) one design 4) one person, one day 5) postpone/undo don't touch the sheet | Built (§3). Click-tested on the real local app with saves blocked (Classic Citi shown as 15–17 Sept in the browser only): 3 boxes, duplicate + empty-day block Preview, request carries `days`, preview rows dated per day, fits 1728×958. Pushed in session 8. |
 | 174 | (found while testing) 8 **false** "no longer in Zoho Books" notices (12 Oct 16:03, 16:41 IST; 13 Oct 09:13 IST — Shreya's tab woke from sleep: team data pulled before its day-old Zoho data) | Fix: `zohoNotices` ignores merges newer than the board's Zoho data (`data.syncedAt`); the board reloads Zoho data when a tab becomes visible. Pushed in session 8. The 8 entries are still in `cardEvents` (#44). |
+| 177 | Overview / Calendar / ticker from the board's data; targets 10 & 120 trainings, 300 & 3000 people (quantity); ticker shows upcoming trainings. Answers: 1) completed only 2) fiscal year 3) one deal = one training, however many dates 4) AED trainings don't count for the team but Priyanka gets her own dashboard 5) next **15** days 6) drop the stale follow-up items | Built (§4 "Overview, Calendar, ticker"). Real numbers on 13 Oct: Oct 5/10 trainings, 130/300 people; FY 21/120, 842/3000; 53 board trainings (all completed — none scheduled ahead), 3 AED. Checked read-only + with 2 made-up upcoming trainings injected in the browser only (tiles, chart, calendar, list, ticker). Priyanka view via stand-in. Phone 390 px fits. Pushed in session 8. |
 | 176 | Fulfillment: "Have a list? Click here to Generate Certificates" from Training Completed (no gratitude email, card moves to Certificates Generated, quick, confetti); "enhance the UI, it looks cluttered"; add an optional **concerned person's name** next to alias + email | Built (§4 Fulfillment). Name: `set_concerned_name` per customer name (`CardView.concernedName`, `NamePicker` in CardModal, shown as "Concerned: Name · email"); gratitude email var **`{person}`** (name, else "Sir/ Ma'am"); the default body now starts "Dear {person}," — **the live Mongo doc `mailTemplates/fulfil_gratitude` still says "Dear Sir/ Ma'am"** (update it only with the owner's OK). Tested with saves blocked: Generate opens from column 1, the read-only preview answered 200 for a Training Completed card, name field in Certificate details; detector clean; phone 390 px fits. Pushed in session 8. |
 | 175 | "Make Alias and Email mandatory in training scheduling so nothing is missed at the gratitude email" | `certReady` in CardModal.tsx gates every scheduling button; pickers start at *Select…*; Certificate details popup needs both. Click-tested on Duet India Performa-25-1097 with saves blocked. Not enforced on the server; *Completed on invoice date* (old trainings) still asks for neither. Pushed in session 8. |
 
@@ -943,7 +964,7 @@ No test suite. Pattern used throughout:
    `SESSION_SECRET` to sign everyone out).
 5. Nothing is written back to Zoho (dates, merges, notes live only in the dashboard).
 6. ~~Invoices paid in instalments~~ — done (see Instalments in §4).
-7. Legacy follow-up tasks (`src/lib/followups.ts`) still feed the ticker and the sidebar badge; untouched.
+7. Legacy follow-up tasks (`src/lib/followups.ts`) no longer feed the ticker, the sidebar badge or the Overview (session 8); the store still builds them (unused) — remove when convenient.
 8. Unused Mongo `leads` collection can be dropped with permission.
 9. Optional: custom domain (Vercel → Settings → Domains); the office LAN dev server is no longer needed once the team uses the live site.
 10. The `/api/store` GET returns the whole team dataset to any signed-in member (fine for this team; revisit if outside users are added).

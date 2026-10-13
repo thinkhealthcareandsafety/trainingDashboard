@@ -40,12 +40,36 @@ export interface PipelineDoc {
   zohoPriority?: Priority;
 }
 
+/**
+ * A training as the boards show it: one per deal (its latest card), with every training day. Completed ones count in
+ * the month of their last day.
+ */
+export interface BoardTraining {
+  id: string; // the card on its board (pi:/quote:/invoice:/aed:)
+  board: "training" | "aed";
+  docNumber: string;
+  customerName: string;
+  alias?: string; // alias for certificates
+  training: string; // training name(s)
+  people: number; // No. of People (AedSmartx: 0 — not counted there)
+  dates: string[]; // YYYY-MM-DD, in order; none when to be decided
+  time?: string; // AedSmartx: HH:mm
+  trainers: string[];
+  status: "scheduled" | "postponed" | "tbd" | "completed";
+}
+
 export interface TrainingsResponse {
   source: "zoho" | "mock";
   syncedAt: string;
   trainings: Training[];
   /** Quotes awaiting reply and booked (not yet invoiced) sales orders. */
   pipeline: PipelineDoc[];
+  /** The Training board's trainings (one per deal, however many days) — what the targets, calendar and ticker count. */
+  board?: BoardTraining[];
+  /** AedSmartx trainings (Priyanka's board) — not part of the team targets. */
+  aedBoard?: BoardTraining[];
+  /** AedSmartx invoices still without a training date (and not "not required"). */
+  aedWaiting?: number;
   orgId?: string;
   error?: string;
 }
@@ -337,5 +361,7 @@ export interface TickerItem {
   text: string;
   href: string;
   sortKey: number;
+  /** Shown only to members with this board (training-board items: Training; AedSmartx trainings: AedSmartx). */
+  board?: "training" | "aed";
 }
 
