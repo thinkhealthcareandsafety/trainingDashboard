@@ -88,6 +88,8 @@ export interface CardView {
   certAlias?: string;
   /** The concerned person's email (participant list, gratitude emails) — per customer name, the latest set. */
   concernedEmail?: string;
+  /** The concerned person's name (optional) — per customer name, the latest set. */
+  concernedName?: string;
   /** Quotes/PIs with nothing left to merge (no flags) can get a training date. */
   canSchedule: boolean;
   /** PI merged and ready, but no date yet: offer to schedule when opened. */
@@ -464,7 +466,7 @@ export function customerContacts(events: CardEvent[], customerOf: Map<string, st
 }
 
 /** Per customer: the alias for certificates ("" = the customer's own name, chosen) and the concerned person's email. */
-export type CustomerCert = Map<string, { alias?: string; email?: string }>;
+export type CustomerCert = Map<string, { alias?: string; email?: string; name?: string }>;
 
 /**
  * The alias for certificates and the concerned person's email go by the customer's name, like aliases: the latest one
@@ -472,9 +474,9 @@ export type CustomerCert = Map<string, { alias?: string; email?: string }>;
  * scheduled under an alias before these existed count as setting it then. Returns contact id → values.
  */
 export function customerCert(events: CardEvent[], customerOf: Map<string, string>, nameOf: Map<string, string>): CustomerCert {
-  const byName = new Map<string, { alias?: string; email?: string }>();
+  const byName = new Map<string, { alias?: string; email?: string; name?: string }>();
   const keyOf = (customer: string) => nameOf.get(customer) || `id:${customer}`;
-  const evs = events.filter((e) => !e.revertedAt && (e.kind === "set_cert_alias" || e.kind === "set_concerned_email" || (e.kind === "set_training_date" && e.underName)))
+  const evs = events.filter((e) => !e.revertedAt && (e.kind === "set_cert_alias" || e.kind === "set_concerned_email" || e.kind === "set_concerned_name" || (e.kind === "set_training_date" && e.underName)))
     .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
   for (const e of evs) {
     const customer = e.ref ?? e.cardIds.map((id) => customerOf.get(id)).find(Boolean);
@@ -483,6 +485,7 @@ export function customerCert(events: CardEvent[], customerOf: Map<string, string
     const c = byName.get(key) ?? {};
     byName.set(key, c);
     if (e.kind === "set_concerned_email") c.email = e.value?.trim() || undefined;
+    else if (e.kind === "set_concerned_name") c.name = e.value?.trim() || undefined;
     // "" = "Same as original" was chosen (the customer's own name); undefined = never chosen — scheduling asks for it.
     else c.alias = (e.kind === "set_cert_alias" ? e.value : e.underName)?.trim() ?? "";
   }
@@ -499,6 +502,7 @@ function applyCustomerCert(cards: Map<string, CardView>, cert: CustomerCert) {
     if (!s) continue;
     c.certAlias = s.alias;
     c.concernedEmail = s.email;
+    c.concernedName = s.name;
     if (s.email) c.search = `${c.search} ${s.email.toLowerCase()}`;
   }
 }
@@ -1024,6 +1028,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     }
     case "complete_training": return e.mode === "invoice" ? "Training marked completed on the invoice date (before the dashboard)" : "Training marked completed — moved to Training completed";
     case "set_cert_alias": return `Alias for certificates: ${v ? `“${v}”` : "the customer's own name"}${e.before ? ` (was “${e.before}”)` : ""} — on every card under this customer name`;
+    case "set_concerned_name": return `Concerned person's name: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — on every card under this customer name`;
     case "set_concerned_email": return `Concerned person's email: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — on every card under this customer name`;
     case "zoho_change": return v;
     case "add_potential": return `Added to Potential training${v ? ` — training expected around ${fmtMonth(v)}` : ""}`;
@@ -1035,6 +1040,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_reseller": return `Marked ${e.before ?? "the customer"} as a Reseller — all their AED invoices moved to Training not required`;
     case "set_fulfillment": return e.mode === "done"
       ? `Marked as completed — done before the dashboard, moved to ${fulfilLabel(v)}`
+      : e.mode === "list" ? `Certificates made from a list already at hand (no gratitude email) — moved to ${fulfilLabel(v)}`
       : `Moved to ${fulfilLabel(v)}${e.before ? ` (was ${fulfilLabel(e.before)})` : ""}`;
     case "set_wip": return v === "on" ? "Marked Work in progress" : "Unmarked Work in progress";
     case "set_cert_status": return `Certificates: ${v === "hold" ? "On hold" : "In process"}`;
@@ -1198,7 +1204,8 @@ export function buildAedBoard(leads: ZohoLead[], invoices: AedInvoice[], events:
 
 /**
  * Training Completed → Gratitude Email Sent → Certificates Generated → Sent to Logistics.
- *   - Training Completed: Send Gratitude Email (from Zoho Mail, learn@) moves the card on.
+ *   - Training Completed: Send Gratitude Email (from Zoho Mail, learn@) moves the card on — or, with the list already at
+ *     hand, Generate Certificate straight away (no email): downloading moves it to Certificates Generated.
  *   - Gratitude Email Sent: replies are found by the hourly check and star the card until it's opened in Zoho Mail;
  *     Generate Certificate adds the participants to the master sheet and makes the PDF — downloading it moves the card on.
  *   - Certificates Generated: In process (green) or On hold (yellow); Sent to Logistics only while In process.
@@ -1293,7 +1300,7 @@ export function buildFulfillmentBoard(board: ReturnType<typeof buildBoard>, even
         replies,
         star: !certs && stage === "gratitude" && replies.some((r) => !opened || r.at > opened.at),
         certs: certs ? { id: certs.id, at: certs.at, by: certs.by, rows: certs.certs ?? [], design: certs.design } : undefined,
-        certsReverted: Boolean(certs && stage === "gratitude" && undone.get(id)?.some((e) => e.at > certs.at)),
+        certsReverted: Boolean(certs && (stage === "gratitude" || stage === "completed") && undone.get(id)?.some((e) => e.at > certs.at)),
         certStatus: status?.value === "hold" ? "hold" : "process",
         doneEarlier: moved?.mode === "done",
       },

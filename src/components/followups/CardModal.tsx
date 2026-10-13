@@ -322,15 +322,15 @@ export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DAT
 /**
  * For certificates, per customer name: the alias printed as the location ("" = the customer's own name, null = not
  * chosen yet) and the concerned person's email ("" = not set). Both are required to schedule a training (owner, 13 Oct:
- * so nothing is missing at the gratitude email).
+ * so nothing is missing at the gratitude email). The concerned person's name is optional.
  */
-export type CertChoice = { alias: string | null; email: string };
+export type CertChoice = { alias: string | null; email: string; name: string };
 type ScheduleFn = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => void;
 
-export const certOf = (card: CardView): CertChoice => ({ alias: card.certAlias ?? null, email: card.concernedEmail ?? "" });
+export const certOf = (card: CardView): CertChoice => ({ alias: card.certAlias ?? null, email: card.concernedEmail ?? "", name: card.concernedName ?? "" });
 /** Both chosen: an alias (or "Same as original") and a valid email. */
 export const certReady = (c: CertChoice) => c.alias !== null && EMAIL_RE.test(c.email.trim());
-const sameCert = (a: CertChoice, b: CertChoice) => a.alias === b.alias && normEmail(a.email) === normEmail(b.email);
+const sameCert = (a: CertChoice, b: CertChoice) => a.alias === b.alias && normEmail(a.email) === normEmail(b.email) && a.name.trim() === b.name.trim();
 
 /**
  * The events that set a card's alias for certificates and concerned email — both go to every card under the
@@ -346,21 +346,22 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
     ...(alias && alias !== card.name && !card.aliases.includes(alias) ? [{ ...base, kind: "add_alias" as const, value: alias }] : []),
     ...(alias !== null && alias !== now.alias ? [{ ...base, kind: "set_cert_alias" as const, value: alias, before: now.alias ?? "" }] : []),
     ...(normEmail(email) !== normEmail(now.email) ? [{ ...base, kind: "set_concerned_email" as const, value: email, before: now.email }] : []),
+    ...(cert.name.trim().replace(/\s+/g, " ") !== now.name ? [{ ...base, kind: "set_concerned_name" as const, value: cert.name.trim().replace(/\s+/g, " "), before: now.name }] : []),
   ];
 }
 
 /** A picker's own row: label, what it's used for, then the control. */
-function PickerRow({ label, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
+function PickerRow({ label, hint, required = true, children }: { label: string; hint: string; required?: boolean; children: React.ReactNode }) {
   if (useContext(FormRows)) {
     return (
-      <FieldRow label={label[0] + label.slice(1).toLowerCase().replace("person's", "person’s")} hint={hint[0].toUpperCase() + hint.slice(1)} required>
+      <FieldRow label={label[0] + label.slice(1).toLowerCase().replace("person's", "person’s")} hint={hint[0].toUpperCase() + hint.slice(1)} required={required}>
         <span className="flex flex-wrap items-center gap-1.5">{children}</span>
       </FieldRow>
     );
   }
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[12px] font-bold uppercase tracking-wide text-brand">{label}<span className="text-high"> *</span></span>
+      <span className="text-[12px] font-bold uppercase tracking-wide text-brand">{label}{required && <span className="text-high"> *</span>}</span>
       <span className="text-[12px] text-muted">({hint})</span>
       <span className="inline-flex flex-wrap items-center gap-1.5">{children}</span>
     </div>
@@ -372,8 +373,26 @@ function CertPickers({ card, value, onChange }: { card: CardView; value: CertCho
   const pickers = <>
     <AliasPicker card={card} value={value.alias} onChange={(alias) => onChange({ ...value, alias })} />
     <EmailPicker card={card} value={value.email} onChange={(email) => onChange({ ...value, email })} />
+    <NamePicker value={value.name} onChange={(name) => onChange({ ...value, name })} />
   </>;
   return useContext(FormRows) ? pickers : <div className="space-y-1.5">{pickers}</div>;
+}
+
+/** The concerned person's name — optional; it greets them in the gratitude email. */
+function NamePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const rows = useContext(FormRows);
+  return (
+    <PickerRow label="Add Concerned Person's Name" hint="optional — greets them in the gratitude email" required={false}>
+      <input
+        className={`${inputCls} !h-8 ${pickerWidth(rows, "!w-56")} text-[13px]`}
+        placeholder="e.g. Roohi Khanna"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="Concerned person's name"
+        maxLength={80}
+      />
+    </PickerRow>
+  );
 }
 
 /** The dropdowns: one width inside a popup form, as narrow as their text in the inline schedule row. */
@@ -658,7 +677,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
                   type="button"
                   className={`ml-auto shrink-0 text-[13px] font-semibold hover:underline ${certReady(cert) ? "text-brand" : "text-high"}`}
                   onClick={() => setCertOpen(true)}
-                  title={`Alias: ${cert.alias === null ? "not chosen" : cert.alias || "Same as original"} · Concerned email: ${cert.email || "not set"}`}
+                  title={`Alias: ${cert.alias === null ? "not chosen" : cert.alias || "Same as original"} · Concerned email: ${cert.email || "not set"}${cert.name.trim() ? ` · ${cert.name.trim()}` : ""}`}
                 >
                   {certReady(cert) ? <>Alias &amp; email{sameCert(cert, certOf(card)) ? "" : " ✓"}</> : <>Alias &amp; email required *</>}
                 </button>
@@ -706,7 +725,8 @@ function CertLines({ card, onChange, needEmail }: { card: CardView; onChange?: (
     <>
       {card.certAlias && <p className="mt-0.5 truncate text-[12.5px] leading-snug text-ink-2" title={card.certAlias}><span className="font-semibold">Alias:</span> {card.certAlias}</p>}
       <p className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[12.5px] leading-snug text-ink-2">
-        <span className="shrink-0 font-semibold">Concerned email:</span>
+        <span className="shrink-0 font-semibold">{card.concernedName ? "Concerned:" : "Concerned email:"}</span>
+        {card.concernedName && <span className="shrink-0 font-medium text-ink">{card.concernedName}{card.concernedEmail ? " ·" : ""}</span>}
         {card.concernedEmail
           ? <span className="truncate" title={card.concernedEmail}>{card.concernedEmail}</span>
           : <span className={needEmail ? "font-medium text-medium" : "text-muted"} title={needEmail ? "Needed for the gratitude email and the certificates" : undefined}>not set</span>}
@@ -846,6 +866,7 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
             <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
             <AliasPicker card={card} value={cert.alias} onChange={(alias) => setCert({ ...cert, alias })} />
             <EmailPicker card={card} value={cert.email} onChange={(email) => setCert({ ...cert, email })} />
+            <NamePicker value={cert.name} onChange={(name) => setCert({ ...cert, name })} />
           </div>
         </FormRows.Provider>
         <div className="flex justify-end gap-2 px-6 py-4">
@@ -1250,7 +1271,7 @@ export function Shell({ label, onClose, side, footer, overlay, children }: { lab
   );
 }
 
-export function Header({ kind, sub, title, flagged, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; onClose: () => void }) {
+export function Header({ kind, sub, title, flagged, aside, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; aside?: React.ReactNode; onClose: () => void }) {
   return (
     <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-line bg-surface px-6 pb-3 pt-4">
       <div className="min-w-0">
@@ -1263,7 +1284,10 @@ export function Header({ kind, sub, title, flagged, onClose }: { kind?: CardKind
           {flagged && <FlagBadge />}
         </h2>
       </div>
-      <IconButton label="Close" onClick={onClose}><path d="M5 5l10 10M15 5L5 15" /></IconButton>
+      <div className="flex shrink-0 items-center gap-4">
+        {aside}
+        <IconButton label="Close" onClick={onClose}><path d="M5 5l10 10M15 5L5 15" /></IconButton>
+      </div>
     </div>
   );
 }

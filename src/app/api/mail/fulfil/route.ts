@@ -29,6 +29,7 @@ const varsOf = (card: CardView) => ({
   course: card.training.map((t) => t.name).join(", ") || "training",
   dates: card.schedule?.dates.length ? fmtDays(card.schedule.dates.join(",")) : "",
   people: String(card.training[0]?.qty ?? ""),
+  person: card.concernedName || "Sir/ Ma'am", // "Dear {person}," — the concerned person's name when given
 });
 
 export async function GET(request: Request) {

@@ -247,6 +247,7 @@ export type CardEventKind =
   // Certificates: one value per customer name (ref = Zoho contact id), the latest wins on every card of that name.
   | "set_cert_alias" // value = the alias printed as the location ("course conducted at"), "" = the customer's own name; before = previous
   | "set_concerned_email" // value = the concerned person's email (participant list, gratitude emails), "" = not set; before = previous
+  | "set_concerned_name" // value = the concerned person's name (optional; greets them in the gratitude email), "" = not set; before = previous
   | "zoho_change" // recorded automatically when a Zoho document disappears and a card moves because of it
   | "add_potential" // creates a Potential training card: cardIds [potential:<id>], ref = Zoho contact id, value = expected month (YYYY-MM) or none
   | "set_potential_date" // value: new expected month (YYYY-MM) or "" for not set; before: previous
@@ -293,7 +294,8 @@ export interface CardEvent {
   // set_training_date "change": "Change date" — the date was corrected (earlier or later), not postponed.
   // set_fulfillment "done": Mark as Completed — done before the dashboard (no email, no certificates here), on to Logistics.
   // set_training_date / complete_training "invoice": completed on the invoice date — a training from before the dashboard.
-  mode?: "change" | "done" | "invoice";
+  // set_fulfillment "list": certificates made from Training Completed with the list already at hand — no gratitude email.
+  mode?: "change" | "done" | "invoice" | "list";
   underName?: string; // set_training_date (before set_cert_alias): the training is under this alias (none = the customer's own name)
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)

@@ -11,6 +11,7 @@ import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
+import { StatePill } from "./followups/FulfilCerts";
 import { LogiAedModal, LogisticsModal } from "./followups/LogisticsModal";
 import { type DateFilterValue, DateFilterButton, matchesDateFilter } from "./followups/DateFilter";
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
@@ -283,19 +284,6 @@ function fulfilBorder(c: CardView): string {
 }
 
 /** What a Fulfillment card says under its training. */
-function fulfilStatus(f: NonNullable<CardView["fulfillment"]>): { text: string; tone: string } | undefined {
-  switch (f.stage) {
-    case "gratitude":
-      if (f.certs && !f.certsReverted) return { text: "Certificates ready to download", tone: "text-low" };
-      if (f.star) return { text: "Reply received", tone: "text-medium" };
-      if (f.replies.length) return { text: "Replied · add the list", tone: "text-info" };
-      return f.email ? { text: "Email Sent, Awaiting Reply", tone: "text-info" } : { text: "List received earlier", tone: "text-info" };
-    case "generated": return f.certStatus === "hold" ? { text: "On hold", tone: "text-medium" } : { text: "In process", tone: "text-low" };
-    case "logistics": return { text: "Sent to Logistics", tone: "text-low" };
-    default: return undefined;
-  }
-}
-
 function ItemShell({ card, onClick, children }: { card: CardView; onClick: () => void; children: React.ReactNode }) {
   // Invoices / payments: red overdue, blue due, green paid. Training scheduled: green = date, red = to be decided.
   const due = card.aed ? undefined : cardDue(card);
@@ -415,7 +403,33 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
       )}
       {card.readyToSchedule && <div className="mt-1 text-[11px] font-semibold text-low">Ready to schedule</div>}
       {logi && <div className={`mt-1 text-[11.5px] font-semibold ${logi.tone}`}>{logi.text}</div>}
-      {f && fulfilStatus(f) && <div className={`mt-1 text-[11.5px] font-semibold ${fulfilStatus(f)!.tone}`}>{fulfilStatus(f)!.text}</div>}
+      {f && <div className="mt-1.5"><StatePill f={f} /></div>}
+    </ItemShell>
+  );
+}
+
+/**
+ * Fulfillment board card: every training here is completed, so no "Completed" chip — the document and its training day,
+ * the training, people · trainers · alias, then where the certificates stand.
+ */
+function FulfilItem({ card, onClick }: { card: CardView; onClick: () => void }) {
+  const f = card.fulfillment!;
+  const s = card.schedule;
+  const people = card.training.reduce((n, t) => n + t.qty, 0);
+  const who = [people ? `${people} people` : "", s?.trainers.map((t) => t.split(" ")[0]).join(", ") ?? ""].filter(Boolean).join(" · ");
+  return (
+    <ItemShell card={card} onClick={onClick}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate font-semibold text-ink">{card.docNumber}</span>
+        {s && <span className="num shrink-0 font-semibold text-ink-2">{scheduleText(s)}</span>}
+      </div>
+      <div className="mt-0.5 truncate" title={card.training.map((t) => t.name).join(", ")}>{card.training.map((t) => t.name).join(", ")}</div>
+      {(who || card.certAlias) && (
+        <div className="mt-0.5 truncate text-[11.5px] text-ink-2" title={card.certAlias ? `Alias: ${card.certAlias}` : undefined}>
+          {who}{who && card.certAlias ? " · " : ""}{card.certAlias && <>Alias <span className="font-semibold">{card.certAlias}</span></>}
+        </div>
+      )}
+      <div className="mt-1.5"><StatePill f={f} /></div>
     </ItemShell>
   );
 }
@@ -450,6 +464,7 @@ function CustomerBox({ cards, onOpen }: { cards: CardView[]; onOpen: (c: CardVie
         {cards.map((c) =>
           c.kind === "lead" ? <LeadItem key={c.id} card={c} onClick={() => onOpen(c)} />
           : c.kind === "potential" ? <PotentialItem key={c.id} card={c} onClick={() => onOpen(c)} />
+          : c.fulfillment && !c.logistics ? <FulfilItem key={c.id} card={c} onClick={() => onOpen(c)} />
           : <DocItem key={c.id} card={c} onClick={() => onOpen(c)} />,
         )}
       </div>

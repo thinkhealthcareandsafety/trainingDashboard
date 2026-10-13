@@ -89,7 +89,7 @@ Think Health Care and Safety`,
     steps: [
       {
         label: "Gratitude email",
-        body: `Dear Sir/ Ma'am,
+        body: `Dear {person},
 
 Thank you for hosting our {course} at {location} on {dates}. It was a pleasure working with your team.
 

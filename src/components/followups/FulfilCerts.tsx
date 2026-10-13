@@ -115,14 +115,18 @@ function saveFile(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-/** Download: Gratitude Email Sent cards then move to Certificates Generated (In process), with fireworks. */
+/**
+ * Download: the card moves to Certificates Generated (In process) right away, with fireworks — from Gratitude Email Sent,
+ * or from Training Completed when the list was already at hand (no gratitude email; logged as such).
+ */
 function useDownload(card: CardView, member: Member) {
   const { addCardEvents, revertCardEvent, toast } = useStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const moveOn = () => {
-    if (card.fulfillment?.stage !== "gratitude") return;
-    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_fulfillment", value: "generated", before: "gratitude", by: member.name }]);
+    const stage = card.fulfillment?.stage;
+    if (stage !== "gratitude" && stage !== "completed") return;
+    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "set_fulfillment", value: "generated", before: stage, ...(stage === "completed" ? { mode: "list" as const } : {}), by: member.name }]);
     fireworks();
     toast({ text: `${card.name} moved to Certificates Generated`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
   };
@@ -180,7 +184,7 @@ function GratitudePopup({ card, member, onClose }: { card: CardView; member: Mem
     setBusy(true); setError("");
     try {
       // A new concerned email chosen here is kept on the customer, like one set when scheduling.
-      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { alias: card.certAlias ?? null, email: to }, member.name));
+      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { alias: card.certAlias ?? null, email: to, name: card.concernedName ?? "" }, member.name));
       const j = await post({});
       recordCardEvents([j.event!]);
       toast({ text: `Gratitude email sent to ${to} — ${card.name} moved to Gratitude Email Sent` });
@@ -646,14 +650,68 @@ function RevertedNote({ card }: { card: CardView }) {
   );
 }
 
+/* ---------------- Where the card is ---------------- */
+
+type Tone = "info" | "low" | "medium" | "muted";
+const PILL: Record<Tone, string> = {
+  info: "bg-info-bg text-info", low: "bg-low-bg text-low", medium: "bg-medium-bg text-medium", muted: "bg-surface-2 text-muted",
+};
+
+/** The card's state in a few words — the same on the board and in the card. */
+export function fulfilState(f: NonNullable<CardView["fulfillment"]>): { text: string; tone: Tone } {
+  switch (f.stage) {
+    case "completed":
+      return f.certs && !f.certsReverted ? { text: "Certificates ready to download", tone: "low" } : { text: "Email not sent yet", tone: "muted" };
+    case "gratitude":
+      if (f.certs && !f.certsReverted) return { text: "Certificates ready to download", tone: "low" };
+      if (f.star) return { text: "Reply received", tone: "medium" };
+      if (f.replies.length) return { text: "Replied · add the list", tone: "info" };
+      return f.email ? { text: "Email Sent, Awaiting Reply", tone: "info" } : { text: "List received earlier", tone: "info" };
+    case "generated": return f.certStatus === "hold" ? { text: "On hold", tone: "medium" } : { text: "In process", tone: "low" };
+    default: return f.doneEarlier ? { text: "Done before the dashboard", tone: "low" } : { text: "Sent to Logistics", tone: "low" };
+  }
+}
+
+export function StatePill({ f, className = "" }: { f: NonNullable<CardView["fulfillment"]>; className?: string }) {
+  const s = fulfilState(f);
+  return <span className={`inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-[11.5px] font-semibold leading-tight ${PILL[s.tone]} ${className}`}>{s.text}</span>;
+}
+
+const STEPS = ["Training", "Gratitude email", "Certificates", "Logistics"];
+const STEP_OF: Record<string, number> = { completed: 0, gratitude: 1, generated: 2, logistics: 3 };
+
+/** Training → Gratitude email → Certificates → Logistics: done, here, still to come (a skipped email shows as skipped). */
+export function FulfilSteps({ f }: { f: NonNullable<CardView["fulfillment"]> }) {
+  const at = STEP_OF[f.stage];
+  return (
+    <ol className="hidden items-center gap-1.5 lg:flex" aria-label="Certificates progress">
+      {STEPS.map((label, i) => {
+        const skipped = i === 1 && at > 1 && !f.email && !f.legacy;
+        const done = i < at && !skipped;
+        const here = i === at;
+        return (
+          <li key={label} className="flex items-center gap-1.5" aria-current={here ? "step" : undefined}>
+            {i > 0 && <span className={`h-px w-6 ${i <= at ? "bg-brand" : "bg-line"}`} aria-hidden />}
+            <span className={`grid size-[18px] shrink-0 place-items-center rounded-full ${done ? "bg-brand text-brand-ink" : here ? "border-2 border-brand" : "border border-line-strong"}`} aria-hidden>
+              {done && <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-5" /></svg>}
+              {here && <span className="size-1.5 rounded-full bg-brand" />}
+            </span>
+            <span className={`whitespace-nowrap text-[12.5px] ${here ? "font-semibold text-ink" : done ? "text-ink-2" : "text-faint"} ${skipped ? "line-through decoration-faint" : ""}`} title={skipped ? "Skipped — the list was already at hand" : undefined}>{label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 /* ---------------- Under the Training box ---------------- */
 
 /** One labelled line of the Certificates block. */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
-      <dt className="text-[12px] font-semibold leading-[1.45rem] text-muted">{label}</dt>
-      <dd className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12.5px] leading-[1.45rem] text-ink-2">{children}</dd>
+      <dt className="text-[12px] font-medium leading-6 text-muted">{label}</dt>
+      <dd className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] leading-6 text-ink-2">{children}</dd>
     </>
   );
 }
@@ -685,37 +743,49 @@ export function FulfilActions({ card, member, onShowReply }: { card: CardView; m
   const b = "font-semibold text-ink";
   // The step's main action sits on the title row and every detail is one labelled line, so the card still fits without scrolling.
   const action =
-    f.stage === "completed" ? (
+    f.stage === "completed" ? (certs
+      ? <button className={btn.primary} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download certificates"}</button>
+      : (
       <span className="flex flex-wrap justify-end gap-2">
         <button className={btn.ghost} onClick={() => setPopup("done")} title="Certificates already made and sent before the dashboard">Mark as Completed</button>
         <button className={btn.primary} onClick={() => setPopup("email")}>Send Gratitude Email</button>
       </span>
-    )
+    ))
     : f.stage === "gratitude" ? (certs
       ? <button className={btn.primary} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download certificates"}</button>
       : <button className={btn.primary} onClick={() => setPopup("generate")}>Generate Certificate</button>)
     : f.stage === "generated" ? <button className={btn.primary} onClick={toLogistics} disabled={f.certStatus === "hold"} title={f.certStatus === "hold" ? "Set it to In process first" : undefined}>Sent to Logistics</button>
-    : <span className="text-[12.5px] font-semibold text-low">Sent to Logistics — Arti takes it from here</span>;
-  const sheetRow = f.certs && (f.stage !== "gratitude" || certs) && (
+    : <span className="text-[12.5px] text-muted">Arti takes it from here</span>;
+  const early = f.stage === "gratitude" || f.stage === "completed";
+  const sheetRow = f.certs && (!early || certs) && (
     <Row label="Sheet">
       <span><b className={b}>{f.certs.rows.length}</b> {f.certs.rows.length === 1 ? "name" : "names"} · SN <span className="num">{serials(f.certs.rows)}</span></span>
-      {f.stage !== "gratitude" && <>· <button className={link} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download again"}</button></>}
+      {!early && <>· <button className={link} onClick={() => download()} disabled={busy}>{busy ? "Making the PDF…" : "Download again"}</button></>}
     </Row>
   );
 
   return (
-    <div className="mt-3 rounded-xl border border-line">
-      <div className="flex min-h-12 items-center justify-between gap-3 px-3 py-1.5">
-        <span className="text-[12px] font-bold uppercase tracking-wide text-brand">Certificates</span>
+    <div className="mt-3 rounded-xl border border-line bg-surface">
+      <div className="flex min-h-[52px] items-center justify-between gap-3 px-3.5 py-2">
+        <span className="text-[15px] font-semibold tracking-tight text-ink">Certificates</span>
         {action}
       </div>
-      <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-0.5 border-t border-line px-3 py-2 empty:hidden">
+      <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 border-t border-line px-3.5 py-2 empty:hidden">
         {f.stage === "completed" && (
-          <Row label="Email">
-            <span className="min-w-0 truncate">
-              Not sent yet · to {card.concernedEmail ? <b className={b}>{card.concernedEmail}</b> : <span className="font-medium text-medium">the concerned email — choose it in the popup</span>}
-            </span>
-          </Row>
+          <>
+            <Row label="Email">
+              <span className="min-w-0 truncate">
+                Not sent yet · to {card.concernedEmail ? <b className={b}>{card.concernedEmail}</b> : <span className="font-medium text-medium">the concerned email — choose it in the popup</span>}
+              </span>
+            </Row>
+            {!certs && (
+              <Row label="List">
+                <span className="text-muted">Have a list?</span>
+                <button className={link} onClick={() => setPopup("generate")}>Click here to Generate Certificates</button>
+              </Row>
+            )}
+            {sheetRow}
+          </>
         )}
         {f.stage === "gratitude" && (
           <>

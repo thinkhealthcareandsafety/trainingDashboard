@@ -21,7 +21,8 @@ export async function POST(request: Request) {
     const c = await fulfilContext(request, body.card);
     if ("error" in c) return c.error;
     const f = c.card.fulfillment!;
-    if (f.stage !== "gratitude") return Response.json({ error: "Certificates are made from Gratitude Email Sent" }, { status: 409 });
+    // From Gratitude Email Sent — or straight from Training Completed when the list is already at hand (no email).
+    if (f.stage !== "gratitude" && f.stage !== "completed") return Response.json({ error: "Certificates are made from Training Completed or Gratitude Email Sent" }, { status: 409 });
     if (f.certs && !f.certsReverted) return Response.json({ error: "These participants are already in the sheet — download the certificates instead" }, { status: 409 });
     const design = DESIGNS.find((d) => d.id === body.design);
     if (!isDesignId(body.design) || !design) return Response.json({ error: "Pick a certificate design" }, { status: 400 });

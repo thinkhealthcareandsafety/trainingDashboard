@@ -492,6 +492,16 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   `logistics`, **`mode: "done"`** → straight to **Sent to Logistics**, where Arti completes them as usual (owner: "she will
   push these to complete too"). Log: "Marked as completed — done before the dashboard"; the card's Certificates block shows
   "Done — certificates made before the dashboard" (`FulfilInfo.doneEarlier`). Undo as usual.
+- **Have a list? Click here to Generate Certificates** (session 8, Training Completed cards, `List` row of the Certificates
+  block): the same Generate popup (names per day, design, preview, Generate, Download) without any gratitude email; Download
+  moves the card straight to **Certificates Generated** (`set_fulfillment generated`, `mode: "list"`, log "Certificates made
+  from a list already at hand (no gratitude email)", fireworks; the move is optimistic — no reload). The route accepts
+  Training Completed cards; the header tracker shows the email step struck through (skipped).
+- **Look (session 8):** board cards are `FulfilItem` (FollowUps.tsx): document + training day, training, "n people ·
+  trainers · Alias …", and a state pill (`fulfilState` / `StatePill` in FulfilCerts.tsx — the one wording for board and
+  card); no "Completed" chip. The card modal header carries a **4-step tracker** (`FulfilSteps`, hidden below lg); the
+  Certificates block has a plain "Certificates" title, wider labels, and no pill (the rows say it). Columns have `min-w-0`
+  (a long email no longer pushes the modal past a phone screen). Every stage measured 0 px overflow at 1728×958.
 - **2. Gratitude Email Sent** (**blue** border, *Email Sent, Awaiting Reply*): the hourly check finds replies → **★ at the
   top middle of the card** + *Reply received*. Opening a starred card shows the reply first: **Open in Zoho Mail** (clears the
   ★; a newer reply brings it back) / **Close**. The block shows "Email sent to … · when", "n replies · last from … · Show
@@ -778,6 +788,7 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 172 | "push it to github" | **Sync now = full check** (unless one ran in the last 10 min) + quick syncs ignore AED invoices before `AED_SINCE` (`classify`). `01f028c`, live after ~60 s. |
 | 173 | Multi-day trainings train different people each day: let Shreya add names per date; sheet rows and certificates carry their own date. "Tell me what you understood first" → answers: 1) every day must have names 2) one PDF 3) one design 4) one person, one day 5) postpone/undo don't touch the sheet | Built (§3). Click-tested on the real local app with saves blocked (Classic Citi shown as 15–17 Sept in the browser only): 3 boxes, duplicate + empty-day block Preview, request carries `days`, preview rows dated per day, fits 1728×958. Pushed in session 8. |
 | 174 | (found while testing) 8 **false** "no longer in Zoho Books" notices (12 Oct 16:03, 16:41 IST; 13 Oct 09:13 IST — Shreya's tab woke from sleep: team data pulled before its day-old Zoho data) | Fix: `zohoNotices` ignores merges newer than the board's Zoho data (`data.syncedAt`); the board reloads Zoho data when a tab becomes visible. Pushed in session 8. The 8 entries are still in `cardEvents` (#44). |
+| 176 | Fulfillment: "Have a list? Click here to Generate Certificates" from Training Completed (no gratitude email, card moves to Certificates Generated, quick, confetti); "enhance the UI, it looks cluttered"; add an optional **concerned person's name** next to alias + email | Built (§4 Fulfillment). Name: `set_concerned_name` per customer name (`CardView.concernedName`, `NamePicker` in CardModal, shown as "Concerned: Name · email"); gratitude email var **`{person}`** (name, else "Sir/ Ma'am"); the default body now starts "Dear {person}," — **the live Mongo doc `mailTemplates/fulfil_gratitude` still says "Dear Sir/ Ma'am"** (update it only with the owner's OK). Tested with saves blocked: Generate opens from column 1, the read-only preview answered 200 for a Training Completed card, name field in Certificate details; detector clean; phone 390 px fits. Pushed in session 8. |
 | 175 | "Make Alias and Email mandatory in training scheduling so nothing is missed at the gratitude email" | `certReady` in CardModal.tsx gates every scheduling button; pickers start at *Select…*; Certificate details popup needs both. Click-tested on Duet India Performa-25-1097 with saves blocked. Not enforced on the server; *Completed on invoice date* (old trainings) still asks for neither. Pushed in session 8. |
 
 ---
@@ -1013,7 +1024,7 @@ No test suite. Pattern used throughout:
     converts them in the browser. Re-uploading them now would store the 0.9 MB background — optional.
 40. The Generate popup's facts strip shows the **course of the chosen design**; the owner hasn't seen the Ready state
     (flower + Download) after the polish — it only shows after a real Generate.
-41. **JW Sahar card — real or test?** (see "Start of the next session" #2). Its customer-wide **concerned email is now
+41. (13 Oct: Shikha set the Chalet Hotels Limited concerned email back to Roohi.Khanna@marriott.com — the gmail problem is gone; the 20 rows / batch question remains.) **JW Sahar card — real or test?** (see "Start of the next session" #2). Its customer-wide **concerned email is now
     shreyathinkhealth@gmail.com** (was Roohi.Khanna@marriott.com), so every later gratitude email for **Chalet Hotels Limited**
     would go to Shreya's gmail until it's changed back (Change under the head-count, or the email dropdown in the popup).
     The 20 rows SN 2165–2184 are in the master sheet (the sheet had grown to 2164 by hand in between).

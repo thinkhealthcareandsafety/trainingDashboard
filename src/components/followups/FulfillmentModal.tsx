@@ -9,7 +9,7 @@ import {
   type BoardOptions, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection,
   SalesSection, Shell, TrainingSection, certEvents,
 } from "./CardModal";
-import { FulfilActions, ReplyPopup } from "./FulfilCerts";
+import { FulfilActions, FulfilSteps, ReplyPopup } from "./FulfilCerts";
 
 // Shreya's Fulfillment board: every completed training, carried over from the training board with everything it had
 // (alias included). Training Completed → Gratitude Email Sent → Certificates Generated → Sent to Logistics: the gratitude
@@ -53,16 +53,16 @@ export function FulfillmentModal({ card, cards, trainingCards, member, options, 
 
   return (
     <Shell label={`${card.name} fulfillment`} onClose={onClose} side={<ChangeLog cardIds={card.historyIds} cards={allCards} member={member} />}>
-      <Header sub={sub} title={card.name} onClose={onClose} />
+      <Header sub={sub} title={card.name} aside={<FulfilSteps f={f} />} onClose={onClose} />
       <div className="grid items-start gap-3 p-4 xl:grid-cols-2">
-        <div ref={leftRef} className="space-y-3">
+        <div ref={leftRef} className="min-w-0 space-y-3">
           <CustomerSection card={card} />
           <ContactSection card={card} />
           <NotesPanel card={card} member={member} heading={card.docNumber ?? card.name} oneLine />
           <ChainSection card={origin} cards={trainingCards} />
           {payLeft && payment}
         </div>
-        <div ref={rightRef} className="space-y-3">
+        <div ref={rightRef} className="min-w-0 space-y-3">
           <TrainingSection
             card={card}
             needEmail
