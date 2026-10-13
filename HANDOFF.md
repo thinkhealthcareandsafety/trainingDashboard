@@ -1,30 +1,35 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 12 Oct 2026, end of session 7. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 13 Oct 2026, end of session 7 (12–13 Oct). Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all seven sessions), the
-business rules that came out of it, how the code works **now**, what was verified, and what is still open.
+Read this end to end before touching code. It records what the owner asked for (every prompt, all seven sessions — §5),
+the business rules that came out of it, how the code works **now**, what was verified, and what is still open.
 
 **Start of the next session — do these first (details in §10):**
-1. `git status` — everything from sessions 6 and 7 was pushed at the end of session 7. After a push the team presses
-   Ctrl + Shift + R once.
-2. **Fulfillment connections (checked 12 Oct):** learn@ mailbox **connected** (10 Oct, folder "Gratitude Emails Sent" found),
-   master sheet **connected as digital@** (12 Oct), both designs **uploaded** (12 Oct — the A4 Photoedit templates, converted
-   on the fly, §3). Still owner-side: the **forwarding filter** (#25), the **real gratitude wording** (#29), the
-   **`CRON_SECRET` GitHub secret** (#31 — runs on 10 Oct still skipped "CRON_SECRET is not set").
-3. The sheet append **has run for real** (two test batches on 12 Oct, numbers correct; the owner deleted the test rows). The
-   first real **reply** is still the first real run of reading Zoho Mail (§10 #30).
-4. Classic Citi Investments (Pune) still carries the two **test** `fulfil_certs` batches (10:07 and 10:19 on 12 Oct; their
-   moves were undone, so the card shows the "moved back" note). Server-only events — delete them only with the owner's OK (#38).
+1. `git status` — **everything is pushed** (last commit `633f1ec`, live; working tree clean except this file if it wasn't
+   committed). After any push the team presses **Ctrl + Shift + R** once. No local server is running (start `npm run dev`
+   if the owner says "run it").
+2. **Ask the owner about the JW Sahar card** (Chalet Hotels Limited, 2026-01-352, `fulfil:pi:982417000019330551`): on 12 Oct
+   15:34–15:47 IST Shreya set its **concerned email to her own gmail** (customer-wide, *not* undone), sent the gratitude email
+   there, and added **20 names (SN 2165–2184)** to the master sheet → Certificates Generated. Real work or another test? If a
+   test: Clear logs → One deal cycle on the Fulfillment board for that card + delete those 20 sheet rows by hand + set the
+   concerned email back (it was Roohi.Khanna@marriott.com) (#41).
+3. **Still owner-side:** Zoho Mail **forwarding filter** (#25), the **real gratitude wording** (#29), the **`CRON_SECRET`
+   GitHub secret** (#31 — the 12 Oct 20:24 UTC run still said "CRON_SECRET is not set").
+4. **Backlog push in progress:** the owner is completing old trainings with **Completed on invoice date** (38 done by 13 Oct)
+   and Shreya with **Mark as Completed** (3 done). Expect follow-ups about cards that don't move as expected (§4).
+5. Classic Citi Investments (Pune) still carries the owner's two **test** `fulfil_certs` batches from 12 Oct (#38).
 
-**Session 7 in one paragraph (12 Oct):** connected the master sheet (the popup found the serial column only after "SN" was
-taught to it); the sheet's **certificate numbers run 7 behind its SN** (Shreya used to leave blank rows between locations)
-so the two now **count separately**; the first PDFs printed the uploaded A4 template squashed into one slot — the owner's
-templates are the A4 Photoedit exports, so the dashboard now does what the certificate generator does (**takes the
-certificate picture out of the template**, `certBackground.ts`) and prints exactly like the generator; **polished** the
-Generate popup (wider, steps, facts strip), the Fulfillment card (Certificates block as labelled rows; every stage fits at
-1728×958 again), the **Ready for training** and **Certificate details** popups (label/hint rows); added **Mark as Completed**
-on Training Completed cards (done before the dashboard → straight to Sent to Logistics); fixed the flower loader drifting.
+**Session 7 in one paragraph (12–13 Oct):** connected the master sheet (taught "SN" as the serial column; **SN and
+certificate no. count separately** — the sheet's certificate numbers run 7 behind SN); the first PDFs printed the A4
+Photoedit template squashed into one slot → the dashboard now takes the certificate picture out of the template like the
+owner's certificate generator (`certBackground.ts`) and prints exactly like it; polished the **Generate** popup, the
+**Fulfillment card**, the **Ready for training** / **Certificate details** popups and the **Review & merge** view (scales with
+the number of cards open); added **Mark as Completed** (Fulfillment, done before the dashboard → Sent to Logistics) and
+**Completed on invoice date** (Training board, invoices up to 31 Jul 2026: training completed on the invoice date, then PI →
+Invoice → Payment received merged in one step); column colours **#FFAC00** (Training scheduled) / **#26B0D2** (Training
+completed); fixed the flower loader and a blank Review & merge after PI → Invoice. Five pushes, all live. A direct Mongo
+cleanup of Shreya's test entries was **refused by the safety classifier** — the owner used Clear logs instead.
 
 **Session 6 in one paragraph (10 Oct):** rebuilt Shreya's **Fulfillment board** around a **gratitude email** and
 **certificates**: Training Completed → **Gratitude Email Sent** → Certificates Generated (**In process / On hold**) → Sent to
@@ -54,9 +59,9 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `2156f46`
-  (10 Oct, Fulfillment rework — live, verified in the deployed JS). **Not pushed at the end of session 6:** the Clear logs
-  "type Confirm" lock (`clear-logs/route.ts`, `FollowUps.tsx`, `store.tsx`) and this HANDOFF.md — check `git status`.
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `633f1ec`
+  (13 Oct — Completed on invoice date moves the deal on; live, verified in the deployed JS). Session 7 commits: `cb906d4`,
+  `7025bbe`, `3a5b002`, `85f13c2`, `633f1ec`.
 - **Zoho Mail is connected** for **hello@thinkhealth.in** (Admin did it on 8 Oct through the dashboard's *Connect it* popup;
   token in Mongo kv `zoho_mail:hello@thinkhealth.in`). The owner received a **[TEST]** first-contact email. Threaded reminders
   (reply API) are **not yet confirmed** in real use — see §10 #20.
@@ -285,7 +290,9 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   ~1 call per kind; one detail call per changed document; recent customers (1 call); payments only for changed paid invoices.
   Typical hourly sync ≈ 4 calls; a day ≈ 50–100 calls.
 - One sync at a time across instances (Mongo lease lock, 5 min). Failed sync → retry no sooner than 5 min.
-  **Sync now** (`forceSync()`) any time, at most **once a minute for everyone**. Zoho token: always re-read from Mongo before
+  **Sync now** (`forceSync()`) any time, at most **once a minute for everyone** — since session 8 it is a **full check**
+  (catches deletions, ~58 calls, ~1 min) unless a full check ran in the last 10 min (`FULL_GAP_MS`), then quick; the toast says which.
+  Quick syncs never see deletions (a deleted document isn't listed as changed). Zoho token: always re-read from Mongo before
   refreshing (every refresh mints a new token; Zoho caps live tokens), and a 401 drops the token and retries once. Daily call counter; automatic syncing pauses at
   95% of `ZOHO_DAILY_LIMIT`. First-ever sync into an empty DB ≈ 290 calls (already done).
 - Verified when built: all route outputs identical, record by record, to the old in-memory implementation.
@@ -755,7 +762,16 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 165 | Screenshot of Review & merge with 5 panels (Arrowline): "UI distorted, dynamically scale on the basis of cards opened" | `Stacked` context in CardModal: **3 or more panels** → labels above values in every panel (same layout in all; per-panel container queries were tried first but the first panel is wider — no arrow — so layouts mixed), training box stacks, Sales person under its title; 1–2 panels unchanged. Values wrap at spaces (`break-words`, was `overflow-wrap:anywhere`). "Open & edit" wraps under the heading. Checked on real 5- and 3-panel views. |
 | 166 | "push it to github" | `85f13c2`, live after ~45 s. |
 | 167 | Screenshots: Duet India Hotels — after **Merge PI → Invoice**, Review & merge showed an empty window ("works with the first option, the 2nd should work too") | MergeModal hid Invoice/Payment whenever no PI panel showed — meant for "quotation without its PI", but after PI → Invoice the group is Invoice + Payment with no PI. Now hidden only when a quotation shows without its PI. Reproduced on 2025-01-219 (saves blocked): Review & merge → Invoice + Payment, "Merge Invoice → Payment Received". |
-| 168 | "push it; for any invoice I click Completed on invoice date — if there's a payment received, just move it (merge with payment received) and leave it there; only July 2026 and before" | Completed on invoice date now also merges **PI → Invoice** (when the PI held it) and **Invoice → its newest payment** (instalments fold in; part paid waits as usual); one Undo takes it all back. `liveMerges`: an invoice may join its payment when it holds its **own** `complete_training` (no-PI case) recorded before the merge. Tested (saves blocked): Diana Builwell 2025-01-219 → one card Payment #1149; Pinkerton 2025-01-182 (no PI) → Payment #1097. Pushed with #167. |
+| 168 | "push it; for any invoice I click Completed on invoice date — if there's a payment received, just move it (merge with payment received) and leave it there; only July 2026 and before" | Completed on invoice date now also merges **PI → Invoice** (when the PI held it) and **Invoice → its newest payment** (instalments fold in; part paid waits as usual); one Undo takes it all back. `liveMerges`: an invoice may join its payment when it holds its **own** `complete_training` (no-PI case) recorded before the merge. Tested (saves blocked): Diana Builwell 2025-01-219 → one card Payment #1149; Pinkerton 2025-01-182 (no PI) → Payment #1097. Pushed with #167 as `633f1ec`, live after ~195 s. |
+| 169 | "write a handoff, include my prompts and their outputs — I want to share it with my new session" | This update (13 Oct): checked live state first (read-only) — old test entries on JW Sahar / Ritz gone, but a **new** Shreya round on JW Sahar (gmail as concerned email, 20 names SN 2165–2184); Classic Citi test batches still there; 38 cards completed on invoice date, 3 Mark as Completed; `CRON_SECRET` still missing. |
+
+
+### Session 8 (13 Oct 2026)
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 170 | "Read HANDOFF.md … tell me where things stand" | Summary; `CRON_SECRET` still missing (12 Oct 20:24 UTC run skipped). |
+| 171 | "Yesterday I deleted some PIs etc. in Zoho Books — they didn't go from here; recheck" → "we have a sync button, that should check all changes no?" | Sync log: the deletions came after the 2 pm full check; quick syncs (incl. Sync now) never see deletions; the **13 Oct 9 am full check removed** Performa-25-757, Performa-25-698, Quotation-24-001976, invoices 2026-01-346 / 2026-01-198, and the board recorded the zoho_change notices. Also found: quick syncs stored edited **AED invoices dated before 1 Sept** that the next full check removed (8 on 12 Oct, harmless — boards filter by `AED_SINCE`). |
+| 172 | "push it to github" | **Sync now = full check** (unless one ran in the last 10 min) + quick syncs ignore AED invoices before `AED_SINCE` (`classify`). |
 
 ---
 
@@ -825,6 +841,13 @@ request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Ev
 - They want **dangerous actions locked** (typed confirmation) and **mistakes recoverable** — when something looks lost, check
   the archive first and offer to roll back.
 - Keep the "important, may change later" items visible in the handoff (e.g. certificate date = last training day).
+- Session 7: the owner says **"push it to github"** after almost every change and tries it on the live site within minutes —
+  build, scan the diff for secrets, push, poll the live JS for a new string, then tell them **Ctrl + Shift + R**.
+- A one-word **"yeah"** after a numbered list of questions with recommended defaults = **all defaults accepted**.
+- UI requests come as screenshots + "cluttered / distorted / proper alignment": measure at 1728×958 on real cards (read-only
+  browser, §9 #14), keep the existing look, fix layout and fit — no redesigns.
+- They want the dashboard to **move cards on by itself** where the outcome is certain (Completed on invoice date merges to
+  Payment received; Mark as Completed goes straight to Logistics) rather than leaving manual merge steps.
 
 ---
 
@@ -982,3 +1005,11 @@ No test suite. Pattern used throughout:
     converts them in the browser. Re-uploading them now would store the 0.9 MB background — optional.
 40. The Generate popup's facts strip shows the **course of the chosen design**; the owner hasn't seen the Ready state
     (flower + Download) after the polish — it only shows after a real Generate.
+41. **JW Sahar card — real or test?** (see "Start of the next session" #2). Its customer-wide **concerned email is now
+    shreyathinkhealth@gmail.com** (was Roohi.Khanna@marriott.com), so every later gratitude email for **Chalet Hotels Limited**
+    would go to Shreya's gmail until it's changed back (Change under the head-count, or the email dropdown in the popup).
+    The 20 rows SN 2165–2184 are in the master sheet (the sheet had grown to 2164 by hand in between).
+42. **Completed on invoice date leaves unmerged quotations** in Quotations (e.g. Diana Builwell's Quotation-24-002198, Arrowline's
+    Quotation-24-001524): the PI is merged on, its quote never was. Offered to tidy them; the owner hasn't answered.
+43. **Shreya tests on the live board** with her own gmail as the concerned email. Suggest the owner tell her to use
+    **Send a test to** (nothing recorded) instead — every real send / Generate is permanent (server-only events, sheet rows).

@@ -38,7 +38,7 @@ function Icon({ children }: { children: React.ReactNode }) {
 
 /* ---------------- Zoho sync: heartbeat, Sync now, last / next sync ---------------- */
 
-type SyncInfo = { enabled?: boolean; syncedAt?: string; error?: string; due?: boolean; running?: boolean; nextAt?: number; ran?: boolean };
+type SyncInfo = { enabled?: boolean; syncedAt?: string; error?: string; due?: boolean; running?: boolean; nextAt?: number; ran?: boolean; full?: boolean };
 
 const clock = (d: Date) => d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
 /** "Today, 10:00 am" · "Yesterday, 3:00 pm" · "Tomorrow, 9:00 am" · "Mon 12 Oct, 9:00 am". */
@@ -97,7 +97,12 @@ function useZohoSync(active: boolean) {
       const res = await fetch("/api/zoho/sync", { method: "POST", cache: "no-store" });
       const j = (await res.json()) as SyncInfo;
       take(j);
-      toast({ text: j.error ? `Zoho sync failed: ${j.error}` : j.ran ? "Synced with Zoho Books" : "Synced less than a minute ago — try again in a moment" });
+      toast({
+        text: j.error ? `Zoho sync failed: ${j.error}`
+          : !j.ran ? "Synced less than a minute ago — try again in a moment"
+          : j.full ? "Synced with Zoho Books — full check, deletions included"
+          : "Synced with Zoho Books — quick check (a full one ran in the last 10 minutes)",
+      });
     } catch (e) {
       toast({ text: `Zoho sync failed: ${String(e)}` });
     } finally {

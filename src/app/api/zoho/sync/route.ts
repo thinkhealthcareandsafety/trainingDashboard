@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a full check (9 am / 2 pm) takes about a minute
 
 // The sidebar's sync panel. GET = heartbeat: runs the hourly sync if it's due, then reports last / next sync.
-// POST = "Sync now" (at most once a minute for everyone together). The sync log records whose page started it.
+// POST = "Sync now" (at most once a minute for everyone together; a full check — deletions too — unless one ran in the
+// last 10 minutes). The sync log records whose page started it.
 export async function GET(request: Request) {
   if (!memberIdOf(request)) return unauthorized();
   if (!zohoConfigured() || !mongoConfigured()) return Response.json({ enabled: false });
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   if (!zohoConfigured() || !mongoConfigured()) return Response.json({ enabled: false });
   try {
     const ran = await forceSync((await signedInMember(request))?.name);
-    return Response.json({ enabled: true, ran, ...(await syncStatus()) });
+    return Response.json({ enabled: true, ran: Boolean(ran), full: ran === "full", ...(await syncStatus()) });
   } catch (e) {
     return Response.json({ enabled: true, error: e instanceof Error ? e.message : "Sync failed" }, { status: 502 });
   }

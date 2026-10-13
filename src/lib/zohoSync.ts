@@ -17,7 +17,7 @@ import {
  *   - documents: each kind listed newest-change-first, stopping at the last change already seen (usually 1 call);
  *   - customers: the 200 most recently changed (1 call); payments: only for paid invoices that changed;
  *   - the 9 am and 2 pm syncs are full checks: every tracked document by item (catches deletions), the full
- *     customer list, items and team.
+ *     customer list, items and team. "Sync now" is one too, unless a full check ran in the last 10 minutes.
  * Schedule: automatically on the hour, 9 am–7 pm IST, Monday–Saturday (none on Sunday); "Sync now" any time.
  * MongoDB is updated as part of each sync, so pages show the new data as soon as it finishes.
  * Zoho calls are counted per day; automatic syncing pauses at 95% of ZOHO_DAILY_LIMIT.
@@ -28,6 +28,7 @@ export const AED_SINCE = "2026-09-01";
 const DAILY_LIMIT = Number(process.env.ZOHO_DAILY_LIMIT) || 2500;
 const LOCK_MS = 5 * 60_000;
 const FORCE_GAP_MS = 60_000; // "Sync now" at most once a minute, for everyone together
+const FULL_GAP_MS = 10 * 60_000; // "Sync now" is a full check (catches deletions) unless one ran in the last 10 min
 const RETRY_MS = 5 * 60_000; // after a failed automatic sync, wait before trying again
 const IST_MS = 330 * 60_000;
 /** Automatic syncs: on the hour, 9 am–7 pm IST, Mon–Sat. The 9 am and 2 pm ones are full checks. */
@@ -179,7 +180,9 @@ async function countCalls(): Promise<number> {
 
 function classify(kind: Kind, d: ZDoc, sets: ItemSets) {
   const ids = ((d.line_items as ZDoc[]) ?? []).map((li) => String(li.item_id));
-  return { training: ids.some((i) => sets.training.has(i)), aed: kind === "invoices" && ids.some((i) => sets.aed.has(i)) };
+  // AED invoices count from AED_SINCE only, as in the full check — else an edited older one is added, then removed again.
+  const aed = kind === "invoices" && String(d.date ?? "") >= AED_SINCE && ids.some((i) => sets.aed.has(i));
+  return { training: ids.some((i) => sets.training.has(i)), aed };
 }
 
 /** Download, classify and store changed documents; returns how many tracked documents changed (each noted in `out`). */
@@ -279,7 +282,7 @@ async function syncPayments(sets: ItemSets, out: string[]): Promise<number> {
  * One sync. Returns "busy" if another instance is syncing, "skipped" when the daily budget is nearly used.
  * `force` = someone pressed "Sync now": it runs even when the budget has paused automatic syncing.
  */
-export async function runSync({ force = false, ...who }: { force?: boolean } & Partial<SyncTrigger> = {}): Promise<"done" | "busy" | "skipped"> {
+export async function runSync({ force = false, full = false, ...who }: { force?: boolean; full?: boolean } & Partial<SyncTrigger> = {}): Promise<"done" | "busy" | "skipped"> {
   if (!zohoConfigured() || !mongoConfigured()) return "skipped";
   const owner = await acquireLock();
   if (!owner) return "busy";
@@ -296,8 +299,8 @@ export async function runSync({ force = false, ...who }: { force?: boolean } & P
     const now = Date.now();
     const store = await kv();
     // Items decide which documents are tracked (Training Services / the four Follow-ups items / All AEDs).
-    // Full check at the 9 am / 2 pm slots (or whenever one was missed, or on an empty database).
-    const fullDue = !state.reconcileAt || state.reconcileAt < lastSlot(FULL_HOURS, now) || KINDS.some((k) => !state.cursors[k]);
+    // Full check at the 9 am / 2 pm slots (or whenever one was missed, or on an empty database), and on "Sync now".
+    const fullDue = full || !state.reconcileAt || state.reconcileAt < lastSlot(FULL_HOURS, now) || KINDS.some((k) => !state.cursors[k]);
     log.mode = fullDue ? "full" : "quick";
     let items = ((await store.findOne({ _id: "zoho_items" }))?.items as ZItem[] | undefined) ?? undefined;
     if (!items?.length || fullDue) {
@@ -449,14 +452,19 @@ export async function getSnapshot(force = false): Promise<Snapshot | null> {
   return snap;
 }
 
-/** "Sync now": runs a sync and waits for it — at most once a minute for everyone together. False if it was too soon. */
-export async function forceSync(by?: string): Promise<boolean> {
+/**
+ * "Sync now": runs a sync and waits for it — at most once a minute for everyone together. False if it was too soon.
+ * It is a full check (deletions in Zoho too, ~1 min) unless one ran in the last 10 minutes; then a quick one.
+ */
+export async function forceSync(by?: string): Promise<false | "full" | "quick"> {
   const store = await kv();
   const last = Number((await store.findOne({ _id: "zoho_last_forced" }))?.at ?? 0);
   if (Date.now() - last <= FORCE_GAP_MS) return false;
   await store.replaceOne({ _id: "zoho_last_forced" }, { at: Date.now() }, { upsert: true });
-  await runSync({ force: true, trigger: "manual", by });
-  return true;
+  const { reconcileAt } = await loadState();
+  const full = !reconcileAt || Date.now() - reconcileAt > FULL_GAP_MS;
+  await runSync({ force: true, full, trigger: "manual", by });
+  return full ? "full" : "quick";
 }
 
 /**
