@@ -124,6 +124,17 @@ export function deliveredIn(trainings: Training[], today: Date, monthKey: string
 export const PEOPLE_MONTHLY_TARGET = 300;
 export const PEOPLE_YEARLY_TARGET = 3000;
 
+/** Priyanka's AedSmartx targets (owner, 14 Oct 2026): 5 AED trainings a month, 60 a fiscal year. No people target —
+ * AED trainings record no head-count. AED trainings never count toward the team targets. */
+export const AED_MONTHLY_TARGET = 5;
+export const AED_YEARLY_TARGET = 60;
+
+/** `since` (YYYY-MM-01): the board's first month. A fiscal year that starts before it counts from that month, against
+ * the months left (e.g. FY 2026-27 from Sept: 7 of 12 → 35 of 60). */
+export interface Targets { month: number; year: number; peopleMonth?: number; peopleYear?: number; since?: string }
+export const TEAM_TARGETS: Targets = { month: MONTHLY_TARGET, year: YEARLY_TARGET, peopleMonth: PEOPLE_MONTHLY_TARGET, peopleYear: PEOPLE_YEARLY_TARGET };
+export const AED_TARGETS: Targets = { month: AED_MONTHLY_TARGET, year: AED_YEARLY_TARGET, since: "2026-09-01" }; // = AED_SINCE (zohoSync.ts, server-only)
+
 /** The day a training counts on: its last training day (a multi-day training is one training). */
 export const countsOn = (t: BoardTraining) => t.dates.at(-1) ?? "";
 const dated = (t: BoardTraining) => t.status !== "tbd" && t.dates.length > 0;
@@ -135,6 +146,7 @@ export interface BoardPeriod {
   peopleScheduled: number;
   target?: number;
   peopleTarget?: number;
+  since?: Date; // set when the period starts later than the fiscal year (the board's first month)
   expected: number; // trainings expected by today at a working-day pace
   peopleExpected: number;
 }
@@ -157,16 +169,20 @@ function boardPeriod(list: BoardTraining[], from: Date, to: Date, today: Date, t
   };
 }
 
-export function boardMonth(list: BoardTraining[], today: Date, targets = true): BoardPeriod {
+export function boardMonth(list: BoardTraining[], today: Date, targets: Targets = TEAM_TARGETS): BoardPeriod {
   const from = new Date(today.getFullYear(), today.getMonth(), 1);
   const to = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  return boardPeriod(list, from, to, today, targets ? MONTHLY_TARGET : undefined, targets ? PEOPLE_MONTHLY_TARGET : undefined);
+  return boardPeriod(list, from, to, today, targets.month, targets.peopleMonth);
 }
 
-export function boardYear(list: BoardTraining[], today: Date, targets = true): BoardPeriod {
-  const from = fiscalYearStart(today);
-  const to = new Date(from.getFullYear() + 1, from.getMonth(), 0);
-  return boardPeriod(list, from, to, today, targets ? YEARLY_TARGET : undefined, targets ? PEOPLE_YEARLY_TARGET : undefined);
+export function boardYear(list: BoardTraining[], today: Date, targets: Targets = TEAM_TARGETS): BoardPeriod {
+  const fy = fiscalYearStart(today);
+  const to = new Date(fy.getFullYear() + 1, fy.getMonth(), 0);
+  const since = targets.since ? parseYmd(targets.since) : null;
+  if (!since || since <= fy) return boardPeriod(list, fy, to, today, targets.year, targets.peopleYear);
+  const share = (12 * (to.getFullYear() - since.getFullYear()) + to.getMonth() - since.getMonth() + 1) / 12;
+  const part = (n?: number) => (n === undefined ? undefined : Math.round(n * share));
+  return { ...boardPeriod(list, since, to, today, part(targets.year), part(targets.peopleYear)), since };
 }
 
 export interface BoardMonthPoint extends Omit<MonthPoint, "revenue"> { people: number }

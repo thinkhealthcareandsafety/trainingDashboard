@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { BoardTraining, Training } from "@/lib/types";
 import { fmtDate, fmtINR, fiscalYearLabel } from "@/lib/dates";
 import {
-  MONTHLY_TARGET, boardBreakdown, boardMonth, boardMonthSeries, boardYear, completedIn, countsOn, fiscalMonthSeries, monthStats, upcoming,
+  AED_TARGETS, TEAM_TARGETS, boardBreakdown, boardMonth, boardMonthSeries, boardYear, completedIn, countsOn, fiscalMonthSeries, monthStats, upcoming,
   type BoardBreakdownKey, type BoardPeriod,
 } from "@/lib/kpi";
 import { CardHeader, Segmented, useCountUp } from "./ui";
@@ -12,7 +12,7 @@ import { CardHeader, Segmented, useCountUp } from "./ui";
 /*
  * Overview tiles and trend. Trainings and people come from the boards (one training per deal, counted on its last
  * training day once marked completed); revenue still comes from the Zoho invoices — money only lives there.
- * "team" = the Training board with its targets; "aed" = Priyanka's AedSmartx trainings (no targets).
+ * "team" = the Training board with its targets; "aed" = Priyanka's AedSmartx trainings with hers (trainings only, no people).
  */
 export type OverviewMode = "team" | "aed";
 
@@ -171,12 +171,13 @@ function WaitingTile({ waiting }: { waiting: number }) {
 
 export function KpiStrip({ trainings, board, now, mode, aedWaiting = 0 }: { trainings: Training[]; board: BoardTraining[]; now: Date; mode: OverviewMode; aedWaiting?: number }) {
   const team = mode === "team";
-  const m = useMemo(() => boardMonth(board, now, team), [board, now, team]);
-  const y = useMemo(() => boardYear(board, now, team), [board, now, team]);
+  const targets = team ? TEAM_TARGETS : AED_TARGETS;
+  const m = useMemo(() => boardMonth(board, now, targets), [board, now, targets]);
+  const y = useMemo(() => boardYear(board, now, targets), [board, now, targets]);
   const what = team ? "Trainings" : "AED trainings";
   const tiles = [
     <TargetTile key="m" hero label={`${what} · ${now.toLocaleDateString("en-IN", { month: "long" })}`} s={m} />,
-    <TargetTile key="y" label={`${what} · ${fiscalYearLabel(now)}`} s={y} />,
+    <TargetTile key="y" label={`${what} · ${fiscalYearLabel(now)}${y.since ? ` · from ${y.since.toLocaleDateString("en-IN", { month: "short" })}` : ""}`} s={y} />,
     team ? <RevenueTile key="r" trainings={trainings} now={now} /> : <WaitingTile key="w" waiting={aedWaiting} />,
     <ComingUpTile key="c" list={board} now={now} />,
   ];
@@ -392,7 +393,7 @@ export function TrendCard({ trainings, board, now, mode }: { trainings: Training
   }, [board, trainings, now, team]);
   const done = useMemo(() => completedIn(board, now, selected), [board, now, selected]);
   const sel = selected ? series.find((s) => s.key === selected) : null;
-  const target = team ? MONTHLY_TARGET : undefined;
+  const target = (team ? TEAM_TARGETS : AED_TARGETS).month;
 
   return (
     <section className="card p-5 sm:p-6" aria-label="Monthly trend">

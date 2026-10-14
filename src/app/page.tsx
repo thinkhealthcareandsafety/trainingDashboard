@@ -64,7 +64,7 @@ function UpcomingTrainings({ list, now, aed }: { list: BoardTraining[]; now: Dat
 export default function OverviewPage() {
   const { ready, data, now } = useStore();
   const { member } = useSession();
-  // Members without the Training board but with AedSmartx (Priyanka) see their own trainings, without the team targets.
+  // Members without the Training board but with AedSmartx (Priyanka) see their own trainings against their own targets (AED_TARGETS), never the team's.
   const boards = member ? boardsFor(member) : ["training"];
   const mode: OverviewMode = !boards.includes("training") && boards.includes("aed") ? "aed" : "team";
   const list = (mode === "aed" ? data?.aedBoard : data?.board) ?? [];

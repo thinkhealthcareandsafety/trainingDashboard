@@ -1,24 +1,46 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 13 Oct 2026, end of session 7 (12–13 Oct). Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 14 Oct 2026, end of session 8 (13–14 Oct). Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all seven sessions — §5),
+Read this end to end before touching code. It records what the owner asked for (every prompt, all eight sessions — §5),
 the business rules that came out of it, how the code works **now**, what was verified, and what is still open.
 
 **Start of the next session — do these first (details in §10):**
-1. `git status` — **everything is pushed** (last commit `633f1ec`, live; working tree clean except this file if it wasn't
+1. `git status` — **everything is pushed** (last commit `3e57bb2`, live; working tree clean except this file if it wasn't
    committed). After any push the team presses **Ctrl + Shift + R** once. No local server is running (start `npm run dev`
    if the owner says "run it").
-2. **Ask the owner about the JW Sahar card** (Chalet Hotels Limited, 2026-01-352, `fulfil:pi:982417000019330551`): on 12 Oct
-   15:34–15:47 IST Shreya set its **concerned email to her own gmail** (customer-wide, *not* undone), sent the gratitude email
-   there, and added **20 names (SN 2165–2184)** to the master sheet → Certificates Generated. Real work or another test? If a
-   test: Clear logs → One deal cycle on the Fulfillment board for that card + delete those 20 sheet rows by hand + set the
-   concerned email back (it was Roohi.Khanna@marriott.com) (#41).
+2. ~~Three approved items~~ — **done in session 9 (14 Oct):** 8 + 1 false notices deleted (#44), live greeting is
+   "Dear {person},", Priyanka's targets **5 a month / 60 a year** in `kpi.ts` (`AED_TARGETS`, year counted from Sept), and
+   the server now rejects false Zoho notices (#59) — **not committed or pushed** (owner hasn't asked). Kept below for the record:
+   **Three things the owner already said "yes" to on 14 Oct ("yes yes go ahead … in a new session") — do them first:**
+   a. **Delete the 8 false "no longer in Zoho Books" entries** from live `cardEvents` (ids in #44; every document is still in
+      Zoho). Summarise first (8 `zoho_change`, by "Zoho Books"), delete exactly those ids, confirm with a read-only count. A
+      direct Mongo write was **refused by the safety classifier** in session 7 — if it happens again, use the app's own route
+      as Admin (`POST /api/store` with `{collection:"cardEvents", deletes:[ids]}` — only Admin may delete entries; check
+      `src/app/api/store/route.ts` first) or ask the owner to allow it.
+   b. **Gratitude greeting:** set the live Mongo doc `mailTemplates/fulfil_gratitude` body to start **"Dear {person},"** (the code
+      default already does; `{person}` = the concerned person's name, else "Sir/ Ma'am"). Change only that line; keep the
+      subject ("Thank you for hosting…" — the forwarding filter keys on it). Then preview a gratitude email (GET
+      `/api/mail/fulfil?card=`) — never send one to a customer.
+   c. **Priyanka's targets:** the owner said yes to AED targets but gave **no numbers** — ask ("how many AED trainings a month /
+      a year?"), then set them in `kpi.ts` (`boardMonth/boardYear(list, today, targets)` — the AED view passes `targets=false`;
+      add AED constants) and show the meters on her Overview.
 3. **Still owner-side:** Zoho Mail **forwarding filter** (#25), the **real gratitude wording** (#29), the **`CRON_SECRET`
-   GitHub secret** (#31 — the 12 Oct 20:24 UTC run still said "CRON_SECRET is not set").
-4. **Backlog push in progress:** the owner is completing old trainings with **Completed on invoice date** (38 done by 13 Oct)
-   and Shreya with **Mark as Completed** (3 done). Expect follow-ups about cards that don't move as expected (§4).
+   GitHub secret** (#31 — still "CRON_SECRET is not set" on 12 Oct 20:24 UTC). JW Sahar's 20 sheet rows: real or test (#41).
+4. **First real uses to check with the owner:** a multi-day Generate (names per day → sheet dates per row), a Generate from
+   **Training Completed** ("Have a list?"), the first schedule with a **concerned person's name**, and the Overview once a
+   training is scheduled ahead (nothing was on 13 Oct, so "Coming up" was empty).
 5. Classic Citi Investments (Pune) still carries the owner's two **test** `fulfil_certs` batches from 12 Oct (#38).
+6. Enhancement ideas for when the owner asks "what next" — §10 "Session 8 — tips" (#45–#58).
+
+**Session 8 in one paragraph (13–14 Oct):** found why deletions in Zoho didn't show (only the 9 am / 2 pm full checks see
+them) → **Sync now runs the full check**; found and fixed **false "no longer in Zoho Books" notices** written by tabs waking
+from sleep (8 entries still in the log, #44); **certificates per training day** (multi-day trainings: names per day, each row
+and certificate carries its day — replaces "last day" rule); **alias + concerned email mandatory** to schedule, plus an
+optional **concerned person's name**; Fulfillment: **"Have a list? Click here to Generate Certificates"** from Training
+Completed (no gratitude email) and a **cleaner board + card** (state pills, 4-step tracker); **Overview, Calendar and ticker now
+come from the boards** (targets 10/120 trainings and **300/3000 people**, coming up in 15 days, Priyanka's own AED Overview,
+stale follow-up items gone). Four pushes (`01f028c`, `4745553`, `ca83971`, `3e57bb2`), all live; this handoff update is not committed yet.
 
 **Session 7 in one paragraph (12–13 Oct):** connected the master sheet (taught "SN" as the serial column; **SN and
 certificate no. count separately** — the sheet's certificate numbers run 7 behind SN); the first PDFs printed the A4
@@ -59,9 +81,9 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `633f1ec`
-  (13 Oct — Completed on invoice date moves the deal on; live, verified in the deployed JS). Session 7 commits: `cb906d4`,
-  `7025bbe`, `3a5b002`, `85f13c2`, `633f1ec`.
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `3e57bb2`
+  (13 Oct — Overview, calendar and ticker from the boards; live, verified in the deployed JS). Session 8 commits: `01f028c`,
+  `4745553`, `ca83971`, `3e57bb2`. Session 7: `cb906d4`, `7025bbe`, `3a5b002`, `85f13c2`, `633f1ec`.
 - **Zoho Mail is connected** for **hello@thinkhealth.in** (Admin did it on 8 Oct through the dashboard's *Connect it* popup;
   token in Mongo kv `zoho_mail:hello@thinkhealth.in`). The owner received a **[TEST]** first-contact email. Threaded reminders
   (reply API) are **not yet confirmed** in real use — see §10 #20.
@@ -590,8 +612,12 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   "n more in scheduled trainings". Revenue stays from the Zoho invoices. Tiles: Month · Year (trainings + people meters) ·
   Revenue · **Coming up (next 15 days)**. Trend chart + table + "Completed by type / client / trainer" from the board.
   "Needs attention" (legacy follow-ups) is now **Upcoming trainings** (next 15 days).
-- **Priyanka** (AedSmartx only) gets her own Overview: AED trainings this month / year (no targets), AED invoices without a
-  date, coming up, her trend; no Pipeline card. AED trainings never count toward the team targets.
+- **Priyanka** (AedSmartx only) gets her own Overview: AED trainings this month / year against **her targets: 5 a month,
+  60 a fiscal year** (session 9, `AED_TARGETS` in kpi.ts; no people target — AED trainings record no head-count), AED
+  invoices without a date, coming up, her trend (Target 5 line); no Pipeline card. AED trainings never count toward the
+  team targets. `boardMonth/boardYear(list, today, targets: Targets = TEAM_TARGETS)`. Her **year counts from 1 Sept**
+  (`AED_TARGETS.since`, = `AED_SINCE`; owner OK'd): FY 2026-27 target = 7/12 of 60 = **35**, tile "FY 2026-27 · from Sept"
+  (was "4 / 60, Behind by 28"; now "4 / 35, Behind by 3.3" on 14 Oct). From FY 2027-28 it is the full 60.
 - **Calendar**: the boards' trainings on every training day (alias/customer, training, day n of m, people, trainers, Completed /
   Postponed tag; AED ones purple, with time); click → `/follow-up?q=<doc>`. Training board for all but Priyanka; AED for members
   with that board.
@@ -800,17 +826,31 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 169 | "write a handoff, include my prompts and their outputs — I want to share it with my new session" | This update (13 Oct): checked live state first (read-only) — old test entries on JW Sahar / Ritz gone, but a **new** Shreya round on JW Sahar (gmail as concerned email, 20 names SN 2165–2184); Classic Citi test batches still there; 38 cards completed on invoice date, 3 Mark as Completed; `CRON_SECRET` still missing. |
 
 
-### Session 8 (13 Oct 2026)
+### Session 8 (13–14 Oct 2026) — deletions + Sync now, certificates per day, mandatory alias/email, Fulfillment polish, Overview from the boards
 | # | Prompt (paraphrased) | Result / commit |
 |---|---|---|
-| 170 | "Read HANDOFF.md … tell me where things stand" | Summary; `CRON_SECRET` still missing (12 Oct 20:24 UTC run skipped). |
-| 171 | "Yesterday I deleted some PIs etc. in Zoho Books — they didn't go from here; recheck" → "we have a sync button, that should check all changes no?" | Sync log: the deletions came after the 2 pm full check; quick syncs (incl. Sync now) never see deletions; the **13 Oct 9 am full check removed** Performa-25-757, Performa-25-698, Quotation-24-001976, invoices 2026-01-346 / 2026-01-198, and the board recorded the zoho_change notices. Also found: quick syncs stored edited **AED invoices dated before 1 Sept** that the next full check removed (8 on 12 Oct, harmless — boards filter by `AED_SINCE`). |
-| 172 | "push it to github" | **Sync now = full check** (unless one ran in the last 10 min) + quick syncs ignore AED invoices before `AED_SINCE` (`classify`). `01f028c`, live after ~60 s. |
-| 173 | Multi-day trainings train different people each day: let Shreya add names per date; sheet rows and certificates carry their own date. "Tell me what you understood first" → answers: 1) every day must have names 2) one PDF 3) one design 4) one person, one day 5) postpone/undo don't touch the sheet | Built (§3). Click-tested on the real local app with saves blocked (Classic Citi shown as 15–17 Sept in the browser only): 3 boxes, duplicate + empty-day block Preview, request carries `days`, preview rows dated per day, fits 1728×958. Pushed in session 8. |
-| 174 | (found while testing) 8 **false** "no longer in Zoho Books" notices (12 Oct 16:03, 16:41 IST; 13 Oct 09:13 IST — Shreya's tab woke from sleep: team data pulled before its day-old Zoho data) | Fix: `zohoNotices` ignores merges newer than the board's Zoho data (`data.syncedAt`); the board reloads Zoho data when a tab becomes visible. Pushed in session 8. The 8 entries are still in `cardEvents` (#44). |
-| 177 | Overview / Calendar / ticker from the board's data; targets 10 & 120 trainings, 300 & 3000 people (quantity); ticker shows upcoming trainings. Answers: 1) completed only 2) fiscal year 3) one deal = one training, however many dates 4) AED trainings don't count for the team but Priyanka gets her own dashboard 5) next **15** days 6) drop the stale follow-up items | Built (§4 "Overview, Calendar, ticker"). Real numbers on 13 Oct: Oct 5/10 trainings, 130/300 people; FY 21/120, 842/3000; 53 board trainings (all completed — none scheduled ahead), 3 AED. Checked read-only + with 2 made-up upcoming trainings injected in the browser only (tiles, chart, calendar, list, ticker). Priyanka view via stand-in. Phone 390 px fits. Pushed in session 8. |
-| 176 | Fulfillment: "Have a list? Click here to Generate Certificates" from Training Completed (no gratitude email, card moves to Certificates Generated, quick, confetti); "enhance the UI, it looks cluttered"; add an optional **concerned person's name** next to alias + email | Built (§4 Fulfillment). Name: `set_concerned_name` per customer name (`CardView.concernedName`, `NamePicker` in CardModal, shown as "Concerned: Name · email"); gratitude email var **`{person}`** (name, else "Sir/ Ma'am"); the default body now starts "Dear {person}," — **the live Mongo doc `mailTemplates/fulfil_gratitude` still says "Dear Sir/ Ma'am"** (update it only with the owner's OK). Tested with saves blocked: Generate opens from column 1, the read-only preview answered 200 for a Training Completed card, name field in Certificate details; detector clean; phone 390 px fits. Pushed in session 8. |
-| 175 | "Make Alias and Email mandatory in training scheduling so nothing is missed at the gratitude email" | `certReady` in CardModal.tsx gates every scheduling button; pickers start at *Select…*; Certificate details popup needs both. Click-tested on Duet India Performa-25-1097 with saves blocked. Not enforced on the server; *Completed on invoice date* (old trainings) still asks for neither. Pushed in session 8. |
+| 170 | "Read HANDOFF.md end to end … don't write test data, don't email customers, don't push unless I ask; tell me where things stand" | Summary: all pushed (`633f1ec`); `CRON_SECRET` still missing (12 Oct 20:24 UTC run skipped); JW Sahar question, owner-side setup, Classic Citi test batches. |
+| 171 | "Yesterday I deleted some PIs and something from Zoho Books — it should have gone from here too but didn't; recheck everything" | Read the Sync log (read-only): the deletions happened after the 12 Oct 2 pm full check; quick syncs never see deletions; the **13 Oct 9 am full check removed** Performa-25-757, Performa-25-698, Quotation-24-001976, invoices 2026-01-346 / 2026-01-198, and the board logged the notices. Also found: quick syncs stored edited **AED invoices dated before 1 Sept** that the next full check removed (8 on 12 Oct — harmless, boards filter by `AED_SINCE`). |
+| 172 | "We have a sync button — that should check all changes, no?" | No — Sync now was a quick sync. Proposed: Sync now = full check (≤ 1 per 10 min) + quick syncs skip pre-Sept AED invoices. |
+| 173 | "push it to github" | Built both; `01f028c`, live ~60 s. |
+| 174 | Multi-day trainings train different people each day: let Shreya add names per date; "the sheet updates with the date respective and certificates print as per the dates; return what you understood before implementing" | Restated with 5 questions (checked: today every row got the last day). |
+| 175 | "1) no, we will need to print for every participant 2) yes 3) yes 4) one person one day 5) yes" | Built: names per day, every day needs names, a name on two days blocks, one PDF, one design (§3). Click-tested with saves blocked (Classic Citi shown as 15–17 Sept in the browser only). While testing found **8 false "no longer in Zoho Books" notices** (Shreya's tab woke from sleep with day-old Zoho data) → fixed (`zohoNotices` ignores merges newer than the board's data; Zoho data reloads when a tab becomes visible); the 8 entries still sit in the log (#44). |
+| 176 | "Make Alias and Email mandatory in training scheduling so we don't miss anything at the gratitude emailing" | `certReady` gates Schedule / Postpone / Change date / Ready popup / Certificate details; pickers start at *Select…*; "Same as original" counts. Tested on Duet India Performa-25-1097 with saves blocked. |
+| 177 | "push it to github" | `4745553` (certificates per day + mandatory alias/email + false-notice fix), live ~90 s. |
+| 178 | "Can we use our new data for the Overview and Calendar … target 10 trainings a month, 120 a year; 300 people a month, 3000 a year (from quantity); the alert bar should show upcoming trainings" | Read the code: the Overview counted Zoho invoices (invoice date when no training date) and already had 10/120; restated with 6 questions. |
+| 179 | Fulfillment: "Have a list? Click here to Generate Certificates" from the first column (no gratitude email, card moves to Certificates Generated, quick refresh so confetti still plays); "enhance the UI, it looks cluttered and boring"; optional **concerned person's name** next to alias + email (alias/email stay mandatory) | Built (§4 Fulfillment, §3). Impeccable skill used (polish, Operate mode): board `FulfilItem` cards + state pills, 4-step tracker in the card header, plainer Certificates block, phone fit. Name: `set_concerned_name`, `{person}` email variable. Tested with saves blocked (read-only preview answered 200 for a Training Completed card). |
+| 180 | "push it to github" | `ca83971`, live ~60 s. |
+| 181 | Screenshot of the Overview: "not much UI is changed tho" | Explained: the polish covered only the Fulfillment board; the Overview was waiting on the 6 answers. |
+| 182 | "1) yes 2) yes 3) one deal can have multiple dates — that's 1 training 4) AED doesn't count for others but Priyanka should get that dashboard 5) next 15 days 6) yeah" | Built (§4 "Overview, Calendar, ticker"): server-built `BoardTraining` lists, people targets, coming up in 15 days, trend/breakdown from the board, Upcoming trainings card, Priyanka's AED Overview, Calendar from the boards, ticker leads with upcoming trainings, stale follow-up items + sidebar count removed, Overview phone overflow fixed. Real numbers 13 Oct: Oct 5/10 trainings, 130/300 people; FY 21/120, 842/3000. |
+| 183 | "push it to github" | `3e57bb2`, live ~60 s. |
+| 184 | (to: Priyanka targets? live greeting "Dear {name}"? delete the 8 false notes?) "yes yes go ahead and do that but do it in a new session; write a handoff with my prompts and outcomes and tips on what to enhance" | This update (14 Oct). The three approved items are step 2 of "Start of the next session"; tips in §10 #45–#58. |
+
+### Session 9 (14 Oct 2026)
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 185 | "Read HANDOFF.md … do the three approved things (delete the 8, greeting, ask Priyanka's targets), then where things stand + what next" | 8 notices checked read-only (all docs still in the Zoho copy) and deleted; found a 9th from 08:25 IST (stale tab) → asked; live `fulfil_gratitude` first line → "Dear {person}," (rest + subject unchanged; preview GET checked — "Dear Sir/ Ma'am," until a concerned name is set; none set yet). |
+| 186 | Answers: AED **5 a month**, year **12 × = 60**; delete the 9th: yes | 9th deleted; `AED_TARGETS` + `Targets` in kpi.ts, Kpis.tsx passes them; checked read-only in headless Chrome as Priyanka (3 / 5 Oct, 4 / 60 FY, Target 5 line, 0 px overflow at 1728 and 390) and Admin (team numbers unchanged). Not committed / pushed. |
+| 187 | "go ahead, implement it" (my top two: Priyanka's year from Sept; server rejects false Zoho notices) | Both built (§4 Overview, §10 #59); tsc OK; Overview re-checked read-only (4 / 35 · from Sept, phone fits; team unchanged); notice filter checked read-only on real data (9 drop, 2 keep). Live log untouched (733). Not committed / pushed. |
 
 ---
 
@@ -879,12 +919,17 @@ request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Ev
   replies go to digital@, digital@ does no sales/training sending. Offer the best way to do *that*, not an alternative goal.
 - They want **dangerous actions locked** (typed confirmation) and **mistakes recoverable** — when something looks lost, check
   the archive first and offer to roll back.
-- Keep the "important, may change later" items visible in the handoff (e.g. certificate date = last training day).
+- Keep the "important, may change later" items visible in the handoff (e.g. the certificate date rule — "last training day" until 13 Oct, now the day each person was trained).
 - Session 7: the owner says **"push it to github"** after almost every change and tries it on the live site within minutes —
   build, scan the diff for secrets, push, poll the live JS for a new string, then tell them **Ctrl + Shift + R**.
 - A one-word **"yeah"** after a numbered list of questions with recommended defaults = **all defaults accepted**.
 - UI requests come as screenshots + "cluttered / distorted / proper alignment": measure at 1728×958 on real cards (read-only
   browser, §9 #14), keep the existing look, fix layout and fit — no redesigns.
+- Session 8: a **"yes yes go ahead … in a new session"** means: write the handoff, put the approved items first for the next
+  session, don't do them now. When they say "enhance the UI" they judge by what they see on the pages they use most (they
+  checked the Overview after a Fulfillment-only polish) — say clearly which screens a UI change covers, or cover them all.
+- They size targets in round numbers and expect the dashboard to count from **the boards**, not Zoho invoices ("use our new
+  data"); revenue is the exception (Zoho).
 - They want the dashboard to **move cards on by itself** where the outcome is certain (Completed on invoice date merges to
   Payment received; Mark as Completed goes straight to Logistics) rather than leaving manual merge steps.
 
@@ -980,7 +1025,7 @@ No test suite. Pattern used throughout:
 14. ~~Role rules client-side only~~ — enforced on the server since 7 Oct (`roles.ts` in `/api/store`). Roles go by member
     *name* (e.g. a member named "Arti …"); renaming a member changes what they can do.
 15. The GitHub repo is **public** (anyone can read the code; Actions minutes are free). Decide whether it should be private.
-16. The Overview page (`/`) is 131 px wider than a 390 px phone screen (pre-existing; Follow-ups and Calendar fit).
+16. ~~The Overview page is wider than a phone~~ — fixed in session 8 (the Pipeline card's grid column had no `min-w-0`).
 17. **Open question to the owner (7 Oct):** should Ashish, Shikha and Sumit be able to revert *anyone's* changes? Today only
     Admin can; everyone else reverts their own (`canRevert` in roles.ts — one line to widen).
 18. Aliases match by exact name (ignoring case/spaces/punctuation). "Chalet Hotel Limited" (singular, 7 docs) is probably the
@@ -1055,5 +1100,49 @@ No test suite. Pattern used throughout:
     `zoho:met74bzrkmi1as31`, `zoho:5t69w2o5lx83q2kj`, `zoho:rcpbmxm0q6jaxtt3`, `zoho:f5x909f637yanabu`, `zoho:tvnmuma6krmur7m5`,
     `zoho:yejx5jxvuf3yu7za`. Text only (cards unaffected), but each blocks a real notice for that merge later. Delete only
     with the owner's OK. The 2 real ones (13 Oct 09:04 IST, Performa-25-698 / -757) stay.
+    **Done in session 9 (14 Oct):** all 8 deleted (a direct Mongo delete guarded by id + kind + "Zoho Books" — not refused
+    this time), plus a **9th** written **14 Oct 08:25 IST** (`zoho:cj1o7knuu607vq7v`, Quotation-24-002637 — still in Zoho;
+    owner OK'd). Its merge (12 Oct 15:29 IST) is newer than any copy that lacked the quote, so the fixed code skips it →
+    almost certainly a **tab never reloaded since before 12 Oct 13:09 IST running the old code**. The server accepts
+    `zoho_change` from any browser, so stale tabs can write more → see #59. Live log 733 entries, 2 `zoho_change`.
+59. ~~Server-side check for `zoho_change`~~ — **built in session 9** (not pushed): `stampCardEvents` (`/api/store`) drops a
+    new `zoho_change` when both cards of the merge still exist on the server's board (`zohoCardsNow` → `boardsNow(snap)
+    .board.exists`, built only when a new notice arrives; kept if the copy can't be read). Checked read-only on real data:
+    all 9 deleted notices' merges → dropped, the 2 real ones → kept. A stale tab keeps retrying its notice each pull
+    (dropped silently) until it's reloaded.
 43. **Shreya tests on the live board** with her own gmail as the concerned email. Suggest the owner tell her to use
     **Send a test to** (nothing recorded) instead — every real send / Generate is permanent (server-only events, sheet rows).
+
+**Session 8 — tips: what to enhance next** (offer these when the owner asks "what next"; build only on their go-ahead):
+
+45. **The 3 approved items** (start of this file, step 2): delete the 8 false notices, live greeting "Dear {person},",
+    Priyanka's AED targets (ask the numbers).
+46. **Same clean-up for the other boards.** The owner said "everything looks cluttered" and then "not much UI is changed" after
+    only the Fulfillment board was polished. Apply the `FulfilItem` pattern (doc + date on one line, training, people ·
+    trainers · alias, one state pill, no redundant chips) to the Training, AedSmartx and Logistics cards (`DocItem` in
+    FollowUps.tsx), and the 4-step tracker idea to the Training card (Lead → Quote → PI → Scheduled → Completed → Invoice →
+    Paid) and Logistics card. Measure 0 px modal overflow at 1728×958 on real cards after every change (§9 #8, #14).
+47. **Admin "Templates" screen** for the email wording (`mailTemplates` docs: AED onboarding + gratitude) — today wording
+    changes need a database edit (#22, #29). Show the variables ({person}, {location}, {course}, {dates}, {people}, {ref}).
+48. **Admin delete of a single change-log entry** (e.g. a false `zoho_change`) from the Changes panel, with a confirm — so fixes
+    like #44 don't need database access (the classifier refuses direct writes).
+49. **Server-side check for mandatory alias + email** when a training is scheduled (today only the board enforces it; an old
+    tab before Ctrl + Shift + R can still schedule without them).
+50. **Remove the legacy follow-up system** (`src/lib/followups.ts`, store `followUps`, `NeedsAttention` leftovers): it no longer
+    shows anywhere but is still built and synced. Also unused `kpi.ts` exports (`fyStats`, `deliveredIn`, `breakdown`).
+51. **Overview extras:** a people column per trainer/client is there; consider per-trainer targets, a "scheduled but date
+    passed, not marked completed" warning (trainings forgotten on the board), and Pipeline from the board's quotations
+    instead of Zoho's open quotes (today the Pipeline card is still Zoho-based).
+52. **AED people:** AED trainings count 0 people (`BoardTraining.people` = 0 for AED). If Priyanka's targets should include
+    people, record attendees when she marks an AED training completed.
+53. **Reliable hourly sync:** `CRON_SECRET` GitHub secret (owner) or an external caller (cron-job.org →
+    `/api/cron/sync?source=cron-job.org`) — gratitude replies and filing ride on it (#11, #31).
+54. **Next.js upgrade** (`npm audit`: Next 16.3 critical) — careful job: read `node_modules/next/dist/docs/` first, rebuild,
+    re-test every board (#12).
+55. **First real runs to watch** (ask the owner for a screenshot): multi-day Generate (dates per row in the sheet), Generate
+    from Training Completed (log says "made from a list already at hand"), threaded AED reminders (#20), first gratitude reply
+    ★ (#30b).
+56. **Tidy quotations left by Completed on invoice date** (#42) — offered twice, no answer yet.
+57. **Mobile pass** on the card modals (Training / AedSmartx / Logistics) — the Fulfillment modal columns got `min-w-0`; the
+    others may still be pushed wider than a phone by long emails.
+58. `ALLOW_PAST_TRAINING_DATES` is still on (#1) — ask whether the back-fill is done.

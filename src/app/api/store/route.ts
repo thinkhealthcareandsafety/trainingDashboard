@@ -2,6 +2,8 @@ import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db"
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
 import { SERVER_KINDS, canRevert, canWriteEvent, isAdmin } from "@/lib/roles";
 import { cascadeOf } from "@/lib/cascade";
+import { boardsNow } from "@/lib/fulfilServer";
+import { getSnapshot } from "@/lib/zohoSync";
 import type { CardEvent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -45,10 +47,12 @@ async function stampCardEvents(upserts: Doc[], me: { id: string; name: string })
       for (const e of cascadeOf(own as unknown as CardEvent[], all)) allowed.add(e.id);
     }
   }
+  const exists = await zohoCardsNow(upserts.some((d) => !existing.has(d.id) && d.kind === "zoho_change"));
   return upserts.flatMap((doc): Doc[] => {
     const had = existing.get(doc.id);
     if (!had) {
       if (!canWriteEvent(me, doc as unknown as CardEvent)) return []; // not this member's board / action
+      if (doc.kind === "zoho_change" && exists && (doc.cardIds as string[]).every((id) => exists.has(id))) return []; // both still in Zoho: a stale tab's false notice
       return [{ ...doc, by: doc.kind === "zoho_change" ? "Zoho Books" : me.name, revertedAt: undefined, revertedBy: undefined }];
     }
     const { _id, ...prev } = had;
@@ -57,6 +61,21 @@ async function stampCardEvents(upserts: Doc[], me: { id: string; name: string })
     if (allowed && !allowed.has(_id)) return [prev as Doc]; // someone else's change
     return [{ ...prev, revertedAt: new Date().toISOString(), revertedBy: me.name } as Doc];
   });
+}
+
+/**
+ * The cards that exist in the server's Zoho copy right now — to check a "no longer in Zoho Books" notice before keeping
+ * it. A tab that slept for days (or runs old code, no Ctrl + Shift + R) judges merges by stale Zoho data; on 12–14 Oct
+ * that wrote 9 false notices. Built only when a new notice arrives; null (notice kept) if the copy can't be read.
+ */
+async function zohoCardsNow(needed: boolean): Promise<Set<string> | null> {
+  if (!needed) return null;
+  try {
+    const snap = await getSnapshot();
+    return snap ? (await boardsNow(snap)).board.exists : null;
+  } catch {
+    return null;
+  }
 }
 
 // POST: { collection, upserts: Doc[], deletes: string[] } — only what changed.
