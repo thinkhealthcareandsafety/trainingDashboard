@@ -300,7 +300,9 @@ export type CardEventKind =
   | "aed_remove_email" // same ids: value = an email hidden on the AedSmartx board
   | "aed_confirm_email" // cardIds [aed:<id>]: value = the email, checked as the right one for this invoice
   | "aed_call" // cardIds [aed:<id>, aedcustomer:<contact id>], ref = contact id: a call to value (number), person = who
-  | "aed_email"; // written by the server only, never reverted: an email sent from Zoho Mail — value = to, step = template
+  | "aed_email" // written by the server only, never reverted: an email sent from Zoho Mail — value = to, step = template, subject
+  | "aed_reply" // server only: a reply to it found in hello@'s Inbox — value = from, subject, messageId, folderId, at = when it arrived
+  | "aed_mail_opened"; // cardIds [aed:<id>]: the reply was opened in Zoho Mail from the card — clears its star
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every
@@ -326,7 +328,7 @@ export interface CardEvent {
   messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)
   threaded?: boolean; // aed_email: sent as a reply in the same thread
   subject?: string; // fulfil_email / fulfil_reply: the email's subject
-  folderId?: string; // fulfil_reply: Zoho Mail folder it sits in (to read it)
+  folderId?: string; // fulfil_reply / aed_reply: Zoho Mail folder it sits in (to read it)
   certs?: CertRow[]; // fulfil_certs: the rows added to the master sheet
   design?: string; // fulfil_certs: which certificate design (certDesigns id)
   at: string;

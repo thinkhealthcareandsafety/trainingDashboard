@@ -519,6 +519,11 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   moves the card straight to **Certificates Generated** (`set_fulfillment generated`, `mode: "list"`, log "Certificates made
   from a list already at hand (no gratitude email)", fireworks; the move is optimistic — no reload). The route accepts
   Training Completed cards; the header tracker shows the email step struck through (skipped).
+- **Generate popup (session 9):** the design pre-picked by `designFor` — **BLS training → Basic Life Support, anything
+  else → CPR, AED & First Aid** (was: First Aid → fa, else bls) — glows gold (`.glow-gold`, tokens `--gold` / `--gold-glow`)
+  with a "Suggested" tag; the facts strip shows **Training: <training name(s)>** (the sheet's COURSE column and the printed
+  course still come from the design); Admin sees **Replace designs** (opens the existing `UploadDesigns` popup; converts
+  Photoedit templates on upload). Replacing a design also changes *Download again* of older batches.
 - **Look (session 8):** board cards are `FulfilItem` (FollowUps.tsx): document + training day, training, "n people ·
   trainers · Alias …", and a state pill (`fulfilState` / `StatePill` in FulfilCerts.tsx — the one wording for board and
   card); no "Completed" chip. The card modal header carries a **4-step tracker** (`FulfilSteps`, hidden below lg); the
@@ -581,6 +586,18 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
     Onboarding - AED Smartx*, body) → **Send**. Email 1 = first contact, 2 = 1st reminder, 3+ = 2nd reminder (repeats), sent as
     replies in the first email's thread with the earlier emails quoted. **Send a test to** = same email, *[TEST]*, uncounted.
   - Card tile in Contacted: *n calls · last <date, time>* / *n emails · last <date, time>*. *All calls & emails* = full list.
+  - **Template choice (session 9):** the Send email popup has a **Template** dropdown (every step of Mongo `aed_onboarding`,
+    "(next)" marks the next in line, which is the default). Any template after the first email goes as a reply in the
+    thread ("Re:"); a first email never has "Re:". Route: GET `&template=n`, POST `{template, count}` (count = emails
+    already sent → 409 if someone else just sent one); old tabs' `{step}` still accepted. `aed_email` now stores `subject`.
+  - **★ on replies (session 9):** `checkAedReplies()` (`src/lib/aedReplies.ts`) runs in every `runSync` next to the
+    gratitude check (own try/catch → Sync log `aedReplies` / `aedMailError`): reads hello@'s newest 200 Inbox + Sent, matches
+    by thread or subject (minus Re:/Fwd:), after the email was sent, not from @thinkhealth.in → `aed_reply` (server-only)
+    on `aed:<id>`. ★ on the tile until **Open in Zoho Mail** (`aed_mail_opened`); a starred card opens on the reply
+    (`ReplyView`, shared with Shreya's popup; body via `GET /api/mail/aed?card=&reply=`); "n replies · Show reply" in
+    Contacted, or as a strip once the card moved on. **hello@ must be reconnected once by Admin** (Connect popup — the
+    scope now includes `ZohoMail.folders.ALL`, which hello@'s 8 Oct connection lacks); until then the Sync log shows
+    "AedSmartx replies not checked" with the Zoho error.
   - Numbers / emails / last call that Priyanka adds are **per customer name, AedSmartx board only** (owner: "strictly her
     dashboard"; Admin/Sumit/Shikha/Ashish see them there). Logistics shows the AED card as *Moved by Priyanka · Contacted*.
   - Undo runs forward: reverting delivered also reverts In process; reverting In process reverts later steps; calls and emails stay.
@@ -850,6 +867,10 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 |---|---|---|
 | 185 | "Read HANDOFF.md … do the three approved things (delete the 8, greeting, ask Priyanka's targets), then where things stand + what next" | 8 notices checked read-only (all docs still in the Zoho copy) and deleted; found a 9th from 08:25 IST (stale tab) → asked; live `fulfil_gratitude` first line → "Dear {person}," (rest + subject unchanged; preview GET checked — "Dear Sir/ Ma'am," until a concerned name is set; none set yet). |
 | 186 | Answers: AED **5 a month**, year **12 × = 60**; delete the 9th: yes | 9th deleted; `AED_TARGETS` + `Targets` in kpi.ts, Kpis.tsx passes them; checked read-only in headless Chrome as Priyanka (3 / 5 Oct, 4 / 60 FY, Target 5 line, 0 px overflow at 1728 and 390) and Admin (team numbers unchanged). Not committed / pushed. |
+| 188 | "push it to github" | `40cb462`, live ~40 s. |
+| 189 | Domain: "buy a subdomain work.thinkhealth.in" | No purchase needed. Added in Vercel (Add Existing → Production); DNS is at **Cloudflare** (bristol / piotr.ns.cloudflare.com), in a Cloudflare account the owner can't see → asked the boss for access or to add `CNAME work → 4145140deaae64f5.vercel-dns-017.com` (proxy off). Pending. |
+| 190 | New certificate designs (colour change) to replace; BLS trainings default to the BLS design, others to CPR/AED/First Aid; popup strip shows the **training name** instead of Course; the default design gets a **glowing gold border**; Priyanka picks **which email template** to send; **★ on replies** to her emails, same reply popup as Shreya's. Asked 4 questions → all defaults: gold glow on the pre-picked design in the popup; training name on screen only (sheet COURSE + certificate unchanged); replies read from **hello@**; Admin **Replace designs** button | Built (§4 Fulfillment / AedSmartx below). Tested: reply matching with mocks (thread, subject, own domain, before-send, known — PASS); read-only browser on real cards with saves blocked (Synopsys 2026-01-461 BLS → Suggested + gold, "Training: THCAS BLS Training 2025 (I)", Replace designs; a fake reply injected in the browser only on 2026-01-436 → ★ on the tile, modal opens on the reply, Open in Zoho Mail clears it; 2026-01-437 Send email → Template dropdown, "2nd reminder" as a first email has no "Re:"). Not pushed. |
+| 191 | Attached the **two new templates** (colour change): "these are the two new templates, retry" | Found them in `D:\New folder\A4 CA / FA Photoedit.pdf` (14 Oct, 0.5 MB each). Rendered with made-up names first: **the converter printed a blank certificate** — the new exports keep the picture's colour profile in a separate object (`/ColorSpace [/ICCBased n 0 R]`, RGB, not CMYK), and `backgroundFromTemplate` copied only the picture's own entries. Fixed: copies the picture with `PDFObjectCopier` (everything it points to); old templates still convert. Backed up the old designs (scratchpad `designs-backup/`, local only), then uploaded both through `POST /api/certificates/designs` as Admin on the local server (stored as converted backgrounds, 0.5 MB); checked they print right through the **live** code too (pass-through path). Live since 14 Oct 16:44 IST. Fix not pushed yet. |
 | 187 | "go ahead, implement it" (my top two: Priyanka's year from Sept; server rejects false Zoho notices) | Both built (§4 Overview, §10 #59); tsc OK; Overview re-checked read-only (4 / 35 · from Sept, phone fits; team unchanged); notice filter checked read-only on real data (9 drop, 2 keep). Live log untouched (733). Not committed / pushed. |
 
 ---
@@ -1086,7 +1107,8 @@ No test suite. Pattern used throughout:
     tests on 12 Oct (1 name, SN 2136; 3 names, SN 2136–2138 — rows since deleted from the sheet; both moves undone). The card
     shows "moved back after 3 names…". Server-only kind (nobody can revert it in the app) — delete the two events only if the
     owner says so; until then the next real batch on that card simply replaces them.
-39. **Uploaded designs are stored as the 4.4 MB A4 templates** (uploaded before the convert-on-upload existed); each PDF
+39. ~~Designs stored as 4.4 MB templates~~ — **replaced 14 Oct** with the owner's new templates, stored as converted
+    backgrounds (bls 0.54 MB, fa 0.48 MB). **Was:** **Uploaded designs are stored as the 4.4 MB A4 templates** (uploaded before the convert-on-upload existed); each PDF
     converts them in the browser. Re-uploading them now would store the 0.9 MB background — optional.
 40. The Generate popup's facts strip shows the **course of the chosen design**; the owner hasn't seen the Ready state
     (flower + Download) after the polish — it only shows after a real Generate.

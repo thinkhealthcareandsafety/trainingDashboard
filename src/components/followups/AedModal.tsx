@@ -7,7 +7,8 @@ import { fmtDate } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
 import { celebrate } from "@/lib/confetti";
-import { ContactedSection } from "./AedContacted";
+import { ContactedSection, RepliesLine } from "./AedContacted";
+import { ReplyView } from "./FulfilCerts";
 import { canMarkDelivered, canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
@@ -356,9 +357,13 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { setDraft(null); setError(""); }, [card.id]);
+  // A starred card (a reply to her email not opened yet) opens on the reply first, as on Shreya's board.
+  const [reply, setReply] = useState(false);
+  useEffect(() => setReply(Boolean(card.outreach?.star)), [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const inv = card.invoice!;
   // Contacted: calls and emails, until a training date is set (or it's not required).
   const contacting = Boolean(card.outreach?.inProcess && !card.schedule && !card.notRequired);
+  const replies = card.outreach?.replies ?? [];
 
   const startEdit = () => setDraft({
     name: card.name, aliases: [...card.aliases], emails: card.emails.map((e) => ({ ...e })), phones: card.phones.map((p) => ({ ...p })),
@@ -393,10 +398,22 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
         </div>
         <div className="space-y-3">
           <AedTrainingSection card={card} member={member} />
-          {contacting && <ContactedSection card={card} member={member} />}
+          {contacting && <ContactedSection card={card} member={member} onShowReply={() => setReply(true)} />}
+          {!contacting && replies.length > 0 && <div className="rounded-xl border border-line px-3 py-1.5"><RepliesLine card={card} onShow={() => setReply(true)} /></div>}
           <ItemDescriptionSection card={card} cards={cards} member={member} />
         </div>
       </div>
+      {reply && replies.length > 0 && (
+        <ReplyView
+          title={card.name}
+          star={card.outreach?.star}
+          replies={replies}
+          bodyUrl={(id) => `/api/mail/aed?card=${encodeURIComponent(card.id)}&reply=${encodeURIComponent(id)}`}
+          onOpened={(r) => addCardEvents([{ cardIds: [card.id], kind: "aed_mail_opened", value: r?.from, by: member.name }])}
+          hint="Copy what you need from here, or open it in Zoho Mail (hello@thinkhealth.in)."
+          onClose={() => setReply(false)}
+        />
+      )}
     </Shell>
   );
 }

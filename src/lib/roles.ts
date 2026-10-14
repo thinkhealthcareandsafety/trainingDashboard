@@ -43,7 +43,7 @@ function boardOfCard(id: string): BoardKind {
 }
 
 /** Recorded only by the server, once they've happened in Zoho (an email sent, a reply found, rows added to the sheet) — never reverted. */
-export const SERVER_KINDS = new Set<CardEvent["kind"]>(["aed_email", "fulfil_email", "fulfil_reply", "fulfil_certs"]);
+export const SERVER_KINDS = new Set<CardEvent["kind"]>(["aed_email", "aed_reply", "fulfil_email", "fulfil_reply", "fulfil_certs"]);
 
 /** May this member record this (new) change? Zoho notices are recorded by whoever's browser notices them. */
 export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): boolean {

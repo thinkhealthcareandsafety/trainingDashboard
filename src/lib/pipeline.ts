@@ -147,6 +147,9 @@ export interface AedOutreach {
   sent: { at: string; by: string; to: string; step: number; messageId?: string; threaded?: boolean }[];
   /** The last call to this customer, on any of their AED invoices. */
   lastCall?: { at: string; by: string; to: string; person?: string; cardId: string };
+  /** Replies to her emails found in hello@'s Inbox by the hourly check, oldest first; star = one not opened yet. */
+  replies: { id: string; at: string; from: string; subject?: string }[];
+  star: boolean;
 }
 
 /**
@@ -201,6 +204,8 @@ function aedOutreach(card: CardView, inv: AedInvoice, own: CardEvent[], shared: 
   if (!email || goneMail.has(normEmail(email))) email = emails[0]?.value;
   const inProcess = own.filter((e) => e.kind === "aed_in_process").at(-1);
   const same = (x?: string) => Boolean(email && x && normEmail(x) === normEmail(email));
+  const replies = own.filter((e) => e.kind === "aed_reply").map((e) => ({ id: e.id, at: e.at, from: e.value ?? "", subject: e.subject }));
+  const opened = own.filter((e) => e.kind === "aed_mail_opened").at(-1);
   return {
     inProcess: inProcess ? { at: inProcess.at, by: inProcess.by, eventId: inProcess.id } : undefined,
     phones,
@@ -210,6 +215,9 @@ function aedOutreach(card: CardView, inv: AedInvoice, own: CardEvent[], shared: 
     calls: own.filter((e) => e.kind === "aed_call").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", person: e.person })),
     sent: own.filter((e) => e.kind === "aed_email").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", step: e.step ?? 1, messageId: e.messageId, threaded: e.threaded })),
     lastCall,
+    replies,
+    // ★ on every reply to her emails, until she opens it in Zoho Mail from the card (a newer reply brings it back).
+    star: replies.some((r) => !opened || r.at > opened.at),
   };
 }
 
@@ -1046,7 +1054,8 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_cert_status": return `Certificates: ${v === "hold" ? "On hold" : "In process"}`;
     case "fulfil_email": return `Gratitude email sent to ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
     case "fulfil_reply": return `Reply received from ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
-    case "fulfil_mail_opened": return "Opened the reply in Zoho Mail";
+    case "fulfil_mail_opened": case "aed_mail_opened": return "Opened the reply in Zoho Mail";
+    case "aed_reply": return `Reply received from ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
     case "fulfil_certs": {
       const rows = e.certs ?? [];
       return `${v} participant${v === "1" ? "" : "s"} added to the master sheet${rows.length ? ` — serial ${rows[0].serial}${rows.length > 1 ? `–${rows.at(-1)!.serial}` : ""}` : ""}`;

@@ -36,9 +36,9 @@ function AskRemove({ ask, onClose }: { ask: Ask; onClose: () => void }) {
   );
 }
 
-type Preview = { connected: boolean; from: string; to: string; step: number; label: string; subject: string; text: string; replyTo: { at: string } | null; count: number; error?: string };
+type Preview = { connected: boolean; from: string; to: string; step: number; next: number; steps: string[]; label: string; subject: string; text: string; replyTo: { at: string } | null; count: number; error?: string };
 
-/** The email about to go out: from, to, subject and the template — sent only on "Send". */
+/** The email about to go out: from, to, subject and the template she picks (the next in line to start with) — sent only on "Send". */
 function SendEmail({ card, to, onClose, onConnect }: { card: CardView; to: string; onClose: () => void; onConnect: () => void }) {
   const { recordCardEvents, toast } = useStore();
   const [p, setP] = useState<Preview | null>(null);
@@ -46,13 +46,14 @@ function SendEmail({ card, to, onClose, onConnect }: { card: CardView; to: strin
   const [busy, setBusy] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [tested, setTested] = useState("");
+  const [template, setTemplate] = useState<number | null>(null); // null = the next in line
   const sendTest = async () => {
     if (!p) return;
     setBusy(true);
     setError("");
     setTested("");
     try {
-      const r = await fetch("/api/mail/aed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, to, step: p.step, testTo }) });
+      const r = await fetch("/api/mail/aed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, to, template: p.step, testTo }) });
       const j = (await r.json()) as { ok?: boolean; error?: string };
       if (!r.ok || !j.ok) throw new Error(j.error ?? "Couldn't send the test");
       setTested(`Test sent to ${testTo.trim()} — not counted on the card.`);
@@ -62,20 +63,20 @@ function SendEmail({ card, to, onClose, onConnect }: { card: CardView; to: strin
     setBusy(false);
   };
   useEffect(() => {
-    fetch(`/api/mail/aed?card=${encodeURIComponent(card.id)}&to=${encodeURIComponent(to)}`)
+    fetch(`/api/mail/aed?card=${encodeURIComponent(card.id)}&to=${encodeURIComponent(to)}${template ? `&template=${template}` : ""}`)
       .then(async (r) => { const j = (await r.json()) as Preview; if (!r.ok) setError(j.error ?? "Couldn't prepare the email"); else setP(j); })
       .catch(() => setError("Couldn't reach the server"));
-  }, [card.id, to]);
+  }, [card.id, to, template]);
   const send = async () => {
     if (!p) return;
     setBusy(true);
     setError("");
     try {
-      const r = await fetch("/api/mail/aed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, to, step: p.step }) });
+      const r = await fetch("/api/mail/aed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ card: card.id, to, template: p.step, count: p.count }) });
       const j = (await r.json()) as { ok?: boolean; event?: Parameters<typeof recordCardEvents>[0][number]; error?: string };
       if (!r.ok || !j.event) throw new Error(j.error ?? "Couldn't send the email");
       recordCardEvents([j.event]);
-      toast({ text: `Email ${p.step} (${p.label}) sent to ${to}` });
+      toast({ text: `Email ${p.count + 1} (${p.label}) sent to ${to}` });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't send the email");
@@ -87,7 +88,7 @@ function SendEmail({ card, to, onClose, onConnect }: { card: CardView; to: strin
       <div role="dialog" aria-label="Send email" className="modal-in flex max-h-[90vh] w-full max-w-xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="px-5 pt-5">
           <h3 className="text-[17px] font-bold tracking-tight text-ink">
-            {p ? <>Email {p.step} · {p.label}</> : "Send email"}
+            {p ? <>Email {p.count + 1} · {p.label}</> : "Send email"}
           </h3>
           {p?.replyTo && <p className="mt-0.5 text-[12.5px] text-muted">Goes as a reply in the same thread as the first email ({fmtStamp(p.replyTo.at)}), with the earlier emails below it.</p>}
         </div>
@@ -97,6 +98,12 @@ function SendEmail({ card, to, onClose, onConnect }: { card: CardView; to: strin
               <dt className="text-muted">From</dt><dd className="font-medium text-ink">{p.from}</dd>
               <dt className="text-muted">To</dt><dd className="font-medium text-ink">{p.to}</dd>
               <dt className="text-muted">Subject</dt><dd className="font-medium text-ink">{p.subject}</dd>
+              <dt className="self-center text-muted">Template</dt>
+              <dd>
+                <select className={`${inputCls} !h-8 !w-auto text-[13px]`} value={p.step} onChange={(e) => setTemplate(Number(e.target.value))} disabled={busy} aria-label="Email template">
+                  {p.steps.map((label, i) => <option key={label + i} value={i + 1}>{label}{i + 1 === p.next ? " (next)" : ""}</option>)}
+                </select>
+              </dd>
             </dl>
             <div className="no-scrollbar mx-5 mt-2 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2/70 px-3.5 py-2.5 text-[13px] leading-relaxed text-ink-2">{p.text}</div>
             {p.connected && (
@@ -208,7 +215,20 @@ function History({ card, onClose }: { card: CardView; onClose: () => void }) {
   );
 }
 
-export function ContactedSection({ card, member }: { card: CardView; member: Member }) {
+/** "★ 2 replies · last from … · Show reply" — replies to her emails, found by the hourly check in hello@'s Inbox. */
+export function RepliesLine({ card, onShow }: { card: CardView; onShow: () => void }) {
+  const o = card.outreach!;
+  const last = o.replies.at(-1)!;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted">
+      {o.star && <span className="font-semibold text-medium">★ Reply received</span>}
+      <span>{o.replies.length} {o.replies.length === 1 ? "reply" : "replies"} · last from <b className="font-medium text-ink-2">{last.from}</b>, <span className="num">{fmtStamp(last.at)}</span></span>
+      <button className="font-semibold text-brand underline" onClick={onShow}>Show reply</button>
+    </div>
+  );
+}
+
+export function ContactedSection({ card, member, onShowReply }: { card: CardView; member: Member; onShowReply: () => void }) {
   const { addCardEvents, toast, revertCardEvent } = useStore();
   const o = card.outreach!;
   const ids = [aedCustomerId(card.customerId), card.id]; // customer-wide entries: logged on the customer and this invoice
@@ -374,11 +394,12 @@ export function ContactedSection({ card, member }: { card: CardView; member: Mem
             disabled={!o.email || !o.emailConfirmed || editingMail !== null}
             title={!o.email ? "Add an email first" : !o.emailConfirmed ? "Check the email first: Same email or Change" : undefined}
           >
-            Send email · {aedMailStep(nextStep)}
+            Send email
           </button>
-          <span className="text-[12px] text-muted">from {MAILBOX} · email {nextStep}</span>
+          <span className="text-[12px] text-muted">from {MAILBOX} · email {nextStep} · next in line: {aedMailStep(nextStep)}</span>
           {(o.calls.length > 0 || o.sent.length > 0) && <button className={`${btn.quiet} ml-auto !h-7`} onClick={() => setHistory(true)}>All calls &amp; emails</button>}
         </div>
+        {o.replies.length > 0 && <RepliesLine card={card} onShow={onShowReply} />}
       </div>
       {error && <p className="mt-1 text-[13px] font-medium text-high">{error}</p>}
 

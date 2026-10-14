@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFRawStream, PDFRef, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from "pdf-lib";
+import { PDFDocument, PDFName, PDFObjectCopier, PDFRawStream, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from "pdf-lib";
 
 /*
  * The certificate background, as in the certificate generator (D:\Projects\certificate-generator, src/background.ts):
@@ -27,14 +27,10 @@ export async function backgroundFromTemplate(template: Uint8Array | ArrayBuffer)
   }
   if (!image) throw new Error("This PDF has no certificate picture in it — upload the template exported from Photoedit / Canva");
 
+  // Copied with everything it points to: the 14 Oct templates keep their colour profile in a separate object
+  // (/ColorSpace [/ICCBased n 0 R]) — copying only the picture's own entries left a dangling reference, and a blank page.
   const out = await PDFDocument.create();
-  const dict = out.context.obj({});
-  for (const [key, value] of image.dict.entries()) {
-    if (key.toString() === "/Length") continue;
-    if (value instanceof PDFRef) throw new Error("This PDF stores its picture in a way that isn't supported — export it as a PDF again");
-    dict.set(key, value);
-  }
-  const ref = out.context.register(PDFRawStream.of(dict, image.contents));
+  const ref = out.context.register(PDFObjectCopier.for(src.context, out.context).copy(image));
   const page = out.addPage([DESIGN.width, DESIGN.height]);
   const name = page.node.newXObject("Certificate", ref);
   page.pushOperators(pushGraphicsState(), concatTransformationMatrix(DESIGN.width, 0, 0, DESIGN.height, 0, 0), drawObject(name), popGraphicsState());

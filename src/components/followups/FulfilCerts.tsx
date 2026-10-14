@@ -239,31 +239,32 @@ function GratitudePopup({ card, member, onClose }: { card: CardView; member: Mem
 
 /* ---------------- Replies ---------------- */
 
-type Reply = NonNullable<CardView["fulfillment"]>["replies"][number];
+type Reply = { id: string; at: string; from: string; subject?: string };
 
 /** The reply, read from Zoho Mail (shown sandboxed — it's the customer's HTML). Open in Zoho Mail clears the star. */
-export function ReplyPopup({ card, member, onClose }: { card: CardView; member: Member; onClose: () => void }) {
-  const { addCardEvents } = useStore();
-  const replies = card.fulfillment?.replies ?? [];
+/** A customer's reply, shown on the card: the email itself (sandboxed), ◀ ▶ between replies, Open in Zoho Mail (clears the ★). */
+export function ReplyView({ title, star, replies, bodyUrl, onOpened, hint, onClose }: {
+  title: string; star?: boolean; replies: Reply[]; bodyUrl: (replyId: string) => string; onOpened: (r?: Reply) => void; hint: string; onClose: () => void;
+}) {
   const [index, setIndex] = useState(replies.length - 1);
   const reply: Reply | undefined = replies[index];
   const [body, setBody] = useState<{ html?: string; error?: string } | null>(null);
   useEffect(() => {
     if (!reply) return;
     setBody(null);
-    fetch(`/api/mail/fulfil?card=${encodeURIComponent(card.id)}&reply=${encodeURIComponent(reply.id)}`)
+    fetch(bodyUrl(reply.id))
       .then(async (r) => { const j = (await r.json()) as { html?: string; error?: string }; setBody(r.ok ? j : { error: j.error ?? "Couldn't read the reply" }); })
       .catch(() => setBody({ error: "Couldn't reach the server" }));
-  }, [card.id, reply?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reply?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const openInZoho = () => {
     window.open(ZOHO_MAIL, "_blank", "noopener");
-    addCardEvents([{ cardIds: [card.id], kind: "fulfil_mail_opened", value: reply?.from, by: member.name }]);
+    onOpened(reply);
   };
   return (
     <Popup label="Reply" size="lg" onClose={onClose}>
       <div className="flex flex-wrap items-start gap-x-3 px-5 pt-5">
         <div className="min-w-0 flex-1">
-          <h3 className="text-[17px] font-bold tracking-tight text-ink">{card.fulfillment?.star && <span className="text-medium">★ </span>}Reply · {card.certAlias || card.name}</h3>
+          <h3 className="text-[17px] font-bold tracking-tight text-ink">{star && <span className="text-medium">★ </span>}Reply · {title}</h3>
           {reply && <p className="mt-0.5 truncate text-[12.5px] text-muted">{reply.from} · {fmtStamp(reply.at)}{reply.subject ? ` · ${reply.subject}` : ""}</p>}
         </div>
         {replies.length > 1 && (
@@ -279,12 +280,27 @@ export function ReplyPopup({ card, member, onClose }: { card: CardView; member: 
           : body.error ? <p className="p-4 text-[13px] font-medium text-high">{body.error}</p>
           : <iframe title="Reply" sandbox="" srcDoc={body.html ?? ""} className="h-[52vh] w-full" />}
       </div>
-      <p className="mx-5 mt-2 text-[12.5px] text-muted">Copy the names from here, or open it in Zoho Mail ({REPLIES_TO} — forwarded there).</p>
+      <p className="mx-5 mt-2 text-[12.5px] text-muted">{hint}</p>
       <div className="flex justify-end gap-2 p-5">
         <button className={btn.ghost} onClick={onClose} autoFocus>Close</button>
         <button className={btn.primary} onClick={openInZoho}>Open in Zoho Mail</button>
       </div>
     </Popup>
+  );
+}
+
+export function ReplyPopup({ card, member, onClose }: { card: CardView; member: Member; onClose: () => void }) {
+  const { addCardEvents } = useStore();
+  return (
+    <ReplyView
+      title={card.certAlias || card.name}
+      star={card.fulfillment?.star}
+      replies={card.fulfillment?.replies ?? []}
+      bodyUrl={(id) => `/api/mail/fulfil?card=${encodeURIComponent(card.id)}&reply=${encodeURIComponent(id)}`}
+      onOpened={(r) => addCardEvents([{ cardIds: [card.id], kind: "fulfil_mail_opened", value: r?.from, by: member.name }])}
+      hint={`Copy the names from here, or open it in Zoho Mail (${REPLIES_TO} — forwarded there).`}
+      onClose={onClose}
+    />
   );
 }
 
@@ -431,7 +447,9 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
   const total = days.reduce((n, d) => n + d.names.length, 0);
   const emptyDays = days.filter((d) => !d.names.length);
   const twice = useMemo(() => namesOnSeveralDays(days), [days]);
-  const [design, setDesign] = useState<DesignId>(designFor(card.training.map((t) => t.name)));
+  const trainingNames = card.training.map((t) => t.name);
+  const suggested = designFor(trainingNames); // BLS → Basic Life Support, else First Aid — glows gold in the picker
+  const [design, setDesign] = useState<DesignId>(suggested);
   const [designs, setDesigns] = useState<Design[] | null>(null);
   const [sheet, setSheet] = useState<boolean | null>(null);
   const [setup, setSetup] = useState<"sheet" | "designs" | null>(null);
@@ -489,10 +507,9 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
 
   const busy = phase === "working";
   const batch = ready?.rows ?? preview?.rows;
-  const designInfo = DESIGNS.find((d) => d.id === design)!;
   // The strip under the title: what goes on the certificates, then — once checked — the numbers they get.
   const facts: [string, string][] = phase === "names" || !batch
-    ? [["Location on the certificate", location], [dates.length > 1 ? `Training dates (${dates.length} days)` : "Training date", dates.length > 1 ? fmtDays(dates.join(",")) : dates[0] ? printedDate(dates[0]) : "—"], ["Course", designInfo.course]]
+    ? [["Location on the certificate", location], [dates.length > 1 ? `Training dates (${dates.length} days)` : "Training date", dates.length > 1 ? fmtDays(dates.join(",")) : dates[0] ? printedDate(dates[0]) : "—"], [trainingNames.length > 1 ? "Trainings" : "Training", trainingNames.join(", ") || "—"]]
     : [["New rows", String(batch.length)], ["SN", serials(batch)], ["Certificate no.", certNos(batch)]];
   return (
     <Popup label="Generate certificates" size="xl" busy={busy} onClose={onClose}>
@@ -518,12 +535,20 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
             <div className="grid items-start gap-6 md:grid-cols-[minmax(0,1fr)_340px]">
               <NamesByDay days={days} total={total} twice={twice} onChange={(date, text) => setTexts((t) => ({ ...t, [date]: text }))} texts={texts} />
               <fieldset className="space-y-2">
-                <legend className="mb-1.5 text-[13.5px] font-semibold text-ink">Certificate design</legend>
+                <legend className="mb-1.5 flex w-full items-baseline justify-between gap-2 text-[13.5px] font-semibold text-ink">
+                  Certificate design
+                  {isAdmin(member) && designs && designs.every((d) => d.uploaded) && (
+                    <button className="text-[12.5px] font-medium text-muted underline hover:text-ink" onClick={() => setSetup("designs")}>Replace designs</button>
+                  )}
+                </legend>
                 {(designs ?? DESIGNS.map((d) => ({ ...d, uploaded: null }))).map((d) => (
-                  <label key={d.id} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border-2 px-3.5 py-2.5 text-[13px] transition-colors ${design === d.id ? "border-brand bg-brand-soft" : "border-line hover:border-line-strong"}`}>
+                  <label key={d.id} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border-2 px-3.5 py-2.5 text-[13px] transition-colors ${design === d.id ? "border-brand bg-brand-soft" : "border-line hover:border-line-strong"} ${d.id === suggested ? "glow-gold" : ""}`}>
                     <input type="radio" name="design" className="mt-0.5 size-4 shrink-0 accent-[var(--brand)]" checked={design === d.id} onChange={() => setDesign(d.id)} />
                     <span className="min-w-0">
-                      <span className="block font-semibold text-ink">{d.label}</span>
+                      <span className="flex flex-wrap items-center gap-x-2 font-semibold text-ink">
+                        {d.label}
+                        {d.id === suggested && <span className="rounded-full px-1.5 text-[11px] font-semibold text-[var(--gold)] ring-1 ring-[var(--gold)]">Suggested</span>}
+                      </span>
                       <span className="block text-[12.5px] leading-snug text-muted">{d.course}{designs && !d.uploaded ? " · not uploaded yet" : ""}</span>
                     </span>
                   </label>

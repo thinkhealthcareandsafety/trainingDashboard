@@ -120,9 +120,9 @@ const when = (iso: string) =>
 
 /**
  * The email for step `step` (1-based; past the last template the last one repeats). Reminders quote the emails before
- * them, newest on top — "on below" — as an email client would.
+ * them, newest on top — "on below" — as an email client would. `reply`: it goes into an earlier email's thread ("Re:").
  */
-export function buildMail(t: MailTemplate, step: number, vars: Record<string, string>, earlier: { at: string; step: number }[]) {
+export function buildMail(t: MailTemplate, step: number, vars: Record<string, string>, earlier: { at: string; step: number }[], reply = step > 1) {
   const pick = (n: number) => t.steps[Math.min(Math.max(n, 1), t.steps.length) - 1];
   const subject = fill(t.subject, vars);
   const text = fill(pick(step).body, vars);
@@ -131,5 +131,5 @@ export function buildMail(t: MailTemplate, step: number, vars: Record<string, st
     const head = `On ${when(e.at)}, ${esc(t.signature)} &lt;${esc(t.from)}&gt; wrote:`;
     quoted = `<br><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#555">${head}</div><blockquote style="margin:4px 0 0 6px;padding-left:10px;border-left:2px solid #ccc">${html(fill(pick(e.step).body, vars))}${quoted}</blockquote>`;
   }
-  return { subject: step > 1 ? `Re: ${subject}` : subject, label: pick(step).label, text, html: html(text) + quoted };
+  return { subject: reply ? `Re: ${subject}` : subject, label: pick(step).label, text, html: html(text) + quoted };
 }

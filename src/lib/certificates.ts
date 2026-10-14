@@ -14,8 +14,8 @@ export const DESIGNS: { id: DesignId; label: string; course: string; file: strin
 ];
 export const isDesignId = (x: unknown): x is DesignId => x === "bls" || x === "fa";
 
-/** The design that fits the training: First Aid trainings get the First Aid certificate. */
-export const designFor = (trainingNames: string[]): DesignId => (trainingNames.some((n) => /first\s*aid/i.test(n)) ? "fa" : "bls");
+/** The design that fits the training (owner, 14 Oct 2026): a BLS training gets Basic Life Support, every other the CPR, AED & First Aid one. */
+export const designFor = (trainingNames: string[]): DesignId => (trainingNames.some((n) => /\bBLS\b|basic\s*life\s*support/i.test(n)) ? "bls" : "fa");
 
 /** "2026-10-06" → "06-10-2026" / "06/10/2026". */
 const dmy = (ymd: string, sep: string) => ymd.slice(0, 10).split("-").reverse().join(sep);

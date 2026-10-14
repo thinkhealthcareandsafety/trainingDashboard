@@ -297,8 +297,9 @@ function ItemShell({ card, onClick, children }: { card: CardView; onClick: () =>
       className={`relative block w-full rounded-lg bg-surface px-2.5 py-2 text-left text-[12px] text-muted transition hover:shadow-card ${border} ${card.deleted || card.logiAed?.hidden ? "opacity-50" : ""}`}
     >
       {/* Fulfillment: a reply to the gratitude email came in — until it's opened in Zoho Mail (or the list is added). */}
-      {card.fulfillment?.star && (
-        <span className="pulse-dot absolute left-1/2 top-1 grid size-[18px] -translate-x-1/2 place-items-center rounded-full bg-medium text-[11px] leading-none text-white" title="New reply to the gratitude email" aria-label="New reply">★</span>
+      {/* AedSmartx: a reply to Priyanka's onboarding email, until it's opened in Zoho Mail. */}
+      {(card.fulfillment?.star || card.outreach?.star) && (
+        <span className="pulse-dot absolute left-1/2 top-1 grid size-[18px] -translate-x-1/2 place-items-center rounded-full bg-medium text-[11px] leading-none text-white" title={card.outreach?.star ? "New reply to the onboarding email" : "New reply to the gratitude email"} aria-label="New reply">★</span>
       )}
       {children}
     </button>

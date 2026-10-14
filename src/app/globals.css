@@ -33,6 +33,8 @@
   --info-bg: #eef4ff;
   --purple: #7c3aed;
   --purple-bg: #f4effe;
+  --gold: #c99a1e;
+  --gold-glow: rgba(214, 168, 40, 0.45);
   /* Training scheduled / Training completed columns (owner's colours, 12 Oct) */
   --scheduled: #ffac00;
   --scheduled-bg: #fff4dc;
@@ -71,6 +73,8 @@
     --info-bg: #142036;
     --purple: #b794f6;
     --purple-bg: #221a36;
+    --gold: #e8bd4a;
+    --gold-glow: rgba(232, 189, 74, 0.4);
     --scheduled: #ffac00;
     --scheduled-bg: #2e2412;
     --completed: #26b0d2;
@@ -107,6 +111,8 @@
   --info-bg: #142036;
   --purple: #b794f6;
   --purple-bg: #221a36;
+  --gold: #e8bd4a;
+  --gold-glow: rgba(232, 189, 74, 0.4);
   --scheduled: #ffac00;
   --scheduled-bg: #2e2412;
   --completed: #26b0d2;
@@ -243,8 +249,13 @@ h1, h2, h3 { letter-spacing: -0.018em; }
 @keyframes flower-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
 .flower-breathe { animation: flower-breathe 2.4s ease-in-out infinite; transform-origin: 50% 50%; transform-box: fill-box; }
 
+/* Generate certificates: the design that fits the training glows gold. */
+@keyframes gold-glow { 0%, 100% { box-shadow: 0 0 0 1px var(--gold), 0 0 10px 1px var(--gold-glow); } 50% { box-shadow: 0 0 0 1px var(--gold), 0 0 18px 4px var(--gold-glow); } }
+.glow-gold { border-color: var(--gold) !important; animation: gold-glow 2.6s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .ticker-track, .pulse-dot, .flash, .rise, .modal-in, .fade-in { animation: none !important; }
+  .glow-gold { animation: none; box-shadow: 0 0 0 1px var(--gold), 0 0 12px 2px var(--gold-glow); }
   .card-hover:hover { transform: none; }
   * { transition-duration: 0s !important; }
 }

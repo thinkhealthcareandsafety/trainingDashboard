@@ -4,6 +4,7 @@ import type { AedInvoice, PipelineDoc, Training, ZohoInvoice, ZohoLead, ZohoPaym
 import { fiscalYearStart, syncWindowStart, ymd } from "./dates";
 import { db, mongoConfigured } from "./db";
 import { checkGratitudeReplies } from "./gratitudeReplies";
+import { checkAedReplies } from "./aedReplies";
 import {
   type ItemSets, type Kind, type ZDoc, type ZItem, KINDS, OPEN_ORDER, OPEN_QUOTE, docIdOf, fetchAllLeads, fetchDetail, fetchInvoicePaymentRows,
   fetchItems, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
@@ -112,6 +113,8 @@ export type SyncLogEntry = SyncTrigger & {
   customersRemoved?: number;
   replies?: number; // new replies to Fulfillment gratitude emails (Zoho Mail, learn@)
   mailError?: string; // checking them failed — the Zoho Books sync itself still counts
+  aedReplies?: number; // new replies to the AedSmartx onboarding emails (Zoho Mail, hello@)
+  aedMailError?: string;
 };
 const LOG_DAYS = 90;
 const LOG_LIST_MAX = 60; // names kept per entry (counts stay exact)
@@ -347,6 +350,13 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     } catch (e) {
       log.mailError = e instanceof Error ? e.message : String(e);
       console.error(`[zoho mail] checking replies failed: ${log.mailError}`);
+    }
+    // So do replies to Priyanka's AedSmartx emails (hello@) — on their own, so one mailbox's trouble doesn't hide the other's.
+    try {
+      log.aedReplies = (await checkAedReplies()) || undefined;
+    } catch (e) {
+      log.aedMailError = e instanceof Error ? e.message : String(e);
+      console.error(`[zoho mail] checking AedSmartx replies failed: ${log.aedMailError}`);
     }
     return "done";
   } catch (e) {
