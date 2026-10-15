@@ -1,6 +1,6 @@
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
-import { SERVER_KINDS, canRevert, canWriteEvent, isAdmin } from "@/lib/roles";
+import { SERVER_KINDS, canRevert, canWriteEvent, isAdmin, missingCertFields } from "@/lib/roles";
 import { cascadeOf } from "@/lib/cascade";
 import { boardsNow } from "@/lib/fulfilServer";
 import { getSnapshot } from "@/lib/zohoSync";
@@ -52,6 +52,7 @@ async function stampCardEvents(upserts: Doc[], me: { id: string; name: string })
     const had = existing.get(doc.id);
     if (!had) {
       if (!canWriteEvent(me, doc as unknown as CardEvent)) return []; // not this member's board / action
+      if (missingCertFields(doc as unknown as CardEvent)) return []; // a training date without its location + concerned email
       if (doc.kind === "zoho_change" && exists && (doc.cardIds as string[]).every((id) => exists.has(id))) return []; // both still in Zoho: a stale tab's false notice
       return [{ ...doc, by: doc.kind === "zoho_change" ? "Zoho Books" : me.name, revertedAt: undefined, revertedBy: undefined }];
     }

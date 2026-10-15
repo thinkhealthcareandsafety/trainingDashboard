@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     if (total > MAX_NAMES) return Response.json({ error: `At most ${MAX_NAMES} names at a time` }, { status: 400 });
     const twice = namesOnSeveralDays(days);
     if (twice.length) return Response.json({ error: `One person, one day — these names are on more than one day: ${twice.join("; ")}` }, { status: 400 });
-    const batch = { location: c.card.certAlias || c.card.name, course: design.course };
+    const batch = { location: c.card.certLocation || c.card.name, course: design.course };
 
     if (body.preview) {
       const register = await readRegister();

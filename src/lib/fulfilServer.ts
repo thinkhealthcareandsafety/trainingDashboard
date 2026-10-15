@@ -55,7 +55,7 @@ function boardTraining(c: CardView, board: BoardTraining["board"]): BoardTrainin
     board,
     docNumber: c.docNumber ?? "",
     customerName: c.name,
-    alias: c.certAlias || undefined,
+    alias: c.certLocation || undefined,
     training: c.training.map((t) => t.name).join(", "),
     people: board === "aed" ? 0 : c.training.reduce((n, t) => n + (t.qty || 0), 0),
     dates: [...new Set(s.dates.map((d) => d.slice(0, 10)))].sort(),

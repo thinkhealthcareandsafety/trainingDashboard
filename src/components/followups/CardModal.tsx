@@ -4,11 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { CardEvent, CardEventKind, Member, Phase, ZohoInvoice, ZohoPayment } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
-  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, daysValue, partPaidText, receivedOn, externalTrainers, fmtDays, newestFirst, orderTrainers, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel,
+  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, daysValue, partPaidText, receivedOn, externalTrainers, fmtDays, newestFirst, orderTrainers, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel, sameWords,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { useStore } from "@/lib/store";
+import { useSession } from "@/lib/session";
 import { Avatar, IconButton, Segmented, btn, inputCls, selectCls } from "../ui";
 import { DaysPicker } from "./DaysPicker";
 import { celebrate } from "@/lib/confetti";
@@ -118,18 +119,121 @@ function Entries({ entries, empty, missing }: { entries: ContactEntry[]; empty: 
 
 /* ---------------- Read-only sections (the same for every phase) ---------------- */
 
-export function CustomerSection({ card }: { card: CardView }) {
+/**
+ * Adding an alias: tidy spaces; the same alias in other capitals (or the customer's own name) isn't added twice; one a
+ * letter or two away from an existing one ("Rajajinnagar" / "Rajajinagar") asks first — Add again keeps it.
+ */
+function useAliasInput(aliases: string[], customerName: string, onAdd: (a: string) => void) {
+  const [text, setText] = useState("");
+  const [warn, setWarn] = useState("");
+  const [near, setNear] = useState<string>();
+  const add = (fromBlur = false) => {
+    const a = tidy(text);
+    if (!a) return;
+    if (sameWords(a, customerName)) return (setWarn("That's the customer's own name."), setNear(undefined));
+    const dup = aliases.find((x) => sameWords(x, a));
+    if (dup) return (setWarn(`Already an alias: “${dup}”.`), setNear(undefined));
+    const close = closeTo(a, aliases);
+    if (close && near !== a) {
+      if (!fromBlur) (setNear(a), setWarn(`Close to “${close}” — a typo? Add again to keep “${a}”.`));
+      return;
+    }
+    onAdd(a);
+    setText("");
+    setWarn("");
+    setNear(undefined);
+  };
+  const change = (v: string) => { setText(v); setWarn(""); setNear(undefined); };
+  return { text, change, add, warn };
+}
+
+/**
+ * The customer's aliases and the concerned person's name, from any board (owner, 15 Oct): neither is required, and both
+ * show on every card under the customer's name. An alias is anything the team knows the customer by; the name is only
+ * a person.
+ */
+function CustomerNamesEditor({ card, onClose }: { card: CardView; onClose: () => void }) {
+  const { addCardEvents } = useStore();
+  const { member } = useSession();
+  const [aliases, setAliases] = useState(card.aliases);
+  const [name, setName] = useState(card.concernedName ?? "");
+  const input = useAliasInput(aliases, card.name, (a) => setAliases([...aliases, a]));
+  const why = notAPerson(name);
+  const changed = aliases.join("\u0000") !== card.aliases.join("\u0000") || tidy(name) !== (card.concernedName ?? "");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") (e.stopPropagation(), onClose()); };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  const save = () => {
+    if (!member || why) return;
+    const base = { cardIds: [card.id], ref: card.customerId, by: member.name };
+    addCardEvents([
+      ...card.aliases.filter((a) => !aliases.includes(a)).map((a) => ({ ...base, kind: "remove_alias" as const, value: a })),
+      ...aliases.filter((a) => !card.aliases.includes(a)).map((a) => ({ ...base, kind: "add_alias" as const, value: a })),
+      ...(tidy(name) !== (card.concernedName ?? "") ? [{ ...base, kind: "set_concerned_name" as const, value: tidy(name), before: card.concernedName ?? "" }] : []),
+    ]);
+    onClose();
+  };
   return (
-    <Section title="Customer">
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={onClose}>
+      <div role="alertdialog" aria-label="Aliases and concerned person" className="modal-in w-full max-w-[640px] rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="px-6 pb-4 pt-5">
+          <h3 className="text-[18px] font-bold tracking-tight text-ink">{card.name}</h3>
+          <p className="mt-0.5 text-[13px] text-muted">Shows on every card of this customer, on every board. Neither is required.</p>
+        </div>
+        <FormRows.Provider value={true}>
+          <div className="border-y border-line px-6">
+            <FieldRow label="Aliases" hint="Anything the team knows them by — a person, a hotel, a short name" required={false}>
+              <span className="flex flex-wrap items-center gap-1.5">
+                {aliases.map((a) => (
+                  <span key={a} className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2.5 py-0.5 text-[12.5px] text-ink-2">
+                    {a}
+                    <button type="button" aria-label={`Remove alias ${a}`} className="text-faint hover:text-high" onClick={() => setAliases(aliases.filter((x) => x !== a))}>×</button>
+                  </span>
+                ))}
+                <input className={`${inputCls} !h-8 !w-56 text-[13px]`} placeholder="+ Add alias" value={input.text} onChange={(e) => input.change(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), input.add())} aria-label="New alias" />
+                <button type="button" className={`${btn.ghost} !h-8 !px-3`} disabled={!input.text.trim()} onClick={() => input.add()}>Add</button>
+                {input.warn && <span className="w-full text-[12px] font-medium text-medium">{input.warn}</span>}
+              </span>
+            </FieldRow>
+            <NamePicker value={name} onChange={setName} />
+          </div>
+        </FormRows.Provider>
+        <div className="flex justify-end gap-2 px-6 py-4">
+          <button className={btn.ghost} onClick={onClose}>Cancel</button>
+          <button className={btn.primary} disabled={!changed || Boolean(why) || Boolean(input.text.trim())} title={input.text.trim() ? "Add or clear the alias you typed first" : undefined} onClick={save}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function CustomerSection({ card }: { card: CardView }) {
+  const { member } = useSession();
+  const [editing, setEditing] = useState(false);
+  useEffect(() => setEditing(false), [card.id]);
+  const close = useCallback(() => setEditing(false), []);
+  return (
+    <Section
+      title="Customer"
+      aside={member && !card.deleted && (
+        <button type="button" className="text-[12.5px] font-semibold text-brand hover:underline" onClick={() => setEditing(true)} title="Aliases and the concerned person's name — on every card of this customer">
+          Aliases &amp; contact person
+        </button>
+      )}
+    >
       <dl>
         <Row label="Customer name" required>
           <div className="text-[15px] font-semibold text-ink">{card.name}</div>
           {card.aliases.length > 0 && <div className="mt-0.5 text-[13px] text-muted">Also known as {card.aliases.join(", ")}</div>}
+          {card.concernedName && <div className="mt-0.5 text-[13px] text-muted">Concerned person: <span className="font-medium text-ink-2">{card.concernedName}</span></div>}
         </Row>
         <Row label="Customer type">{card.type ?? <span className="text-faint">—</span>}</Row>
         <Row label="Sector">{card.sector ?? <span className="text-faint">—</span>}</Row>
         <Row label="Created in Zoho" locked>{card.customerSince ? dateLong(card.customerSince) : "—"}</Row>
       </dl>
+      {editing && <CustomerNamesEditor card={card} onClose={close} />}
     </Section>
   );
 }
@@ -320,33 +424,69 @@ export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : to
 export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
 /**
- * For certificates, per customer name: the alias printed as the location ("" = the customer's own name, null = not
- * chosen yet) and the concerned person's email ("" = not set). Both are required to schedule a training (owner, 13 Oct:
- * so nothing is missing at the gratitude email). The concerned person's name is optional.
+ * Certificates, per training (owner, 15 Oct): the certificate location name printed as "course conducted at" ("" = the
+ * customer's own name, null = not chosen yet) and the concerned person's email — both required to schedule — plus the
+ * concerned person's name (optional, per customer name, only a person).
  */
-export type CertChoice = { alias: string | null; email: string; name: string };
+export type CertChoice = { location: string | null; email: string; name: string };
 type ScheduleFn = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => void;
 
-export const certOf = (card: CardView): CertChoice => ({ alias: card.certAlias ?? null, email: card.concernedEmail ?? "", name: card.concernedName ?? "" });
-/** Both chosen: an alias (or "Same as original") and a valid email. */
-export const certReady = (c: CertChoice) => c.alias !== null && EMAIL_RE.test(c.email.trim());
-const sameCert = (a: CertChoice, b: CertChoice) => a.alias === b.alias && normEmail(a.email) === normEmail(b.email) && a.name.trim() === b.name.trim();
+/** What the pickers start from: this training's own, else (a new training) the customer's latest email. */
+export const certOf = (card: CardView): CertChoice => ({ location: card.certLocation ?? null, email: card.concernedEmail ?? card.lastEmail ?? "", name: card.concernedName ?? "" });
+const tidy = (v: string) => v.trim().replace(/\s+/g, " ");
+/** Both chosen: a location (or "Same as original") and a valid email; a name, if given, looks like a person's. */
+export const certReady = (c: CertChoice) => c.location !== null && EMAIL_RE.test(c.email.trim()) && !notAPerson(c.name);
+const sameCert = (a: CertChoice, b: CertChoice) => a.location === b.location && normEmail(a.email) === normEmail(b.email) && tidy(a.name) === tidy(b.name);
+
+/** Saved on the set_training_date entry itself — the server refuses a date without them. */
+export const certFields = (c: CertChoice) => ({ location: tidy(c.location ?? ""), email: c.email.trim() });
 
 /**
- * The events that set a card's alias for certificates and concerned email — both go to every card under the
- * customer's name. A new alias typed here also becomes one of the customer's aliases.
+ * Words that make a "concerned person's name" a company or a place — that belongs in Alias (or the location). Also no
+ * digits or emails. Returns why, or "" when it reads like a person.
  */
-export function certEvents(card: CardView, cert: CertChoice | undefined, by: string): Omit<CardEvent, "id" | "at">[] {
+const PLACE_WORDS = /\b(hotels?|resorts?|spa|villas?|ltd|limited|pvt|private|llp|inc|company|corp|corporation|group|hospitals?|university|college|school|institute|services|solutions|technologies|india|marriott|westin|hyatt|sheraton|fairfield|courtyard|novotel|radisson|oberoi|itc|plaza|towers?|mall|office|branch|campus|pune|mumbai|bengaluru|bangalore|delhi|hyderabad|chennai|goa)\b/i;
+export function notAPerson(name: string): string {
+  const n = tidy(name);
+  if (!n) return "";
+  if (/[@\d]/.test(n)) return "Only a person's name here — no numbers or emails.";
+  const w = n.match(PLACE_WORDS)?.[0];
+  return w ? `“${w}” looks like a company or place — only a person's name here (add places as an Alias).` : "";
+}
+
+/** Two spellings of the same thing ("Rajajinnagar" / "Rajajinagar"): at most 2 letters apart, ignoring case and spaces. */
+export function closeTo(v: string, list: string[]): string | undefined {
+  const a = tidy(v).toLowerCase();
+  if (a.length < 5) return list.find((x) => sameWords(x, v));
+  const dist = (s: string, t: string) => {
+    if (Math.abs(s.length - t.length) > 2) return 3;
+    let prev = Array.from({ length: t.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= s.length; i++) {
+      const cur = [i];
+      for (let j = 1; j <= t.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (s[i - 1] === t[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[t.length];
+  };
+  return list.find((x) => dist(a, tidy(x).toLowerCase()) <= 2);
+}
+
+/**
+ * The entries a choice makes. The location and email belong to this training: with a new date they ride on the
+ * set_training_date entry (`onDate`), otherwise they're their own entries — on the training's card (Shreya: on her
+ * Fulfillment card). The concerned person's name goes to every card under the customer's name.
+ */
+export function certEvents(card: CardView, cert: CertChoice | undefined, by: string, onDate = false): Omit<CardEvent, "id" | "at">[] {
   if (!cert) return [];
-  const base = { cardIds: [card.id], ref: card.customerId, by };
-  const now = certOf(card);
-  const alias = cert.alias?.trim() ?? null; // null: not chosen — left as it is
+  const target = card.id.startsWith("fulfil:") ? card.id : card.schedule?.on ?? card.id;
+  const base = { cardIds: [target], ref: card.customerId, by };
+  const location = cert.location === null ? null : tidy(cert.location);
   const email = cert.email.trim();
+  const name = tidy(cert.name);
   return [
-    ...(alias && alias !== card.name && !card.aliases.includes(alias) ? [{ ...base, kind: "add_alias" as const, value: alias }] : []),
-    ...(alias !== null && alias !== now.alias ? [{ ...base, kind: "set_cert_alias" as const, value: alias, before: now.alias ?? "" }] : []),
-    ...(normEmail(email) !== normEmail(now.email) ? [{ ...base, kind: "set_concerned_email" as const, value: email, before: now.email }] : []),
-    ...(cert.name.trim().replace(/\s+/g, " ") !== now.name ? [{ ...base, kind: "set_concerned_name" as const, value: cert.name.trim().replace(/\s+/g, " "), before: now.name }] : []),
+    ...(!onDate && location !== null && !card.certLocked && location !== (card.certLocation ?? null) ? [{ ...base, kind: "set_cert_location" as const, value: location, before: card.certLocation ?? "" }] : []),
+    ...(!onDate && email && normEmail(email) !== normEmail(card.concernedEmail ?? "") ? [{ ...base, kind: "set_training_email" as const, value: email, before: card.concernedEmail ?? "" }] : []),
+    ...(name !== (card.concernedName ?? "") ? [{ cardIds: [card.id], ref: card.customerId, by, kind: "set_concerned_name" as const, value: name, before: card.concernedName ?? "" }] : []),
   ];
 }
 
@@ -354,7 +494,7 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
 function PickerRow({ label, hint, required = true, children }: { label: string; hint: string; required?: boolean; children: React.ReactNode }) {
   if (useContext(FormRows)) {
     return (
-      <FieldRow label={label[0] + label.slice(1).toLowerCase().replace("person's", "person’s")} hint={hint[0].toUpperCase() + hint.slice(1)} required={required}>
+      <FieldRow label={label} hint={hint[0].toUpperCase() + hint.slice(1)} required={required}>
         <span className="flex flex-wrap items-center gap-1.5">{children}</span>
       </FieldRow>
     );
@@ -368,29 +508,32 @@ function PickerRow({ label, hint, required = true, children }: { label: string; 
   );
 }
 
-/** Alias for certificates and the concerned person's email, each on its own row. */
+/** Certificate location name, the concerned person's email and name, each on its own row. */
 function CertPickers({ card, value, onChange }: { card: CardView; value: CertChoice; onChange: (v: CertChoice) => void }) {
   const pickers = <>
-    <AliasPicker card={card} value={value.alias} onChange={(alias) => onChange({ ...value, alias })} />
+    <LocationPicker card={card} value={value.location} onChange={(location) => onChange({ ...value, location })} />
     <EmailPicker card={card} value={value.email} onChange={(email) => onChange({ ...value, email })} />
     <NamePicker value={value.name} onChange={(name) => onChange({ ...value, name })} />
   </>;
   return useContext(FormRows) ? pickers : <div className="space-y-1.5">{pickers}</div>;
 }
 
-/** The concerned person's name — optional; it greets them in the gratitude email. */
+/** The concerned person's name — optional, only a person; greets them in the gratitude email, on every card of the customer. */
 function NamePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const rows = useContext(FormRows);
+  const why = notAPerson(value);
   return (
-    <PickerRow label="Add Concerned Person's Name" hint="optional — greets them in the gratitude email" required={false}>
+    <PickerRow label="Concerned person’s name" hint="optional — only a person; greets them in the gratitude email" required={false}>
       <input
         className={`${inputCls} !h-8 ${pickerWidth(rows, "!w-56")} text-[13px]`}
         placeholder="e.g. Roohi Khanna"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label="Concerned person's name"
+        aria-invalid={Boolean(why)}
         maxLength={80}
       />
+      {why && <span className="w-full text-[12px] font-medium text-high">{why}</span>}
     </PickerRow>
   );
 }
@@ -399,18 +542,20 @@ function NamePicker({ value, onChange }: { value: string; onChange: (v: string) 
 const pickerWidth = (rows: boolean, inline: string) => (rows ? "w-full max-w-[360px]" : inline);
 
 /**
- * The concerned person's email: one of the customer's emails ("Same as original" — there can be several) or a new one.
+ * The concerned person's email for this training: the customer's latest one, one of their emails ("Same as original"
+ * — there can be several), or a new one.
  */
 export function EmailPicker({ card, value, onChange }: { card: CardView; value: string; onChange: (v: string) => void }) {
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
   const NEW = "\u0000new";
   const own = card.emails.find((e) => normEmail(e.value) === normEmail(value))?.value;
+  const last = card.lastEmail && !card.emails.some((e) => normEmail(e.value) === normEmail(card.lastEmail!)) ? card.lastEmail : undefined;
   const ok = EMAIL_RE.test(text.trim());
   const use = () => { if (ok) { onChange(text.trim()); setAdding(false); } };
   const rows = useContext(FormRows);
   return (
-    <PickerRow label="Add Concerned Person's Email" hint="will be used to send emails for gratitude and to ask for List of Participants">
+    <PickerRow label="Concerned person’s email" hint="for this training — the gratitude email and the List of Participants">
       {adding ? (
         <>
           <input
@@ -434,12 +579,13 @@ export function EmailPicker({ card, value, onChange }: { card: CardView; value: 
           aria-label="Concerned person's email"
         >
           <option value="" disabled>Select an email…</option>
+          {last && <optgroup label="Used last time"><option value={last}>{last}</option></optgroup>}
           {card.emails.length > 0 && (
             <optgroup label="Same as original">
               {card.emails.map((e) => <option key={e.value} value={e.value}>{e.value}</option>)}
             </optgroup>
           )}
-          {value && !own && <option value={value}>{value}</option>}
+          {value && !own && value !== last && <option value={value}>{value}</option>}
           <option value={NEW}>+ Add new…</option>
         </select>
       )}
@@ -448,45 +594,75 @@ export function EmailPicker({ card, value, onChange }: { card: CardView; value: 
 }
 
 /**
- * Alias for certificates (printed as the location): the customer's own name, one of their aliases, or a new alias
- * (added to the customer's aliases when saved).
+ * Certificate location name (printed as "course conducted at"), for this training: the customer's own name, a location
+ * used before, one of their aliases, or a new one. A new one close to an existing spelling asks first.
  */
-function AliasPicker({ card, value, onChange }: { card: CardView; value: string | null; onChange: (v: string) => void }) {
+function LocationPicker({ card, value, onChange }: { card: CardView; value: string | null; onChange: (v: string) => void }) {
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
+  const [near, setNear] = useState<string>();
   const NEW = "\u0000new";
   const NONE = "\u0000none";
-  const known = !value || card.aliases.includes(value);
+  const used = card.certLocations ?? [];
+  const aliases = card.aliases.filter((a) => !used.some((u) => sameWords(u, a)));
+  const known = [...used, ...aliases];
   const rows = useContext(FormRows);
+  const label = "Certificate location name";
+  const hint = "printed on the certificates as “course conducted at” — for this training";
+  if (card.certLocked) {
+    return (
+      <PickerRow label={label} hint="locked — the certificates are made">
+        <span className="text-[13px] font-semibold text-ink">{value || card.name}</span>
+      </PickerRow>
+    );
+  }
+  const use = (force = false) => {
+    const t = tidy(text);
+    if (!t) return;
+    const same = known.find((x) => sameWords(x, t)) ?? (sameWords(card.name, t) ? "" : undefined);
+    if (same !== undefined) return (onChange(same), setAdding(false), setNear(undefined));
+    const close = force ? undefined : closeTo(t, [...known, card.name]);
+    if (close) return setNear(close);
+    onChange(t);
+    setAdding(false);
+    setNear(undefined);
+  };
   return (
-    <PickerRow label="Add Alias" hint="will be used for Certificates as location">
+    <PickerRow label={label} hint={hint}>
       {adding ? (
         <>
           <input
-            className={`${inputCls} !h-8 !w-44 text-[13px]`}
-            placeholder="New alias"
+            className={`${inputCls} !h-8 !w-56 text-[13px]`}
+            placeholder="e.g. JW Marriott Mumbai Sahar"
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) { e.preventDefault(); onChange(text.trim().replace(/\s+/g, " ")); setAdding(false); } }}
-            aria-label="New alias"
+            onChange={(e) => { setText(e.target.value); setNear(undefined); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); use(Boolean(near)); } }}
+            aria-label="New certificate location name"
             autoFocus
           />
-          <button type="button" className={`${btn.ghost} !h-8 !px-3`} disabled={!text.trim()} onClick={() => { onChange(text.trim().replace(/\s+/g, " ")); setAdding(false); }}>Use alias</button>
-          <button type="button" className={`${btn.quiet} !h-8`} onClick={() => setAdding(false)}>Cancel</button>
+          <button type="button" className={`${btn.ghost} !h-8 !px-3`} disabled={!text.trim()} onClick={() => use(Boolean(near))}>{near ? "Keep mine" : "Use location"}</button>
+          <button type="button" className={`${btn.quiet} !h-8`} onClick={() => { setAdding(false); setNear(undefined); }}>Cancel</button>
+          {near && (
+            <span className="w-full text-[12px] font-medium text-medium">
+              Close to “{near}” — a typo?{" "}
+              <button type="button" className="font-semibold text-brand hover:underline" onClick={() => { onChange(near === card.name ? "" : near); setAdding(false); setNear(undefined); }}>Use “{near}”</button>
+            </span>
+          )}
         </>
       ) : (
         <select
-          className={`${selectCls} !h-8 ${pickerWidth(rows, "w-auto max-w-[240px]")} truncate`}
+          className={`${selectCls} !h-8 ${pickerWidth(rows, "w-auto max-w-[260px]")} truncate`}
           value={value ?? NONE}
-          onChange={(e) => (e.target.value === NEW ? (setText(""), setAdding(true)) : onChange(e.target.value))}
-          aria-label="Alias for certificates"
-          title={value === null ? "Choose the name printed on the certificates" : value ? `Alias: ${value}` : `Same name as original: ${card.name}`}
+          onChange={(e) => (e.target.value === NEW ? (setText(""), setNear(undefined), setAdding(true)) : onChange(e.target.value))}
+          aria-label="Certificate location name"
+          title={value === null ? "Choose the name printed on the certificates" : value || `Same as original: ${card.name}`}
         >
           {value === null && <option value={NONE} disabled>Select…</option>}
-          <option value="">Same as original</option>
-          {card.aliases.map((a) => <option key={a} value={a}>Alias: {a}</option>)}
-          {!known && <option value={value}>Alias: {value} (new)</option>}
-          <option value={NEW}>+ Add alias…</option>
+          <option value="">Same as original — {card.name}</option>
+          {used.length > 0 && <optgroup label="Used before">{used.map((l) => <option key={l} value={l}>{l}</option>)}</optgroup>}
+          {aliases.length > 0 && <optgroup label="Aliases">{aliases.map((a) => <option key={a} value={a}>{a}</option>)}</optgroup>}
+          {value && !known.includes(value) && <option value={value}>{value} (new)</option>}
+          <option value={NEW}>+ New location…</option>
         </select>
       )}
     </PickerRow>
@@ -609,7 +785,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
   const big = compact ? "text-[16px]" : "text-[20px]";
   const busy = busyOn?.(days) ?? new Map<string, CardView>();
   const chosen = trainers.filter((t) => !busy.has(t));
-  // Same days as now: only the trainers, the alias or the email change.
+  // Same days as now: only the trainers, the location, the email or the name change.
   const sameDate = postponing && daysValue(days) === s!.dates.join(",");
   const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t)) && sameCert(cert, certOf(card));
   const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && certReady(cert) && !unchanged;
@@ -618,7 +794,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
   const open = (change = false) => {
     setDays(postponing ? s!.dates : []);
     setTrainers(s?.trainers ?? []);
-    setCert(certOf(card)); // the customer's current ones — change them if this training differs
+    setCert(certOf(card)); // this training's own (a new one: the location is asked, the email starts at the customer's latest)
     setChanging(change);
     setPicking(true);
     onEditing?.(true);
@@ -670,21 +846,21 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
             <div className="w-full space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={postponing ? "New training dates" : "Training dates"} autoOpen={!postponing} />
-                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid} title={certReady(cert) ? undefined : "Choose the alias and the concerned person's email first"}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
+                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid} title={certReady(cert) ? undefined : "Choose the certificate location and the concerned person's email first"}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={`${btn.quiet} shrink-0`} onClick={close}>Cancel</button>
                 {/* On this row so the card doesn't grow; opens the labelled pickers — saved with the training date. */}
                 <button
                   type="button"
                   className={`ml-auto shrink-0 text-[13px] font-semibold hover:underline ${certReady(cert) ? "text-brand" : "text-high"}`}
                   onClick={() => setCertOpen(true)}
-                  title={`Alias: ${cert.alias === null ? "not chosen" : cert.alias || "Same as original"} · Concerned email: ${cert.email || "not set"}${cert.name.trim() ? ` · ${cert.name.trim()}` : ""}`}
+                  title={`Certificate location: ${cert.location === null ? "not chosen" : cert.location || `Same as original (${card.name})`} · Concerned email: ${cert.email || "not set"}${cert.name.trim() ? ` · ${cert.name.trim()}` : ""}`}
                 >
-                  {certReady(cert) ? <>Alias &amp; email{sameCert(cert, certOf(card)) ? "" : " ✓"}</> : <>Alias &amp; email required *</>}
+                  {certReady(cert) ? <>Location &amp; email{sameCert(cert, certOf(card)) ? "" : " ✓"}</> : <>Location &amp; email required *</>}
                 </button>
               </div>
               <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
               {certOpen && (
-                <CertEditor card={card} initial={cert} saveLabel="Use" note={`Saved with the training date — then shows on every card under ${card.name}.`}
+                <CertEditor card={card} initial={cert} saveLabel="Use" note={`Saved with the training date — the location and email for this training; the concerned person's name on every card of ${card.name}.`}
                   onSave={setCert} onClose={closeCertOpen} />
               )}
             </div>
@@ -717,13 +893,18 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
 }
 
 /**
- * Under the head-count: the alias for certificates (only when there is one) and the concerned person's email, with
- * Change when the viewer may set them. `needEmail`: say it's needed (Fulfillment — certificates go nowhere without it).
+ * Under the head-count: this training's certificate location name and concerned person's email (and name), with Change
+ * when the viewer may set them. `needEmail`: say it's needed (Fulfillment — certificates go nowhere without it).
  */
 function CertLines({ card, onChange, needEmail }: { card: CardView; onChange?: () => void; needEmail?: boolean }) {
   return (
     <>
-      {card.certAlias && <p className="mt-0.5 truncate text-[12.5px] leading-snug text-ink-2" title={card.certAlias}><span className="font-semibold">Alias:</span> {card.certAlias}</p>}
+      {card.schedule && (
+        <p className="mt-0.5 truncate text-[12.5px] leading-snug text-ink-2" title={card.certLocation === undefined && !card.certLocked ? "Not chosen yet — printed on the certificates" : `Certificate location: ${card.certLocation || card.name}`}>
+          <span className="font-semibold">Location:</span>{" "}
+          {card.certLocation === undefined && !card.certLocked ? <span className={needEmail ? "font-medium text-medium" : "text-muted"}>not chosen</span> : card.certLocation || <span className="text-muted">same as customer name</span>}
+        </p>
+      )}
       <p className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[12.5px] leading-snug text-ink-2">
         <span className="shrink-0 font-semibold">{card.concernedName ? "Concerned:" : "Concerned email:"}</span>
         {card.concernedName && <span className="shrink-0 font-medium text-ink">{card.concernedName}{card.concernedEmail ? " ·" : ""}</span>}
@@ -737,10 +918,10 @@ function CertLines({ card, onChange, needEmail }: { card: CardView; onChange?: (
 }
 
 /**
- * Change the alias for certificates and the concerned email on their own (every card under the customer's name
- * follows). A popup over the card, so the card itself doesn't grow and start scrolling.
+ * Change this training's certificate location and concerned email (and the customer's concerned person's name) on
+ * their own. A popup over the card, so the card itself doesn't grow and start scrolling.
  */
-function CertEditor({ card, initial, saveLabel = "Save", note, onSave, onClose }: {
+export function CertEditor({ card, initial, saveLabel = "Save", note, onSave, onClose }: {
   card: CardView; initial?: CertChoice; saveLabel?: string; note?: string; onSave: (cert: CertChoice) => void; onClose: () => void;
 }) {
   const start = initial ?? certOf(card);
@@ -755,7 +936,7 @@ function CertEditor({ card, initial, saveLabel = "Save", note, onSave, onClose }
       <div role="alertdialog" aria-label="Certificate details" className="modal-in w-full max-w-[640px] rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="px-6 pb-4 pt-5">
           <h3 className="text-[18px] font-bold tracking-tight text-ink">Certificate details</h3>
-          <p className="mt-0.5 text-[13px] text-muted">{note ?? `Shows on every card under ${card.name}.`}</p>
+          <p className="mt-0.5 text-[13px] text-muted">{note ?? `Location and email: this training only. The concerned person's name: every card of ${card.name}.`}</p>
         </div>
         <FormRows.Provider value={true}>
           <div className="border-y border-line px-6"><CertPickers card={card} value={cert} onChange={setCert} /></div>
@@ -864,14 +1045,14 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
               <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label="Training dates" />
             </FieldRow>
             <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
-            <AliasPicker card={card} value={cert.alias} onChange={(alias) => setCert({ ...cert, alias })} />
+            <LocationPicker card={card} value={cert.location} onChange={(location) => setCert({ ...cert, location })} />
             <EmailPicker card={card} value={cert.email} onChange={(email) => setCert({ ...cert, email })} />
             <NamePicker value={cert.name} onChange={(name) => setCert({ ...cert, name })} />
           </div>
         </FormRows.Provider>
         <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length || !certReady(cert)} title={certReady(cert) ? undefined : "Choose the alias and the concerned person's email first"} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
+          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length || !certReady(cert)} title={certReady(cert) ? undefined : "Choose the certificate location and the concerned person's email first"} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
         </div>
       </div>
     </div>
@@ -1334,12 +1515,7 @@ function EntryEditor({ label, required, entries, onChange, keyOf, validate, phas
 }
 
 export function Editor({ card, draft, setDraft, options }: { card: CardView; draft: Draft; setDraft: (d: Draft) => void; options: BoardOptions }) {
-  const [alias, setAlias] = useState("");
-  const addAlias = () => {
-    const a = alias.trim();
-    if (a && !draft.aliases.includes(a) && a !== draft.name) setDraft({ ...draft, aliases: [...draft.aliases, a] });
-    setAlias("");
-  };
+  const alias = useAliasInput(draft.aliases, draft.name, (a) => setDraft({ ...draft, aliases: [...draft.aliases, a] }));
   const withCurrent = (opts: string[], cur: string) => (cur && !opts.includes(cur) ? [cur, ...opts] : opts);
   const phase = phaseOf(card.kind);
   return (
@@ -1359,7 +1535,8 @@ export function Editor({ card, draft, setDraft, options }: { card: CardView; dra
                   <button type="button" aria-label={`Remove alias ${a}`} className="text-faint hover:text-high" onClick={() => setDraft({ ...draft, aliases: draft.aliases.filter((x) => x !== a) })}>×</button>
                 </span>
               ))}
-              <input className="h-8 min-w-[160px] flex-1 rounded-md border border-dashed border-line bg-transparent px-2 text-[13px] focus:border-brand focus:outline-none" placeholder="+ Add alias (optional)" value={alias} onChange={(e) => setAlias(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addAlias())} onBlur={addAlias} />
+              <input className="h-8 min-w-[160px] flex-1 rounded-md border border-dashed border-line bg-transparent px-2 text-[13px] focus:border-brand focus:outline-none" placeholder="+ Add alias (optional)" value={alias.text} onChange={(e) => alias.change(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), alias.add())} onBlur={() => alias.add(true)} />
+              {alias.warn && <span className="w-full text-[12px] font-medium text-medium">{alias.warn}</span>}
             </div>
           </Row>
           <Row label="Customer type">
@@ -1430,11 +1607,12 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const schedule = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => {
     const s = card.schedule;
     const before = s ? (s.status === "tbd" ? "TBD" : s.dates.join(",")) : undefined;
-    // Same days and trainers: only the alias / email changed — no new date entry.
+    // Same days and trainers: only the location / email / name changed — no new date entry.
     const sameRun = Boolean(s) && value !== "TBD" && before === value && (trainers ?? []).length === s!.trainers.length && (trainers ?? []).every((t) => s!.trainers.includes(t));
     const evs = addCardEvents([
-      ...certEvents(card, cert, member.name),
-      ...(sameRun ? [] : [{ cardIds: [card.id], kind: "set_training_date" as const, value, before, by: member.name, ...(value !== "TBD" ? { trainers } : {}), ...(mode ? { mode } : {}) }]),
+      ...certEvents(card, cert, member.name, !sameRun),
+      // The location and email ride on the date entry (the server refuses a date without them).
+      ...(sameRun ? [] : [{ cardIds: [card.id], kind: "set_training_date" as const, value, before, by: member.name, ...(value !== "TBD" ? { trainers, ...(cert ? certFields(cert) : {}) } : {}), ...(mode ? { mode } : {}) }]),
     ]);
     const ev = evs[evs.length - 1];
     if (!s) {

@@ -23,7 +23,7 @@ async function file(from: string, messageId?: string) {
 }
 
 const varsOf = (card: CardView) => ({
-  location: card.certAlias || card.name,
+  location: card.certLocation || card.name,
   customer: card.name,
   ref: card.docNumber ?? "",
   course: card.training.map((t) => t.name).join(", ") || "training",

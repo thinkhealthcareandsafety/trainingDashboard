@@ -8,7 +8,7 @@ import { isAdmin } from "@/lib/roles";
 import { fireworks } from "@/lib/confetti";
 import { DESIGNS, type DesignId, designFor, namesOnSeveralDays, parseNames, pdfName, printedDate } from "@/lib/certificates";
 import { btn, inputCls } from "../ui";
-import { EmailPicker, certEvents } from "./CardModal";
+import { CertEditor, EmailPicker, certEvents } from "./CardModal";
 import { ConnectMailbox } from "./AedContacted";
 
 /*
@@ -184,7 +184,7 @@ function GratitudePopup({ card, member, onClose }: { card: CardView; member: Mem
     setBusy(true); setError("");
     try {
       // A new concerned email chosen here is kept on the customer, like one set when scheduling.
-      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { alias: card.certAlias ?? null, email: to, name: card.concernedName ?? "" }, member.name));
+      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { location: card.certLocation ?? null, email: to, name: card.concernedName ?? "" }, member.name));
       const j = await post({});
       recordCardEvents([j.event!]);
       toast({ text: `Gratitude email sent to ${to} — ${card.name} moved to Gratitude Email Sent` });
@@ -197,7 +197,7 @@ function GratitudePopup({ card, member, onClose }: { card: CardView; member: Mem
   return (
     <Popup label="Send gratitude email" busy={busy} onClose={onClose}>
       <div className="px-5 pt-5">
-        <h3 className="text-[17px] font-bold tracking-tight text-ink">Gratitude email · {card.certAlias || card.name}</h3>
+        <h3 className="text-[17px] font-bold tracking-tight text-ink">Gratitude email · {card.certLocation || card.name}</h3>
         <p className="mt-0.5 text-[12.5px] text-muted">Sent once. Replies go to {GRATITUDE_FROM} and Zoho forwards them to {REPLIES_TO}; the card gets a ★ when one comes in.</p>
       </div>
       {p ? (
@@ -293,7 +293,7 @@ export function ReplyPopup({ card, member, onClose }: { card: CardView; member: 
   const { addCardEvents } = useStore();
   return (
     <ReplyView
-      title={card.certAlias || card.name}
+      title={card.certLocation || card.name}
       star={card.fulfillment?.star}
       replies={card.fulfillment?.replies ?? []}
       bodyUrl={(id) => `/api/mail/fulfil?card=${encodeURIComponent(card.id)}&reply=${encodeURIComponent(id)}`}
@@ -439,7 +439,8 @@ function UploadDesigns({ designs, onDone, onClose }: { designs: Design[]; onDone
 type Preview = { rows: CertRow[]; sheet: Record<string, string>[]; headers: string[]; missing: string[]; last: Record<string, string>[]; count: number; problems: string[] };
 
 function GeneratePopup({ card, member, onClose }: { card: CardView; member: Member; onClose: () => void }) {
-  const { recordCardEvents } = useStore();
+  const { recordCardEvents, addCardEvents } = useStore();
+  const [placing, setPlacing] = useState(false);
   // One names box per training day: a multi-day training trains different people each day.
   const dates = useMemo(() => certDays(card), [card]);
   const [texts, setTexts] = useState<Record<string, string>>({});
@@ -458,7 +459,7 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
   const [ready, setReady] = useState<{ blob: Blob; rows: CertRow[] } | null>(null);
   const [error, setError] = useState("");
   const { download } = useDownload(card, member);
-  const location = card.certAlias || card.name;
+  const location = card.certLocation || card.name;
   const chosen = designs?.find((d) => d.id === design);
 
   const loadSetup = () => {
@@ -512,7 +513,7 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
     ? [["Location on the certificate", location], [dates.length > 1 ? `Training dates (${dates.length} days)` : "Training date", dates.length > 1 ? fmtDays(dates.join(",")) : dates[0] ? printedDate(dates[0]) : "—"], [trainingNames.length > 1 ? "Trainings" : "Training", trainingNames.join(", ") || "—"]]
     : [["New rows", String(batch.length)], ["SN", serials(batch)], ["Certificate no.", certNos(batch)]];
   return (
-    <Popup label="Generate certificates" size="xl" busy={busy} onClose={onClose}>
+    <Popup label="Generate certificates" size="xl" busy={busy || placing} onClose={onClose}>
       <header className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3 px-6 pb-4 pt-5">
         <div className="min-w-0">
           <h3 className="text-[18px] font-bold tracking-tight text-ink">Generate certificates</h3>
@@ -524,10 +525,16 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
         {facts.map(([k, v], i) => (
           <div key={k} className={`flex min-w-0 items-baseline justify-between gap-3 px-4 py-2 sm:block sm:px-6 sm:py-2.5 ${i ? "border-t border-line sm:border-l sm:border-t-0" : ""}`}>
             <dt className="text-[12px] font-medium text-muted">{k}</dt>
-            <dd className="num min-w-0 truncate text-[14px] font-semibold text-ink sm:mt-0.5" title={v}>{v}</dd>
+            <dd className="num flex min-w-0 items-baseline gap-2 text-[14px] font-semibold text-ink sm:mt-0.5" title={v}>
+              <span className="min-w-0 truncate">{v}</span>
+              {i === 0 && phase === "names" && !card.certLocked && (
+                <button type="button" className="shrink-0 text-[12.5px] font-semibold text-brand hover:underline" onClick={() => setPlacing(true)}>Change</button>
+              )}
+            </dd>
           </div>
         ))}
       </dl>
+      {placing && <CertEditor card={card} onSave={(cert) => addCardEvents(certEvents(card, cert, member.name))} onClose={() => setPlacing(false)} />}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {phase === "names" && (
           <div className="space-y-4">
@@ -864,7 +871,7 @@ export function FulfilActions({ card, member, onShowReply }: { card: CardView; m
             <h3 className="text-[17px] font-bold tracking-tight text-ink">Mark as completed?</h3>
             <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-2">
               For a training whose certificates were already made and sent before the dashboard. No gratitude email goes out and
-              no certificates are made here — <b className="text-ink">{card.certAlias || card.name}</b> moves to <b className="text-ink">Sent to Logistics</b>, where Arti completes it.
+              no certificates are made here — <b className="text-ink">{card.certLocation || card.name}</b> moves to <b className="text-ink">Sent to Logistics</b>, where Arti completes it.
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button className={btn.ghost} onClick={() => setPopup(null)} autoFocus>Cancel</button>

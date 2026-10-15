@@ -49,6 +49,7 @@ export const SERVER_KINDS = new Set<CardEvent["kind"]>(["aed_email", "aed_reply"
 export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): boolean {
   if (SERVER_KINDS.has(e.kind)) return false; // only the server records these (/api/mail/*, /api/certificates)
   if (e.kind === "set_name") return false; // the customer's name is their Zoho identity — nobody renames it here
+  if (e.kind === "set_cert_alias" || e.kind === "set_concerned_email") return false; // customer-wide until 15 Oct; now per training (set_cert_location / set_training_email)
   if (e.kind === "zoho_change" || hasFullAccess(m)) return true;
   const boards = boardsFor(m);
   return e.cardIds.length > 0 && e.cardIds.every((id) => {
@@ -64,3 +65,13 @@ export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): b
 
 /** Your own changes; Admin may revert anyone's. A sent email can't be unsent (nor a reply, nor sheet rows), so those are never reverted. */
 export const canRevert = (m: Who, e: Pick<CardEvent, "by"> & { kind?: CardEvent["kind"] }) => !(e.kind && SERVER_KINDS.has(e.kind)) && (isAdmin(m) || e.by === m.name);
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * A training date (Training board) must carry its certificate location and the concerned person's email (owner, 13 and
+ * 15 Oct) — so a tab still running old code can't schedule without them. Not for To be decided, AedSmartx (no
+ * certificates there) or a training recorded on its invoice date (before the dashboard).
+ */
+export const missingCertFields = (e: Pick<CardEvent, "kind" | "cardIds" | "value" | "mode" | "location" | "email">) =>
+  e.kind === "set_training_date" && Boolean(e.value) && e.value !== "TBD" && e.mode !== "invoice" && !e.cardIds[0]?.startsWith("aed")
+  && (typeof e.location !== "string" || !EMAIL_RE.test(e.email?.trim() ?? ""));

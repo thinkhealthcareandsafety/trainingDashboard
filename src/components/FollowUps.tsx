@@ -382,7 +382,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
           )}
         </div>
         {card.schedule.trainers.length > 0 && <div className="mt-0.5 truncate text-[11px] text-ink-2">{card.schedule.trainers.map((t) => t.split(" ")[0]).join(", ")}</div>}
-        {(f || card.logistics) && card.certAlias && <div className="mt-0.5 truncate text-[11px] text-ink-2">Alias: <span className="font-semibold">{card.certAlias}</span></div>}
+        {(f || card.logistics) && card.certLocation && <div className="mt-0.5 truncate text-[11px] text-ink-2">Location: <span className="font-semibold">{card.certLocation}</span></div>}
         {card.piSkipped && card.kind === "quote" && <div className="mt-0.5 text-[11px] font-semibold text-medium">PI needed</div>}
         </>
       ) : (
@@ -425,9 +425,9 @@ function FulfilItem({ card, onClick }: { card: CardView; onClick: () => void }) 
         {s && <span className="num shrink-0 font-semibold text-ink-2">{scheduleText(s)}</span>}
       </div>
       <div className="mt-0.5 truncate" title={card.training.map((t) => t.name).join(", ")}>{card.training.map((t) => t.name).join(", ")}</div>
-      {(who || card.certAlias) && (
-        <div className="mt-0.5 truncate text-[11.5px] text-ink-2" title={card.certAlias ? `Alias: ${card.certAlias}` : undefined}>
-          {who}{who && card.certAlias ? " · " : ""}{card.certAlias && <>Alias <span className="font-semibold">{card.certAlias}</span></>}
+      {(who || card.certLocation) && (
+        <div className="mt-0.5 truncate text-[11.5px] text-ink-2" title={card.certLocation ? `Certificate location: ${card.certLocation}` : undefined}>
+          {who}{who && card.certLocation ? " · " : ""}{card.certLocation && <>Location <span className="font-semibold">{card.certLocation}</span></>}
         </div>
       )}
       <div className="mt-1.5"><StatePill f={f} /></div>

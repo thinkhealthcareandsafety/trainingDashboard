@@ -268,10 +268,16 @@ export type CardEventKind =
   | "merge"
   | "set_training_date" // value: YYYY-MM-DD, several days comma-separated ("2026-10-05,2026-10-06"), or "TBD"; the first date schedules, later ones postpone
   | "complete_training" // moves the card to Training completed
-  // Certificates: one value per customer name (ref = Zoho contact id), the latest wins on every card of that name.
+  // Until 15 Oct: one value per customer name (ref = Zoho contact id), the latest on every card of that name. No longer
+  // written — a training without its own location / email still shows the last of these (what it printed before).
   | "set_cert_alias" // value = the alias printed as the location ("course conducted at"), "" = the customer's own name; before = previous
   | "set_concerned_email" // value = the concerned person's email (participant list, gratitude emails), "" = not set; before = previous
-  | "set_concerned_name" // value = the concerned person's name (optional; greets them in the gratitude email), "" = not set; before = previous
+  // Per customer name (ref = Zoho contact id), optional, any board: only a person's name — greets them in the gratitude email.
+  | "set_concerned_name" // value = the name, "" = not set; before = previous
+  // Per training (owner, 15 Oct): set with the date (set_training_date `location` / `email`), changed later with these —
+  // on the training's card, or on its Fulfillment card. ref = Zoho contact id (lists the customer's past locations / emails).
+  | "set_cert_location" // value = the certificate location name ("course conducted at"), "" = the customer's own name; before = previous
+  | "set_training_email" // value = the concerned person's email for this training (gratitude email, List of Participants); before
   | "zoho_change" // recorded automatically when a Zoho document disappears and a card moves because of it
   | "add_potential" // creates a Potential training card: cardIds [potential:<id>], ref = Zoho contact id, value = expected month (YYYY-MM) or none
   | "set_potential_date" // value: new expected month (YYYY-MM) or "" for not set; before: previous
@@ -323,6 +329,8 @@ export interface CardEvent {
   // set_fulfillment "list": certificates made from Training Completed with the list already at hand — no gratitude email.
   mode?: "change" | "done" | "invoice" | "list";
   underName?: string; // set_training_date (before set_cert_alias): the training is under this alias (none = the customer's own name)
+  location?: string; // set_training_date (since 15 Oct, required with a date): the certificate location name, "" = the customer's own name
+  email?: string; // set_training_date (since 15 Oct, required with a date): the concerned person's email for this training
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)
   messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)
