@@ -14,14 +14,15 @@ import type { CertRow } from "./types";
 // Where each field goes, measured from the templates: PDF points on the background (A5 landscape), y = baseline.
 type FontKey = "name" | "location" | "label";
 type FieldLayout = { x: number; y: number; size: number; maxWidth: number; align: "left" | "center"; font: FontKey; color: [number, number, number] };
-const TEAL: [number, number, number] = [14, 63, 81]; // #0E3F51
+// Pure black, as the templates print their own text (was a dark teal #0E3F51 that printers turned light blue — owner, 15 Oct).
+const BLACK: [number, number, number] = [0, 0, 0];
 const BLUE: [number, number, number] = [0, 153, 211]; // #0099D3
 type Field = "date" | "certNo" | "name" | "location";
 const LAYOUT: Record<Field, FieldLayout> = {
-  date: { x: 112.5, y: 402.8, size: 9.2, maxWidth: 140, align: "left", font: "label", color: TEAL }, // after "Training Date:"
-  certNo: { x: 433.5, y: 402.8, size: 9.2, maxWidth: 140, align: "left", font: "label", color: TEAL }, // after "Certificate No:"
+  date: { x: 112.5, y: 402.8, size: 9.2, maxWidth: 140, align: "left", font: "label", color: BLACK }, // after "Training Date:"
+  certNo: { x: 433.5, y: 402.8, size: 9.2, maxWidth: 140, align: "left", font: "label", color: BLACK }, // after "Certificate No:"
   name: { x: 430, y: 268.3, size: 39, maxWidth: 232, align: "center", font: "name", color: BLUE }, // under "proudly presented to"
-  location: { x: 302.6, y: 173.8, size: 12, maxWidth: 262, align: "center", font: "location", color: TEAL }, // under "course conducted at,"
+  location: { x: 302.6, y: 173.8, size: 12, maxWidth: 262, align: "center", font: "location", color: BLACK }, // under "course conducted at,"
 };
 const FIELDS: Field[] = ["date", "certNo", "name", "location"];
 const FIELD_LABEL: Record<Field, string> = { date: "date", certNo: "certificate no.", name: "name", location: "location" };
