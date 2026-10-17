@@ -1,7 +1,7 @@
 import type { Announcement, BoardTraining, CalendarEntry, TickerItem, Training } from "./types";
 import { addDays, daysBetween, fmtDate, fmtINR, parseYmd, startOfDay, ymd } from "./dates";
 import { PRIORITY_RANK } from "./priority";
-import { boardMonth, upcoming } from "./kpi";
+import { boardMonth, countsOn, upcoming } from "./kpi";
 
 const MAX_ITEMS = 30;
 /** The ticker looks this far ahead for trainings (owner, 13 Oct 2026). */
@@ -87,15 +87,31 @@ export function buildTickerItems(
     }
   }
 
-  // The month's pace against the target, from the Training board.
+  // Trainings whose day has passed but nobody pressed "Training completed": they don't count toward the targets,
+  // Fulfillment never gets them (no certificates) — so they are flagged until marked.
+  for (const t of [...board, ...aedBoard]) {
+    if (t.status === "completed" || t.status === "tbd" || !t.dates.length || countsOn(t) >= todayStr) continue;
+    const late = daysBetween(parseYmd(countsOn(t)), today);
+    items.push({
+      id: `unmarked:${t.id}`,
+      priority: late >= 3 ? "high" : "medium",
+      label: "Mark completed",
+      text: `${t.board === "aed" ? "AED training" : t.training} · ${t.alias || t.customerName} · was on ${fmtDate(countsOn(t))} (${late} day${late === 1 ? "" : "s"} ago)`,
+      href: `/follow-up?q=${encodeURIComponent(t.docNumber)}`,
+      sortKey: parseYmd(countsOn(t)).getTime(),
+      board: t.board,
+    });
+  }
+
+  // The month's pace against the target, from the Training board (in whole trainings, as the Overview shows it).
   const m = boardMonth(board, now);
-  if (m.target && m.completed < m.expected) {
+  if (m.target && m.completed < Math.round(m.expected)) {
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     items.push({
       id: "pace",
       priority: "medium",
       label: "Pace",
-      text: `${m.completed}/${m.target} trainings · ${m.people}/${m.peopleTarget} people · ${daysBetween(today, monthEnd)} days left · ${m.scheduled} more scheduled`,
+      text: `${m.completed}/${m.target} trainings · ${m.people}/${m.peopleTarget} people · ${daysBetween(today, monthEnd) + 1} days left · ${m.scheduled} more scheduled`,
       href: "/",
       sortKey: now.getTime(),
       board: "training",

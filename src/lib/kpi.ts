@@ -61,6 +61,11 @@ export function fyStats(trainings: Training[], today: Date): PeriodStats {
   return periodStats(trainings, from, to, YEARLY_TARGET, today);
 }
 
+/** Training revenue (invoice lines, before tax) for trainings dated from `from` to `to`, both included. */
+export function revenueBetween(trainings: Training[], from: Date, to: Date): number {
+  return trainings.filter((t) => t.status !== "void" && t.status !== "draft" && t.status !== "pending_approval" && inRange(t, startOfDay(from), startOfDay(to))).reduce((s, t) => s + t.amount, 0);
+}
+
 export interface MonthPoint {
   key: string; // YYYY-MM
   label: string;
@@ -141,7 +146,8 @@ const dated = (t: BoardTraining) => t.status !== "tbd" && t.dates.length > 0;
 
 export interface BoardPeriod {
   completed: number;
-  scheduled: number; // dated, not marked completed yet, counting in this period
+  scheduled: number; // dated today or later, not marked completed yet, counting in this period
+  unmarked: number; // the date has passed but nobody pressed "Training completed" — not upcoming, needs marking
   people: number; // people trained (completed)
   peopleScheduled: number;
   target?: number;
@@ -154,12 +160,14 @@ export interface BoardPeriod {
 function boardPeriod(list: BoardTraining[], from: Date, to: Date, today: Date, target?: number, peopleTarget?: number): BoardPeriod {
   const inRange = list.filter((t) => dated(t) && parseYmd(countsOn(t)) >= from && parseYmd(countsOn(t)) <= to);
   const done = inRange.filter((t) => t.status === "completed");
-  const open = inRange.filter((t) => t.status !== "completed");
   const t0 = startOfDay(today);
+  const open = inRange.filter((t) => t.status !== "completed" && parseYmd(countsOn(t)) >= t0);
+  const unmarked = inRange.filter((t) => t.status !== "completed" && parseYmd(countsOn(t)) < t0);
   const share = workingDaysInRange(from, t0 < to ? t0 : to) / Math.max(1, workingDaysInRange(from, to));
   return {
     completed: done.length,
     scheduled: open.length,
+    unmarked: unmarked.length,
     people: done.reduce((n, t) => n + t.people, 0),
     peopleScheduled: open.reduce((n, t) => n + t.people, 0),
     target,
@@ -187,9 +195,13 @@ export function boardYear(list: BoardTraining[], today: Date, targets: Targets =
 
 export interface BoardMonthPoint extends Omit<MonthPoint, "revenue"> { people: number }
 
-export function boardMonthSeries(list: BoardTraining[], today: Date): BoardMonthPoint[] {
-  const start = fiscalYearStart(today);
-  return Array.from({ length: 12 }, (_, i) => {
+/** The fiscal year month by month — from the board's first month when it started later (`since`, e.g. AedSmartx from Sept). */
+export function boardMonthSeries(list: BoardTraining[], today: Date, since?: string): BoardMonthPoint[] {
+  const fy = fiscalYearStart(today);
+  const first = since && parseYmd(since) > fy ? parseYmd(since) : fy;
+  const start = new Date(first.getFullYear(), first.getMonth(), 1);
+  const months = 12 - (12 * (start.getFullYear() - fy.getFullYear()) + start.getMonth() - fy.getMonth());
+  return Array.from({ length: months }, (_, i) => {
     const from = new Date(start.getFullYear(), start.getMonth() + i, 1);
     const to = new Date(from.getFullYear(), from.getMonth() + 1, 0);
     const p = boardPeriod(list, from, to, today);
@@ -235,10 +247,10 @@ export function boardBreakdown(list: BoardTraining[], key: BoardBreakdownKey) {
   return [...map.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count || b.people - a.people);
 }
 
-/** Dated, not yet completed trainings with a day in the next `days` days (today included), soonest first. */
+/** Dated, not yet completed trainings with a day in the next `days` days — today and the days after it, `days` in all — soonest first. */
 export function upcoming(list: BoardTraining[], today: Date, days: number): { t: BoardTraining; next: string }[] {
   const from = ymdOf(startOfDay(today));
-  const to = ymdOf(addDays(startOfDay(today), days));
+  const to = ymdOf(addDays(startOfDay(today), days - 1));
   return list
     .filter((t) => t.status !== "completed" && dated(t))
     .map((t) => ({ t, next: t.dates.find((d) => d >= from) ?? "" }))

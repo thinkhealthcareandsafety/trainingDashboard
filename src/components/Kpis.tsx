@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 import type { BoardTraining, Training } from "@/lib/types";
-import { fmtDate, fmtINR, fiscalYearLabel } from "@/lib/dates";
+import { fmtDate, fmtINR, fiscalYearLabel, startOfDay } from "@/lib/dates";
 import {
-  AED_TARGETS, TEAM_TARGETS, boardBreakdown, boardMonth, boardMonthSeries, boardYear, completedIn, countsOn, fiscalMonthSeries, monthStats, upcoming,
+  AED_TARGETS, TEAM_TARGETS, boardBreakdown, boardMonth, boardMonthSeries, boardYear, completedIn, countsOn, fiscalMonthSeries, monthStats, revenueBetween, upcoming,
   type BoardBreakdownKey, type BoardPeriod,
 } from "@/lib/kpi";
 import { CardHeader, Segmented, useCountUp } from "./ui";
@@ -20,13 +20,12 @@ export type OverviewMode = "team" | "aed";
 
 type Pace = { tone: "on" | "slip" | "behind"; label: string };
 
-function pace(done: number, expected: number, digits = 1): Pace {
-  const ratio = expected > 0 ? done / expected : 1;
-  const gap = Math.abs(done - expected);
-  const n = gap.toFixed(digits);
-  if (ratio >= 1) return { tone: "on", label: done - expected >= 0.5 ? `Ahead by ${n}` : "On track" };
-  if (ratio >= 0.7) return { tone: "slip", label: `Behind by ${n}` };
-  return { tone: "behind", label: `Behind by ${n}` };
+/** Ahead / behind in whole trainings (or people): nobody runs 0.6 of a training. Colour from how far behind. */
+function pace(done: number, expected: number): Pace {
+  const gap = done - Math.round(expected);
+  const n = Math.abs(gap).toLocaleString("en-IN");
+  if (gap >= 0) return { tone: "on", label: gap > 0 ? `Ahead by ${n}` : "On track" };
+  return { tone: expected > 0 && done / expected >= 0.7 ? "slip" : "behind", label: `Behind by ${n}` };
 }
 
 const PACE_FILL = { on: "var(--brand)", slip: "var(--medium)", behind: "var(--high)" };
@@ -39,7 +38,7 @@ function Meter({ value, target, expected, tone, thin = false }: { value: number;
     <div className={`relative w-full rounded-full bg-surface-2 ${thin ? "mt-2 h-1" : "mt-4 h-1.5"}`} role="meter" aria-valuemin={0} aria-valuemax={target} aria-valuenow={value}>
       <div className="h-full rounded-full transition-[width] duration-700 ease-out" style={{ width: `${pct * 100}%`, background: PACE_FILL[tone] }} />
       {/* expected-by-today tick */}
-      <div className={`absolute w-0.5 rounded-full bg-ink/70 ${thin ? "-top-[3px] h-2.5" : "-top-1 h-3.5"}`} style={{ left: `calc(${exp * 100}% - 1px)` }} title={`Expected by today: ${expected.toFixed(1)}`} />
+      <div className={`absolute w-0.5 rounded-full bg-ink/70 ${thin ? "-top-[3px] h-2.5" : "-top-1 h-3.5"}`} style={{ left: `calc(${exp * 100}% - 1px)` }} title={`Expected by today: ${Math.round(expected).toLocaleString("en-IN")}`} />
     </div>
   );
 }
@@ -61,8 +60,9 @@ function TargetTile({ label, s, hero = false }: { label: string; s: BoardPeriod;
   const n = useCountUp(s.completed);
   const people = useCountUp(s.people);
   const p = s.target ? pace(s.completed, s.expected) : null;
-  const pp = s.peopleTarget ? pace(s.people, s.peopleExpected, 0) : null;
-  const scheduled = s.scheduled ? `${s.scheduled} scheduled` : "none scheduled";
+  const pp = s.peopleTarget ? pace(s.people, s.peopleExpected) : null;
+  // Trainings whose day has passed without "Training completed" aren't upcoming — they need marking.
+  const scheduled = (s.scheduled ? `${s.scheduled} scheduled` : "none scheduled") + (s.unmarked ? ` · ${s.unmarked} to mark completed` : "");
   return (
     <div className="p-5">
       <div className="text-[13px] text-muted">{label}</div>
@@ -111,10 +111,16 @@ function Sparkline({ values }: { values: number[] }) {
   );
 }
 
-/** Revenue: training invoices in Zoho Books (by their training date), as before. */
+/**
+ * Revenue: training invoices in Zoho Books (by their training date), as before. Compared like for like: this month so
+ * far against the same days of last month (1–17 Oct vs 1–17 Sep), not against the whole of last month.
+ */
 function RevenueTile({ trainings, now }: { trainings: Training[]; now: Date }) {
   const m = useMemo(() => monthStats(trainings, now), [trainings, now]);
-  const last = useMemo(() => monthStats(trainings, now, -1), [trainings, now]);
+  const lastFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastTo = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), new Date(now.getFullYear(), now.getMonth(), 0).getDate()));
+  const last = useMemo(() => ({ revenue: revenueBetween(trainings, lastFrom, startOfDay(lastTo)) }), [trainings, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lastLabel = `${lastFrom.getDate()}–${lastTo.getDate()} ${lastTo.toLocaleDateString("en-IN", { month: "short" })}`;
   const series = useMemo(() => fiscalMonthSeries(trainings, now).filter((p) => !p.isFuture || p.isCurrent).slice(-6).map((p) => p.revenue), [trainings, now]);
   const v = useCountUp(m.revenue);
   const change = last.revenue ? (m.revenue - last.revenue) / last.revenue : null;
@@ -126,8 +132,8 @@ function RevenueTile({ trainings, now }: { trainings: Training[]; now: Date }) {
         <Sparkline values={series} />
       </div>
       <div className="mt-[26px] text-[13px] text-muted">
-        {change === null ? "No revenue last month" : (
-          <><span className="font-medium text-ink-2">{change >= 0 ? "↑" : "↓"} {Math.abs(change * 100).toFixed(0)}%</span> vs last month</>
+        {change === null ? `No revenue in ${lastLabel}` : (
+          <><span className="font-medium text-ink-2">{change >= 0 ? "↑" : "↓"} {Math.abs(change * 100).toFixed(0)}%</span> vs {lastLabel}</>
         )}
       </div>
       <div className="mt-1 text-[12px] text-faint">From the invoices in Zoho Books</div>
@@ -311,7 +317,7 @@ function TrendTable({ series, target, team }: { series: ChartPoint[]; target?: n
             <td className="py-2 text-right">{p.actual}</td>
             <td className="py-2 text-right text-muted">{p.scheduled || "–"}</td>
             {team && <td className="py-2 text-right">{p.people.toLocaleString("en-IN")}</td>}
-            {target && <td className="py-2 text-right text-muted">{p.actual - target > 0 ? "+" : ""}{p.actual - target}</td>}
+            {target && <td className="py-2 text-right text-muted">{p.isFuture ? "–" : <>{p.actual - target > 0 ? "+" : ""}{p.actual - target}{p.isCurrent ? " so far" : ""}</>}</td>}
             {team && <td className="py-2 text-right">{fmtINR(p.revenue ?? 0, true)}</td>}
           </tr>
         ))}
@@ -389,7 +395,7 @@ export function TrendCard({ trainings, board, now, mode }: { trainings: Training
   const [view, setView] = useState<"chart" | "table">("chart");
   const series = useMemo<ChartPoint[]>(() => {
     const revenue = team ? new Map(fiscalMonthSeries(trainings, now).map((p) => [p.key, p.revenue])) : null;
-    return boardMonthSeries(board, now).map((p) => ({ ...p, revenue: revenue?.get(p.key) }));
+    return boardMonthSeries(board, now, team ? undefined : AED_TARGETS.since).map((p) => ({ ...p, revenue: revenue?.get(p.key) }));
   }, [board, trainings, now, team]);
   const done = useMemo(() => completedIn(board, now, selected), [board, now, selected]);
   const sel = selected ? series.find((s) => s.key === selected) : null;
