@@ -72,17 +72,18 @@ export function buildTickerItems(
     }
   }
 
+  // The member's own meetings and events, today and tomorrow (the calendar orders by date and time — no priorities).
   for (const e of entries) {
     const d = parseYmd(e.date);
     const inDays = daysBetween(today, d);
-    if (e.priority === "high" && inDays >= 0 && inDays <= 3) {
+    if (inDays >= 0 && inDays <= 1) {
       items.push({
         id: `cal:${e.id}`,
-        priority: "high",
-        label: inDays === 0 ? "Today" : fmtDate(e.date),
-        text: `${e.startTime && !e.allDay ? `${e.startTime} ` : ""}${e.title}`,
-        href: `/calendar?date=${e.date}`,
-        sortKey: d.getTime(),
+        priority: inDays === 0 ? "high" : "medium",
+        label: inDays === 0 ? "Today" : "Tomorrow",
+        text: `${e.startTime && !e.allDay ? `${e.startTime} ` : ""}${e.type === "meeting" ? "Meeting" : "Event"} · ${e.title}`,
+        href: `/calendar?date=${e.date}&entry=${encodeURIComponent(e.id)}`,
+        sortKey: d.getTime() + (e.startTime ? Number(e.startTime.replace(":", "")) : 0),
       });
     }
   }

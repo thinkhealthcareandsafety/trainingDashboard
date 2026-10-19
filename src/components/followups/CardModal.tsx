@@ -438,6 +438,19 @@ const tidy = (v: string) => v.trim().replace(/\s+/g, " ");
 export const certReady = (c: CertChoice) => c.location !== null && EMAIL_RE.test(c.email.trim()) && !notAPerson(c.name);
 const sameCert = (a: CertChoice, b: CertChoice) => a.location === b.location && normEmail(a.email) === normEmail(b.email) && tidy(a.name) === tidy(b.name);
 
+/**
+ * What a training still needs before "Training completed" shows (owner, 19 Oct): its quotation merged into the PI, the
+ * certificate location chosen and the concerned person's email set. A PI with no quotation in Zoho needs no merge.
+ */
+export function completeBlockers(card: CardView): string[] {
+  const quoteMerged = card.kind === "pi" && (!card.linkedQuote || card.historyIds.some((id) => kindOfId(id) === "quote"));
+  return [
+    ...(card.kind === "quote" ? [`create the PI in Zoho Books for ${card.docNumber}, then merge Quote → PI`] : !quoteMerged && card.kind === "pi" ? ["merge its quotation into this PI"] : []),
+    ...(card.certLocation === undefined && !card.certLocked ? ["choose the certificate location"] : []),
+    ...(!EMAIL_RE.test(card.concernedEmail?.trim() ?? "") ? ["set the concerned person's email"] : []),
+  ];
+}
+
 /** Saved on the set_training_date entry itself — the server refuses a date without them. */
 export const certFields = (c: CertChoice) => ({ location: tidy(c.location ?? ""), email: c.email.trim() });
 
@@ -487,6 +500,20 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
     ...(!onDate && location !== null && !card.certLocked && location !== (card.certLocation ?? null) ? [{ ...base, kind: "set_cert_location" as const, value: location, before: card.certLocation ?? "" }] : []),
     ...(!onDate && email && normEmail(email) !== normEmail(card.concernedEmail ?? "") ? [{ ...base, kind: "set_training_email" as const, value: email, before: card.concernedEmail ?? "" }] : []),
     ...(name !== (card.concernedName ?? "") ? [{ cardIds: [card.id], ref: card.customerId, by, kind: "set_concerned_name" as const, value: name, before: card.concernedName ?? "" }] : []),
+  ];
+}
+
+/**
+ * The entries a training date makes (board and calendar alike): the location and email ride on the date entry (the
+ * server refuses a date without them); same days and trainers = only the location / email / name changed, no new date.
+ */
+export function trainingDateEvents(card: CardView, value: string, trainers: string[] | undefined, mode: "change" | undefined, cert: CertChoice | undefined, by: string): Omit<CardEvent, "id" | "at">[] {
+  const s = card.schedule;
+  const before = s ? (s.status === "tbd" ? "TBD" : s.dates.join(",")) : undefined;
+  const sameRun = Boolean(s) && value !== "TBD" && before === value && (trainers ?? []).length === s!.trainers.length && (trainers ?? []).every((t) => s!.trainers.includes(t));
+  return [
+    ...certEvents(card, cert, by, !sameRun),
+    ...(sameRun ? [] : [{ cardIds: [card.id], kind: "set_training_date" as const, value, before, by, ...(value !== "TBD" ? { trainers, ...(cert ? certFields(cert) : {}) } : {}), ...(mode ? { mode } : {}) }]),
   ];
 }
 
@@ -789,6 +816,7 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
   const sameDate = postponing && daysValue(days) === s!.dates.join(",");
   const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t)) && sameCert(cert, certOf(card));
   const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && certReady(cert) && !unchanged;
+  const blockers = completeBlockers(card);
   // "Change date" corrects the date (earlier or later) and keeps the label; "Postpone" marks it postponed.
   const [changing, setChanging] = useState(false);
   const open = (change = false) => {
@@ -869,22 +897,16 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
               {postponing && <button className={btn.ghost} onClick={() => open(true)} title="Correct the date — earlier or later — without marking it postponed">Change date</button>}
               <button className={postponing ? btn.ghost : btn.primary} onClick={() => open()}>{postponing ? "Postpone" : "Schedule training"}</button>
               {s?.status !== "tbd" && <button className={btn.ghost} onClick={() => onSchedule("TBD")}>To be decided</button>}
-              {s?.date && onComplete && (card.kind === "quote" ? (
-                <button disabled title="Create the PI first" className="inline-flex h-9 cursor-not-allowed items-center justify-center gap-1.5 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-muted">
-                  <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden><rect x="4.5" y="9" width="11" height="8" rx="1.5" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg>
-                  Training completed
-                </button>
-              ) : (
+              {s?.date && onComplete && blockers.length === 0 && (
                 <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={(e) => { celebrate(e.currentTarget); onComplete(); }}>
                   Training completed
                 </button>
-              ))}
+              )}
             </>
           )}
-          {!picking && s?.date && card.kind === "quote" && (
-            <p className="w-full text-[13px] font-medium text-medium">
-              Create the PI in Zoho Books for {card.docNumber} before marking the training completed — then merge Quote → PI here.
-            </p>
+          {/* "Training completed" only shows once the deal is whole (owner, 19 Oct): say what's missing instead. */}
+          {!picking && s?.date && onComplete && blockers.length > 0 && (
+            <p className="w-full text-[13px] font-medium text-medium">To mark it completed: {blockers.join(" · ")}.</p>
           )}
         </div>
       )}
@@ -1019,6 +1041,29 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
   );
 }
 
+/** Schedule a training as form rows: dates, trainers, location, email, name — the Ready popup and the calendar. */
+export function ScheduleRows({ card, days, setDays, trainers, setTrainers, cert, setCert, busy }: {
+  card: CardView; days: string[]; setDays: (d: string[]) => void; trainers: string[]; setTrainers: (t: string[]) => void;
+  cert: CertChoice; setCert: (c: CertChoice) => void; busy: Map<string, CardView>;
+}) {
+  return (
+    <FormRows.Provider value={true}>
+      <FieldRow label="Training dates" hint="Click each day, or drag for a range">
+        <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label="Training dates" />
+      </FieldRow>
+      <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
+      <LocationPicker card={card} value={cert.location} onChange={(location) => setCert({ ...cert, location })} />
+      <EmailPicker card={card} value={cert.email} onChange={(email) => setCert({ ...cert, email })} />
+      <NamePicker value={cert.name} onChange={(name) => setCert({ ...cert, name })} />
+    </FormRows.Provider>
+  );
+}
+
+/** Label and hint on the left, the control on the right — popup forms outside this file (the calendar). */
+export function FormRow({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
+  return <FieldRow label={label} hint={hint} required={required}>{children}</FieldRow>;
+}
+
 /** Pops up over a merged, unflagged PI that has no training date yet. */
 function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView; onSchedule: ScheduleFn; onLater: () => void; busyOn: BusyFn }) {
   const [days, setDays] = useState<string[]>([]);
@@ -1039,17 +1084,9 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
             {card.training[0] && <> for <b className="font-semibold text-ink">{card.training[0].name}</b> ({card.training[0].qty} people)</>}. Would you like to schedule their training right now?
           </p>
         </div>
-        <FormRows.Provider value={true}>
-          <div className="border-y border-line px-6">
-            <FieldRow label="Training dates" hint="Click each day, or drag for a range">
-              <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label="Training dates" />
-            </FieldRow>
-            <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
-            <LocationPicker card={card} value={cert.location} onChange={(location) => setCert({ ...cert, location })} />
-            <EmailPicker card={card} value={cert.email} onChange={(email) => setCert({ ...cert, email })} />
-            <NamePicker value={cert.name} onChange={(name) => setCert({ ...cert, name })} />
-          </div>
-        </FormRows.Provider>
+        <div className="border-y border-line px-6">
+          <ScheduleRows card={card} days={days} setDays={setDays} trainers={trainers} setTrainers={setTrainers} cert={cert} setCert={setCert} busy={busy} />
+        </div>
         <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onLater}>Later</button>
           <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length || !certReady(cert)} title={certReady(cert) ? undefined : "Choose the certificate location and the concerned person's email first"} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
@@ -1605,17 +1642,9 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   useEffect(() => { setDraft(null); setError(""); setConfirmDelete(false); setPrompt(card.readyToSchedule); }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const schedule = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => {
-    const s = card.schedule;
-    const before = s ? (s.status === "tbd" ? "TBD" : s.dates.join(",")) : undefined;
-    // Same days and trainers: only the location / email / name changed — no new date entry.
-    const sameRun = Boolean(s) && value !== "TBD" && before === value && (trainers ?? []).length === s!.trainers.length && (trainers ?? []).every((t) => s!.trainers.includes(t));
-    const evs = addCardEvents([
-      ...certEvents(card, cert, member.name, !sameRun),
-      // The location and email ride on the date entry (the server refuses a date without them).
-      ...(sameRun ? [] : [{ cardIds: [card.id], kind: "set_training_date" as const, value, before, by: member.name, ...(value !== "TBD" ? { trainers, ...(cert ? certFields(cert) : {}) } : {}), ...(mode ? { mode } : {}) }]),
-    ]);
+    const evs = addCardEvents(trainingDateEvents(card, value, trainers, mode, cert, member.name));
     const ev = evs[evs.length - 1];
-    if (!s) {
+    if (!card.schedule) {
       const skip = card.kind === "quote" ? " — create its PI before completing" : "";
       toast({ text: `${card.name} moved to Training scheduled${skip}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
     }

@@ -1,25 +1,28 @@
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
-import { SERVER_KINDS, canRevert, canWriteEvent, isAdmin, missingCertFields } from "@/lib/roles";
+import { SERVER_KINDS, canRevert, canSeeEntry, canWriteEvent, isAdmin, missingCertFields } from "@/lib/roles";
 import { cascadeOf } from "@/lib/cascade";
 import { boardsNow } from "@/lib/fulfilServer";
 import { getSnapshot } from "@/lib/zohoSync";
-import type { CardEvent } from "@/lib/types";
+import type { CalendarEntry, CardEvent } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 type Doc = { id: string } & Record<string, unknown>;
 
-// GET: everything the team shares. Documents are stored with _id = our id.
+// GET: everything the team shares. Documents are stored with _id = our id. Calendar entries: only the member's own
+// (Admin, Shikha, Sumit and Ashish: everyone's — roles.ts).
 export async function GET(request: Request) {
   if (!memberIdOf(request)) return unauthorized();
   if (!mongoConfigured()) return Response.json({ enabled: false });
   try {
+    const me = await signedInMember(request);
+    if (!me) return unauthorized();
     const d = await db();
     const out: Record<string, unknown> = { enabled: true };
     for (const c of COLLECTIONS) {
       const docs = await d.collection(c).find({}, { projection: { _id: 0 } }).toArray();
-      out[c] = c === "removedTriggers" ? docs.map((x) => x.id) : docs;
+      out[c] = c === "removedTriggers" ? docs.map((x) => x.id) : c === "entries" ? docs.filter((e) => canSeeEntry(me, e as unknown as CalendarEntry)) : docs;
     }
     return Response.json(out);
   } catch (e) {
@@ -79,6 +82,24 @@ async function zohoCardsNow(needed: boolean): Promise<Set<string> | null> {
   }
 }
 
+/**
+ * Calendar entries: a new one is stamped with who made it; an existing one may be changed or deleted only by someone who
+ * may see it (made it, is in it, or sees the whole calendar) — and keeps who made it.
+ */
+async function guardEntries(upserts: Doc[], deletes: string[], me: { id: string; name: string }): Promise<{ upserts: Doc[]; deletes: string[] }> {
+  const col = (await db()).collection<Doc & { _id: string }>("entries");
+  const ids = [...upserts.map((u) => u.id), ...deletes];
+  const existing = new Map((await col.find({ _id: { $in: ids } }).toArray()).map((e) => [e._id, e]));
+  return {
+    upserts: upserts.flatMap((doc) => {
+      const had = existing.get(doc.id);
+      if (!had) return [{ ...doc, createdBy: me.name }];
+      return canSeeEntry(me, had as unknown as CalendarEntry) ? [{ ...doc, createdBy: had.createdBy ?? me.name }] : [];
+    }),
+    deletes: deletes.filter((id) => { const had = existing.get(id); return !had || canSeeEntry(me, had as unknown as CalendarEntry); }),
+  };
+}
+
 // POST: { collection, upserts: Doc[], deletes: string[] } — only what changed.
 export async function POST(request: Request) {
   if (!mongoConfigured()) return Response.json({ enabled: false }, { status: 400 });
@@ -95,6 +116,7 @@ export async function POST(request: Request) {
       upserts = await stampCardEvents(upserts, me);
       if (!admin) deletes = []; // the log is append-only (Admin clears it via Clear logs)
     }
+    if (body.collection === "entries") ({ upserts, deletes } = await guardEntries(upserts, deletes, me));
     const col = (await db()).collection(body.collection);
     const clean = (doc: Doc) => Object.fromEntries(Object.entries(doc).filter(([, v]) => v !== undefined));
     const ops = [

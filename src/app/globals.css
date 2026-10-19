@@ -198,6 +198,9 @@ h1, h2, h3 { letter-spacing: -0.018em; }
 }
 .modal-in { animation: modal-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* Calendar reminder (bottom right): the bar empties over the 30 s it shows. */
+@keyframes reminder-shrink { from { width: 100%; } to { width: 0%; } }
+.reminder-bar { animation: reminder-shrink 30s linear forwards; }
 .fade-in { animation: fade-in 0.2s ease-out both; }
 
 /* Numbers that align in columns (tables, axes). Large standalone figures stay proportional. */

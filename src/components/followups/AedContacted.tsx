@@ -300,7 +300,13 @@ export function ContactedSection({ card, member, onShowReply }: { card: CardView
   return (
     <Section
       title="Contacted"
-      aside={<span className="text-[12px] text-muted">In process · {o.inProcess!.by.split(" ")[0]}, {fmtStamp(o.inProcess!.at)}</span>}
+      aside={
+        // "All calls & emails" sits up here: under Send email it wrapped onto a line of its own and the modal scrolled.
+        <span className="flex min-w-0 items-center gap-2 text-[12px] text-muted">
+          <span className="truncate">In process · {o.inProcess!.by.split(" ")[0]}, {fmtStamp(o.inProcess!.at)}</span>
+          {(o.calls.length > 0 || o.sent.length > 0) && <button className={`${btn.quiet} !h-7 shrink-0`} onClick={() => setHistory(true)}>All calls &amp; emails</button>}
+        </span>
+      }
     >
       {/* Calls: who she spoke to, how many times, when last. */}
       <div className="rounded-xl border border-line px-3 py-2">
@@ -397,7 +403,6 @@ export function ContactedSection({ card, member, onShowReply }: { card: CardView
             Send email
           </button>
           <span className="text-[12px] text-muted">from {MAILBOX} · email {nextStep} · next in line: {aedMailStep(nextStep)}</span>
-          {(o.calls.length > 0 || o.sent.length > 0) && <button className={`${btn.quiet} ml-auto !h-7`} onClick={() => setHistory(true)}>All calls &amp; emails</button>}
         </div>
         {o.replies.length > 0 && <RepliesLine card={card} onShow={onShowReply} />}
       </div>

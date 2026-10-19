@@ -56,6 +56,7 @@ export interface BoardTraining {
   time?: string; // AedSmartx: HH:mm
   trainers: string[];
   status: "scheduled" | "postponed" | "tbd" | "completed";
+  scheduledBy?: string; // who set the current date (calendar: "your" trainings, reminders)
 }
 
 export interface TrainingsResponse {
@@ -74,8 +75,13 @@ export interface TrainingsResponse {
   error?: string;
 }
 
-export type EntryType = "meeting" | "note" | "date";
+/** Calendar entries besides trainings (owner, 19 Oct): meetings and events, each with a time (events may be all day). */
+export type EntryType = "meeting" | "event";
 
+/**
+ * A meeting or event on the calendar. Each member sees their own — the ones they made or are in (`people`); Admin,
+ * Shikha, Sumit and Ashish see everyone's. The server stamps `createdBy` and keeps others' entries out of reach.
+ */
 export interface CalendarEntry {
   id: string;
   type: EntryType;
@@ -84,7 +90,10 @@ export interface CalendarEntry {
   startTime?: string; // HH:mm
   endTime?: string;
   allDay: boolean;
-  priority: Priority;
+  people?: string[]; // team members in it (names) — they see it and get its reminder
+  everyone?: boolean; // for the whole team: everyone sees it and gets its reminder
+  createdBy?: string; // member name, set by the server
+  priority?: Priority; // before 19 Oct only — the calendar orders by date and time now
   description?: string;
   linkedCustomer?: string;
   reminderMinutes?: number | null;

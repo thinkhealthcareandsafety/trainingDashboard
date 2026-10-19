@@ -11,6 +11,7 @@ import type { Member } from "@/lib/types";
 import { Ticker } from "./Ticker";
 import { SyncLogWindow } from "./SyncLog";
 import { RevertConfirm } from "./RevertConfirm";
+import { DayReminders } from "./DayReminders";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
@@ -350,6 +351,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {logOpen && <SyncLogWindow open onClose={() => setLogOpen(false)} />}
       <RevertConfirm />
+      <DayReminders />
 
       {/* Toasts */}
       <div className="fixed bottom-20 left-1/2 z-[60] flex -translate-x-1/2 flex-col gap-2 lg:bottom-6">

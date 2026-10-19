@@ -66,6 +66,26 @@ export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): b
 /** Your own changes; Admin may revert anyone's. A sent email can't be unsent (nor a reply, nor sheet rows), so those are never reverted. */
 export const canRevert = (m: Who, e: Pick<CardEvent, "by"> & { kind?: CardEvent["kind"] }) => !(e.kind && SERVER_KINDS.has(e.kind)) && (isAdmin(m) || e.by === m.name);
 
+/*
+ * Calendar (owner, 19 Oct): each member sees their own calendar — the trainings they give or scheduled, and the
+ * meetings / events they made or are in; Admin, Shikha, Sumit and Ashish see everyone's. Priyanka gives every AedSmartx
+ * training, so she sees all of those.
+ */
+export const seesWholeCalendar = hasFullAccess;
+const samePerson = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+type EntryWho = { createdBy?: string; people?: string[]; everyone?: boolean };
+type TrainingWho = { board: "training" | "aed"; trainers: string[]; scheduledBy?: string };
+/** Picked for a meeting / event (or it's for everyone) — they get its reminder. */
+export const inEntry = (m: Who, e: EntryWho) => Boolean(e.everyone || e.people?.some((p) => samePerson(p, m.name)));
+/** A meeting / event is this member's: they made it or are in it. */
+export const ownsEntry = (m: Who, e: EntryWho) => inEntry(m, e) || Boolean(e.createdBy && samePerson(e.createdBy, m.name));
+export const canSeeEntry = (m: Who, e: EntryWho) => seesWholeCalendar(m) || ownsEntry(m, e);
+/** Gives this training — they get its reminder. AedSmartx trainings are the AedSmartx trainer's. */
+export const givesTraining = (m: Who, t: TrainingWho) => (t.board === "aed" && named(m, /^priyanka\b/i)) || t.trainers.some((n) => samePerson(n, m.name));
+/** A training is this member's: they give it, or set its date. */
+export const ownsTraining = (m: Who, t: TrainingWho) => givesTraining(m, t) || Boolean(t.scheduledBy && samePerson(t.scheduledBy, m.name));
+export const canSeeTraining = (m: Who, t: TrainingWho) => (seesWholeCalendar(m) && boardsFor(m).includes(t.board === "aed" ? "aed" : "training")) || ownsTraining(m, t);
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * A training date (Training board) must carry its certificate location and the concerned person's email (owner, 13 and

@@ -137,7 +137,8 @@ export const AED_YEARLY_TARGET = 60;
 /** `since` (YYYY-MM-01): the board's first month. A fiscal year that starts before it counts from that month, against
  * the months left (e.g. FY 2026-27 from Sept: 7 of 12 → 35 of 60). */
 export interface Targets { month: number; year: number; peopleMonth?: number; peopleYear?: number; since?: string }
-export const TEAM_TARGETS: Targets = { month: MONTHLY_TARGET, year: YEARLY_TARGET, peopleMonth: PEOPLE_MONTHLY_TARGET, peopleYear: PEOPLE_YEARLY_TARGET };
+// The team's year counts from Oct 2026, the dashboard's first month (owner, 19 Oct: every earlier training invoice is already on the board) — FY 2026-27: 60 trainings, 1500 people.
+export const TEAM_TARGETS: Targets = { month: MONTHLY_TARGET, year: YEARLY_TARGET, peopleMonth: PEOPLE_MONTHLY_TARGET, peopleYear: PEOPLE_YEARLY_TARGET, since: "2026-10-01" };
 export const AED_TARGETS: Targets = { month: AED_MONTHLY_TARGET, year: AED_YEARLY_TARGET, since: "2026-09-01" }; // = AED_SINCE (zohoSync.ts, server-only)
 
 /** The day a training counts on: its last training day (a multi-day training is one training). */

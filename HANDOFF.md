@@ -1,37 +1,62 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 14 Oct 2026, end of session 8 (13–14 Oct). Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 19 Oct 2026, end of session 10 (15–17 Oct). Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all eight sessions — §5),
+Read this end to end before touching code. It records what the owner asked for (every prompt, all ten sessions — §5),
 the business rules that came out of it, how the code works **now**, what was verified, and what is still open.
+**The work agreed for Monday 19 Oct is in `MONDAY-PLAN.md`** (repo root) — read it right after this file.
 
-**Start of the next session — do these first (details in §10):**
-1. `git status` — **everything is pushed** (last commit `3e57bb2`, live; working tree clean except this file if it wasn't
-   committed). After any push the team presses **Ctrl + Shift + R** once. No local server is running (start `npm run dev`
-   if the owner says "run it").
-2. ~~Three approved items~~ — **done in session 9 (14 Oct):** 8 + 1 false notices deleted (#44), live greeting is
-   "Dear {person},", Priyanka's targets **5 a month / 60 a year** in `kpi.ts` (`AED_TARGETS`, year counted from Sept), and
-   the server now rejects false Zoho notices (#59) — **not committed or pushed** (owner hasn't asked). Kept below for the record:
-   **Three things the owner already said "yes" to on 14 Oct ("yes yes go ahead … in a new session") — do them first:**
-   a. **Delete the 8 false "no longer in Zoho Books" entries** from live `cardEvents` (ids in #44; every document is still in
-      Zoho). Summarise first (8 `zoho_change`, by "Zoho Books"), delete exactly those ids, confirm with a read-only count. A
-      direct Mongo write was **refused by the safety classifier** in session 7 — if it happens again, use the app's own route
-      as Admin (`POST /api/store` with `{collection:"cardEvents", deletes:[ids]}` — only Admin may delete entries; check
-      `src/app/api/store/route.ts` first) or ask the owner to allow it.
-   b. **Gratitude greeting:** set the live Mongo doc `mailTemplates/fulfil_gratitude` body to start **"Dear {person},"** (the code
-      default already does; `{person}` = the concerned person's name, else "Sir/ Ma'am"). Change only that line; keep the
-      subject ("Thank you for hosting…" — the forwarding filter keys on it). Then preview a gratitude email (GET
-      `/api/mail/fulfil?card=`) — never send one to a customer.
-   c. **Priyanka's targets:** the owner said yes to AED targets but gave **no numbers** — ask ("how many AED trainings a month /
-      a year?"), then set them in `kpi.ts` (`boardMonth/boardYear(list, today, targets)` — the AED view passes `targets=false`;
-      add AED constants) and show the meters on her Overview.
-3. **Still owner-side:** Zoho Mail **forwarding filter** (#25), the **real gratitude wording** (#29), the **`CRON_SECRET`
-   GitHub secret** (#31 — still "CRON_SECRET is not set" on 12 Oct 20:24 UTC). JW Sahar's 20 sheet rows: real or test (#41).
-4. **First real uses to check with the owner:** a multi-day Generate (names per day → sheet dates per row), a Generate from
-   **Training Completed** ("Have a list?"), the first schedule with a **concerned person's name**, and the Overview once a
-   training is scheduled ahead (nothing was on 13 Oct, so "Coming up" was empty).
-5. Classic Citi Investments (Pune) still carries the owner's two **test** `fulfil_certs` batches from 12 Oct (#38).
-6. Enhancement ideas for when the owner asks "what next" — §10 "Session 8 — tips" (#45–#58).
+**Start of the next session — do these first (details in §10 and MONDAY-PLAN.md):**
+1. `git status` — **all code is pushed** (last commit `3f82378`, live since 17 Oct on both addresses, checked in the
+   deployed JS); only this file may be uncommitted. After any push the team presses **Ctrl + Shift + R** once — this time
+   it matters: the server now **refuses a training date without its certificate location + concerned email**, so a tab
+   on old code loses a schedule silently. No local server is running.
+2. **Pushing:** on 15–17 Oct GitHub's saved sign-in stopped working from Claude's shell (Git Credential Manager can't
+   prompt here). The owner pushed once from **Cursor** (Source Control → Sync Changes, browser sign-in as
+   thinkhealthcareandsafety). If a push fails with "could not read Username", don't retry in a loop — ask them to push.
+3. **Monday (19 Oct):** go through `MONDAY-PLAN.md` with the owner — §2 decisions first (year target: back-fill vs. count
+   from the dashboard's start), then build only what they approve (proposed: **"My day"** with **certificate renewals**
+   as its first reminder).
+4. **Still owner-side:** reconnect **hello@** (still the 8 Oct connection — Priyanka hasn't sent a real email yet, so
+   nothing has failed; the first one will start "AedSmartx replies not checked" in the Sync log), the **`CRON_SECRET`**
+   GitHub secret (no GitHub runs yet; every reminder needs it), **4 Classic Citi test rows** in the master sheet (15 Oct
+   morning), Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41), Classic Citi
+   test batches (#38).
+5. **work.thinkhealth.in is live** (Cloudflare CNAME added by ~17 Oct; HTTPS works; API answers). Everyone signs in once
+   on it (cookie per host); the vercel.app link keeps working. DNS is still in the Cloudflare account the owner can't
+   see — don't "Add domain" in their own Cloudflare.
+6. **Offered, not answered:** AedSmartx Contacted modal scroll (§10 #21), tidy quotations left by Completed on invoice date
+   (#42), `ALLOW_PAST_TRAINING_DATES` (#1), widen reverts for Ashish/Shikha/Sumit (#17), public repo (#15).
+7. **Old certificate designs:** originals at `D:\Projects\certificate-generator\private\A4 CA / FA Photoedit.pdf` (9 Oct);
+   the current ones (14 Oct) in `D:\New folder\`.
+
+**Session 10 in one paragraph (15–17 Oct):** certificates printed the date / number / location in a dark teal
+(`#0E3F51`, hard-coded in our layout — the templates' own colours never reach the print) that printers turned light
+blue → **pure black** in the dashboard (`5d167c2`) and the certificate-generator app (`17853af`, pushed together with its
+unpushed TypeScript rebuild `44795c9`). Audited every alias entry and found the root cause of the wrong locations: the
+"alias for certificates" was **one per customer name, latest wins on every card** (Chalet's four hotels shared one), plus
+two lists that drift (aliases vs. certificate alias) and no input checks. The owner redefined the model → built
+**certificate location name + concerned email per training** (required to schedule, server-enforced, locked once
+certificates are made; older trainings keep what they printed — no data rewrite), **alias = anything they're called** and
+**concerned person's name = only a person**, both optional, editable from the Customer section on every board, with
+duplicate / typo / "looks like a hotel" checks (`a25a72f`). Removed Shreya's 6 dummy gmail entries (archived first).
+Fixed the **Overview maths** (revenue −59 % was part month vs. whole month → −3 % like for like; "Behind by 0.6"
+trainings; a 16-day "next 15 days"; past-dated trainings counted as scheduled; Priyanka's trend from April) and added a
+ticker **"Mark completed"** reminder (`f642de7`). Wrote the owner-view feature review → `MONDAY-PLAN.md` (`3f82378`).
+work.thinkhealth.in went live. First real runs seen: Shreya's first **two-day batch** (Synopsys, 22 certificates,
+15 Oct 12:26) and the first real **gratitude reply ★** (12:04).
+
+**Session 9 in one paragraph (14 Oct):** did the three approved items — deleted the **8 false "no longer in Zoho Books"
+notices plus a 9th** written that morning by a never-reloaded tab (direct Mongo delete, guarded by id + kind; not refused),
+live gratitude greeting **"Dear {person},"**, Priyanka's targets **5 AED trainings a month / 60 a year, her year counted from
+1 Sept** (35 this FY); the **server now rejects false Zoho notices** (both cards still in its Zoho copy) — pushed `40cb462`.
+Then: **work.thinkhealth.in** set up in Vercel, waiting on Cloudflare DNS (step 4); **Fulfillment Generate popup** — BLS
+trainings default to the Basic Life Support design (others CPR/AED/First Aid), the suggested design **glows gold**, the strip
+shows the **training name**, Admin **Replace designs**; **AedSmartx** — Priyanka **picks the email template**, and **replies to
+her emails (hello@) star the card** with Shreya's reply popup (hourly check, `src/lib/aedReplies.ts`); the owner's **new
+certificate templates** printed blank (colour profile in a separate PDF object) → `certBackground.ts` fixed, old designs
+backed up, new ones uploaded as Admin and checked through the live code — pushed `9459193`. Live data untouched by tests
+(every check used blocked writes, mocks, or a fake reply injected in the browser only).
 
 **Session 8 in one paragraph (13–14 Oct):** found why deletions in Zoho didn't show (only the 9 am / 2 pm full checks see
 them) → **Sync now runs the full check**; found and fixed **false "no longer in Zoho Books" notices** written by tabs waking
@@ -40,7 +65,7 @@ and certificate carries its day — replaces "last day" rule); **alias + concern
 optional **concerned person's name**; Fulfillment: **"Have a list? Click here to Generate Certificates"** from Training
 Completed (no gratitude email) and a **cleaner board + card** (state pills, 4-step tracker); **Overview, Calendar and ticker now
 come from the boards** (targets 10/120 trainings and **300/3000 people**, coming up in 15 days, Priyanka's own AED Overview,
-stale follow-up items gone). Four pushes (`01f028c`, `4745553`, `ca83971`, `3e57bb2`), all live; this handoff update is not committed yet.
+stale follow-up items gone). Four pushes (`01f028c`, `4745553`, `ca83971`, `3e57bb2`), all live.
 
 **Session 7 in one paragraph (12–13 Oct):** connected the master sheet (taught "SN" as the serial column; **SN and
 certificate no. count separately** — the sheet's certificate numbers run 7 behind SN); the first PDFs printed the A4
@@ -81,8 +106,9 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `3e57bb2`
-  (13 Oct — Overview, calendar and ticker from the boards; live, verified in the deployed JS). Session 8 commits: `01f028c`,
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `3f82378`
+  (17 Oct — Monday plan; live, verified in the deployed JS on both addresses). Session 10: `5d167c2`, `a25a72f`, `f642de7`,
+  `3f82378` (+ certificate-generator repo `44795c9`, `17853af`). Session 9: `40cb462`, `9459193`. Session 8 commits: `01f028c`,
   `4745553`, `ca83971`, `3e57bb2`. Session 7: `cb906d4`, `7025bbe`, `3a5b002`, `85f13c2`, `633f1ec`.
 - **Zoho Mail is connected** for **hello@thinkhealth.in** (Admin did it on 8 Oct through the dashboard's *Connect it* popup;
   token in Mongo kv `zoho_mail:hello@thinkhealth.in`). The owner received a **[TEST]** first-contact email. Threaded reminders
@@ -368,8 +394,27 @@ cascade trigger), `aed_add_phone` / `aed_remove_phone` / `aed_set_email` / `aed_
 `ref` = cid — by customer name, **AedSmartx board only**), `aed_confirm_email` (`[aed:<id>]`), `aed_call`
 (`[aed:<id>, aedcustomer:<cid>]`), `aed_email` (**server-written only**, never revertable — `canWriteEvent` refuses it from
 browsers, `canRevert` and the store route refuse reverting it).
-**Alias for certificates + concerned person's email** (end of session 5, commit `655daf0` — not described in the session 5
-notes): `set_cert_alias` (value = alias printed as the certificate location, "" = customer's own name; `before`) and
+**Certificate location name + concerned email — per training (session 10, `a25a72f`, owner 15 Oct):** a training's
+location (printed as "course conducted at", "" = the customer's own name) and concerned email ride on its
+`set_training_date` entry (`location`, `email` fields — **the server refuses a dated entry without them**,
+`missingCertFields` in roles.ts; not for TBD, AedSmartx or `mode: "invoice"`). Changed later with `set_cert_location` /
+`set_training_email` (value, before, ref = contact id) on the training's card (`schedule.on` — the card the date was set
+on) or, for Shreya, on her `fulfil:` card. `applyCert` (pipeline.ts) reads a training's own entries from its lineage
+**and** its Fulfillment card ids; without any it falls back to the old customer-wide value (`legacyLocation` /
+`legacyEmail`) — so every older training prints what it printed before (checked on all 53 live trainings). Cards with no
+training get none. `CardView.certLocation` (was `certAlias`), `concernedEmail`, `certLocations` ("Used before" = what this
+customer's trainings actually print), `lastEmail` (pre-filled for a new training), `certLocked` (fulfil_certs + moved to
+generated/logistics → location can't change). The **concerned person's name** stays customer-wide (`set_concerned_name`,
+now also applied on AedSmartx cards). **The server refuses new `set_cert_alias` / `set_concerned_email`** (old tabs);
+they are only read as the fallback. UI (CardModal.tsx): `LocationPicker` (Same as original — name / Used before / Aliases
+/ + New location…, near-typo check via `closeTo`), `EmailPicker` (Used last time / Same as original / + Add new…),
+`NamePicker` (`notAPerson` blocks digits, @, hotel / company / city words), `certEvents(card, cert, by, onDate)`,
+`certFields`; `CertEditor` exported (also opened from the Generate popup's *Change* next to the location);
+`CustomerSection` has **Aliases & contact person** → `CustomerNamesEditor` on every board (aliases with `useAliasInput`:
+tidy, case-insensitive duplicates refused, near-duplicates ask; plus the name). The Edit form's alias input uses the same
+checks.
+**Before 15 Oct — alias for certificates + concerned person's email** (end of session 5, commit `655daf0` — not described in the session 5
+notes, kept for history): `set_cert_alias` (value = alias printed as the certificate location, "" = customer's own name; `before`) and
 `set_concerned_email` (value = email for gratitude emails / the participant list), `ref` = contact id — **per customer
 name, the latest wins on every card** (`customerCert` / `applyCustomerCert` → `CardView.certAlias` / `concernedEmail`;
 older trainings' `underName` counts as setting the alias). Set in the schedule pickers (*Add Alias* "Same as original /
@@ -456,6 +501,12 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   A merge made while part paid waits (*Not applied yet*) and applies by itself once fully paid.
 - **Merge view**: one panel per phase; quotations newest first with a **NEW** tag; a quotation and PI only ever show as a
   referenced pair (the PI panel hides when no PI cites the selected quote; clicking either chip switches its partner).
+- **Since 15 Oct (session 10):** the schedule popups ask for the **Certificate location name** (per training: Same as
+  original / Used before / Aliases / + New location) and the **Concerned person's email** (per training, pre-filled with
+  the customer's latest) — both required, button "Location & email"; plus the optional **Concerned person's name**
+  (customer-wide). Aliases and the concerned name can be edited any time on any board (Customer → *Aliases & contact
+  person*). An alias is anything the team calls the customer (a person, a hotel, a short name); the concerned name is
+  only a person. The rule text below is the older version.
 - **Training**: unflagged quote/PI can be scheduled — with dates, trainers, the **alias for certificates** (*Same as original*, an alias, or *+ Add alias…*, which also adds the alias to the customer; printed as the certificate location) and the **concerned person's email** (used for the gratitude email and the participant list) — both per customer name, latest wins, **both mandatory since session 8** (red *; Schedule / Postpone / Change date and the *Ready for training* popup stay disabled until an alias — *Same as original* counts — and a valid email are chosen; the email dropdown has no *Not set*; a customer who never chose an alias starts at *Select…*, because an explicit *Same as original* is now kept as "" in `customerCert`), changeable later with *Change* under the head-count (`655daf0`; older trainings used `underName`, "Under name: …"); once dated: **Change date** (a correction, earlier or later — event `mode: "change"`, label unchanged, log "Training date changed from … to …") / **Postpone** / **To be decided** / **Training completed** (both boards); merged PI pops *Ready for training*. **Several days** per training
   (`DaysPicker.tsx`: click days one by one, drag or Shift-click for a range; shown as "3–6 Oct, 12 Oct 2026").
   Needs ≥1 **trainer** (Shikha Dixit, Ashish Dalal, Sumit A Shah, or **External trainer** — any typed name; names used
@@ -620,6 +671,14 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   the resale / Reseller tick boxes (token `--purple` / `--purple-bg`, light and dark).
 
 ### Overview, Calendar, ticker (session 8) — from the boards
+- **Session 10 maths fixes (`f642de7`):** revenue change = this month so far vs **the same days of last month**
+  (`revenueBetween`; was part month vs whole month: −59 % → really −3 % on 17 Oct); ahead / behind in **whole trainings
+  and people** (`pace` rounds the expected count); `upcoming(…, 15)` = exactly 15 days incl. today (was 16); a dated
+  training whose last day passed without *Training completed* is **`unmarked`** ("n to mark completed"), not
+  scheduled, and gets a ticker item **"Mark completed"** (high after 3 days); `boardMonthSeries(…, since)` starts
+  Priyanka's trend in Sept; trend table shows "–" for future months and "so far" for the current one; ticker "days left"
+  counts today. Open: the team's year tile (21 / 120, "Behind by 45") is right maths but most pre-October trainings were
+  never entered — owner to choose back-fill vs. counting from the dashboard's start (MONDAY-PLAN.md §2).
 - `/api/trainings` also returns **`board`** (Training board) and **`aedBoard`** (AedSmartx) as `BoardTraining[]` + `aedWaiting`,
   built on the server (`boardTrainings` / `boardsNow` in fulfilServer.ts: Zoho copy + change log, as the boards do): **one per
   deal** (its latest live card, multi-day = one), dates, trainers, people (= No. of People; AED: 0), alias, status. The store
@@ -867,11 +926,34 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 |---|---|---|
 | 185 | "Read HANDOFF.md … do the three approved things (delete the 8, greeting, ask Priyanka's targets), then where things stand + what next" | 8 notices checked read-only (all docs still in the Zoho copy) and deleted; found a 9th from 08:25 IST (stale tab) → asked; live `fulfil_gratitude` first line → "Dear {person}," (rest + subject unchanged; preview GET checked — "Dear Sir/ Ma'am," until a concerned name is set; none set yet). |
 | 186 | Answers: AED **5 a month**, year **12 × = 60**; delete the 9th: yes | 9th deleted; `AED_TARGETS` + `Targets` in kpi.ts, Kpis.tsx passes them; checked read-only in headless Chrome as Priyanka (3 / 5 Oct, 4 / 60 FY, Target 5 line, 0 px overflow at 1728 and 390) and Admin (team numbers unchanged). Not committed / pushed. |
+| 187 | "go ahead, implement it" (my top two: Priyanka's year from Sept; server rejects false Zoho notices) | Both built (§4 Overview, §10 #59); tsc OK; Overview re-checked read-only (4 / 35 · from Sept, phone fits; team unchanged); notice filter checked read-only on real data (9 drop, 2 keep). Live log untouched (733). Not committed / pushed. |
 | 188 | "push it to github" | `40cb462`, live ~40 s. |
 | 189 | Domain: "buy a subdomain work.thinkhealth.in" | No purchase needed. Added in Vercel (Add Existing → Production); DNS is at **Cloudflare** (bristol / piotr.ns.cloudflare.com), in a Cloudflare account the owner can't see → asked the boss for access or to add `CNAME work → 4145140deaae64f5.vercel-dns-017.com` (proxy off). Pending. |
-| 190 | New certificate designs (colour change) to replace; BLS trainings default to the BLS design, others to CPR/AED/First Aid; popup strip shows the **training name** instead of Course; the default design gets a **glowing gold border**; Priyanka picks **which email template** to send; **★ on replies** to her emails, same reply popup as Shreya's. Asked 4 questions → all defaults: gold glow on the pre-picked design in the popup; training name on screen only (sheet COURSE + certificate unchanged); replies read from **hello@**; Admin **Replace designs** button | Built (§4 Fulfillment / AedSmartx below). Tested: reply matching with mocks (thread, subject, own domain, before-send, known — PASS); read-only browser on real cards with saves blocked (Synopsys 2026-01-461 BLS → Suggested + gold, "Training: THCAS BLS Training 2025 (I)", Replace designs; a fake reply injected in the browser only on 2026-01-436 → ★ on the tile, modal opens on the reply, Open in Zoho Mail clears it; 2026-01-437 Send email → Template dropdown, "2nd reminder" as a first email has no "Re:"). Not pushed. |
-| 191 | Attached the **two new templates** (colour change): "these are the two new templates, retry" | Found them in `D:\New folder\A4 CA / FA Photoedit.pdf` (14 Oct, 0.5 MB each). Rendered with made-up names first: **the converter printed a blank certificate** — the new exports keep the picture's colour profile in a separate object (`/ColorSpace [/ICCBased n 0 R]`, RGB, not CMYK), and `backgroundFromTemplate` copied only the picture's own entries. Fixed: copies the picture with `PDFObjectCopier` (everything it points to); old templates still convert. Backed up the old designs (scratchpad `designs-backup/`, local only), then uploaded both through `POST /api/certificates/designs` as Admin on the local server (stored as converted backgrounds, 0.5 MB); checked they print right through the **live** code too (pass-through path). Live since 14 Oct 16:44 IST. Fix not pushed yet. |
-| 187 | "go ahead, implement it" (my top two: Priyanka's year from Sept; server rejects false Zoho notices) | Both built (§4 Overview, §10 #59); tsc OK; Overview re-checked read-only (4 / 35 · from Sept, phone fits; team unchanged); notice filter checked read-only on real data (9 drop, 2 keep). Live log untouched (733). Not committed / pushed. |
+| 190 | New certificate designs (colour change) to replace; BLS trainings default to the BLS design, others to CPR/AED/First Aid; popup strip shows the **training name** instead of Course; the default design gets a **glowing gold border**; Priyanka picks **which email template** to send; **★ on replies** to her emails, same reply popup as Shreya's. Asked 4 questions → all defaults: gold glow on the pre-picked design in the popup; training name on screen only (sheet COURSE + certificate unchanged); replies read from **hello@**; Admin **Replace designs** button | Built (§4 Fulfillment / AedSmartx below). Tested: reply matching with mocks (thread, subject, own domain, before-send, known — PASS); read-only browser on real cards with saves blocked (Synopsys 2026-01-461 BLS → Suggested + gold, "Training: THCAS BLS Training 2025 (I)", Replace designs; a fake reply injected in the browser only on 2026-01-436 → ★ on the tile, modal opens on the reply, Open in Zoho Mail clears it; 2026-01-437 Send email → Template dropdown, "2nd reminder" as a first email has no "Re:"). Pushed with #191 (`9459193`). |
+| 191 | Attached the **two new templates** (colour change): "these are the two new templates, retry" | Found them in `D:\New folder\A4 CA / FA Photoedit.pdf` (14 Oct, 0.5 MB each). Rendered with made-up names first: **the converter printed a blank certificate** — the new exports keep the picture's colour profile in a separate object (`/ColorSpace [/ICCBased n 0 R]`, RGB, not CMYK), and `backgroundFromTemplate` copied only the picture's own entries. Fixed: copies the picture with `PDFObjectCopier` (everything it points to); old templates still convert. Backed up the old designs (scratchpad `designs-backup/`, local only), then uploaded both through `POST /api/certificates/designs` as Admin on the local server (stored as converted backgrounds, 0.5 MB); checked they print right through the **live** code too (pass-through path). Live since 14 Oct 16:44 IST. |
+| 192 | "push it to github" | `9459193` (certificates + AedSmartx templates and ★ + converter fix), live ~90 s. Owner told: Ctrl + Shift + R; **reconnect hello@**. |
+| 193 | "write a handoff for new session" | This update (15 Oct). |
+
+### Session 10 (15–17 Oct 2026) — black certificate text, per-training location, Overview maths, Monday plan
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 194 | "Read HANDOFF.md … check the Sync log for hello@ / Priyanka's reply check, whether work.thinkhealth.in is connected, what's waiting on me" | hello@ still the 8 Oct connection; **0 `aed_email` ever sent**, so the reply check never reaches Zoho (no error can show yet); work.thinkhealth.in NXDOMAIN on Cloudflare's own servers; `CRON_SECRET` still missing; spotted Shreya's first real batch on the new designs and Admin's 1-row Classic Citi Generate. |
+| 195 | Attached both templates + a generated PDF: "cert number, location, date look dark blue, templates are black — printers print light blue; make them black" | Cause: our layout draws those values in a hard-coded **#0E3F51** (templates' text is `0 0 0 rg`; their colours never reach the print). `certPdf.ts` → pure black (name stays blue); test PDFs from both templates read back only black + the name's blue. |
+| 196 | "push it to github i will check it myself" | `5d167c2`, live ~60 s. |
+| 197 | "yeah i want it to change" (the certificate-generator app too) | `D:\Projects\certificate-generator\src\layout.ts` → black; tsc OK; sample PDFs checked. |
+| 198 | "just push it" | Generator repo pushed: `44795c9` (its waiting TypeScript rebuild) + `17853af`. |
+| 199 | "i want the aliases correctly inputted — find inconsistencies across all boards, where the issue lies" | Read all 20 alias entries: Chalet's 4 trainings sharing "JW Marriott Mumbai Sahar", "Chalet Hotel" ≠ "Chalet Hotels", Samhi's first 30 certificates printed with the company name + a typo fix that dropped the alias from the list, person names as aliases (Yogesh Ghumaste, Arwa Hyderabadwala), Synopsys without one. Causes: one location per customer name, two drifting lists, no input checks, exact-name matching, pre-13 Oct trainings never asked. |
+| 200 | "as a senior system architect": alias = what they call them, concerned name = only a person, **Certificate Location Name** mandatory at scheduling (same as original or an alias), alias + name optional on any board, schedule needs proper email + location | Agreed + two changes: location **and** email per training (hotel groups); no data rewrite (fallback), server check, lock after certificates. 3 questions. |
+| 201 | "yes for all and push it, also remove Shreya's mail (dummy, to print certificates)" | Built (§3 "per training"); checked read-only on all live trainings + in-memory simulation + headless browser with saves blocked (0 px at 1728×958; the 9 px on a fake starred card is pre-existing and under the padding). 6 gmail entries (2 `set_concerned_email`, 2 `fulfil_email`, 1 `fulfil_reply`, 1 `fulfil_mail_opened`) **archived to `cardEventsArchive` (clearedScope "dummy entries with Shreya's gmail") and deleted**; Shikha's later entry's `before` (the gmail) unset. Commit `a25a72f`; **push failed — GitHub sign-in can't prompt from here**. |
+| 202 | "push it to github" | Failed again (same sign-in). |
+| 203 | "whats the current status" (17 Oct) | work.thinkhealth.in **live** (CNAME → Vercel, HTTPS 200); push still pending; Shikha scheduled one training on old screens (keeps its alias/email). |
+| 204 | "just push it, fix the maths on the dashboard page, recommend reminders and front-page things — as architect + entrepreneur" | Overview maths fixed (§4 Overview) after checking each number on live data; `f642de7`; push still blocked. Recommendations: renewals, AED consumables, cold quotes, receivables, My day, time limits, pre-training check, forecast, funnel, delivery speed… |
+| 205 | "go through your suggestions — would you want them as a business owner? what else?" | Keep / later / drop with reasons; plus profit per training, repeat clients, certificate QR, participant-list form, feedback, trainer certification expiry, lead source, stock. Top 3: renewals, profit per training, My day. |
+| 206 | "write it all in a file, we will work on Monday" | `MONDAY-PLAN.md`. |
+| 207 | "push it tho, the upgrades we will do on Monday" | `3f82378` committed; push blocked. |
+| 208 | "im using cursor, sign in yourself" | Can't — the sign-in is the owner's GitHub approval; gave Cursor steps (Source Control → Sync Changes). |
+| 209 | "pushed" | All three commits on GitHub; Vercel success; new code found in the live JS on **work.thinkhealth.in** and vercel.app. |
+| 210 | "everything written in a file" | This update (19 Oct). |
 
 ---
 
@@ -953,6 +1035,14 @@ request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Ev
   data"); revenue is the exception (Zoho).
 - They want the dashboard to **move cards on by itself** where the outcome is certain (Completed on invoice date merges to
   Payment received; Mark as Completed goes straight to Logistics) rather than leaving manual merge steps.
+- Session 9: files they attach in chat (templates, PDFs) are also saved somewhere on disk — find them by name / today's date
+  (`D:\New folder\` this time) instead of asking. **Before anything reaches Shreya's printouts, render it** with made-up names
+  (§9 #14 PDF check): the new templates looked fine as files but printed blank through the converter.
+- Short, direct answers when they say so ("without wasting tokens be direct"); for messages to their **boss** they want very
+  short WhatsApp-style text. Non-code help (domains, DNS, Vercel) is welcome — check the facts first (e.g. `nslookup` showed
+  the DNS is on Cloudflare, not GoDaddy).
+- They use **Admin** on the live site themselves during the day (merges, syncs) — live entries by "Admin" are usually theirs,
+  not a test; confirm from the local server log before suspecting your own scripts.
 
 ---
 
@@ -1058,6 +1148,8 @@ No test suite. Pattern used throughout:
 21. **Not click-tested in a browser** (session 5, see §9 #10): the Contacted section, popups, Clear logs per board, purple, name
     lock. Modal fit at 1728×958 with the Contacted section is unmeasured — the AedSmartx right column (Training + Contacted +
     Item description) may now scroll; if so, collapse Item description while a card is in Contacted.
+    **Measured 14 Oct (session 9):** it does — ≈336 px overflow on 2026-01-437 (Contacted) at 1728×958. Offered the fix; no answer.
+    The Send email popup, reply popup and Template dropdown were click-tested (saves blocked) in session 9.
 22. Email templates: edit the Mongo `mailTemplates` doc to change wording (the owner's text kept as given, incl. "if wrongly
     address"). No editing screen yet. ~~Shreya's emails~~ — built in session 6 (`fulfil_gratitude`, placeholder wording, #29).
 23. The dashboard now pulls team data every 15 s (was 60 s) — 4× the `/api/store` reads; fine for this team, revisit if it grows.
@@ -1137,7 +1229,7 @@ No test suite. Pattern used throughout:
 
 **Session 8 — tips: what to enhance next** (offer these when the owner asks "what next"; build only on their go-ahead):
 
-45. **The 3 approved items** (start of this file, step 2): delete the 8 false notices, live greeting "Dear {person},",
+45. ~~**The 3 approved items**~~ — done in session 9. Was: delete the 8 false notices, live greeting "Dear {person},",
     Priyanka's AED targets (ask the numbers).
 46. **Same clean-up for the other boards.** The owner said "everything looks cluttered" and then "not much UI is changed" after
     only the Fulfillment board was polished. Apply the `FulfilItem` pattern (doc + date on one line, training, people ·
@@ -1168,3 +1260,21 @@ No test suite. Pattern used throughout:
 57. **Mobile pass** on the card modals (Training / AedSmartx / Logistics) — the Fulfillment modal columns got `min-w-0`; the
     others may still be pushed wider than a phone by long emails.
 58. `ALLOW_PAST_TRAINING_DATES` is still on (#1) — ask whether the back-fill is done.
+
+**Session 10 — open items** (the feature backlog is `MONDAY-PLAN.md`):
+
+60. **Chalet 352 / 455** printed "JW Marriott Mumbai Sahar" (locked now). If either was at another hotel: undo the move to
+    Certificates Generated → *Change* location → Generate again (adds rows; old rows stay in the sheet).
+61. **4 Classic Citi test rows** in the master sheet (Admin, 15 Oct 08:13–09:42, 1 name each) — owner deletes by hand;
+    their `fulfil_certs` events stay (server-only).
+62. **Samhi's first batch** (13 Oct 16:44, 30 rows as "Samhi Hotels Private Limited") — likely duplicate rows in the sheet
+    next to the 14 Oct "Fairfield…" batch; ask Shreya whether she deleted them.
+63. **Old aliases** "Yogesh Ghumaste" (Classic Citi) and "Arwa Hyderabadwala" (FLAME University) are valid aliases under the
+    new meaning; move them to the concerned person's name only if the owner wants.
+64. **"Chalet Hotel Limited" vs "Chalet Hotels Limited"** are still two customers (exact name match) — fix in Zoho Books.
+65. A tab on old code (before Ctrl + Shift + R) can't schedule: the server drops its date entry silently (it comes back
+    at the next pull without the date). Tell the team if someone says "my schedule vanished".
+66. `src/lib/kpi.ts` has **CRLF** line endings (most files LF) — scripted edits must handle both.
+67. The 9 px modal overflow on a **starred Gratitude Email Sent card with a reply** (seen with a fake state) is pre-existing
+    and within the 16 px bottom padding; re-measure if that column's content grows.
+68. Reply check for Priyanka: until hello@ is reconnected **and** she sends a real email, it has never run against Zoho.

@@ -7,7 +7,7 @@ import { followUpsFromPipeline, followUpsFromTrainings, seedManualFollowUps } fr
 import { buildTickerItems } from "./ticker";
 import { cascadeOf } from "./cascade";
 import { useSession } from "./session";
-import { boardsFor } from "./roles";
+import { boardsFor, ownsEntry } from "./roles";
 
 // Calendar entries, follow-ups and announcements are cached in the browser and, when the server has
 // MONGODB_URI configured, shared with the whole team through /api/store (only changed documents are sent).
@@ -57,12 +57,9 @@ function seedEntries(today: Date): CalendarEntry[] {
     demo: true,
   });
   return [
-    e(0, { type: "meeting", title: "Client call — Orion IT Park", startTime: "11:00", endTime: "11:30", allDay: false, priority: "high" }),
-    e(0, { type: "note", title: "Send certificate batch to courier", allDay: true, priority: "medium" }),
-    e(2, { type: "meeting", title: "Audit prep with trainers", startTime: "15:00", endTime: "16:00", allDay: false, priority: "high" }),
-    e(4, { type: "date", title: "AED stock review", allDay: true, priority: "low" }),
-    e(8, { type: "meeting", title: "Quarterly review", startTime: "10:00", endTime: "12:00", allDay: false, priority: "medium" }),
-    e(-3, { type: "note", title: "Update trainer roster", allDay: true, priority: "low" }),
+    e(0, { type: "meeting", title: "Client call — Orion IT Park", startTime: "11:00", endTime: "11:30", allDay: false }),
+    e(2, { type: "meeting", title: "Audit prep with trainers", startTime: "15:00", endTime: "16:00", allDay: false }),
+    e(4, { type: "event", title: "AED stock review", allDay: true }),
   ];
 }
 
@@ -507,7 +504,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const boards: string[] = member ? boardsFor(member) : ["training"];
     const aedOnly = boards.includes("aed") && !boards.includes("training");
     const mine = (i: TickerItem) => i.id.startsWith("up:") && i.board === "training" ? !aedOnly : !i.board || boards.includes(i.board);
-    return buildTickerItems(data.trainings, data.board ?? [], data.aedBoard ?? [], entries, announcements, now).filter(
+    // Meetings and events: only the member's own (the whole-calendar viewers receive everyone's, but the ticker is personal).
+    const own = member ? entries.filter((e) => ownsEntry(member, e)) : [];
+    return buildTickerItems(data.trainings, data.board ?? [], data.aedBoard ?? [], own, announcements, now).filter(
       (i) => mine(i) && (!tickerSnooze[i.id] || new Date(tickerSnooze[i.id]) < now),
     );
   }, [data, entries, announcements, now, tickerSnooze, member]);

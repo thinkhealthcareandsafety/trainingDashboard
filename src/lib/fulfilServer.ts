@@ -62,6 +62,7 @@ function boardTraining(c: CardView, board: BoardTraining["board"]): BoardTrainin
     time: board === "aed" ? s.dates[0]?.slice(11, 16) || undefined : undefined,
     trainers: s.trainers,
     status: s.completed ? "completed" : s.status,
+    scheduledBy: s.by,
   };
 }
 

@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AedResponse, Member, PipelineResponse } from "@/lib/types";
+import type { Member } from "@/lib/types";
 import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerContacts, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
 import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
 import { type BoardKind, boardsFor } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
-import { ZOHO_SYNCED, useStore } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
+import { useAedInvoices, usePipeline } from "./followups/useBoards";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
 import { StatePill } from "./followups/FulfilCerts";
 import { LogiAedModal, LogisticsModal } from "./followups/LogisticsModal";
@@ -151,70 +152,7 @@ function useFitHeight() {
 
 const dateLong = (s: string) => fmtDate(s, { day: "numeric", month: "short", year: "numeric" });
 
-/* ---------------- Zoho pipeline data ---------------- */
-
-function usePipeline() {
-  const [data, setData] = useState<PipelineResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const load = useCallback(async (force = false) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/pipeline${force ? "?refresh=1" : ""}`, { cache: "no-store" });
-      const json = (await res.json()) as PipelineResponse;
-      // If Zoho is unavailable, keep showing the last good data, flagged with the error.
-      setData((d) => (json.leads?.length || !d ? json : { ...d, error: json.error ?? "Sync failed" }));
-    } catch (e) {
-      setData((d) => (d ? { ...d, error: String(e) } : null));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    load();
-    const t = setInterval(() => load(), 3 * 60_000);
-    const onSynced = () => load();
-    // A tab coming back (e.g. after the laptop slept) gets fresh Zoho data right away, like the team data.
-    const onVisible = () => { if (document.visibilityState === "visible") load(); };
-    window.addEventListener(ZOHO_SYNCED, onSynced);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener(ZOHO_SYNCED, onSynced);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [load]);
-  return { data, loading, refresh: () => load(true) };
-}
-
-/** AED invoices (current fiscal year) — fetched only while the AedSmartx board is showing. */
-function useAedInvoices(enabled: boolean) {
-  const [data, setData] = useState<AedResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const load = useCallback(async (force = false) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/aed${force ? "?refresh=1" : ""}`, { cache: "no-store" });
-      const json = (await res.json()) as AedResponse;
-      setData((d) => (json.invoices?.length || !d ? json : { ...d, error: json.error ?? "Sync failed" }));
-    } catch (e) {
-      setData((d) => (d ? { ...d, error: String(e) } : null));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    if (!enabled) return;
-    load();
-    const t = setInterval(() => load(), 5 * 60_000);
-    const onSynced = () => load();
-    window.addEventListener(ZOHO_SYNCED, onSynced);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener(ZOHO_SYNCED, onSynced);
-    };
-  }, [enabled, load]);
-  return { data, loading, refresh: () => load(true) };
-}
+/* ---------------- Zoho pipeline data: usePipeline / useAedInvoices (useBoards.ts, shared with the calendar) ---------------- */
 
 /** Which board is showing, for members with more than one — remembered per browser. */
 function useBoardChoice(allowed: BoardKind[]): [BoardKind, (b: BoardKind) => void] {
@@ -737,7 +675,7 @@ function ClearLogs({ member, cards, boardName }: { member: Member; cards: Map<st
 
 /* ---------------- Board ---------------- */
 
-function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut: () => void; initialQuery: string }) {
+function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Member; onSignOut: () => void; initialQuery: string; initialOpen?: string | null }) {
   const { cardEvents, recordCardEvents } = useStore();
   const pipeline = usePipeline();
   const { data } = pipeline;
@@ -829,6 +767,20 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
   const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols, ...fulCols, ...logiCols };
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
   const switchBoard = (b: BoardKind) => { setBoardKind(b); setOpen(null); };
+
+  // Opened from a link (the calendar, a reminder): that card, on its own board, once the board has it.
+  const wantOpen = useRef(initialOpen ?? null);
+  useEffect(() => {
+    const id = wantOpen.current;
+    if (!id) return;
+    const kind: BoardKind = id.startsWith("aed:") ? "aed" : "training";
+    if (!allowed.includes(kind)) return void (wantOpen.current = null);
+    if (boardKind !== kind) return setBoardKind(kind);
+    if ((kind === "aed" ? aedBoard?.cards : board.cards)?.has(id)) {
+      wantOpen.current = null;
+      setOpen({ id, merge: false });
+    }
+  }, [boardKind, board, aedBoard]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });
@@ -960,9 +912,9 @@ function Board({ member, onSignOut, initialQuery }: { member: Member; onSignOut:
 
 /* ---------------- Page: pick a member first, every time Follow-ups opens ---------------- */
 
-export function FollowUpBoard({ initialQuery = "" }: { initialQuery?: string; initialOpen?: string | null }) {
+export function FollowUpBoard({ initialQuery = "", initialOpen }: { initialQuery?: string; initialOpen?: string | null }) {
   // The app shell shows the sign-in screen until someone is signed in.
   const { member, signOut } = useSession();
   if (!member) return null;
-  return <Board member={member} onSignOut={signOut} initialQuery={initialQuery} />;
+  return <Board member={member} onSignOut={signOut} initialQuery={initialQuery} initialOpen={initialOpen} />;
 }

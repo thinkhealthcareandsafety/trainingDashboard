@@ -26,7 +26,7 @@ const dateLong = (s: string) => fmtDate(s, { day: "numeric", month: "short", yea
 /** Arti only marks deliveries (and writes notes): no scheduling, no "not required", no resale. */
 const isDeliveryOnly = (m: Member) => m.id !== "admin" && isAedDelivery(m.name);
 
-function AedTrainingSection({ card, member }: { card: CardView; member: Member }) {
+export function AedTrainingSection({ card, member }: { card: CardView; member: Member }) {
   const { addCardEvents, revertCardEvent, toast } = useStore();
   const s = card.schedule;
   const [picking, setPicking] = useState(false);
@@ -247,14 +247,37 @@ function ResaleOptions({ card, cards, member }: { card: CardView; cards: Cards; 
   );
 }
 
-/** The AED itself, read from its invoice description, plus the extras sold with it. */
-export function ItemDescriptionSection({ card, cards, member, noResale }: { card: CardView; cards: Cards; member: Member; noResale?: boolean }) {
+/**
+ * The AED itself, read from its invoice description, plus the extras sold with it. `folded` (a card in Contacted) starts
+ * it as its title line — the AED and Show — so the modal fits without scrolling; Show brings back everything, resale too.
+ */
+export function ItemDescriptionSection({ card, cards, member, noResale, folded }: { card: CardView; cards: Cards; member: Member; noResale?: boolean; folded?: boolean }) {
   const [allSerials, setAllSerials] = useState(false);
+  const [open, setOpen] = useState(!folded);
+  useEffect(() => setOpen(!folded), [card.id, folded]);
   const aed = card.aed;
   if (!aed) return null;
   const missing = <span className="text-faint">Not in description</span>;
+  const extras = aed.extras.filter((x) => x.found.length > 0).length;
+  const toggle = folded && (
+    <button className="text-[13px] font-semibold text-brand hover:underline" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+      {open ? "Hide" : "Show"}
+    </button>
+  );
+  if (!open) return (
+    <Section
+      title="Item description"
+      aside={
+        // basis-0: the summary takes only the room the title leaves, so the title never wraps.
+        <span className="flex min-w-0 flex-1 basis-0 items-center justify-end gap-3">
+          <span className="truncate text-[13px] text-muted">{aed.lines.map((l) => `${l.name} × ${l.qty}`).join(" · ")} · {extras} of {aed.extras.length} extras</span>
+          {toggle}
+        </span>
+      }
+    />
+  );
   return (
-    <Section title="Item description">
+    <Section title="Item description" aside={toggle}>
       <div className="space-y-2.5">
         {aed.lines.map((l, i) => {
           const shown = allSerials ? l.serials : l.serials.slice(0, 8);
@@ -400,7 +423,7 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
           <AedTrainingSection card={card} member={member} />
           {contacting && <ContactedSection card={card} member={member} onShowReply={() => setReply(true)} />}
           {!contacting && replies.length > 0 && <div className="rounded-xl border border-line px-3 py-1.5"><RepliesLine card={card} onShow={() => setReply(true)} /></div>}
-          <ItemDescriptionSection card={card} cards={cards} member={member} />
+          <ItemDescriptionSection card={card} cards={cards} member={member} folded={contacting} />
         </div>
       </div>
       {reply && replies.length > 0 && (
