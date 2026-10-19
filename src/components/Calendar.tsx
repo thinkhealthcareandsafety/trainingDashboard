@@ -62,7 +62,9 @@ type Item =
   | { kind: "entry"; key: string; date: string; time?: string; who: string[]; e: CalendarEntry };
 type KindFilter = "all" | "training" | "aed" | "meeting" | "event";
 /** "all" = everyone (whole-calendar viewers), "mine", or one person's name. */
+/** "all" = everyone, "mine", "external" = the external trainers, or one person's name. */
 type WhoFilter = string;
+const EXTERNAL_KEY = "external";
 
 /** "THCAS BLS Training 2025 (I)" → "BLS Training". */
 export const shortTraining = (name: string) => name.split(",").map((n) => n.replace(/^THCAS\s+/i, "").replace(/\s*\(I\)\s*$/i, "").replace(/\s+20\d\d\b/, "").trim()).join(", ");
@@ -80,7 +82,8 @@ function useCalendarItems(kind: KindFilter, who: WhoFilter) {
     const m = new Map<string, Item[]>();
     if (!member) return m;
     const add = (it: Item) => m.set(it.date, [...(m.get(it.date) ?? []), it]);
-    const pickWho = (names: string[], mine: boolean) => (who === "all" ? true : who === "mine" ? mine : names.some((n) => n === "Everyone" || first(n).toLowerCase() === first(who).toLowerCase()));
+    const outside = (n: string) => n !== "Everyone" && !known.has(first(n).toLowerCase());
+    const pickWho = (names: string[], mine: boolean) => (who === "all" ? true : who === "mine" ? mine : who === EXTERNAL_KEY ? names.some(outside) : names.some((n) => n === "Everyone" || first(n).toLowerCase() === first(who).toLowerCase()));
     const trainings = [...(data?.board ?? []), ...(data?.aedBoard ?? [])].filter((t) => t.status !== "tbd" && canSeeTraining(member, t));
     for (const t of trainings) {
       if (kind !== "all" && kind !== (t.board === "aed" ? "aed" : "training")) continue;
@@ -95,16 +98,25 @@ function useCalendarItems(kind: KindFilter, who: WhoFilter) {
     // Priority is the time of day: all-day first, then by time.
     m.forEach((v) => v.sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || label(a).localeCompare(label(b))));
     return m;
-  }, [entries, data, member, kind, who]);
+  }, [entries, data, member, kind, who, known]);
   return { byDate, whole, known, member };
 }
 const label = (it: Item) => (it.kind === "training" ? it.t.alias || it.t.customerName : it.e.title);
 
-/** The people in what's shown, for the legend (and the Who filter). */
-function peopleOf(byDate: Map<string, Item[]>, known: Set<string>): { name: string; colour: string }[] {
+/**
+ * The people in what's shown, for the legend (and the Who filter): the team by name; anyone else (external trainers)
+ * as one "External trainers" entry (owner, 19 Oct).
+ */
+function peopleOf(byDate: Map<string, Item[]>, known: Set<string>): { key: string; name: string; colour: string }[] {
   const seen = new Map<string, string>();
-  for (const list of byDate.values()) for (const it of list) for (const n of it.who) if (n !== "Everyone" && !seen.has(first(n).toLowerCase())) seen.set(first(n).toLowerCase(), n);
-  return [...seen.values()].sort((a, b) => a.localeCompare(b)).map((n) => ({ name: n, colour: personColour(n, known.has(first(n).toLowerCase())) }));
+  let external = false;
+  for (const list of byDate.values()) for (const it of list) for (const n of it.who) {
+    if (n === "Everyone") continue;
+    if (!known.has(first(n).toLowerCase())) external = true;
+    else if (!seen.has(first(n).toLowerCase())) seen.set(first(n).toLowerCase(), n);
+  }
+  const team = [...seen.values()].sort((a, b) => a.localeCompare(b)).map((n) => ({ key: n, name: n, colour: personColour(n) }));
+  return external ? [...team, { key: EXTERNAL_KEY, name: "External trainers", colour: EXTERNAL }] : team;
 }
 
 /* ---------------- One item on the grid / in the agenda ---------------- */
@@ -294,14 +306,21 @@ export function FullCalendar({ initialDate, openCard, openEntry }: { initialDate
   const [who, setWho] = useState<WhoFilter>("all");
   const [open, setOpen] = useState<Open>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
-  const { byDate, whole, known } = useCalendarItems(kind, whole0(member) ? who : "all");
+  // The person filter works for everyone (within what they may see); the legend lists everyone in view, unfiltered.
+  const { byDate, whole, known } = useCalendarItems(kind, who);
+  const unfiltered = useCalendarItems(kind, "all").byDate;
   const boards = member ? boardsFor(member) : [];
   const cards = useBoardCards({ training: boards.includes("training"), aed: boards.includes("aed") });
   const days = monthGrid(cursor.getFullYear(), cursor.getMonth());
   const weeks = days.length / 7;
   const fit = useFitHeight();
   const cell = useCellRoom(weeks);
-  const people = useMemo(() => peopleOf(byDate, known), [byDate, known]);
+  // Only the people in the month on screen.
+  const gridKey = `${ymd(days[0])}:${days.length}`;
+  const people = useMemo(() => {
+    const inGrid = new Set(days.map(ymd));
+    return peopleOf(new Map([...unfiltered].filter(([d]) => inGrid.has(d))), known);
+  }, [unfiltered, known, gridKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Opened from a link (Overview, ticker, a reminder): the training card or the meeting / event straight away.
   const opened = useRef(false);
@@ -351,7 +370,8 @@ export function FullCalendar({ initialDate, openCard, openEntry }: { initialDate
             <select className="h-8 rounded-full border border-line bg-surface pl-3 pr-7 text-[12.5px] text-ink-2 focus:border-brand focus:outline-none" value={who} onChange={(e) => setWho(e.target.value)} aria-label="Whose calendar">
               <option value="all">Everyone</option>
               <option value="mine">Only mine</option>
-              {[...new Set([...members.map((m) => m.name), ...people.map((p) => p.name)])].sort().map((n) => <option key={n} value={n}>{n}</option>)}
+              {[...new Set([...members.map((m) => m.name), ...people.filter((p) => p.key !== EXTERNAL_KEY).map((p) => p.name)])].sort().map((n) => <option key={n} value={n}>{n}</option>)}
+              {people.some((p) => p.key === EXTERNAL_KEY) && <option value={EXTERNAL_KEY}>External trainers</option>}
             </select>
           )}
           <button className={btn.primary} onClick={() => setOpen({ add: selected })}><span aria-hidden>+</span> New</button>
@@ -412,9 +432,22 @@ export function FullCalendar({ initialDate, openCard, openEntry }: { initialDate
           })}
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2 text-[12px] text-muted">
-          {people.map((p) => (
-            <span key={p.name} className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: p.colour }} />{p.name}</span>
-          ))}
+          {/* Click a person: only their calendar (click again: everyone again). */}
+          {people.map((p) => {
+            const on = who === p.key;
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => setWho(on ? "all" : p.key)}
+                aria-pressed={on}
+                title={on ? "Show everyone again" : `Show only ${p.key === EXTERNAL_KEY ? "the external trainers'" : `${first(p.name)}'s`} calendar`}
+                className={`inline-flex h-6 items-center gap-1.5 rounded-full px-2 transition ${on ? "bg-surface-2 font-semibold text-ink ring-1 ring-line-strong" : "hover:bg-surface-2 hover:text-ink"} ${who !== "all" && who !== "mine" && !on ? "opacity-50" : ""}`}
+              >
+                <span className="size-2 rounded-full" style={{ background: p.colour }} />{p.name}{on && <span aria-hidden className="ml-0.5 text-muted">×</span>}
+              </button>
+            );
+          })}
           <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-high" />Day passed — mark it completed</span>
           <span className="ml-auto hidden text-faint md:inline">Double-click a day or press N to add · drag a meeting to move it</span>
         </div>
@@ -430,8 +463,6 @@ export function FullCalendar({ initialDate, openCard, openEntry }: { initialDate
     </div>
   );
 }
-/** Whole-calendar viewers pick whose calendar; everyone else always sees their own. */
-const whole0 = (m: Member | null) => Boolean(m && seesWholeCalendar(m));
 
 /* ---------------- A training's card, in the calendar ---------------- */
 
@@ -597,7 +628,8 @@ function DealPicker({ options, value, onPick, placeholder }: { options: { card: 
       ) : (
         <>
           <input autoFocus className={`${inputCls} !h-9 text-[13px]`} placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />
-          <ul className="no-scrollbar absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-pop">
+          {/* In the popup's flow (not floating): a floating list was cut off by the popup's own edge before a deal is picked. */}
+          <ul className="no-scrollbar mt-1.5 max-h-72 overflow-y-auto rounded-xl border border-line bg-surface p-1">
             {list.length === 0 && <li className="px-3 py-2 text-[13px] text-muted">Nothing matches.</li>}
             {list.map((o) => (
               <li key={o.card.id}>
