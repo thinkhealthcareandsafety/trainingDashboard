@@ -1114,6 +1114,8 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "fulfil_reply": return `Reply received from ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
     case "fulfil_mail_opened": case "aed_mail_opened": return "Opened the reply in Zoho Mail";
     case "aed_reply": return `Reply received from ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
+    case "training_reminder": return `Training reminder emailed to ${(e.trainers ?? []).join(", ")}${e.subject ? ` — “${e.subject}”` : ""}`;
+    case "training_postponed_mail": return `Postponement emailed to ${(e.trainers ?? []).join(", ")}${e.subject ? ` — “${e.subject}”` : ""}`;
     case "fulfil_certs": {
       const rows = e.certs ?? [];
       return `${v} participant${v === "1" ? "" : "s"} added to the master sheet${rows.length ? ` — serial ${rows[0].serial}${rows.length > 1 ? `–${rows.at(-1)!.serial}` : ""}` : ""}`;

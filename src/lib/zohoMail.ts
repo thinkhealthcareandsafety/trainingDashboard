@@ -42,7 +42,12 @@ async function mailApi<T>(token: string, path: string, init?: RequestInit): Prom
     headers: { Authorization: `Zoho-oauthtoken ${token}`, "Content-Type": "application/json", ...(init?.headers ?? {}) },
     cache: "no-store",
   });
-  return { status: res.status, json: (await res.json().catch(() => ({}))) as T };
+  const text = await res.text();
+  // Zoho's own answer when it refuses (no tokens in it) — the status alone rarely says what to fix.
+  if (res.status >= 300) console.warn(`[zoho mail] ${init?.method ?? "GET"} ${path.replace(/^\/accounts\/\d+/, "/accounts/…")} → ${res.status} ${text.slice(0, 300)}`);
+  let json = {} as T;
+  try { json = JSON.parse(text) as T; } catch {}
+  return { status: res.status, json };
 }
 
 /**
@@ -116,9 +121,15 @@ type RawItem = { messageId?: string | number; threadId?: string | number; folder
 
 /** A call on the mailbox's account, refreshing the token once if Zoho says it's no longer valid. */
 async function mailboxCall<T>(m: Mailbox, path: string, init?: RequestInit): Promise<T> {
-  let r = await mailApi<{ data?: T; status?: { description?: string } }>(await accessFor(m), `/accounts/${m.accountId}${path}`, init);
-  if (r.status === 401) r = await mailApi(await accessFor(m, true), `/accounts/${m.accountId}${path}`, init);
-  if (r.status >= 300) throw new Error(`Zoho Mail: ${r.json.status?.description ?? r.status}${r.status === 403 || r.status === 401 ? " — Admin may need to connect it again with the scopes shown in the Connect popup" : ""}`);
+  type Res = { data?: T & { errorCode?: string; moreInfo?: string }; status?: { description?: string } };
+  let r = await mailApi<Res>(await accessFor(m), `/accounts/${m.accountId}${path}`, init);
+  if (r.status === 401) r = await mailApi<Res>(await accessFor(m, true), `/accounts/${m.accountId}${path}`, init);
+  // Zoho's own reason (e.g. INVALID_OAUTHSCOPE) says what to fix; the status alone doesn't.
+  // (A refusal sometimes comes as [2, { errorCode, msg }] instead of { status, data }.)
+  const raw = r.json as unknown;
+  const err = (Array.isArray(raw) ? raw[1] : r.json.data) as { errorCode?: string; moreInfo?: string; msg?: string } | undefined;
+  const why = [r.json.status?.description, err?.errorCode, err?.moreInfo].filter(Boolean).join(" · ") || r.status;
+  if (r.status >= 300) throw new Error(`Zoho Mail: ${why}${r.status === 403 || r.status === 401 ? " — Admin may need to connect it again with the scopes shown in the Connect popup" : ""}`);
   return r.json.data as T;
 }
 const mailboxGet = <T>(m: Mailbox, path: string) => mailboxCall<T>(m, path);
@@ -150,9 +161,19 @@ async function folderNamed(m: Mailbox, name: string): Promise<string> {
   if (known) return known;
   const list = await mailboxGet<Folder[]>(m, "/folders");
   const found = list.find((f) => (f.folderName ?? "").trim().toLowerCase() === name.toLowerCase());
-  const id = String(found?.folderId ?? (await mailboxCall<Folder>(m, "/folders", { method: "POST", body: JSON.stringify({ folderName: name }) })).folderId);
+  // Creating needs folder rights the connection may not have (learn@'s doesn't, 19 Oct): then the folder is made by hand.
+  const create = () => mailboxCall<Folder>(m, "/folders", { method: "POST", body: JSON.stringify({ folderName: name }) }).catch((e: Error) => {
+    throw /OAUTHSCOPE/i.test(e.message) ? new Error(`Zoho Mail: create a folder named “${name}” (top level) in ${m.address}'s mailbox — the dashboard may file into it but not create it`) : e;
+  });
+  const id = String(found?.folderId ?? (await create()).folderId);
   await (await kv()).updateOne({ _id: m._id }, { $set: { [`folders.named.${name}`]: id } });
   return id;
+}
+
+/** The mailbox's folder names with their paths (no mail) — to see why a named folder isn't found. */
+export async function folderNames(address: string): Promise<string[]> {
+  const list = await mailboxGet<(Folder & { path?: string })[]>(await mailbox(address), "/folders");
+  return list.map((f) => f.path ?? f.folderName ?? "?");
 }
 
 /** Moves emails this mailbox sent into the named folder (e.g. the gratitude emails → "Gratitude Emails Sent"). */

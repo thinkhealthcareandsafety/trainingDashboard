@@ -115,6 +115,8 @@ export type SyncLogEntry = SyncTrigger & {
   mailError?: string; // checking them failed — the Zoho Books sync itself still counts
   aedReplies?: number; // new replies to the AedSmartx onboarding emails (Zoho Mail, hello@)
   aedMailError?: string;
+  reminders?: number; // training reminder emails sent (learn@ → the trainers)
+  reminderError?: string;
 };
 const LOG_DAYS = 90;
 const LOG_LIST_MAX = 60; // names kept per entry (counts stay exact)
@@ -357,6 +359,14 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     } catch (e) {
       log.aedMailError = e instanceof Error ? e.message : String(e);
       console.error(`[zoho mail] checking AedSmartx replies failed: ${log.aedMailError}`);
+    }
+    // Training reminder emails (learn@ → the trainers) ride along too — on their own, like the reply checks.
+    try {
+      const { runTrainingReminders } = await import("./trainingReminders"); // (imported here: it builds the boards from this module)
+      log.reminders = (await runTrainingReminders()) || undefined;
+    } catch (e) {
+      log.reminderError = e instanceof Error ? e.message : String(e);
+      console.error(`[reminders] failed: ${log.reminderError}`);
     }
     return "done";
   } catch (e) {

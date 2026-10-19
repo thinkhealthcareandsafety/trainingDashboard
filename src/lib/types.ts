@@ -317,7 +317,10 @@ export type CardEventKind =
   | "aed_call" // cardIds [aed:<id>, aedcustomer:<contact id>], ref = contact id: a call to value (number), person = who
   | "aed_email" // written by the server only, never reverted: an email sent from Zoho Mail — value = to, step = template, subject
   | "aed_reply" // server only: a reply to it found in hello@'s Inbox — value = from, subject, messageId, folderId, at = when it arrived
-  | "aed_mail_opened"; // cardIds [aed:<id>]: the reply was opened in Zoho Mail from the card — clears its star
+  | "aed_mail_opened" // cardIds [aed:<id>]: the reply was opened in Zoho Mail from the card — clears its star
+  // Training reminders (server only, never reverted — reminderPlan.ts): emailed from learn@ to the trainers.
+  | "training_reminder" // value = reminderKey(dates, day), trainers = who it went to, subject, messageId
+  | "training_postponed_mail"; // value = the id of the set_training_date entry that postponed it; trainers, subject, messageId
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every

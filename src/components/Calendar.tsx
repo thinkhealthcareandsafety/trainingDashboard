@@ -16,6 +16,7 @@ import {
 import { AedCardModal } from "./followups/AedModal";
 import { StatePill } from "./followups/FulfilCerts";
 import { useBoardCards } from "./followups/useBoards";
+import { datesInfo, istDay, reminderDays, reminderKey, reminderRecipients } from "@/lib/reminderPlan";
 
 /*
  * The calendar (owner, 19 Oct): every training from the boards on its days — customer, training, who gives it — plus
@@ -490,7 +491,7 @@ function TrainingCard({ t, member, cards, onClose }: { t: BoardTraining; member:
 function CalendarTrainingModal({ card, cards, fulfil, member, options, onClose }: {
   card: CardView; cards: Map<string, CardView>; fulfil?: Map<string, CardView>; member: Member; options: BoardCards["options"]; onClose: () => void;
 }) {
-  const { addCardEvents, revertCardEvent, toast, now } = useStore();
+  const { addCardEvents, revertCardEvent, toast, now, cardEvents } = useStore();
   const s = card.schedule;
   const today = ymd(now);
   const busyOn = (dates: string[]) => busyTrainers(dates, cards, card.id);
@@ -543,6 +544,7 @@ function CalendarTrainingModal({ card, cards, fulfil, member, options, onClose }
                 <Row label="Concerned">{card.concernedName ? `${card.concernedName} · ` : ""}{card.concernedEmail ? <a className="text-brand hover:underline" href={`mailto:${card.concernedEmail}`}>{card.concernedEmail}</a> : <span className="text-medium">Email not set</span>}</Row>
                 <Row label="Contact">{card.phones.length ? card.phones.slice(0, 2).map((p) => <a key={p.value} className="num mr-3 text-brand hover:underline" href={`tel:${p.value.replace(/\s+/g, "")}`}>{p.value}</a>) : <span className="text-muted">No number</span>}</Row>
                 <Row label="Sales person">{card.salespeople.length ? salespersonLabel(card.salespeople) : "—"}</Row>
+                <Row label="Reminder emails"><ReminderPlan card={card} events={cardEvents} /></Row>
               </dl>
             </Section>
             <NotesPanel card={card} member={member} heading="Notes" />
@@ -566,6 +568,31 @@ function CalendarTrainingModal({ card, cards, fulfil, member, options, onClose }
         </div>
       </div>
     </Shell>
+  );
+}
+
+/**
+ * The reminder emails for this training (reminderPlan.ts): the days they go, ✓ once sent, and to whom — or why none
+ * go (external trainers only, completed).
+ */
+function ReminderPlan({ card, events }: { card: CardView; events: import("@/lib/types").CardEvent[] }) {
+  const own = useMemo(() => events.filter((e) => e.cardIds.some((id) => card.historyIds.includes(id))).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id)), [events, card.historyIds]);
+  const info = datesInfo(own);
+  const to = reminderRecipients(card.schedule?.trainers ?? [], false);
+  if (!info || card.schedule?.completed) return <span className="text-muted">—</span>;
+  if (!to.length) return <span className="text-muted">None — no email for {card.schedule?.trainers.join(", ") || "the trainers"} yet</span>;
+  const sent = new Set(own.filter((e) => e.kind === "training_reminder").map((e) => e.value));
+  const days = reminderDays(info.dates[0].slice(0, 10), istDay(info.at));
+  const today = istDay();
+  if (!days.length) return <span className="text-muted">None — scheduled too close to the day</span>;
+  return (
+    <span>
+      {days.map((d, i) => {
+        const done = sent.has(reminderKey(info.dates, d));
+        return <span key={d} className={done ? "font-medium text-low" : d < today ? "text-faint line-through" : "text-ink-2"}>{i > 0 && " · "}{fmtDate(d, { weekday: "short", day: "numeric", month: "short" })}{done && " ✓"}</span>;
+      })}
+      <span className="text-muted"> → {to.map((x) => x.name.split(" ")[0]).join(", ")}</span>
+    </span>
   );
 }
 

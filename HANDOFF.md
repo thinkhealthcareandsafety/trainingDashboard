@@ -1,34 +1,51 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 19 Oct 2026, end of session 10 (15–17 Oct). Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 19 Oct 2026, end of session 11 (Mon 19 Oct) — everything pushed. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all ten sessions — §5),
+Read this end to end before touching code. It records what the owner asked for (every prompt, all eleven sessions — §5),
 the business rules that came out of it, how the code works **now**, what was verified, and what is still open.
-**The work agreed for Monday 19 Oct is in `MONDAY-PLAN.md`** (repo root) — read it right after this file.
+`MONDAY-PLAN.md` (repo root) is the feature backlog agreed on 17 Oct — §3a "My day" + renewals is the next item.
 
-**Start of the next session — do these first (details in §10 and MONDAY-PLAN.md):**
-1. `git status` — **all code is pushed** (last commit `3f82378`, live since 17 Oct on both addresses, checked in the
-   deployed JS); only this file may be uncommitted. After any push the team presses **Ctrl + Shift + R** once — this time
-   it matters: the server now **refuses a training date without its certificate location + concerned email**, so a tab
-   on old code loses a schedule silently. No local server is running.
-2. **Pushing:** on 15–17 Oct GitHub's saved sign-in stopped working from Claude's shell (Git Credential Manager can't
-   prompt here). The owner pushed once from **Cursor** (Source Control → Sync Changes, browser sign-in as
-   thinkhealthcareandsafety). If a push fails with "could not read Username", don't retry in a loop — ask them to push.
-3. **Monday (19 Oct):** go through `MONDAY-PLAN.md` with the owner — §2 decisions first (year target: back-fill vs. count
-   from the dashboard's start), then build only what they approve (proposed: **"My day"** with **certificate renewals**
-   as its first reminder).
-4. **Still owner-side:** reconnect **hello@** (still the 8 Oct connection — Priyanka hasn't sent a real email yet, so
-   nothing has failed; the first one will start "AedSmartx replies not checked" in the Sync log), the **`CRON_SECRET`**
-   GitHub secret (no GitHub runs yet; every reminder needs it), **4 Classic Citi test rows** in the master sheet (15 Oct
-   morning), Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41), Classic Citi
-   test batches (#38).
-5. **work.thinkhealth.in is live** (Cloudflare CNAME added by ~17 Oct; HTTPS works; API answers). Everyone signs in once
-   on it (cookie per host); the vercel.app link keeps working. DNS is still in the Cloudflare account the owner can't
-   see — don't "Add domain" in their own Cloudflare.
-6. **Offered, not answered:** AedSmartx Contacted modal scroll (§10 #21), tidy quotations left by Completed on invoice date
-   (#42), `ALLOW_PAST_TRAINING_DATES` (#1), widen reverts for Ashish/Shikha/Sumit (#17), public repo (#15).
-7. **Old certificate designs:** originals at `D:\Projects\certificate-generator\private\A4 CA / FA Photoedit.pdf` (9 Oct);
+**Start of the next session — do these first (details in §3 "Calendar & reminders", §10 #69–#84):**
+1. `git status` — **everything is pushed** (19 Oct ~16:35 IST: the training reminder emails + this file, the commit after
+   `3af5c58`). Only the owner's own later work can be uncommitted.
+2. **The reminder emails went live on 19 Oct.** First run (next sync, or the 8:30 cron on 20 Oct as a catch-up) was due to
+   send 3: Sierragold Heights Quotation-24-002305 (Thu 22 Oct) and Diana Builwell W Goa Quotation-24-002198 (Wed 21 Oct)
+   → Ashish (sales@) + Sumit (sshah@); K Raheja IT Park AED (Thu 22 Oct) → hello@. **Check** `cardEvents` kind
+   `training_reminder` (and the Sync log `reminders` / `reminderError`) that they went and landed in learn@'s
+   /Sent/Training Reminders. Note: Diana Builwell's Quotation-24-002198 is the quote left behind by "Completed on invoice
+   date" (§10 #42) — ask the owner whether Shikha meant a new training there.
+3. **After that push, check Vercel accepted the 2nd cron** (`vercel.json`: `/api/cron/reminders` `0 3 * * *` = ~8:30 IST
+   daily incl. Sundays; Hobby plan limits crons — if the deploy fails on it, drop the entry; the hourly syncs and the
+   instant run after a date change still send). Then the team presses **Ctrl + Shift + R**.
+4. **WhatsApp (Anantya AI) — the owner's first item for 20 Oct** ("leave it for tomorrow"). Needed from them: Anantya's API docs, an API key (to go into an Admin popup to build —
+   never in chat), two Meta-approved Utility templates (suggested text in §10 #78), WhatsApp numbers of Sumit, Shikha,
+   Ashish, Priyanka. No public Anantya API docs exist (searched 19 Oct).
+5. **Next feature: "My day" with certificate renewals** — owner said "yeah" to all six defaults (§10 #80). Calendar came
+   first by their choice; My day can also list today's calendar items.
+6. **Pushing:** worked from Claude's shell again on 19 Oct (`git push origin master`). If it ever fails with "could not
+   read Username", don't retry — the owner pushes from Cursor (Source Control → Sync Changes).
+7. **Still owner-side:** reconnect **hello@** (8 Oct connection; Priyanka has still sent 0 emails from the board), the
+   **`CRON_SECRET`** GitHub secret (17 Oct runs still "skipping"), 4 Classic Citi test rows in the master sheet, Zoho Mail
+   forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41), Classic Citi test batches (#38).
+8. **Old certificate designs:** originals at `D:\Projects\certificate-generator\private\A4 CA / FA Photoedit.pdf` (9 Oct);
    the current ones (14 Oct) in `D:\New folder\`.
+
+**Session 11 in one paragraph (19 Oct):** checked live state (all pushed, both addresses on `3f82378`; 0 failed syncs /
+mail errors since 17 Oct; Sat 17 Oct afternoon syncs missing — nobody online + no `CRON_SECRET`; only one training
+scheduled since 15 Oct: FLAME Performa-25-1110, whose old-style alias "Arwa Hyderabadwala" would have printed as the
+location — **Shikha fixed it the same day** to "Flame University, Pune", Arwa as concerned person). Found **every
+training invoice this FY already has a board completion** (21 = 21), so nothing to back-fill → owner chose **team year
+counts from Oct** (60 trainings / 1,500 people this FY). Folded AedSmartx **Item description** while Contacted.
+Rebuilt the **Calendar**: own calendar per member (server-filtered; Admin/Shikha/Sumit/Ashish see all), a **colour per
+person** (external trainers grey, one "External trainers" legend entry), click a legend name = that person's calendar,
+training chips with training + trainers, a **training card** in the calendar (at a glance, notes, money, docs,
+certificate stage, late / clash warnings, the board's actions + change log), **+ New** (Training with a deal picker and
+the Ready-for-training rows, AED training, Meeting / Event with Who incl. Everyone), page fits 1728×958; **bottom-right
+reminder popups** (today + tomorrow, picked people only, 30 s, ×, once a day per member on the server, click opens the
+card on its board, the next waits until it closes); **"Training completed" shows only once quote+PI merged, location and
+email set**; board opens a card from `?open=`. Pushed `72486bb`, `3af5c58`. Then built the **training reminder emails**
+(learn@ → trainers, 5/3/1 days, postponement email, filed in Shikha's "Training Reminders") — **not pushed**.
 
 **Session 10 in one paragraph (15–17 Oct):** certificates printed the date / number / location in a dark teal
 (`#0E3F51`, hard-coded in our layout — the templates' own colours never reach the print) that printers turned light
@@ -106,8 +123,10 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `3f82378`
-  (17 Oct — Monday plan; live, verified in the deployed JS on both addresses). Session 10: `5d167c2`, `a25a72f`, `f642de7`,
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `3af5c58`
+  (19 Oct — calendar; live, verified in the deployed JS on both addresses; the reminder emails are **uncommitted**).
+  Session 11: `72486bb` (calendar, popups, year from Oct, Training completed gate, AedSmartx fold), `3af5c58` (external
+  trainers, legend filter, deal list). Session 10: `5d167c2`, `a25a72f`, `f642de7`,
   `3f82378` (+ certificate-generator repo `44795c9`, `17853af`). Session 9: `40cb462`, `9459193`. Session 8 commits: `01f028c`,
   `4745553`, `ca83971`, `3e57bb2`. Session 7: `cb906d4`, `7025bbe`, `3a5b002`, `85f13c2`, `633f1ec`.
 - **Zoho Mail is connected** for **hello@thinkhealth.in** (Admin did it on 8 Oct through the dashboard's *Connect it* popup;
@@ -189,8 +208,10 @@ npx next build                       # production build (passes)
   **Never print, copy or commit secret or PIN values** — a push was once blocked because a PIN had been written into
   this file; scan diffs for PIN digits before every push.
 - Git identity is repo-local (`thinkhealthcareandsafety` / `sshah@thinkhealth.in`). Follow the session's commit-attribution reminder.
-- **Deploy** = push to `master` (Vercel builds automatically). `vercel.json` adds one cron: `30 3 * * 1-6` (9:00 IST Mon–Sat)
-  → `/api/cron/sync` (Vercel Hobby allows daily crons only — and fires anywhere within that hour).
+- **Deploy** = push to `master` (Vercel builds automatically). `vercel.json` crons: `30 3 * * 1-6` (9:00 IST Mon–Sat)
+  → `/api/cron/sync`, and (session 11, **not pushed yet**) `0 3 * * *` (~8:30 IST every day, Sundays too) →
+  `/api/cron/reminders` (training reminder emails). Vercel Hobby allows daily crons only — they fire anywhere within that
+  hour; both need the Vercel env `CRON_SECRET` (set). Check after the push that Vercel accepted two crons.
 - **Hourly scheduler** = GitHub Actions `.github/workflows/zoho-sync.yml` (`32,50 3-13 * * 1-6` UTC) → `/api/cron/sync`. Needs the
   repo secret **`CRON_SECRET`** (same value as Vercel's); without it the workflow just logs a warning. A failed sync answers 502,
   so the run fails and GitHub emails the repo owner. The workflow calls `/api/cron/sync?source=github` so the Sync log labels
@@ -355,6 +376,66 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   scheduler is calling at all. Source = `?source=github` (the workflow sends it) or Vercel's `vercel-cron` user agent.
   UI: sidebar **Sync log** (also rail + phone header icons) → `src/components/SyncLog.tsx`: one row per hour 9 am–7 pm per day
   (◀ ▶), *On time* (≤10 min) / *Late · n min* / *Missed* / *Failed*, click a sync for its changes. API `GET /api/zoho/sync-log?day=`.
+
+### Calendar & reminders (session 11, 19 Oct) — `src/components/Calendar.tsx`, `DayReminders.tsx`
+- **Whose calendar** (`roles.ts`: `seesWholeCalendar` = Admin/Shikha/Sumit/Ashish, `canSeeTraining`, `canSeeEntry`,
+  `ownsTraining` / `ownsEntry`, `givesTraining` / `inEntry`): everyone sees their own — trainings they give or set the
+  date of (BoardTraining `scheduledBy`, new from `fulfilServer.boardTraining`), meetings / events they made or are in;
+  Priyanka sees every AedSmartx training; the four see everyone's (+ "Everyone / Only mine / <person> / External trainers"
+  dropdown). **Entries are filtered on the server**: `GET /api/store` returns only `canSeeEntry` entries; `POST` stamps
+  `createdBy` on new ones and drops changes / deletes of entries the member can't see (`guardEntries`). Trainings come from
+  `/api/trainings` (same data every member already had) and are filtered in the browser.
+- **Entries** (`CalendarEntry`): type `meeting` | `event` (the old note / important date and **priority are gone**;
+  `priority` optional for old docs — there were 0 entries in the DB), date, start/end time or all day (events), `people`
+  (member names) or `everyone`, `createdBy`, customer, notes. Day items order by time (all day first).
+- **Colours** (`personColour`): fixed per team member (Shikha teal, Ashish blue, Sumit amber, Priyanka purple, Arti pink,
+  Shreya green, Admin slate), others from a spare set; anyone not a member (external trainers) grey and one legend entry
+  "External trainers". The legend lists only who is in the month on screen; **clicking a name = only their calendar**.
+- **Grid**: `useFitHeight` (desktop: fills to a 16 px margin, takes back the page's bottom padding — 0 px page scroll at
+  1728×958) + `useCellRoom` (as many 2-line chips as fit, then "+n more"). Chip = time · customer/location, then short
+  training ("BLS Training") · trainers' first names; ✓ completed, red dot = day passed, not marked completed. Phones: dots
+  + the day list. Drag moves meetings / events.
+- **Training card** (`CalendarTrainingModal`, `Shell` + `ChangeLog`; AED trainings open `AedCardModal`): late banner,
+  trainer-clash banner (`busyTrainers`), At a glance (when with "today / in n days", trainers in colour, training +
+  people, location, concerned name + mailto, phone tel: links, sales person, **reminder emails plan** with ✓), Notes
+  (`NotesPanel`), After the training (Shreya's `StatePill`), `TrainingSection` (all the board's actions), Money (invoice
+  amount + `DueChip`, else "not invoiced yet"), `DocsSection`; header link **Open on the board →** (`/follow-up?open=<id>`).
+  Cards come from `useBoardCards` (`followups/useBoards.ts`: `usePipeline` / `useAedInvoices` moved there from
+  FollowUps.tsx + the same board build).
+- **+ New** (`NewModal`, `Popup`, FormRow layout): **Training** — `DealPicker` (quotes / PIs without a date or TBD; not
+  schedulable ones greyed with why) then `ScheduleRows` (CardModal: dates — several days = one training — trainers,
+  location, email, name; the Ready popup uses it too) → `trainingDateEvents` (shared with CardModal.schedule) → Training
+  scheduled + Undo toast; **AED training** — delivered AEDs only, date + time; **Meeting / Event** — `EntryForm` +
+  `PeoplePicker` (Everyone chip). The deal list sits in the popup's flow (a floating list was clipped, owner screenshot).
+- **Reminder popups** (`DayReminders.tsx`, mounted in AppShell): today + tomorrow, only for the member picked (trainers;
+  AED → Priyanka; meeting / event people or everyone) — Admin gets only what they're picked for. Soonest first, one at a
+  time, 30 s bar, ×; once a day per member: `GET/POST /api/reminders` (Mongo `reminderSeen`, `_id` = memberId:IST day,
+  TTL 3 days). Click → `/follow-up?open=<card>` (or `/calendar?date=&entry=`); the queue pauses while any
+  `[role=dialog]` is open (and after a click until the card it opened is closed). Ticker: own meetings / events today /
+  tomorrow (was "high priority entries").
+- **Training completed gate** (`completeBlockers` in CardModal, owner 19 Oct): the button shows only when the quote is
+  merged into the PI (a PI with no quotation in Zoho passes), the location is chosen and the concerned email set;
+  otherwise "To mark it completed: …". Board and calendar alike (client-side only). Scheduling rules unchanged.
+- **Training reminder emails** (**built, not pushed**) — `src/lib/reminderPlan.ts` (pure, shared) +
+  `src/lib/trainingReminders.ts` (server): from **learn@** to the trainers (`TRAINER_EMAILS`: sumit → sshah@, shikha →
+  shikhadixit@, ashish → sales@, AED → hello@; external trainers skipped), **one email for all**, subject
+  "Training Reminder: Sat, 25 Oct 2026 — <Customer>", body = the owner's 7 fields (Customer name, Location / Alias,
+  Concerned Person's name, Concerned Person's Email, Training Date, Training Persons, Number of People Expected).
+  **Days** (`reminderDays(firstDay, day the dates were set)`): ≥5 days ahead → 5, 3, 1 before; 4 or 3 → 3, 1; 2 → 2, 1;
+  1 → 1 (owner's table). A missed run sends one email for the latest due day (catch-up), never several. **Postponed**
+  (`datesInfo`: new dates replacing dates, not `mode: "change"`): "Training Postponed to <date> — <Customer>", "postponed
+  from … to … We are sorry for the inconvenience", once per postponement entry, standing in for that day's reminder; only
+  for postponements after `POSTPONED_SINCE` (19 Oct 10:00 UTC). Change date / TBD / completed: no email; reminders follow
+  the current dates (key = `reminderKey(dates, day)`). Recorded as server-only events `training_reminder` /
+  `training_postponed_mail` (trainers = recipients, subject, messageId). Filed into learn@'s **"/Sent/Training
+  Reminders"** (Shikha made it — the connection can't create folders: `INVALID_OAUTHSCOPE`); a refused move is retried
+  after 4 s and swept by every run (`fileReminderMail`: our subjects still in Sent). **Runs**: every `runSync` (Sync log
+  `reminders` / `reminderError`; dynamic import — module cycle), `/api/cron/reminders` daily, and `after()` in `POST
+  /api/store` when a `set_training_date` arrives. Mongo lease lock `training_reminders_lock`. **Only production sends**
+  (`VERCEL_ENV === "production"`) — a local server never does. Admin tools: `GET /api/mail/reminders?card=&kind=` preview,
+  `?folders=1` learn@'s folder names, `POST {card, kind, testTo}` a [TEST] copy (recorded nowhere), `PUT` files strays now.
+- `zohoMail.mailApi` now logs Zoho's raw answer on any refusal (`[zoho mail] GET /accounts/…/folders → 401 …`, no tokens)
+  and `mailboxCall` errors carry Zoho's `errorCode` (it sometimes answers `[2, {errorCode, msg}]`).
 
 ### Sign-in and API protection
 - **One sign-in page for the whole site** (`AppShell` → `SignInPage` + `MembersScreen`): pick your name (or **Admin**), type the
@@ -694,9 +775,10 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   team targets. `boardMonth/boardYear(list, today, targets: Targets = TEAM_TARGETS)`. Her **year counts from 1 Sept**
   (`AED_TARGETS.since`, = `AED_SINCE`; owner OK'd): FY 2026-27 target = 7/12 of 60 = **35**, tile "FY 2026-27 · from Sept"
   (was "4 / 60, Behind by 28"; now "4 / 35, Behind by 3.3" on 14 Oct). From FY 2027-28 it is the full 60.
-- **Calendar**: the boards' trainings on every training day (alias/customer, training, day n of m, people, trainers, Completed /
-  Postponed tag; AED ones purple, with time); click → `/follow-up?q=<doc>`. Training board for all but Priyanka; AED for members
-  with that board.
+- **Calendar**: rebuilt in session 11 — see §3 "Calendar & reminders" (own calendar per member, colours per person,
+  training card, + New, popups). The **team's year counts from Oct 2026** (`TEAM_TARGETS.since`, owner 19 Oct: every
+  earlier training invoice was already on the board, 21 = 21) → FY 2026-27: 60 trainings / 1,500 people, tile "· from Oct";
+  the trend chart still shows Apr–Mar; the full 120 / 3000 from FY 2027-28.
 - **Ticker**: upcoming trainings first (next **15** days, soonest first: Today / Tomorrow / "Sun, 18 Oct", day n of m, people,
   trainers), then overdue invoices, renewals, high calendar entries, pace (trainings + people), news. The legacy follow-up
   items ("Payment follow-up … · 35d late", "Chase quote …") and the sidebar's red follow-ups count are gone. Who sees what:
@@ -955,6 +1037,24 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 209 | "pushed" | All three commits on GitHub; Vercel success; new code found in the live JS on **work.thinkhealth.in** and vercel.app. |
 | 210 | "everything written in a file" | This update (19 Oct). |
 
+### Session 11 (19 Oct 2026) — calendar, reminder popups, training reminder emails
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 211 | "Read HANDOFF + MONDAY-PLAN … check live, Sync log since 17 Oct, hello@, trainings since 17 Oct with location + email, what's waiting on me; ask the year-target question first" | All pushed (`3f82378` live on both); 6 syncs ok, 0 mail errors, Sat afternoon syncs missing; hello@ not reconnected (0 `aed_email` ever); `CRON_SECRET` still missing; **0** schedules since 17 Oct — the one since 15 Oct (FLAME) printed "Arwa Hyderabadwala" as location; found **board completions = Zoho training invoices every month this FY (21 = 21)** → nothing to back-fill. |
+| 212 | "1) a 2) yes 3) yes 4) yes 5) yes" (year from Oct; keep past dates; FLAME = customer name, Shikha fixes; Chalet as is; fix the Contacted scroll) | `TEAM_TARGETS.since = 2026-10-01` (5 / 60, 130 / 1,500); Item description folds while Contacted + All calls & emails in the header (right column −175 px; 2026-01-449's left column still 6 px past the padding — data). |
+| 213 | "yeah ig" (My day defaults) + calendar spec: map trainings, who trains, customer; new modal card; schedule from the calendar with trainer dropdown; meetings / events with time; Training board except Priyanka (her AED column); don't let the card move until alias + email + quote–PI merged; editable both ways; popups bottom right 30 s, one by one, once a day; fix the calendar UI with the old rules | Restated with 6 questions + defaults. |
+| 214 | "each user only their own calendar, Admin / Shikha / Sumit / Ashish all; training name + person visible; suggest what a user wants to see on opening and implement immediately" | Built the calendar (§3). |
+| 215 | (mid-turn answers) Zoho Calendar: "not sure — give each person a colour"; "PI + quote + concerned email + alias set, only then Training completed visible"; popups to whoever is selected, option for all users; once a day per user, crossable, click opens its board + modal, next after it closes; drop priorities "yeah"; calendar first "yeah ig" | Colours per person; `completeBlockers`; Everyone chip; `/api/reminders`; `?open=` on the board; priorities gone. Tested read-only (saves blocked; Priyanka's popup with a training moved to today in the browser only). |
+| 216 | "push it to github" | `72486bb`, live ~1 min (both addresses). |
+| 217 | Screenshot of the legend with "Ganesh": "external trainers in an External trainer category; clicking a name shows that person's calendar" | Grouped + legend filter; legend only lists the month on screen (Ganesh's only training is 24 Sept). |
+| 218 | Screenshot of New with the deal list cut off: "push it, also the ui looks like this" | List in the popup's flow (554 px, 0 scroll at 1728 and 390); `3af5c58`, live. |
+| 219 | "push it to github" | Nothing new — told so. |
+| 220 | Reminder emails to whoever trains (sshah@ = Sumit, sales@, shikhadixit@, hello@) from learn@ into "Training Remainders"; 25th → 20th, 22nd, 24th; WhatsApp the same; the 7 fields | Restated with 8 questions + defaults. |
+| 221 | "sales is Ashish's; skip external trainers; multi-date from the calendar too; late-schedule table (1 → day before, 2 → both, 3 → 1st + day before, 4 → 2nd + day before, 5 → 1st, 3rd + day before); postponed → sorry email, subject on the new date; folder 'Training Remainders'; no extra lines, just the date; one email for all; WhatsApp via Anantya AI" | Built `reminderPlan.ts` + `trainingReminders.ts` + routes + cron (§3), production-only sending; checked the day table and postponement detection; **one [TEST] email to sshah@ only** (FLAME); filing refused (`INVALID_OAUTHSCOPE` on creating the folder). Multi-day from the calendar already worked. No Anantya API docs online. Not pushed. |
+| 222 | "I think Shikha has already created the folder, kindly check" | It's **/Sent/Training Reminders** (correct spelling) → `REMINDER_FOLDER` switched; test email filed (0 left in Sent). |
+| 223 | "write a handoff for tomorrow" | This update. |
+| 224 | "push the rest to github, leave the WhatsApp integration for tomorrow" | Checked the first run (3 emails: Sierragold, Diana Builwell → Ashish + Sumit; K Raheja AED → hello@); pushed everything. |
+
 ---
 
 ## 6. Zoho facts learned the hard way
@@ -993,6 +1093,9 @@ connected; also caches `folders.inbox/sent/named`), kv **`zoho_sheet:master`** (
 `zoho_sheet_lock` (one batch at a time); **`certDesigns`** (`_id` `bls` / `fa`, the PDF as Binary — signature + seal, never
 export or commit); `zohoSyncLog` entries may carry `replies` / `mailError`; `cardEventsArchive` rows carry `clearedScope`,
 and the two restored batches `restoredAt` / `restoreSkipped`.
+Session 11: `entries` docs carry `createdBy` (server) / `people` / `everyone` (0 entries on 19 Oct); **`reminderSeen`**
+(`_id` memberId:IST day, `ids`, TTL 3 days — popups seen); `cardEvents` kinds `training_reminder` / `training_postponed_mail`
+(server only); kv `training_reminders_lock`; learn@'s kv doc caches `folders.named["Training Reminders"]` once filed.
 Legacy: `leads` (4,105 docs, unused since session 1) — drop only with the owner's OK. History: `cardEvents` was cleared by
 request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Everything by mistake on 3 Oct and 10 Oct**
 (both restored in session 6). Archive keeps copies of every clear.
@@ -1278,3 +1381,46 @@ No test suite. Pattern used throughout:
 67. The 9 px modal overflow on a **starred Gratitude Email Sent card with a reply** (seen with a fake state) is pre-existing
     and within the 16 px bottom padding; re-measure if that column's content grows.
 68. Reply check for Priyanka: until hello@ is reconnected **and** she sends a real email, it has never run against Zoho.
+
+**Session 11 — open items:**
+
+69. ~~Reminder emails not pushed~~ — pushed 19 Oct ~16:35 IST on the owner's "push the rest"; first run was due to send 3
+    (see "Start of the next session" #2). WhatsApp (Anantya) left for 20 Oct by the owner.
+70. **Second Vercel cron** (`/api/cron/reminders`) is untested on Vercel — confirm the deploy succeeds and the cron shows
+    under Project → Settings → Cron Jobs.
+71. **learn@'s connection can't create mail folders** (`INVALID_OAUTHSCOPE` on POST /folders) — any new folder must be made
+    by hand in Shikha's Zoho Mail (the error now says so), or Admin reconnects learn@ with `ZohoMail.folders.ALL`.
+72. Postponement emails go only to the **current** trainers (a trainer removed in the same postponement isn't told).
+73. **"Change date"** (correction) sends no email; reminders simply follow the new date. Offer a "date changed" email if the
+    owner wants it.
+74. The reminder lock / dedupe rely on server events; a run that sends but fails to record would re-send next run (none seen).
+75. The Training completed gate is browser-only (an old tab before Ctrl + Shift + R still shows the button).
+76. Calendar `useBoardCards` fetches `/api/pipeline` (~4,000 leads) on the calendar page — fine now; watch if it feels slow.
+77. AedSmartx card 2026-01-449 (Mahindra Lifespace): left column overflows 6 px past the padding (a two-line note + wrapped
+    email tag) — offered to trim, no answer.
+78. **WhatsApp (Anantya AI)**: no public API docs. Needed from the owner: docs link, API key (build an Admin "Connect
+    WhatsApp" popup, kv secret like the mailboxes), two Meta-approved **Utility** templates — Reminder: "Training Reminder ·
+    Customer name: {{1}} · Location/Alias: {{2}} · Concerned Person's name: {{3}} · Concerned Person's Email: {{4}} ·
+    Training Date: {{5}} · Training Persons: {{6}} · Number of People Expected At Training: {{7}}"; Postponed: "Training
+    Postponed to {{1}} — sorry for the inconvenience" + the same fields — and the WhatsApp numbers of Sumit, Shikha,
+    Ashish, Priyanka. Then send from the same `runTrainingReminders` loop on the same days.
+79. External trainers (e.g. Ganesh) get no reminders and no colour of their own — add emails / numbers when the owner has them.
+80. **My day + renewals** — agreed defaults (19 Oct, "yeah ig"): top of the Overview, own items (Admin sees all, grouped);
+    pull **training invoices back to 1 Apr 2024** once (~100 calls) and keep training invoices 27 months; expiry = training
+    day + 2 years (invoice date for pre-dashboard ones; ignore `cf_certificate_expiry` — 24 invoices have it, one typo:
+    19 Sep 2026 invoice says 16 Sep 2026); owner = the invoice's sales person if a member, else Shikha; shows 90 days
+    before, red at 30; one per training, grouped by client; Quote sent / Not renewing / Snooze 1 week, clears itself when
+    a new quotation for that client appears; no escalation / WhatsApp yet. **Careful:** the board's Zoho window
+    (`trainingSince`, previous FY start) must not drop the older invoices in the full check — keep them in a separate kind
+    or flag, or the live site's reconcile will delete them.
+81. Today's live changes by the team (not tests): Priyanka postponed K Raheja to Thu 22 Oct and Tata Motors Pune to Mon 26
+    Oct (08:56–08:57 IST), logged a call, marked one AED not required; Shikha fixed FLAME's location / concerned person.
+    FLAME (17 Oct) still needs **Training completed**.
+82. `MONDAY-PLAN.md` §0–§2 are mostly done / answered (push done 17 Oct; year target → from Oct). Update it when the
+    next feature starts.
+83. Test data: none written (saves blocked in every browser run; 0 entries, 0 `reminderSeen` docs). The only real email was
+    the owner-approved [TEST] reminder to sshah@ (filed in /Sent/Training Reminders).
+84. Scripts from this session were in the session scratchpad (gone): read-only puppeteer runs (saves blocked, `/api/zoho/sync`
+    answered "not due", stand-in member via `/api/members/session` interception, a patched `window.fetch` to move a training
+    to today in the browser only), esbuild of `reminderPlan.ts` for the day table, and an Admin fetch script for the
+    `/api/mail/reminders` preview / test / file routes. Rebuild them from §9.

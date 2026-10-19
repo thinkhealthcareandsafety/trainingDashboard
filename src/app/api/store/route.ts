@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
 import { SERVER_KINDS, canRevert, canSeeEntry, canWriteEvent, isAdmin, missingCertFields } from "@/lib/roles";
@@ -124,6 +125,10 @@ export async function POST(request: Request) {
       ...deletes.map((id) => ({ deleteOne: { filter: { _id: id as never } } })),
     ];
     if (ops.length) await col.bulkWrite(ops, { ordered: false });
+    // A training date just set (or postponed): its reminder / postponement email goes now, not at the next sync.
+    if (body.collection === "cardEvents" && upserts.some((d) => d.kind === "set_training_date" && !d.revertedAt)) {
+      after(() => import("@/lib/trainingReminders").then((m) => m.runTrainingReminders()).then(() => undefined, (e) => console.error(`[reminders] failed: ${e instanceof Error ? e.message : e}`)));
+    }
     return Response.json({ ok: true, upserted: upserts.length, deleted: deletes.length });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Database error" }, { status: 502 });
