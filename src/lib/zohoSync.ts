@@ -553,11 +553,18 @@ export function aedData(s: Snapshot): { windowStart: string; invoices: AedInvoic
 }
 
 /** Overview: training invoices of the current fiscal year, plus open quotes and booked sales orders. */
-export function trainingsData(s: Snapshot): { trainings: Training[]; pipeline: PipelineDoc[] } {
+export function trainingsData(s: Snapshot): { trainings: Training[]; pipeline: PipelineDoc[]; lastYear: { date: string; amount: number }[] } {
   return memo(s, "trainings", () => {
     const since = overviewSince();
     const ids = s.sets.training;
+    // Last fiscal year's training revenue by training date (the copy keeps invoices from its start) — for the forecast.
+    const lastFrom = trainingSince();
+    const lastYear = tracked(s, "invoices", lastFrom, (d) => d.training)
+      .flatMap((d) => toTrainings(d.doc, ids))
+      .filter((t) => t.trainingDate >= lastFrom && t.trainingDate < since && t.status !== "draft" && t.status !== "pending_approval")
+      .map((t) => ({ date: t.trainingDate, amount: t.amount }));
     return {
+      lastYear,
       trainings: tracked(s, "invoices", since, (d) => d.training).flatMap((d) => toTrainings(d.doc, ids)),
       pipeline: [
         ...tracked(s, "salesorders", since, (d) => d.training && OPEN_ORDER.has(d.status)).map((d) => toPipeline("salesorders", d.doc, ids)),

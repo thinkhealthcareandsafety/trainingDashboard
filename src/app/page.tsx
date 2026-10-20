@@ -82,9 +82,9 @@ export default function OverviewPage() {
         </p>
       )}
       <div className="space-y-5">
-        {has ? <KpiStrip trainings={data.trainings} board={list} now={now} mode={mode} aedWaiting={data.aedWaiting} /> : <Skeleton className="h-[236px]" />}
+        {has ? <KpiStrip trainings={data.trainings} board={list} now={now} mode={mode} aedWaiting={data.aedWaiting} pipeline={data.pipeline} lastYear={data.lastYear} /> : <Skeleton className="h-[236px]" />}
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-          {has ? <TrendCard trainings={data.trainings} board={list} now={now} mode={mode} /> : <Skeleton className="h-[520px]" />}
+          {has ? <TrendCard trainings={data.trainings} board={list} now={now} mode={mode} pipeline={data.pipeline} lastYear={data.lastYear} /> : <Skeleton className="h-[520px]" />}
           <div className="xl:sticky xl:top-[60px] xl:self-start">
             <MiniCalendar />
           </div>

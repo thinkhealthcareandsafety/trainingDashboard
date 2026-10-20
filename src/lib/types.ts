@@ -71,6 +71,8 @@ export interface TrainingsResponse {
   aedBoard?: BoardTraining[];
   /** AedSmartx invoices still without a training date (and not "not required"). */
   aedWaiting?: number;
+  /** Last fiscal year's training revenue, one row per invoice line (training date, pre-tax) — the revenue forecast's base. */
+  lastYear?: { date: string; amount: number }[];
   orgId?: string;
   error?: string;
 }
