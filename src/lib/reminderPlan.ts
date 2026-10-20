@@ -17,10 +17,13 @@ export const TRAINER_EMAILS: Record<string, string> = {
   ashish: "sales@thinkhealth.in",
   priyanka: "hello@thinkhealth.in",
 };
-export const reminderRecipients = (trainers: string[], aed: boolean): { name: string; email: string }[] =>
+/** "Sumit A Shah" → "sumit": the key for their email above and their WhatsApp number (Admin's WhatsApp popup). */
+export const trainerKey = (name: string) => name.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+export const reminderRecipients = (trainers: string[], aed: boolean): { name: string; key: string; email: string }[] =>
   (aed ? ["Priyanka"] : trainers).flatMap((n) => {
-    const email = TRAINER_EMAILS[n.trim().split(/\s+/)[0]?.toLowerCase() ?? ""];
-    return email ? [{ name: n, email }] : [];
+    const key = trainerKey(n);
+    const email = TRAINER_EMAILS[key];
+    return email ? [{ name: n, key, email }] : [];
   });
 
 /** Today (or an instant's day) in India, YYYY-MM-DD — the server runs in UTC. */
@@ -61,3 +64,9 @@ export function datesInfo(events: CardEvent[]): DatesInfo | undefined {
 
 /** One reminder per training, dates and day: what the server records (and checks) so none goes out twice. */
 export const reminderKey = (dates: string[], day: string) => `${dates.join(",")}@${day}`;
+
+/**
+ * WhatsApp (owner, 20 Oct — Anantya): the same days, one message per person (a template goes to one number). The
+ * `training_whatsapp` entry's value says which: "reminder:<reminderKey>:<person>" or "postponed:<entry id>:<person>".
+ */
+export const whatsappKey = (kind: "reminder" | "postponed", of: string, person: string) => `${kind}:${of}:${person}`;

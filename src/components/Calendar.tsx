@@ -7,7 +7,8 @@ import { addDays, daysBetween, fmtDate, parseYmd, startOfDay, ymd } from "@/lib/
 import { type CardView, TRAINERS, busyTrainers, salespersonLabel, cardDue, daysValue, fmtDays, fulfilCardId, orderTrainers } from "@/lib/pipeline";
 import { newId, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
-import { boardsFor, canSeeTraining, ownsEntry, ownsTraining, seesWholeCalendar } from "@/lib/roles";
+import { boardsFor, canSeeTraining, isAdmin, ownsEntry, ownsTraining, seesWholeCalendar } from "@/lib/roles";
+import { WhatsAppSetup } from "./WhatsAppSetup";
 import { Combobox, IconButton, Segmented, btn, inputCls } from "./ui";
 import {
   type CertChoice, ChangeLog, DocsSection, DueChip, FormRow, Header, NotesPanel, Row, ScheduleRows, Section, Shell, TrainingSection,
@@ -306,6 +307,7 @@ export function FullCalendar({ initialDate, openCard, openEntry }: { initialDate
   const [kind, setKind] = useState<KindFilter>("all");
   const [who, setWho] = useState<WhoFilter>("all");
   const [open, setOpen] = useState<Open>(null);
+  const [whatsApp, setWhatsApp] = useState(false);
   const [dragOver, setDragOver] = useState<string | null>(null);
   // The person filter works for everyone (within what they may see); the legend lists everyone in view, unfiltered.
   const { byDate, whole, known } = useCalendarItems(kind, who);
@@ -375,8 +377,10 @@ export function FullCalendar({ initialDate, openCard, openEntry }: { initialDate
               {people.some((p) => p.key === EXTERNAL_KEY) && <option value={EXTERNAL_KEY}>External trainers</option>}
             </select>
           )}
+          {member && isAdmin(member) && <button className={btn.ghost} onClick={() => setWhatsApp(true)} title="WhatsApp reminders (Anantya)">WhatsApp</button>}
           <button className={btn.primary} onClick={() => setOpen({ add: selected })}><span aria-hidden>+</span> New</button>
         </div>
+        {whatsApp && <WhatsAppSetup onClose={() => setWhatsApp(false)} />}
 
         <div className="grid grid-cols-7 border-b border-line bg-surface-2/50 text-[12px] font-medium text-muted">
           {WEEKDAYS.map((w) => <div key={w} className="px-3 py-1.5">{w}</div>)}
@@ -541,10 +545,10 @@ function CalendarTrainingModal({ card, cards, fulfil, member, options, onClose }
                 </Row>
                 <Row label="Training">{card.training.map((x) => `${x.name} · ${x.qty} people`).join("; ") || "—"}</Row>
                 <Row label="Location">{card.certLocation === undefined ? <span className="text-medium">Not chosen</span> : card.certLocation || card.name}</Row>
-                <Row label="Concerned">{card.concernedName ? `${card.concernedName} · ` : ""}{card.concernedEmail ? <a className="text-brand hover:underline" href={`mailto:${card.concernedEmail}`}>{card.concernedEmail}</a> : <span className="text-medium">Email not set</span>}</Row>
+                <Row label="Concerned">{card.concernedName ? `${card.concernedName} · ` : ""}{card.concernedEmail ? <a className="text-brand hover:underline" href={`mailto:${card.concernedEmail}`}>{card.concernedEmail}</a> : <span className="text-medium">Email not set</span>}{" · "}{card.concernedPhone ? <a className="num text-brand hover:underline" href={`tel:${card.concernedPhone.replace(/[^\d+]/g, "")}`}>{card.concernedPhone}</a> : <span className="text-medium">Number not set</span>}</Row>
                 <Row label="Contact">{card.phones.length ? card.phones.slice(0, 2).map((p) => <a key={p.value} className="num mr-3 text-brand hover:underline" href={`tel:${p.value.replace(/\s+/g, "")}`}>{p.value}</a>) : <span className="text-muted">No number</span>}</Row>
                 <Row label="Sales person">{card.salespeople.length ? salespersonLabel(card.salespeople) : "—"}</Row>
-                <Row label="Reminder emails"><ReminderPlan card={card} events={cardEvents} /></Row>
+                <Row label="Reminders"><ReminderPlan card={card} events={cardEvents} /></Row>
               </dl>
             </Section>
             <NotesPanel card={card} member={member} heading="Notes" />
@@ -582,14 +586,22 @@ function ReminderPlan({ card, events }: { card: CardView; events: import("@/lib/
   if (!info || card.schedule?.completed) return <span className="text-muted">—</span>;
   if (!to.length) return <span className="text-muted">None — no email for {card.schedule?.trainers.join(", ") || "the trainers"} yet</span>;
   const sent = new Set(own.filter((e) => e.kind === "training_reminder").map((e) => e.value));
+  // WhatsApp (one entry per person): who got that day's reminder.
+  const wa = own.filter((e) => e.kind === "training_whatsapp" && e.value?.startsWith("reminder:"));
   const days = reminderDays(info.dates[0].slice(0, 10), istDay(info.at));
   const today = istDay();
   if (!days.length) return <span className="text-muted">None — scheduled too close to the day</span>;
   return (
     <span>
       {days.map((d, i) => {
-        const done = sent.has(reminderKey(info.dates, d));
-        return <span key={d} className={done ? "font-medium text-low" : d < today ? "text-faint line-through" : "text-ink-2"}>{i > 0 && " · "}{fmtDate(d, { weekday: "short", day: "numeric", month: "short" })}{done && " ✓"}</span>;
+        const key = reminderKey(info.dates, d);
+        const done = sent.has(key);
+        const onWa = wa.filter((e) => e.value?.startsWith(`reminder:${key}:`)).flatMap((e) => e.trainers ?? []);
+        return (
+          <span key={d} className={done || onWa.length ? "font-medium text-low" : d < today ? "text-faint line-through" : "text-ink-2"} title={onWa.length ? `WhatsApp to ${onWa.join(", ")}` : undefined}>
+            {i > 0 && " · "}{fmtDate(d, { weekday: "short", day: "numeric", month: "short" })}{done && " ✓"}{onWa.length > 0 && " + WhatsApp"}
+          </span>
+        );
       })}
       <span className="text-muted"> → {to.map((x) => x.name.split(" ")[0]).join(", ")}</span>
     </span>
@@ -700,7 +712,7 @@ function NewTraining({ date, member, cards, tabs, onClose }: { date: string; mem
   const [card, setCard] = useState<CardView | undefined>();
   const [days, setDays] = useState<string[]>([date]);
   const [trainers, setTrainers] = useState<string[]>([]);
-  const [cert, setCert] = useState<CertChoice>({ location: null, email: "", name: "" });
+  const [cert, setCert] = useState<CertChoice>({ location: null, email: "", phone: "", name: "" });
   const pick = (c: CardView) => { setCard(c); setCert(certOf(c)); setTrainers([]); };
   const busy = card && all ? busyTrainers(days, all, card.id) : new Map<string, CardView>();
   const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
@@ -717,7 +729,7 @@ function NewTraining({ date, member, cards, tabs, onClose }: { date: string; mem
       title="New"
       sub="A training goes to Training scheduled on the board, with the same rules as there."
       onClose={onClose}
-      footer={<><button className={btn.ghost} onClick={onClose}>Cancel</button><button className={btn.primary} disabled={!valid} onClick={save} title={card && !certReady(cert) ? "Choose the certificate location and the concerned person's email first" : undefined}>Schedule training</button></>}
+      footer={<><button className={btn.ghost} onClick={onClose}>Cancel</button><button className={btn.primary} disabled={!valid} onClick={save} title={card && !certReady(cert) ? "Choose the certificate location, the concerned person's email and contact number first" : undefined}>Schedule training</button></>}
     >
       <div className="px-6 pb-3">{tabs}</div>
       <div className="border-t border-line px-6">

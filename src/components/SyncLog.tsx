@@ -29,6 +29,10 @@ type Entry = {
   mailError?: string; // checking them failed (the Books sync still counts)
   aedReplies?: number; // replies to the AedSmartx onboarding emails (hello@) found
   aedMailError?: string;
+  reminders?: number; // training reminder emails sent
+  reminderError?: string;
+  whatsapp?: number; // training reminders sent by WhatsApp
+  whatsappError?: string;
 };
 type Log = { enabled?: boolean; day: string; entries: Entry[]; calls: number; logSince?: string; hours: number[]; fullHours: number[] };
 
@@ -58,7 +62,12 @@ function whoLabel(e: Entry): string {
   }
 }
 const isSync = (e: Entry) => e.result === "ok" || e.result === "failed" || e.result === "paused";
-const changeCount = (e: Entry) => (e.docs?.length ?? 0) + (e.payments?.length ?? 0) + (e.customers?.length ?? 0) + (e.customersRemoved ?? 0) + (e.replies ?? 0) + (e.mailError ? 1 : 0) + (e.aedReplies ?? 0) + (e.aedMailError ? 1 : 0);
+/** The daily reminders cron (no Zoho sync): shown as a line of its own, with what it sent. */
+const isReminderRun = (e: Entry) => /reminders/i.test(e.source ?? "");
+const isCheck = (e: Entry) => !isSync(e) && !isReminderRun(e);
+const changeCount = (e: Entry) =>
+  (e.docs?.length ?? 0) + (e.payments?.length ?? 0) + (e.customers?.length ?? 0) + (e.customersRemoved ?? 0) + (e.replies ?? 0) + (e.mailError ? 1 : 0) + (e.aedReplies ?? 0) + (e.aedMailError ? 1 : 0) +
+  (e.reminders ?? 0) + (e.reminderError ? 1 : 0) + (e.whatsapp ?? 0) + (e.whatsappError ? 1 : 0);
 function changeSummary(e: Entry): string {
   const parts = [
     e.docs?.length ? plural(e.docs.length, "document") : "",
@@ -69,8 +78,12 @@ function changeSummary(e: Entry): string {
     e.mailError ? "replies not checked" : "",
     e.aedReplies ? `${e.aedReplies} AedSmartx ${e.aedReplies === 1 ? "reply" : "replies"}` : "",
     e.aedMailError ? "AedSmartx replies not checked" : "",
+    e.reminders ? plural(e.reminders, "reminder email") : "",
+    e.reminderError ? "a reminder email failed" : "",
+    e.whatsapp ? plural(e.whatsapp, "WhatsApp reminder") : "",
+    e.whatsappError ? "a WhatsApp failed" : "",
   ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "No changes";
+  return parts.length ? parts.join(" · ") : isReminderRun(e) ? "nothing due" : "No changes";
 }
 
 type Tone = "ok" | "late" | "bad" | "wait" | "none";
@@ -89,7 +102,7 @@ const Pill = ({ tone, children }: { tone: Tone; children: React.ReactNode }) => 
 function RunLine({ e, main }: { e: Entry; main?: boolean }) {
   const [open, setOpen] = useState(false);
   const n = changeCount(e);
-  const failed = e.result !== "ok";
+  const failed = e.result !== "ok" && !isReminderRun(e);
   return (
     <div className={main ? "" : "mt-0.5"}>
       <button
@@ -125,6 +138,10 @@ function RunLine({ e, main }: { e: Entry; main?: boolean }) {
           {e.mailError ? <div className="text-high"><span className="text-faint">Checking gratitude replies failed:</span> {e.mailError}</div> : null}
           {e.aedReplies ? <div><span className="text-faint">Replies to AedSmartx emails (hello@):</span> {e.aedReplies}</div> : null}
           {e.aedMailError ? <div className="text-high"><span className="text-faint">Checking AedSmartx replies failed:</span> {e.aedMailError}</div> : null}
+          {e.reminders ? <div><span className="text-faint">Training reminder emails sent (learn@):</span> {e.reminders}</div> : null}
+          {e.reminderError ? <div className="text-high"><span className="text-faint">Reminder emails failed:</span> {e.reminderError}</div> : null}
+          {e.whatsapp ? <div><span className="text-faint">Training reminders sent by WhatsApp:</span> {e.whatsapp}</div> : null}
+          {e.whatsappError ? <div className="text-high"><span className="text-faint">WhatsApp failed:</span> {e.whatsappError}</div> : null}
         </div>
       )}
     </div>
@@ -136,7 +153,8 @@ function HourRow({ log, h, next }: { log: Log; h: number; next?: number }) {
   const end = next !== undefined ? istHour(log.day, next) : istHour(log.day, 24);
   const inHour = log.entries.filter((e) => { const t = Date.parse(e.at); return t >= start && t < end; });
   const runs = inHour.filter(isSync);
-  const checks = inHour.filter((e) => !isSync(e));
+  const checks = inHour.filter(isCheck);
+  const reminderRuns = inHour.filter(isReminderRun);
   const covered = runs.find((e) => e.result === "ok");
   const now = Date.now();
   const logStart = log.logSince ? Date.parse(log.logSince) : Infinity;
@@ -158,6 +176,7 @@ function HourRow({ log, h, next }: { log: Log; h: number; next?: number }) {
       <div className={`col-start-2 min-w-0 pt-[3px] sm:col-start-3 sm:row-start-1 ${inHour.length ? "" : "hidden sm:block"}`}>
         {runs.length === 0 && <span className="text-[12px] text-faint">{now < start ? "—" : "No sync ran in this hour"}</span>}
         {runs.map((e, i) => <RunLine key={e.at + i} e={e} main={e === covered || (!covered && i === 0)} />)}
+        {reminderRuns.map((e, i) => <RunLine key={e.at + i} e={e} />)}
         {checks.length > 0 && (
           <div className="mt-0.5 truncate text-[11.5px] text-faint" title={checks.map((c) => `${timeSec(c.at)} ${whoLabel(c)} — ${c.result}`).join("\n")}>
             {checks.map((c) => `${whoLabel(c)} ${time(c.at)} (${c.result})`).join(" · ")}
@@ -226,9 +245,9 @@ export function SyncLogWindow({ open, onClose }: { open: boolean; onClose: () =>
           {before.length > 0 && (
             <div className="mb-1 rounded-lg bg-surface-2/60 px-2.5 py-1.5">
               <div className="text-[11.5px] font-semibold text-faint">Before {hourLabel(hours[0] ?? 9)}</div>
-              {before.filter(isSync).map((e, i) => <RunLine key={e.at + i} e={e} />)}
-              {before.filter((e) => !isSync(e)).length > 0 && (
-                <div className="truncate text-[11.5px] text-faint">{before.filter((e) => !isSync(e)).map((c) => `${whoLabel(c)} ${time(c.at)} (${c.result})`).join(" · ")}</div>
+              {before.filter((e) => !isCheck(e)).map((e, i) => <RunLine key={e.at + i} e={e} />)}
+              {before.filter(isCheck).length > 0 && (
+                <div className="truncate text-[11.5px] text-faint">{before.filter(isCheck).map((c) => `${whoLabel(c)} ${time(c.at)} (${c.result})`).join(" · ")}</div>
               )}
             </div>
           )}

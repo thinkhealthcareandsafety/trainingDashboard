@@ -289,6 +289,7 @@ export type CardEventKind =
   // on the training's card, or on its Fulfillment card. ref = Zoho contact id (lists the customer's past locations / emails).
   | "set_cert_location" // value = the certificate location name ("course conducted at"), "" = the customer's own name; before = previous
   | "set_training_email" // value = the concerned person's email for this training (gratitude email, List of Participants); before
+  | "set_training_phone" // (owner, 20 Oct) value = the concerned person's contact number for this training (reminders); before
   | "zoho_change" // recorded automatically when a Zoho document disappears and a card moves because of it
   | "add_potential" // creates a Potential training card: cardIds [potential:<id>], ref = Zoho contact id, value = expected month (YYYY-MM) or none
   | "set_potential_date" // value: new expected month (YYYY-MM) or "" for not set; before: previous
@@ -322,7 +323,8 @@ export type CardEventKind =
   | "aed_mail_opened" // cardIds [aed:<id>]: the reply was opened in Zoho Mail from the card — clears its star
   // Training reminders (server only, never reverted — reminderPlan.ts): emailed from learn@ to the trainers.
   | "training_reminder" // value = reminderKey(dates, day), trainers = who it went to, subject, messageId
-  | "training_postponed_mail"; // value = the id of the set_training_date entry that postponed it; trainers, subject, messageId
+  | "training_postponed_mail" // value = the id of the set_training_date entry that postponed it; trainers, subject, messageId
+  | "training_whatsapp"; // WhatsApp (Anantya), one per person: value = whatsappKey(kind, reminderKey | entry id, person), trainers = [them], subject = template, messageId
 
 /**
  * One user change to a pipeline card. Cards are Zoho data plus the replay of every
@@ -345,6 +347,7 @@ export interface CardEvent {
   underName?: string; // set_training_date (before set_cert_alias): the training is under this alias (none = the customer's own name)
   location?: string; // set_training_date (since 15 Oct, required with a date): the certificate location name, "" = the customer's own name
   email?: string; // set_training_date (since 15 Oct, required with a date): the concerned person's email for this training
+  phone?: string; // set_training_date (since 20 Oct): the concerned person's contact number for this training
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)
   messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)

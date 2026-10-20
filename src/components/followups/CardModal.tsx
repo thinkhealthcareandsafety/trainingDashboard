@@ -425,22 +425,27 @@ export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DAT
 
 /**
  * Certificates, per training (owner, 15 Oct): the certificate location name printed as "course conducted at" ("" = the
- * customer's own name, null = not chosen yet) and the concerned person's email — both required to schedule — plus the
- * concerned person's name (optional, per customer name, only a person).
+ * customer's own name, null = not chosen yet), the concerned person's email and (20 Oct) contact number — all required
+ * to schedule — plus the concerned person's name (optional, per customer name, only a person).
  */
-export type CertChoice = { location: string | null; email: string; name: string };
+export type CertChoice = { location: string | null; email: string; phone: string; name: string };
 type ScheduleFn = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => void;
 
-/** What the pickers start from: this training's own, else (a new training) the customer's latest email. */
-export const certOf = (card: CardView): CertChoice => ({ location: card.certLocation ?? null, email: card.concernedEmail ?? card.lastEmail ?? "", name: card.concernedName ?? "" });
+/** What the pickers start from: this training's own, else (a new training) the customer's latest email and number. */
+export const certOf = (card: CardView): CertChoice => ({ location: card.certLocation ?? null, email: card.concernedEmail ?? card.lastEmail ?? "", phone: card.concernedPhone ?? card.lastPhone ?? "", name: card.concernedName ?? "" });
 const tidy = (v: string) => v.trim().replace(/\s+/g, " ");
-/** Both chosen: a location (or "Same as original") and a valid email; a name, if given, looks like a person's. */
-export const certReady = (c: CertChoice) => c.location !== null && EMAIL_RE.test(c.email.trim()) && !notAPerson(c.name);
-const sameCert = (a: CertChoice, b: CertChoice) => a.location === b.location && normEmail(a.email) === normEmail(b.email) && tidy(a.name) === tidy(b.name);
+/** A phone number: digits with + ( ) - and spaces, 10 to 13 digits (a mobile, a landline with its code, or with 91). */
+export const phoneOk = (v: string) => /^\+?[\d\s()-]+$/.test(v.trim()) && v.replace(/\D/g, "").length >= 10 && v.replace(/\D/g, "").length <= 13;
+/** All chosen: a location (or "Same as original"), a valid email and number; a name, if given, looks like a person's. */
+export const certReady = (c: CertChoice) => c.location !== null && EMAIL_RE.test(c.email.trim()) && phoneOk(c.phone) && !notAPerson(c.name);
+const sameCert = (a: CertChoice, b: CertChoice) => a.location === b.location && normEmail(a.email) === normEmail(b.email) && normPhone(a.phone) === normPhone(b.phone) && tidy(a.name) === tidy(b.name);
+/** What the schedule buttons say while something is missing. */
+const CERT_NEEDED = "Choose the certificate location, the concerned person's email and contact number first";
 
 /**
  * What a training still needs before "Training completed" shows (owner, 19 Oct): its quotation merged into the PI, the
- * certificate location chosen and the concerned person's email set. A PI with no quotation in Zoho needs no merge.
+ * certificate location chosen, the concerned person's email and (20 Oct) contact number set. A PI with no quotation in
+ * Zoho needs no merge.
  */
 export function completeBlockers(card: CardView): string[] {
   const quoteMerged = card.kind === "pi" && (!card.linkedQuote || card.historyIds.some((id) => kindOfId(id) === "quote"));
@@ -448,11 +453,12 @@ export function completeBlockers(card: CardView): string[] {
     ...(card.kind === "quote" ? [`create the PI in Zoho Books for ${card.docNumber}, then merge Quote → PI`] : !quoteMerged && card.kind === "pi" ? ["merge its quotation into this PI"] : []),
     ...(card.certLocation === undefined && !card.certLocked ? ["choose the certificate location"] : []),
     ...(!EMAIL_RE.test(card.concernedEmail?.trim() ?? "") ? ["set the concerned person's email"] : []),
+    ...(!phoneOk(card.concernedPhone ?? "") ? ["set the concerned person's contact number"] : []),
   ];
 }
 
-/** Saved on the set_training_date entry itself — the server refuses a date without them. */
-export const certFields = (c: CertChoice) => ({ location: tidy(c.location ?? ""), email: c.email.trim() });
+/** Saved on the set_training_date entry itself — the server refuses a date without the location and email. */
+export const certFields = (c: CertChoice) => ({ location: tidy(c.location ?? ""), email: c.email.trim(), ...(c.phone.trim() ? { phone: tidy(c.phone) } : {}) });
 
 /**
  * Words that make a "concerned person's name" a company or a place — that belongs in Alias (or the location). Also no
@@ -495,10 +501,12 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
   const base = { cardIds: [target], ref: card.customerId, by };
   const location = cert.location === null ? null : tidy(cert.location);
   const email = cert.email.trim();
+  const phone = tidy(cert.phone);
   const name = tidy(cert.name);
   return [
     ...(!onDate && location !== null && !card.certLocked && location !== (card.certLocation ?? null) ? [{ ...base, kind: "set_cert_location" as const, value: location, before: card.certLocation ?? "" }] : []),
     ...(!onDate && email && normEmail(email) !== normEmail(card.concernedEmail ?? "") ? [{ ...base, kind: "set_training_email" as const, value: email, before: card.concernedEmail ?? "" }] : []),
+    ...(!onDate && phone && normPhone(phone) !== normPhone(card.concernedPhone ?? "") ? [{ ...base, kind: "set_training_phone" as const, value: phone, before: card.concernedPhone ?? "" }] : []),
     ...(name !== (card.concernedName ?? "") ? [{ cardIds: [card.id], ref: card.customerId, by, kind: "set_concerned_name" as const, value: name, before: card.concernedName ?? "" }] : []),
   ];
 }
@@ -535,12 +543,13 @@ function PickerRow({ label, hint, required = true, children }: { label: string; 
   );
 }
 
-/** Certificate location name, the concerned person's email and name, each on its own row. */
+/** Certificate location name, then the concerned person's name, email and contact number (owner, 20 Oct), each on its own row. */
 function CertPickers({ card, value, onChange }: { card: CardView; value: CertChoice; onChange: (v: CertChoice) => void }) {
   const pickers = <>
     <LocationPicker card={card} value={value.location} onChange={(location) => onChange({ ...value, location })} />
-    <EmailPicker card={card} value={value.email} onChange={(email) => onChange({ ...value, email })} />
     <NamePicker value={value.name} onChange={(name) => onChange({ ...value, name })} />
+    <EmailPicker card={card} value={value.email} onChange={(email) => onChange({ ...value, email })} />
+    <PhonePicker card={card} value={value.phone} onChange={(phone) => onChange({ ...value, phone })} />
   </>;
   return useContext(FormRows) ? pickers : <div className="space-y-1.5">{pickers}</div>;
 }
@@ -616,6 +625,63 @@ export function EmailPicker({ card, value, onChange }: { card: CardView; value: 
           <option value={NEW}>+ Add new…</option>
         </select>
       )}
+    </PickerRow>
+  );
+}
+
+/**
+ * The concerned person's contact number for this training (owner, 20 Oct — it goes in the trainers' reminders): the
+ * customer's last one, one of their numbers ("Same as original"), or a new one.
+ */
+function PhonePicker({ card, value, onChange }: { card: CardView; value: string; onChange: (v: string) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState("");
+  const NEW = "\u0000new";
+  const own = card.phones.find((p) => normPhone(p.value) === normPhone(value))?.value;
+  const last = card.lastPhone && !card.phones.some((p) => normPhone(p.value) === normPhone(card.lastPhone!)) ? card.lastPhone : undefined;
+  const ok = phoneOk(text);
+  const use = () => { if (ok) { onChange(tidy(text)); setAdding(false); } };
+  const rows = useContext(FormRows);
+  return (
+    <PickerRow label="Concerned person’s contact number" hint="for this training — in the trainers' reminders">
+      {adding ? (
+        <>
+          <input
+            type="tel"
+            inputMode="tel"
+            className={`${inputCls} num !h-8 !w-56 text-[13px]`}
+            placeholder="98xxxxxxxx"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); use(); } }}
+            aria-label="New contact number"
+            aria-invalid={Boolean(text.trim()) && !ok}
+            autoFocus
+          />
+          <button type="button" className={`${btn.ghost} !h-8 !px-3`} disabled={!ok} onClick={use}>Use number</button>
+          <button type="button" className={`${btn.quiet} !h-8`} onClick={() => setAdding(false)}>Cancel</button>
+          {text.trim() && !ok && <span className="w-full text-[12px] font-medium text-high">10 digits, or the code and number (up to 13 digits).</span>}
+        </>
+      ) : (
+        <select
+          className={`${selectCls} num !h-8 ${pickerWidth(rows, "w-auto max-w-[300px]")} truncate`}
+          value={own ?? value}
+          onChange={(e) => (e.target.value === NEW ? (setText(""), setAdding(true)) : onChange(e.target.value))}
+          aria-label="Concerned person's contact number"
+        >
+          <option value="" disabled>Select a number…</option>
+          {last && <optgroup label="Used last time"><option value={last}>{last}</option></optgroup>}
+          {card.phones.length > 0 && (
+            <optgroup label="Same as original">
+              {card.phones.map((p) => <option key={p.value} value={p.value}>{p.value}</option>)}
+            </optgroup>
+          )}
+          {value && !own && value !== last && <option value={value}>{value}</option>}
+          <option value={NEW}>+ Add new…</option>
+        </select>
+      )}
+      {/* A number from Zoho can be short (a landline without its code) — say why Save stays off. */}
+      {!adding && value && !phoneOk(value) && <span className="w-full text-[12px] font-medium text-high">“{value}” isn&rsquo;t a full number — Add new with the code (10 to 13 digits).</span>}
     </PickerRow>
   );
 }
@@ -874,21 +940,21 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
             <div className="w-full space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={postponing ? "New training dates" : "Training dates"} autoOpen={!postponing} />
-                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid} title={certReady(cert) ? undefined : "Choose the certificate location and the concerned person's email first"}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
+                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid} title={certReady(cert) ? undefined : CERT_NEEDED}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={`${btn.quiet} shrink-0`} onClick={close}>Cancel</button>
                 {/* On this row so the card doesn't grow; opens the labelled pickers — saved with the training date. */}
                 <button
                   type="button"
                   className={`ml-auto shrink-0 text-[13px] font-semibold hover:underline ${certReady(cert) ? "text-brand" : "text-high"}`}
                   onClick={() => setCertOpen(true)}
-                  title={`Certificate location: ${cert.location === null ? "not chosen" : cert.location || `Same as original (${card.name})`} · Concerned email: ${cert.email || "not set"}${cert.name.trim() ? ` · ${cert.name.trim()}` : ""}`}
+                  title={`Certificate location: ${cert.location === null ? "not chosen" : cert.location || `Same as original (${card.name})`}${cert.name.trim() ? ` · ${cert.name.trim()}` : ""} · Concerned email: ${cert.email || "not set"} · Contact number: ${cert.phone || "not set"}`}
                 >
-                  {certReady(cert) ? <>Location &amp; email{sameCert(cert, certOf(card)) ? "" : " ✓"}</> : <>Location &amp; email required *</>}
+                  {certReady(cert) ? <>Location &amp; contact{sameCert(cert, certOf(card)) ? "" : " ✓"}</> : <>Location &amp; contact required *</>}
                 </button>
               </div>
               <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
               {certOpen && (
-                <CertEditor card={card} initial={cert} saveLabel="Use" note={`Saved with the training date — the location and email for this training; the concerned person's name on every card of ${card.name}.`}
+                <CertEditor card={card} initial={cert} saveLabel="Use" note={`Saved with the training date — the location, email and number for this training; the concerned person's name on every card of ${card.name}.`}
                   onSave={setCert} onClose={closeCertOpen} />
               )}
             </div>
@@ -933,6 +999,14 @@ function CertLines({ card, onChange, needEmail }: { card: CardView; onChange?: (
         {card.concernedEmail
           ? <span className="truncate" title={card.concernedEmail}>{card.concernedEmail}</span>
           : <span className={needEmail ? "font-medium text-medium" : "text-muted"} title={needEmail ? "Needed for the gratitude email and the certificates" : undefined}>not set</span>}
+        {card.schedule && (
+          <span className="shrink-0">
+            {" · "}
+            {card.concernedPhone
+              ? <a className="num hover:underline" href={`tel:${card.concernedPhone.replace(/[^\d+]/g, "")}`}>{card.concernedPhone}</a>
+              : <span className="text-medium" title="Needed to mark the training completed — and it goes in the trainers' reminders">no number</span>}
+          </span>
+        )}
         {onChange && <button type="button" className="ml-1 shrink-0 font-semibold text-brand hover:underline" onClick={onChange}>Change</button>}
       </p>
     </>
@@ -958,7 +1032,7 @@ export function CertEditor({ card, initial, saveLabel = "Save", note, onSave, on
       <div role="alertdialog" aria-label="Certificate details" className="modal-in w-full max-w-[640px] rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="px-6 pb-4 pt-5">
           <h3 className="text-[18px] font-bold tracking-tight text-ink">Certificate details</h3>
-          <p className="mt-0.5 text-[13px] text-muted">{note ?? `Location and email: this training only. The concerned person's name: every card of ${card.name}.`}</p>
+          <p className="mt-0.5 text-[13px] text-muted">{note ?? `Location, email and number: this training only. The concerned person's name: every card of ${card.name}.`}</p>
         </div>
         <FormRows.Provider value={true}>
           <div className="border-y border-line px-6"><CertPickers card={card} value={cert} onChange={setCert} /></div>
@@ -1089,7 +1163,7 @@ function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView;
         </div>
         <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length || !certReady(cert)} title={certReady(cert) ? undefined : "Choose the certificate location and the concerned person's email first"} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
+          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length || !certReady(cert)} title={certReady(cert) ? undefined : CERT_NEEDED} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
         </div>
       </div>
     </div>

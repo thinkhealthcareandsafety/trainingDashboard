@@ -184,7 +184,7 @@ function GratitudePopup({ card, member, onClose }: { card: CardView; member: Mem
     setBusy(true); setError("");
     try {
       // A new concerned email chosen here is kept on the customer, like one set when scheduling.
-      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { location: card.certLocation ?? null, email: to, name: card.concernedName ?? "" }, member.name));
+      if (normEmail(to) !== normEmail(card.concernedEmail ?? "")) addCardEvents(certEvents(card, { location: card.certLocation ?? null, email: to, phone: card.concernedPhone ?? "", name: card.concernedName ?? "" }, member.name));
       const j = await post({});
       recordCardEvents([j.event!]);
       toast({ text: `Gratitude email sent to ${to} — ${card.name} moved to Gratitude Email Sent` });

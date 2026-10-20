@@ -117,6 +117,8 @@ export type SyncLogEntry = SyncTrigger & {
   aedMailError?: string;
   reminders?: number; // training reminder emails sent (learn@ → the trainers)
   reminderError?: string;
+  whatsapp?: number; // training reminders sent by WhatsApp (Anantya), one per person
+  whatsappError?: string;
 };
 const LOG_DAYS = 90;
 const LOG_LIST_MAX = 60; // names kept per entry (counts stay exact)
@@ -363,7 +365,11 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     // Training reminder emails (learn@ → the trainers) ride along too — on their own, like the reply checks.
     try {
       const { runTrainingReminders } = await import("./trainingReminders"); // (imported here: it builds the boards from this module)
-      log.reminders = (await runTrainingReminders()) || undefined;
+      const r = await runTrainingReminders();
+      log.reminders = r.emails || undefined;
+      log.reminderError = r.error;
+      log.whatsapp = r.whatsapp || undefined;
+      log.whatsappError = r.whatsappError;
     } catch (e) {
       log.reminderError = e instanceof Error ? e.message : String(e);
       console.error(`[reminders] failed: ${log.reminderError}`);

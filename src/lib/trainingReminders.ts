@@ -4,7 +4,8 @@ import { fileSentMail, latestMail, sendMail } from "./zohoMail";
 import { boardsNow, recordServerEvent } from "./fulfilServer";
 import { getSnapshot } from "./zohoSync";
 import { type CardView, isCustomerCard } from "./pipeline";
-import { type DatesInfo, datesInfo, istDay, reminderDays, reminderKey, reminderRecipients } from "./reminderPlan";
+import { type DatesInfo, datesInfo, istDay, reminderDays, reminderKey, reminderRecipients, whatsappKey } from "./reminderPlan";
+import { sendWaTemplate, waPublic, waStored } from "./whatsapp";
 import type { CardEvent } from "./types";
 
 /*
@@ -21,7 +22,7 @@ const POSTPONED_SINCE = "2026-10-19T10:00:00.000Z";
 const LOCK = "training_reminders_lock";
 const LOCK_MS = 120_000;
 
-type Kind = "reminder" | "postponed";
+export type Kind = "reminder" | "postponed";
 export type ReminderMail = { to: { name: string; email: string }[]; subject: string; html: string };
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -41,24 +42,52 @@ const names = (list: { name: string }[]) => {
   return first.length > 1 ? `${first.slice(0, -1).join(", ")} and ${first.at(-1)}` : first[0] ?? "team";
 };
 
-/** The email for one training (owner's fields, 19 Oct): who it's for, where, the concerned person, when, who trains, how many. */
-export function buildReminderMail(card: CardView, info: DatesInfo, kind: Kind): ReminderMail {
+/** The owner's fields (19 Oct; the contact number 20 Oct), in order — the email's table; WhatsApp lays them out its own way. */
+function reminderRows(card: CardView, info: DatesInfo, long = true): [string, string][] {
   const aed = card.id.startsWith("aed:");
-  const s = card.schedule;
-  const to = reminderRecipients(s?.trainers ?? [], aed);
-  const when = fmtDates(info.dates);
-  const short = fmtDates(info.dates, false);
   const people = card.training.reduce((n, t) => n + (t.qty || 0), 0);
   const email = aed ? card.outreach?.email ?? card.concernedEmail : card.concernedEmail;
-  const rows: [string, string][] = [
+  // AedSmartx: the number Priyanka last called, else the first one she has.
+  const phone = aed ? card.outreach?.lastCall?.to ?? card.outreach?.phones[0]?.value : card.concernedPhone;
+  // What's taught, as on the PI / quote; several kinds each with their head-count. AedSmartx invoices list the AED itself.
+  const kinds = card.training.filter((t) => t.name.trim());
+  const what = aed ? "AED training" : kinds.length > 1 ? kinds.map((t) => `${t.name} (${t.qty})`).join(", ") : kinds[0]?.name ?? "—";
+  return [
     ["Customer name", card.name],
+    ["Type of Training", what],
     ["Location / Alias", aed ? card.aliases[0] ?? card.name : card.certLocation || card.name],
     ["Concerned Person's name", card.concernedName || "—"],
     ["Concerned Person's Email", email || "—"],
-    ["Training Date", when],
-    ["Training Persons", (aed ? ["Priyanka"] : s?.trainers ?? []).join(", ") || "—"],
+    ["Concerned Person's Contact Number", phone || "—"],
+    ["Training Date", fmtDates(info.dates, long)],
+    ["Training Persons", (aed ? ["Priyanka"] : card.schedule?.trainers ?? []).join(", ") || "—"],
     ["Number of People Expected At Training", aed ? "—" : people ? String(people) : "—"],
   ];
+}
+
+/** "today" / "tomorrow" / "in 3 days" — from today (India) to the first training day. */
+function howSoon(first: string): string {
+  const days = Math.round((Date.parse(first.slice(0, 10)) - Date.parse(istDay())) / 86_400_000);
+  return days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
+}
+
+/**
+ * The WhatsApp template's {{1}}…{{11}} (the "_v4" templates in the popup, 20 Oct) — the email's fields, laid out for a
+ * phone: whom it's to, customer, then "in 3 days" + date (reminder) or from + to (postponed), type of training,
+ * location, people, trainers, concerned person, their number, their email.
+ */
+export function whatsappValues(card: CardView, info: DatesInfo, kind: Kind, first: string): string[] {
+  const [customer, what, location, contact, email, phone, date, trainers, people] = reminderRows(card, info, false).map(([, x]) => x);
+  const when = kind === "reminder" ? [howSoon(info.dates[0]), date] : [info.before?.length ? fmtDates(info.before, false) : "—", date];
+  return [first, customer, ...when, what, location, people, trainers, contact, phone, email];
+}
+
+/** The email for one training (owner's fields, 19 Oct): who it's for, where, the concerned person, when, who trains, how many. */
+export function buildReminderMail(card: CardView, info: DatesInfo, kind: Kind): ReminderMail {
+  const to = reminderRecipients(card.schedule?.trainers ?? [], card.id.startsWith("aed:"));
+  const when = fmtDates(info.dates);
+  const short = fmtDates(info.dates, false);
+  const rows = reminderRows(card, info);
   const subject = kind === "postponed"
     ? `Training Postponed to ${short} — ${card.name}`
     : `Training Reminder: ${short} — ${card.name}`;
@@ -143,44 +172,84 @@ async function lock(): Promise<string | null> {
   }
 }
 
+/** The soonest training still ahead (for the WhatsApp popup's test message), or none. */
+export async function nextTraining(): Promise<{ card: CardView; info: DatesInfo } | null> {
+  const list = await upcoming();
+  return list.sort((a, b) => a.info.dates[0].localeCompare(b.info.dates[0]))[0] ?? null;
+}
+
+export type ReminderRun = { emails: number; whatsapp: number; error?: string; whatsappError?: string };
+
 /**
  * Sends what's due today: a postponement email (once per postponement — it stands in for that day's reminder), else
- * the latest reminder day that has come (a missed run catches up with one email, never several). Returns how many went.
+ * the latest reminder day that has come (a missed run catches up with one email, never several). WhatsApp follows the
+ * same plan, one message per person, recorded per person — a failed number is tried again next run without repeating
+ * the others. An email or a WhatsApp that fails never stops the rest of the run.
  */
-export async function runTrainingReminders(): Promise<number> {
+export async function runTrainingReminders(): Promise<ReminderRun> {
+  const run: ReminderRun = { emails: 0, whatsapp: 0 };
   // Only the live site sends on its own: a local server (same database, same mailbox) never does.
-  if (process.env.VERCEL_ENV !== "production") return 0;
+  if (process.env.VERCEL_ENV !== "production") return run;
   const owner = await lock();
-  if (!owner) return 0;
-  let sent = 0;
+  if (!owner) return run;
+  const errors: string[] = [];
+  const waErrors: string[] = [];
   try {
     await fileReminderMail().catch((e) => console.warn(`[reminders] filing earlier emails failed: ${e instanceof Error ? e.message : e}`));
+    const wa = waPublic(await waStored().catch(() => null));
     const today = istDay();
     for (const { card, info, events } of await upcoming()) {
       const mailTo = reminderRecipients(card.schedule?.trainers ?? [], card.id.startsWith("aed:"));
-      if (!mailTo.length) continue; // external trainers only — no email known
+      if (!mailTo.length) continue; // external trainers only — no email or number known
       const done = new Set(events.filter((e) => e.kind === "training_reminder").map((e) => e.value));
       const days = reminderDays(info.dates[0].slice(0, 10), istDay(info.at));
       const due = days.filter((d) => d <= today).at(-1);
-      const record = (kind: CardEvent["kind"], value: string, subject: string, messageId?: string) =>
-        recordServerEvent({ cardIds: [card.id], kind, value, trainers: mailTo.map((x) => x.name), subject, messageId, at: new Date().toISOString(), by: "Training reminders" });
+      const postponedNow = info.postponed && info.at >= POSTPONED_SINCE;
+      const record = (kind: CardEvent["kind"], value: string, subject: string, messageId?: string, to = mailTo) =>
+        recordServerEvent({ cardIds: [card.id], kind, value, trainers: to.map((x) => x.name), subject, messageId, at: new Date().toISOString(), by: "Training reminders" });
 
-      if (info.postponed && info.at >= POSTPONED_SINCE && !events.some((e) => e.kind === "training_postponed_mail" && e.value === info.event.id)) {
-        const mail = buildReminderMail(card, info, "postponed");
-        const id = await deliver(mail);
-        await record("training_postponed_mail", info.event.id, mail.subject, id);
-        if (due) await record("training_reminder", reminderKey(info.dates, due), mail.subject, id); // today's reminder is this email
-        sent++;
-        continue;
+      try {
+        if (postponedNow && !events.some((e) => e.kind === "training_postponed_mail" && e.value === info.event.id)) {
+          const mail = buildReminderMail(card, info, "postponed");
+          const id = await deliver(mail);
+          await record("training_postponed_mail", info.event.id, mail.subject, id);
+          if (due) await record("training_reminder", reminderKey(info.dates, due), mail.subject, id); // today's reminder is this email
+          run.emails++;
+        } else if (due && !done.has(reminderKey(info.dates, due))) {
+          const mail = buildReminderMail(card, info, "reminder");
+          const id = await deliver(mail);
+          await record("training_reminder", reminderKey(info.dates, due), mail.subject, id);
+          run.emails++;
+        }
+      } catch (e) {
+        errors.push(`${card.name}: ${e instanceof Error ? e.message : e}`);
       }
-      if (!due || done.has(reminderKey(info.dates, due))) continue;
-      const mail = buildReminderMail(card, info, "reminder");
-      const id = await deliver(mail);
-      await record("training_reminder", reminderKey(info.dates, due), mail.subject, id);
-      sent++;
+
+      if (!wa.ready) continue;
+      const waDone = new Set(events.filter((e) => e.kind === "training_whatsapp").map((e) => e.value));
+      for (const p of mailTo) {
+        const number = wa.numbers[p.key];
+        if (!number) continue; // no WhatsApp number for them yet
+        const postponedKey = whatsappKey("postponed", info.event.id, p.key);
+        const dueKey = due ? whatsappKey("reminder", reminderKey(info.dates, due), p.key) : null;
+        const kind: Kind | null = postponedNow && !waDone.has(postponedKey) ? "postponed" : dueKey && !waDone.has(dueKey) ? "reminder" : null;
+        if (!kind) continue;
+        const template = wa.templates[kind]!;
+        try {
+          const id = await sendWaTemplate(template.id, { number, name: p.name }, whatsappValues(card, info, kind, p.name.split(" ")[0]));
+          if (kind === "postponed") await record("training_whatsapp", postponedKey, template.name, id, [p]);
+          if (dueKey) await record("training_whatsapp", dueKey, template.name, id, [p]); // the postponement stands in for today's reminder
+          run.whatsapp++;
+        } catch (e) {
+          waErrors.push(`${card.name} → ${p.name.split(" ")[0]}: ${e instanceof Error ? e.message : e}`);
+        }
+      }
     }
   } finally {
     await (await db()).collection<{ _id: string; owner?: string; until?: number }>("kv").updateOne({ _id: LOCK, owner }, { $set: { until: 0 } });
   }
-  return sent;
+  if (errors.length) run.error = errors.join(" · ");
+  if (waErrors.length) run.whatsappError = waErrors.join(" · ");
+  if (run.error || run.whatsappError) console.error(`[reminders] ${[run.error, run.whatsappError].filter(Boolean).join(" · ")}`);
+  return run;
 }

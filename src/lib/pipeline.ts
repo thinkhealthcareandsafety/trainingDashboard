@@ -92,12 +92,16 @@ export interface CardView {
   certLocation?: string;
   /** Trainings: the concerned person's email for this training (gratitude email, List of Participants) — per training too. */
   concernedEmail?: string;
+  /** Trainings: the concerned person's contact number for this training (owner, 20 Oct — the reminders carry it). */
+  concernedPhone?: string;
   /** The concerned person's name (optional, only a person) — per customer name, on every card of every board. */
   concernedName?: string;
   /** The customer's certificate locations used before, newest first — offered when scheduling. */
   certLocations?: string[];
   /** The customer's latest concerned email (any training) — pre-filled when a new training is scheduled. */
   lastEmail?: string;
+  /** The customer's latest concerned contact number (any training) — pre-filled the same way. */
+  lastPhone?: string;
   /** Certificates are made and the card moved on: its location can't change any more (the rows are in the sheet). */
   certLocked?: boolean;
   /** Quotes/PIs with nothing left to merge (no flags) can get a training date. */
@@ -488,10 +492,10 @@ export function customerContacts(events: CardEvent[], customerOf: Map<string, st
  * (`legacy*`, before 15 Oct — what trainings without their own still show); the latest concerned email, offered when the
  * next training is scheduled.
  */
-type CertOfCustomer = { name?: string; legacyLocation?: string; legacyEmail?: string; lastEmail?: string };
+type CertOfCustomer = { name?: string; legacyLocation?: string; legacyEmail?: string; lastEmail?: string; lastPhone?: string };
 export type CustomerCert = Map<string, CertOfCustomer>;
 
-const CERT_KINDS = new Set<CardEventKind>(["set_cert_alias", "set_concerned_email", "set_concerned_name", "set_cert_location", "set_training_email", "set_training_date"]);
+const CERT_KINDS = new Set<CardEventKind>(["set_cert_alias", "set_concerned_email", "set_concerned_name", "set_cert_location", "set_training_email", "set_training_phone", "set_training_date"]);
 
 /** Same words, ignoring case and spacing: "JW Marriott  Sahar" = "jw marriott sahar". */
 export const sameWords = (a: string, b: string) => a.trim().replace(/\s+/g, " ").toLowerCase() === b.trim().replace(/\s+/g, " ").toLowerCase();
@@ -501,21 +505,24 @@ export function customerCert(events: CardEvent[], customerOf: Map<string, string
   const keyOf = (customer: string) => nameOf.get(customer) || `id:${customer}`;
   const evs = events.filter((e) => !e.revertedAt && CERT_KINDS.has(e.kind)).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
   for (const e of evs) {
-    if (e.kind === "set_training_date" && e.location === undefined && e.email === undefined && !e.underName) continue;
+    if (e.kind === "set_training_date" && e.location === undefined && e.email === undefined && e.phone === undefined && !e.underName) continue;
     const customer = e.ref ?? e.cardIds.map((id) => customerOf.get(id)).find(Boolean);
     if (!customer) continue;
     const key = keyOf(customer);
     const c = byName.get(key) ?? {};
     byName.set(key, c);
     const emailed = (to?: string) => { if (to?.trim()) c.lastEmail = to.trim(); };
+    const phoned = (n?: string) => { if (n?.trim()) c.lastPhone = n.trim(); };
     if (e.kind === "set_concerned_name") c.name = e.value?.trim() || undefined;
     else if (e.kind === "set_concerned_email") (c.legacyEmail = e.value?.trim() || undefined, emailed(e.value));
     // "" = "Same as original" was chosen (the customer's own name); undefined = never chosen.
     else if (e.kind === "set_cert_alias") c.legacyLocation = e.value?.trim() ?? "";
     else if (e.kind === "set_training_email") emailed(e.value);
+    else if (e.kind === "set_training_phone") phoned(e.value);
     else if (e.kind === "set_training_date") {
       if (e.underName && e.location === undefined) c.legacyLocation = e.underName.trim(); // before set_cert_alias existed
       emailed(e.email);
+      phoned(e.phone);
     }
   }
   const out: CustomerCert = new Map();
@@ -532,20 +539,25 @@ export function customerCert(events: CardEvent[], customerOf: Map<string, string
 function applyCert(c: CardView, cust: CertOfCustomer | undefined, ownEvents: CardEvent[]) {
   let location: string | undefined;
   let email: string | undefined;
+  let phone: string | undefined;
   for (const e of ownEvents) {
     if (e.kind === "set_cert_location") location = e.value?.trim() ?? "";
     else if (e.kind === "set_training_email") email = e.value?.trim() || undefined;
+    else if (e.kind === "set_training_phone") phone = e.value?.trim() || undefined;
     else if (e.kind === "set_training_date" && e.value !== "TBD") {
       if (e.location !== undefined) location = e.location.trim();
       if (e.email !== undefined) email = e.email.trim() || undefined;
+      if (e.phone !== undefined) phone = e.phone.trim() || undefined;
     }
   }
   const trained = Boolean(c.schedule);
   c.certLocation = trained ? location ?? cust?.legacyLocation : undefined;
   c.concernedEmail = trained ? email ?? cust?.legacyEmail : undefined;
+  c.concernedPhone = trained ? phone : undefined;
   c.concernedName = cust?.name;
   c.lastEmail = cust?.lastEmail;
-  const extra = [c.certLocation, c.concernedEmail, c.concernedName].filter(Boolean).join(" ").toLowerCase();
+  c.lastPhone = cust?.lastPhone;
+  const extra = [c.certLocation, c.concernedEmail, c.concernedPhone, c.concernedName].filter(Boolean).join(" ").toLowerCase();
   if (extra) c.search = `${c.search} ${extra}`;
 }
 
@@ -1080,9 +1092,9 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_training_date": {
       const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDays(x));
       const who = (e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "") + (e.underName ? ` · Under name: ${e.underName}` : "")
-        + (e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : "") + (e.email ? ` · Email: ${e.email}` : "");
+        + (e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : "") + (e.email ? ` · Email: ${e.email}` : "") + (e.phone ? ` · Contact number: ${e.phone}` : "");
       if (e.mode === "invoice") return `Training date set to the invoice date, ${show(v)} — before the dashboard${e.trainers?.length ? who : " · Trainers not recorded"}`;
-      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : ""}${e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : ""}${e.email ? ` · Email: ${e.email}` : ""}`;
+      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : ""}${e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : ""}${e.email ? ` · Email: ${e.email}` : ""}${e.phone ? ` · Contact number: ${e.phone}` : ""}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
       if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)${who}`;
       if (e.before && e.mode === "change") return `Training date changed from ${show(e.before)} to ${show(v)}${who}`;
@@ -1095,6 +1107,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_concerned_name": return `Concerned person's name: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — on every card under this customer name`;
     case "set_cert_location": return `Certificate location: ${v ? `“${v}”` : "the customer's own name"}${e.before ? ` (was “${e.before}”)` : ""} — this training`;
     case "set_training_email": return `Concerned person's email: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — this training`;
+    case "set_training_phone": return `Concerned person's contact number: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — this training`;
     case "set_concerned_email": return `Concerned person's email: ${v || "not set"}${e.before ? ` (was ${e.before})` : ""} — on every card under this customer name`;
     case "zoho_change": return v;
     case "add_potential": return `Added to Potential training${v ? ` — training expected around ${fmtMonth(v)}` : ""}`;
@@ -1116,6 +1129,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "aed_reply": return `Reply received from ${v}${e.subject ? ` — “${e.subject}”` : ""}`;
     case "training_reminder": return `Training reminder emailed to ${(e.trainers ?? []).join(", ")}${e.subject ? ` — “${e.subject}”` : ""}`;
     case "training_postponed_mail": return `Postponement emailed to ${(e.trainers ?? []).join(", ")}${e.subject ? ` — “${e.subject}”` : ""}`;
+    case "training_whatsapp": return `${e.value?.startsWith("postponed:") ? "Postponement" : "Training reminder"} sent by WhatsApp to ${(e.trainers ?? []).join(", ")}`;
     case "fulfil_certs": {
       const rows = e.certs ?? [];
       return `${v} participant${v === "1" ? "" : "s"} added to the master sheet${rows.length ? ` — serial ${rows[0].serial}${rows.length > 1 ? `–${rows.at(-1)!.serial}` : ""}` : ""}`;
