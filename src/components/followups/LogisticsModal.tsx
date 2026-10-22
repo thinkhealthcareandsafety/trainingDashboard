@@ -14,6 +14,7 @@ import {
   TrainingSection,
 } from "./CardModal";
 import { AedDocsSection, AedNotesSection, ItemDescriptionSection } from "./AedModal";
+import { StepTracker, logisticsSteps } from "./Steps";
 
 // Arti's Logistics board. AED Delivered Status: mark delivered (then hide the card). From Sent to Logistics on: the
 // certificates of a completed training, merged with its paid invoice's payment(s), then packed, shipped and received —
@@ -296,10 +297,11 @@ export function LogisticsModal({ card, cards, trainingCards, member, options, on
   const origin = l.origin.fulfillment ? { ...l.origin, historyIds: l.origin.historyIds.slice(1) } : l.origin;
   const allCards = new Map([...trainingCards, ...cards]);
   const pi = origin.pi ?? origin.linkedPI;
+  const logiSteps = logisticsSteps(card);
   const sub = `${LOGI_COLUMN_LABEL[l.column]}${pi ? ` · ${pi.number}` : card.docNumber ? ` · ${card.docNumber}` : ""}`;
   return (
     <Shell label={`${card.name} logistics`} onClose={onClose} side={<ChangeLog cardIds={card.historyIds} cards={allCards} member={member} />}>
-      <Header sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} onClose={onClose} />
+      <Header sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} aside={logiSteps && <StepTracker steps={logiSteps} label="Shipping progress" />} onClose={onClose} />
       <div className="grid items-start gap-3 p-4 xl:grid-cols-2">
         <div className="space-y-3">
           <CustomerSection card={card} />

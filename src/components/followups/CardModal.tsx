@@ -12,6 +12,7 @@ import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, IconButton, Segmented, btn, inputCls, selectCls } from "../ui";
 import { DaysPicker } from "./DaysPicker";
+import { StepTracker, trainingSteps } from "./Steps";
 import { celebrate } from "@/lib/confetti";
 import { canRevert } from "@/lib/roles";
 
@@ -1602,21 +1603,22 @@ export function Shell({ label, onClose, side, footer, overlay, children }: { lab
 
 export function Header({ kind, sub, title, flagged, aside, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; aside?: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-line bg-surface px-6 pb-3 pt-4">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          {kind && <span className={`rounded-md px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide ${STAGE_TONE[kind].chip}`}>{KIND_LABEL[kind]}</span>}
-          <span className="text-[13px] font-medium text-muted">{sub}</span>
+    // The steps (aside) share the top row with the document line, so the customer's name keeps the full width below (owner, 22 Oct).
+    <div className="sticky top-0 z-10 border-b border-line bg-surface px-6 pb-3 pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {kind && <span className={`shrink-0 rounded-md px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide ${STAGE_TONE[kind].chip}`}>{KIND_LABEL[kind]}</span>}
+          <span className="truncate text-[13px] font-medium text-muted" title={sub}>{sub}</span>
         </div>
-        <h2 className="mt-1 flex items-center gap-2 text-[22px] font-bold leading-tight tracking-tight text-ink">
-          <span className="[overflow-wrap:anywhere]">{title}</span>
-          {flagged && <FlagBadge />}
-        </h2>
+        <div className="-my-1.5 flex shrink-0 items-center gap-4">
+          {aside}
+          <IconButton label="Close" onClick={onClose}><path d="M5 5l10 10M15 5L5 15" /></IconButton>
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-4">
-        {aside}
-        <IconButton label="Close" onClick={onClose}><path d="M5 5l10 10M15 5L5 15" /></IconButton>
-      </div>
+      <h2 className="mt-1 flex items-center gap-2 pr-10 text-[22px] font-bold leading-tight tracking-tight text-ink">
+        <span className="[overflow-wrap:anywhere]">{title}</span>
+        {flagged && <FlagBadge />}
+      </h2>
     </div>
   );
 }
@@ -1835,6 +1837,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
     </div>
   );
 
+  const steps = trainingSteps(card);
   return (
     <Shell
       label={`${card.name} details`}
@@ -1843,7 +1846,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       side={<ChangeLog cardIds={card.historyIds} cards={cards} member={member} />}
       overlay={prompt && card.readyToSchedule && <SchedulePopup card={card} mode="ready" onSchedule={schedule} onClose={() => setPrompt(false)} busyOn={busyOn} />}
     >
-      <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} onClose={onClose} />
+      <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} aside={steps && <StepTracker steps={steps} label="Deal progress" />} onClose={onClose} />
       <div className="space-y-3 p-4">
         {card.deleted && (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-high-bg px-4 py-3 text-[14px] text-high">

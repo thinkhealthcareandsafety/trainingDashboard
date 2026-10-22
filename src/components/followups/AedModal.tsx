@@ -9,6 +9,7 @@ import { useStore } from "@/lib/store";
 import { celebrate } from "@/lib/confetti";
 import { ContactedSection, RepliesLine } from "./AedContacted";
 import { ReplyView } from "./FulfilCerts";
+import { StepTracker, aedSteps } from "./Steps";
 import { canMarkDelivered, canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
@@ -412,7 +413,7 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
 
   return (
     <Shell label={`${card.name} details`} onClose={onClose} footer={footer} side={<ChangeLog cardIds={[card.id, aedCustomerId(card.customerId)]} cards={cards} member={member} />}>
-      <Header kind="invoice" sub={`${inv.number} · ${dateLong(inv.date)} · AedSmartx`} title={card.name} onClose={onClose} />
+      <Header kind="invoice" sub={`${inv.number} · ${dateLong(inv.date)} · AedSmartx`} title={card.name} aside={<StepTracker steps={aedSteps(card)} label="AED training progress" />} onClose={onClose} />
       <div className="grid gap-3 p-4 xl:grid-cols-2">
         <div className="space-y-3">
           {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={withoutRemoved(card)} /></>}
