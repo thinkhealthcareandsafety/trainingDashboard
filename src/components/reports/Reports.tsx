@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { DASHBOARDS, type Tile } from "@/lib/analytics/dashboards";
 import { datasetOf } from "@/lib/analytics/model";
 import type { Spec } from "@/lib/analytics/query";
@@ -54,21 +55,22 @@ export function Reports() {
         <div className="inline-flex flex-wrap rounded-full bg-surface-2 p-0.5" role="tablist" aria-label="Dashboards">
           {[...dashboards.map((d) => ({ id: d.id, label: d.title })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}` }].map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
-              className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
+              className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>
         <button className={btn.primary} onClick={() => setBuilder({})}>+ New report</button>
-        <span className="ml-auto text-[12.5px] text-muted" title={st.error ? `Last refresh: ${st.error}` : undefined}>
+        <span className="ml-auto text-[13.5px] text-muted" title={st.error ? `Last refresh: ${st.error}` : undefined}>
           Zoho data copied {stamp(st.refreshedAt)}{st.running || refreshing ? " · refreshing…" : ""}{st.error ? " · last refresh had a problem" : ""}
           {meta.admin && !st.running && !refreshing && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={refresh}>Refresh now</button></>}
         </span>
       </div>
-      {current && <p className="mt-2 text-[13px] text-muted">{current.desc}</p>}
+      {current && <p className="mt-2 text-[14px] text-muted">{current.desc}</p>}
       <div className="mt-4">
         {current ? <DashboardView def={current} today={meta.today} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}
       </div>
-      {builder && <Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={() => { loadSaved(); setTab("saved"); }} />}
+      {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
+      {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={() => { loadSaved(); setTab("saved"); }} />, document.body)}
     </div>
   );
 }
@@ -98,9 +100,9 @@ function SavedReports({ list, today, canBuild, onEdit, onChanged, onNew }: { lis
         return (
           <TileCard key={r.id} tile={tile} spec={specs[i]} answer={answers[i]} accent={i}
             actions={<>
-              <span className="mr-1 hidden text-[11.5px] text-faint sm:inline" title={`Saved by ${r.by}, ${stamp(r.updatedAt)}`}>{r.by.split(" ")[0]} · {datasetOf(r.spec.dataset)?.label}</span>
-              {r.mine && <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => onEdit(r)}>Edit</button>}
-              {r.mine && <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-high-bg hover:text-high" onClick={() => remove(r.id)}>Delete</button>}
+              <span className="mr-1 hidden text-[12.5px] text-faint sm:inline" title={`Saved by ${r.by}, ${stamp(r.updatedAt)}`}>{r.by.split(" ")[0]} · {datasetOf(r.spec.dataset)?.label}</span>
+              {r.mine && <button type="button" className="rounded-md px-2 py-1 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => onEdit(r)}>Edit</button>}
+              {r.mine && <button type="button" className="rounded-md px-2 py-1 text-[13px] font-medium text-muted hover:bg-high-bg hover:text-high" onClick={() => remove(r.id)}>Delete</button>}
             </>} />
         );
       })}

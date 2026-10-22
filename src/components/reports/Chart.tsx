@@ -172,7 +172,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
     <>
       <div ref={el} style={{ height: model.others ? height - 20 : height }} className="w-full" role="img" aria-label={model.summary} />
       {model.others && (
-        <p className="mt-1 text-[12px] text-muted">
+        <p className="mt-1 text-[13.5px] text-muted">
           Everything else together: <span className="num font-medium text-ink-2">{formatValue(model.others, model.format)}</span> · the table shows it all
         </p>
       )}
@@ -181,7 +181,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
 }
 
 function Empty({ height }: { height: number }) {
-  return <div style={{ height }} className="grid place-items-center text-[13px] text-muted">No data for these filters.</div>;
+  return <div style={{ height }} className="grid place-items-center text-[14px] text-muted">No data for these filters.</div>;
 }
 
 type Model = {
@@ -234,17 +234,17 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
   const barColours = perBar ? colourMap(m.x, t.dark, pal) : null;
   const fade = (xKey: string) => (picked && xKey !== picked ? 0.3 : 1);
   const fmt = (v: number | null) => formatValue(v, m.format);
-  const axisText = { color: t.muted, fontSize: 11 };
+  const axisText = { color: t.muted, fontSize: 13 };
   const base = {
     animationDuration: 250,
     textStyle: { fontFamily: "inherit", color: t.ink2 },
     tooltip: {
       trigger: k === "bar" || k === "donut" ? "item" : "axis",
       axisPointer: { type: k === "line" || k === "area" ? "line" : "shadow", lineStyle: { color: t.line }, shadowStyle: { color: t.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" } },
-      backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 12 },
+      backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 14 },
       valueFormatter: (v: unknown) => fmt(typeof v === "number" ? v : null),
     },
-    legend: m.series.length > 1 ? { top: 0, left: 0, icon: "roundRect", itemWidth: 10, itemHeight: 10, textStyle: { color: t.ink2, fontSize: 12 } } : undefined,
+    legend: m.series.length > 1 ? { top: 0, left: 0, icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 13.5 } } : undefined,
   };
 
   if (k === "donut") {
@@ -252,7 +252,7 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
     const pieColours = colourMap(m.x, t.dark, pal);
     return {
       ...base,
-      legend: { orient: "vertical", right: 0, top: "middle", icon: "roundRect", itemWidth: 10, itemHeight: 10, textStyle: { color: t.ink2, fontSize: 12 } },
+      legend: { orient: "vertical", right: 0, top: "middle", icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 13.5 } },
       series: [{
         type: "pie", radius: ["52%", "76%"], center: ["32%", "50%"], avoidLabelOverlap: true,
         itemStyle: { borderColor: t.surface, borderWidth: 2, borderRadius: 4 },
@@ -263,7 +263,7 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
   }
 
   const horizontal = k === "bar";
-  const catAxis = { type: "category", data: m.xLabels, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { ...axisText, ...(horizontal ? { width: 150, overflow: "truncate" } : { hideOverlap: true }) }, inverse: horizontal };
+  const catAxis = { type: "category", data: m.xLabels, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { ...axisText, ...(horizontal ? { width: 180, overflow: "truncate" } : { hideOverlap: true }) }, inverse: horizontal };
   const valAxis = { type: "value", splitLine: { lineStyle: { color: t.line, width: 1 } }, axisLabel: { ...axisText, formatter: (v: number) => fmt(v) } };
   const radius = horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0];
   const series = m.series.map((s, si) => {
@@ -278,13 +278,13 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
       barMaxWidth: horizontal ? 18 : 36, barGap: "20%",
       // Stacks: only the top segment is rounded; segments are parted by a 2 px surface gap.
       data: s.values.map((v, i) => ({ value: v, itemStyle: { color: barColours?.get(m.x[i]) ?? colour, opacity: fade(m.x[i]), borderRadius: k === "stacked" && !last ? 0 : radius, borderColor: k === "stacked" ? t.surface : undefined, borderWidth: k === "stacked" ? 1 : 0 } })),
-      label: horizontal && single ? { show: true, position: "right", color: t.ink2, fontSize: 11, formatter: (p: { value: number }) => fmt(p.value) } : undefined,
+      label: horizontal && single ? { show: true, position: "right", color: t.ink2, fontSize: 13, formatter: (p: { value: number }) => fmt(p.value) } : undefined,
       emphasis: { focus: k === "stacked" ? "series" : "none" },
     };
   });
   return {
     ...base,
-    grid: { left: 8, right: horizontal ? 56 : 12, top: m.series.length > 1 ? 32 : 12, bottom: 8, containLabel: true },
+    grid: { left: 8, right: horizontal ? 68 : 12, top: m.series.length > 1 ? 32 : 12, bottom: 8, containLabel: true },
     xAxis: horizontal ? valAxis : catAxis,
     yAxis: horizontal ? catAxis : valAxis,
     series,
@@ -302,9 +302,9 @@ function Kpi({ result }: { result: Result }) {
   const range = result.prevFrom && result.prevTo ? `${result.prevFrom} → ${result.prevTo}` : undefined;
   return (
     <div>
-      <div className="num text-[30px] font-semibold leading-tight tracking-tight text-ink">{formatValue(v, f)}</div>
+      <div className="num text-[36px] font-semibold leading-tight tracking-tight text-ink">{formatValue(v, f)}</div>
       {result.previous && (
-        <div className="mt-1 text-[12.5px] text-muted" title={range ? `Compared with ${range}${result.toDate && now !== v ? ` (this period so far: ${formatValue(now, f)})` : ""}` : undefined}>
+        <div className="mt-1 text-[14px] text-muted" title={range ? `Compared with ${range}${result.toDate && now !== v ? ` (this period so far: ${formatValue(now, f)})` : ""}` : undefined}>
           {change === null ? <>vs {formatValue(p ?? null, f)} {when}</> : (
             <><span className={`font-semibold ${change >= 0 ? "text-low" : "text-high"}`}>{change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(Math.abs(change) < 10 ? 1 : 0)}%</span> vs {formatValue(p ?? null, f)} {when}</>
           )}
@@ -319,9 +319,9 @@ export function ResultTable({ result, grain = "month", max = 200 }: { result: Re
   if (!result.rows.length) return <Empty height={120} />;
   return (
     <div className="no-scrollbar max-h-[340px] overflow-auto">
-      <table className="w-full text-[13px]">
+      <table className="w-full text-[14.5px]">
         <thead className="sticky top-0 bg-surface">
-          <tr className="border-b border-line text-left text-[12px] text-muted">
+          <tr className="border-b border-line text-left text-[13px] text-muted">
             {result.by.map((b) => <th key={b.key} className="py-1.5 pr-3 font-medium">{b.label}</th>)}
             {result.measures.map((m) => <th key={m.key} className="py-1.5 pl-3 text-right font-medium">{m.label}</th>)}
           </tr>

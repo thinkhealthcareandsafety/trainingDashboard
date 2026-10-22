@@ -85,7 +85,7 @@ export function MultiSelect({ label, values, selected, onChange, loading }: { la
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className={`inline-flex h-9 max-w-[240px] items-center gap-1.5 rounded-full border px-3.5 text-[13px] transition ${selected.length ? "border-brand/50 bg-brand-soft text-ink" : "border-line bg-surface text-ink-2 hover:border-line-strong"}`}
+        className={`inline-flex h-10 max-w-[260px] items-center gap-1.5 rounded-full border px-4 text-[14px] transition ${selected.length ? "border-brand/50 bg-brand-soft text-ink" : "border-line bg-surface text-ink-2 hover:border-line-strong"}`}
       >
         <span className="text-muted">{label}:</span>
         <span className="truncate font-medium">{summary}</span>
@@ -93,18 +93,18 @@ export function MultiSelect({ label, values, selected, onChange, loading }: { la
       </button>
       {open && (
         <div className="absolute left-0 top-full z-40 mt-1.5 w-[280px] rounded-xl border border-line bg-surface p-2 shadow-pop">
-          <input autoFocus className="h-8 w-full rounded-lg border border-line bg-surface px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-brand focus:outline-none" placeholder={`Search ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} />
+          <input autoFocus className="h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[14px] text-ink placeholder:text-faint focus:border-brand focus:outline-none" placeholder={`Search ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="no-scrollbar mt-1.5 max-h-[260px] overflow-y-auto">
-            {loading && !values.length && <p className="px-2 py-2 text-[12.5px] text-muted">Loading…</p>}
-            {!loading && !shown.length && <p className="px-2 py-2 text-[12.5px] text-muted">Nothing matches.</p>}
+            {loading && !values.length && <p className="px-2 py-2 text-[13.5px] text-muted">Loading…</p>}
+            {!loading && !shown.length && <p className="px-2 py-2 text-[13.5px] text-muted">Nothing matches.</p>}
             {shown.map((v) => (
-              <label key={v} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-ink-2 hover:bg-surface-2">
+              <label key={v} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[14px] text-ink-2 hover:bg-surface-2">
                 <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={selected.includes(v)} onChange={() => toggle(v)} />
                 <span className="truncate">{v}</span>
               </label>
             ))}
           </div>
-          {selected.length > 0 && <button type="button" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-[12.5px] font-semibold text-brand hover:bg-surface-2" onClick={() => onChange([])}>Clear</button>}
+          {selected.length > 0 && <button type="button" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-[13.5px] font-semibold text-brand hover:bg-surface-2" onClick={() => onChange([])}>Clear</button>}
         </div>
       )}
     </div>
@@ -117,7 +117,7 @@ export function PeriodSelect({ today, value, onChange }: { today: string; value:
     // Our own arrow (the browser's can't be moved): `right-4` sets where it sits, `pr-10` keeps the text clear of it.
     <label className="relative inline-flex items-center">
       <span className="sr-only">Period</span>
-      <select className="h-9 appearance-none rounded-full border border-line bg-surface pl-5 pr-10 text-[13px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="h-10 appearance-none rounded-full border border-line bg-surface pl-5 pr-10 text-[14px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={value} onChange={(e) => onChange(e.target.value)}>
         {list.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
       </select>
       <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-4 size-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>

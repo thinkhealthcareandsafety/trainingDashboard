@@ -67,11 +67,11 @@ export function DashboardView({ def, today }: { def: DashboardDef; today: string
         {def.filters.map((f) => (
           <FilterControl key={f.field} dataset={firstDatasetWith(f.field)} field={f.field} label={f.label} selected={filters[f.field] ?? []} onChange={(v) => setFilters((s) => ({ ...s, [f.field]: v }))} />
         ))}
-        {active > 0 && <button type="button" className="h-9 rounded-full px-3 text-[13px] font-semibold text-brand hover:bg-brand-soft" onClick={() => { setFilters({}); setPick(null); }}>Clear all</button>}
-        {loading && <span className="text-[12.5px] text-muted" aria-live="polite">Updating…</span>}
+        {active > 0 && <button type="button" className="h-10 rounded-full px-3 text-[14px] font-semibold text-brand hover:bg-brand-soft" onClick={() => { setFilters({}); setPick(null); }}>Clear all</button>}
+        {loading && <span className="text-[13.5px] text-muted" aria-live="polite">Updating…</span>}
       </div>
       {pick && (
-        <div className="mt-3 flex items-center gap-2 text-[13px]">
+        <div className="mt-3 flex items-center gap-2 text-[14px]">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-ink">
             Showing <b className="font-semibold">{pick.label}</b>
             <button type="button" aria-label="Clear the selection" className="ml-0.5 rounded-full px-1 text-muted hover:text-ink" onClick={() => setPick(null)}>×</button>
@@ -119,23 +119,23 @@ export function TileCard({ tile, spec, answer, picked, onPick, actions, accent }
     <section className={`card flex min-w-0 flex-col p-4 ${SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[13px] text-ink-2" : "text-[14.5px]"}`} title={spec.title}>{spec.title}</h3>
-          {tile.note && !isKpi && <p className="truncate text-[12px] text-muted">{tile.note}</p>}
+          <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[14.5px] text-ink-2" : "text-[16.5px]"}`} title={spec.title}>{spec.title}</h3>
+          {tile.note && !isKpi && <p className="truncate text-[13.5px] text-muted">{tile.note}</p>}
         </div>
         {(actions || (!isKpi && ok)) && (
           <div className="flex shrink-0 items-center gap-0.5">
             {actions}
             {!isKpi && ok && (
               <>
-                <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => setTable((x) => !x)} aria-pressed={table}>{table ? "Chart" : "Table"}</button>
-                <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => downloadCsv(answer, spec.title ?? "report", spec.grain)} title="Download the numbers (opens in Excel)">CSV</button>
+                <button type="button" className="rounded-md px-2 py-1 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => setTable((x) => !x)} aria-pressed={table}>{table ? "Chart" : "Table"}</button>
+                <button type="button" className="rounded-md px-2 py-1 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => downloadCsv(answer, spec.title ?? "report", spec.grain)} title="Download the numbers (opens in Excel)">CSV</button>
               </>
             )}
           </div>
         )}
       </div>
       <div className={isKpi ? "mt-2" : "mt-3 min-h-0 flex-1"}>
-        {!answer ? <div className={`animate-pulse rounded-lg bg-surface-2 ${isKpi ? "h-12" : "h-[260px]"}`} />
+        {!answer ? <div className={`animate-pulse rounded-lg bg-surface-2 ${isKpi ? "h-14" : "h-[260px]"}`} />
           : isError(answer) ? <p className="text-[13px] text-high">{answer.error}</p>
           : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} />}
       </div>
