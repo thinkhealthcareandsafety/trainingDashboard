@@ -13,12 +13,14 @@ import { SyncLogWindow } from "./SyncLog";
 import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
 import { AnalyticsConnect } from "./AnalyticsConnect";
-import { isAdmin } from "@/lib/roles";
+import { boardsFor, isAdmin } from "@/lib/roles";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
   { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
+  // Reports (ANALYTICS-PLAN.md): only for members whose boards include the Training board (its data is Books money).
+  { href: "/reports", label: "Reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
 ];
 
 /**
@@ -342,6 +344,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       />
     );
   }
+  const nav = NAV.filter((n) => n.href !== "/reports" || boardsFor(session.member!).includes("training"));
 
   return (
     <>
@@ -353,7 +356,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button onClick={sidebar.show} aria-label="Show sidebar" title="Show sidebar" className="mb-5 grid size-9 place-items-center rounded-[10px] text-muted hover:bg-ink/[0.04] hover:text-ink">
               <Icon><path d="M4 5.5h12M4 10h12M4 14.5h12" /></Icon>
             </button>
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <Link
                 key={n.href}
                 href={n.href}
@@ -399,7 +402,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           <nav className="space-y-0.5">
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <Link
                 key={n.href}
                 href={n.href}
@@ -451,8 +454,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Bottom tabs (mobile / tablet) */}
-      <nav className="glass fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden">
-        {NAV.map((n) => (
+      <nav className={`glass fixed inset-x-0 bottom-0 z-30 grid ${nav.length === 4 ? "grid-cols-4" : "grid-cols-3"} border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden`}>
+        {nav.map((n) => (
           <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOn(n.href) ? "text-ink" : "text-muted"}`}>
             <Icon>{n.icon}</Icon>
             {n.label}

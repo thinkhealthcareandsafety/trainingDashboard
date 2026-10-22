@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { isAdmin } from "@/lib/roles";
-import { ANALYTICS_SCOPES, analyticsInfo, connectAnalytics, viewDetails, workspaceViews } from "@/lib/zohoAnalytics";
+import { ANALYTICS_SCOPES, analyticsInfo, connectAnalytics, exportTable, viewDetails, workspaceViews } from "@/lib/zohoAnalytics";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,16 @@ export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!isAdmin(me)) return Response.json({ error: "Admin only" }, { status: 403 });
+  // ?export=<id>: a table's rows (first 5 — a look at what Zoho sends; the Reports data refresh reads whole tables).
+  const exp = new URL(request.url).searchParams.get("export");
+  if (exp) {
+    try {
+      const rows = await exportTable(exp, new URL(request.url).searchParams.get("fmt") === "json" ? "json" : "csv");
+      return Response.json({ count: rows.length, sample: rows.slice(0, 5) });
+    } catch (e) {
+      return Response.json({ error: e instanceof Error ? e.message : "Couldn't export that table" }, { status: 502 });
+    }
+  }
   // ?view=<id>: one table's columns / one query table's details.
   const view = new URL(request.url).searchParams.get("view");
   if (view) {

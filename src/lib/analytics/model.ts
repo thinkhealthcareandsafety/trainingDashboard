@@ -1,0 +1,224 @@
+/*
+ * The Reports page's semantic layer (ANALYTICS-PLAN.md §3): every dataset, field and measure, defined once with a
+ * plain-English definition. Reports, dashboards and (later) the AI all build on these — nobody writes queries — so two
+ * charts of the same measure can never disagree. Pure: shared by the server (query.ts) and the browser (builder).
+ */
+
+export type Value = string | number | null | string[];
+export type Row = Record<string, Value>;
+
+export type FieldKind = "text" | "date";
+/** `order`: the values' natural order (age bands, stages) — used instead of A–Z when sorting by label. */
+export type Field = { key: string; label: string; kind: FieldKind; multi?: boolean; hint?: string; order?: string[] };
+export type Format = "inr" | "count" | "pct" | "days";
+type Agg =
+  | { agg: "count" }
+  | { agg: "sum" | "avg"; field: string }
+  | { agg: "distinct"; field: string }
+  | { agg: "ratio"; num: string; den: string; scale?: number };
+export type Measure = { key: string; label: string; format: Format; def: string } & Agg;
+export type BoardNeed = "training" | "aed";
+export type Dataset = {
+  key: string;
+  label: string;
+  desc: string;
+  /** Where the rows come from — shown under the builder's data picker. */
+  source: string;
+  /** The field the date range and "by month / FY …" use. */
+  dateField: string;
+  fields: Field[];
+  measures: Measure[];
+  /** Who may read it: members whose boards include this one (money lives on the Training board). */
+  board: BoardNeed;
+};
+
+const DATE: Field = { key: "date", label: "Date", kind: "date" };
+const CUSTOMER: Field[] = [
+  { key: "customer", label: "Customer", kind: "text" },
+  { key: "customerType", label: "Customer type", kind: "text", hint: "New / Old Customer, New / Old Reseller (Zoho Books)" },
+  { key: "sector", label: "Sector", kind: "text" },
+  { key: "chain", label: "Hotel chain", kind: "text", hint: "Zoho Books “Special Identifier”: Marriott Hotels, Lemon Tree, Hyatt Hotels, Medic Assist" },
+  { key: "state", label: "State", kind: "text", hint: "Billing state" },
+  { key: "city", label: "City", kind: "text", hint: "Billing city" },
+];
+
+export const DATASETS: Dataset[] = [
+  {
+    key: "sales",
+    label: "Sales",
+    desc: "Every invoice line in Zoho Books — products, consumables, trainings, services.",
+    source: "Zoho Analytics (synced from Zoho Books): Invoices + Invoice Items + Customers + Items",
+    dateField: "date",
+    board: "training",
+    fields: [
+      { ...DATE, label: "Invoice date" },
+      { key: "invoice", label: "Invoice", kind: "text" },
+      ...CUSTOMER,
+      { key: "salesperson", label: "Sales person", kind: "text" },
+      { key: "item", label: "Item", kind: "text" },
+      { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”: All AEDs, AED Pads, Training Services, Fire Safety…" },
+      { key: "productType", label: "Product type", kind: "text", multi: true, hint: "Invoice field “Product Type” (an invoice can have several)" },
+      { key: "businessType", label: "Business type", kind: "text", hint: "Products / Services / Training" },
+      { key: "leadSource", label: "Lead source", kind: "text" },
+      { key: "status", label: "Invoice status", kind: "text" },
+    ],
+    measures: [
+      { key: "revenue", label: "Revenue", format: "inr", agg: "sum", field: "amount", def: "Invoice line totals before tax (after discounts), void and draft invoices left out." },
+      { key: "revenueTax", label: "Revenue incl. tax", format: "inr", agg: "sum", field: "amountTax", def: "Invoice line totals including GST." },
+      { key: "units", label: "Units", format: "count", agg: "sum", field: "qty", def: "Quantity on the invoice lines." },
+      { key: "invoices", label: "Invoices", format: "count", agg: "distinct", field: "invoice", def: "Number of different invoices." },
+      { key: "customers", label: "Customers billed", format: "count", agg: "distinct", field: "customer", def: "Number of different customers invoiced." },
+      { key: "avgInvoice", label: "Average invoice", format: "inr", agg: "ratio", num: "revenue", den: "invoices", def: "Revenue ÷ invoices." },
+    ],
+  },
+  {
+    key: "invoices",
+    label: "Invoices & receivables",
+    desc: "One row per invoice — what's billed, what's still owed and how old it is.",
+    source: "Zoho Analytics (synced from Zoho Books): Invoices + Customers",
+    dateField: "date",
+    board: "training",
+    fields: [
+      { ...DATE, label: "Invoice date" },
+      { key: "invoice", label: "Invoice", kind: "text" },
+      ...CUSTOMER,
+      { key: "salesperson", label: "Sales person", kind: "text" },
+      { key: "status", label: "Status", kind: "text" },
+      { key: "ageBand", label: "Age (overdue)", kind: "text", hint: "Days past the due date of what's still owed: Not due / 1–30 / 31–60 / 61–90 / 90+", order: ["Not due", "1–30 days", "31–60 days", "61–90 days", "90+ days", "Paid"] },
+      { key: "productType", label: "Product type", kind: "text", multi: true },
+      { key: "businessType", label: "Business type", kind: "text" },
+      { key: "leadSource", label: "Lead source", kind: "text" },
+    ],
+    measures: [
+      { key: "count", label: "Invoices", format: "count", agg: "count", def: "Number of invoices (void and draft left out)." },
+      { key: "billed", label: "Billed", format: "inr", agg: "sum", field: "amount", def: "Invoice sub-totals before tax, less invoice-level discounts." },
+      { key: "outstanding", label: "Outstanding", format: "inr", agg: "sum", field: "balance", def: "What customers still owe on these invoices (Zoho's balance, incl. tax)." },
+      { key: "overdue", label: "Overdue", format: "inr", agg: "sum", field: "overdue", def: "Outstanding on invoices past their due date." },
+      { key: "daysToPay", label: "Days to pay", format: "days", agg: "avg", field: "daysToPay", def: "Average days from invoice date to the last payment, on paid invoices." },
+    ],
+  },
+  {
+    key: "quotes",
+    label: "Quotes",
+    desc: "One row per quotation — how many go out, their value, and how many are won.",
+    source: "Zoho Analytics (synced from Zoho Books): Quotes + Customers",
+    dateField: "date",
+    board: "training",
+    fields: [
+      { ...DATE, label: "Quote date" },
+      { key: "quote", label: "Quote", kind: "text" },
+      ...CUSTOMER,
+      { key: "salesperson", label: "Sales person", kind: "text" },
+      { key: "status", label: "Status", kind: "text" },
+      { key: "outcome", label: "Outcome", kind: "text", hint: "Won (accepted / invoiced), Lost (declined), Expired, Open" },
+    ],
+    measures: [
+      { key: "count", label: "Quotes", format: "count", agg: "count", def: "Number of quotations (drafts left out)." },
+      { key: "value", label: "Quote value", format: "inr", agg: "sum", field: "amount", def: "Quotation sub-totals before tax." },
+      { key: "won", label: "Quotes won", format: "count", agg: "sum", field: "won", def: "Quotations accepted or invoiced." },
+      { key: "winRate", label: "Win rate", format: "pct", agg: "ratio", num: "won", den: "count", scale: 100, def: "Quotes won ÷ quotes." },
+    ],
+  },
+  {
+    key: "payments",
+    label: "Payments received",
+    desc: "One row per customer payment.",
+    source: "Zoho Analytics (synced from Zoho Books): Customer Payments + Customers",
+    dateField: "date",
+    board: "training",
+    fields: [{ ...DATE, label: "Payment date" }, ...CUSTOMER, { key: "mode", label: "Payment mode", kind: "text" }],
+    measures: [
+      { key: "received", label: "Received", format: "inr", agg: "sum", field: "amount", def: "Payment amounts." },
+      { key: "tds", label: "TDS withheld", format: "inr", agg: "sum", field: "tds", def: "Tax withheld by the customer on these payments." },
+      { key: "count", label: "Payments", format: "count", agg: "count", def: "Number of payments." },
+    ],
+  },
+  {
+    key: "trainings",
+    label: "Trainings",
+    desc: "The Training board's trainings — one per deal, as the Overview counts them.",
+    source: "The Training board (live) + Zoho customers",
+    dateField: "date",
+    board: "training",
+    fields: [
+      { ...DATE, label: "Training date", hint: "The last training day — completed trainings count in that month, as on the Overview" },
+      ...CUSTOMER.slice(0, 4),
+      { key: "trainer", label: "Trainer", kind: "text", multi: true, hint: "A training with two trainers counts for each" },
+      { key: "trainingType", label: "Training type", kind: "text" },
+      { key: "status", label: "Status", kind: "text", hint: "Completed / Scheduled / Postponed / To mark completed" },
+    ],
+    measures: [
+      { key: "count", label: "Trainings", format: "count", agg: "count", def: "Number of trainings (deals), to-be-decided ones left out." },
+      { key: "people", label: "People", format: "count", agg: "sum", field: "people", def: "People trained — the number checked when scheduling, else the PI's quantity." },
+      { key: "perTraining", label: "People per training", format: "count", agg: "ratio", num: "people", den: "count", def: "People ÷ trainings." },
+    ],
+  },
+];
+
+export const datasetOf = (key: string) => DATASETS.find((d) => d.key === key);
+export const fieldOf = (d: Dataset, key: string) => (key === "date" ? d.fields.find((f) => f.key === "date") : d.fields.find((f) => f.key === key));
+export const measureOf = (d: Dataset, key: string) => d.measures.find((m) => m.key === key);
+
+/* ---------------- Formatting (Indian style) ---------------- */
+
+/** ₹ in lakh / crore: ₹3.4L, ₹1.2Cr, ₹48,500. */
+export function inrShort(v: number): string {
+  const a = Math.abs(v);
+  const s = v < 0 ? "−" : "";
+  if (a >= 1e7) return `${s}₹${(a / 1e7).toFixed(a >= 1e8 ? 0 : 2)}Cr`;
+  if (a >= 1e5) return `${s}₹${(a / 1e5).toFixed(a >= 1e6 ? 1 : 2)}L`;
+  return `${s}₹${Math.round(a).toLocaleString("en-IN")}`;
+}
+export function formatValue(v: number | null | undefined, f: Format, short = true): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  if (f === "inr") return short ? inrShort(v) : `₹${Math.round(v).toLocaleString("en-IN")}`;
+  if (f === "pct") return `${v.toFixed(v < 10 ? 1 : 0)}%`;
+  if (f === "days") return `${Math.round(v)} d`;
+  return Math.round(v * 10) / 10 === Math.round(v) ? Math.round(v).toLocaleString("en-IN") : (Math.round(v * 10) / 10).toLocaleString("en-IN");
+}
+
+/* ---------------- Dates: Indian fiscal year (April–March) ---------------- */
+
+export type Grain = "day" | "week" | "month" | "quarter" | "fy";
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** FY of a date: 2026-10-22 → 2026 (FY 2026-27). */
+export const fyOf = (ymd: string) => { const y = Number(ymd.slice(0, 4)); return Number(ymd.slice(5, 7)) >= 4 ? y : y - 1; };
+export function grainKey(ymd: string, g: Grain): string {
+  if (g === "day") return ymd.slice(0, 10);
+  if (g === "month") return ymd.slice(0, 7);
+  const fy = fyOf(ymd);
+  if (g === "fy") return `${fy}`;
+  if (g === "quarter") return `${fy}-Q${Math.floor(((Number(ymd.slice(5, 7)) + 8) % 12) / 3) + 1}`;
+  // ISO-ish week: the Monday the week starts on.
+  const d = new Date(`${ymd.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+export function grainLabel(key: string, g: Grain, long = false): string {
+  if (g === "fy") return `FY ${key}-${String(Number(key) + 1).slice(2)}`;
+  if (g === "quarter") { const [fy, q] = key.split("-"); return `${q} FY${String(Number(fy)).slice(2)}-${String(Number(fy) + 1).slice(2)}`; }
+  if (g === "month") { const m = MONTHS[Number(key.slice(5, 7)) - 1]; return long ? `${m} ${key.slice(0, 4)}` : `${m} ${key.slice(2, 4)}`; }
+  const d = new Date(`${key}T00:00:00Z`);
+  return `${g === "week" ? "Wk of " : ""}${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${long ? ` ${d.getUTCFullYear()}` : ""}`;
+}
+
+/** The date presets of the filter bar, from `today` (YYYY-MM-DD). */
+export type Period = { key: string; label: string; from?: string; to?: string };
+export function periods(today: string): Period[] {
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  const fy = fyOf(today);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const monthEnd = (yy: number, mm: number) => new Date(Date.UTC(yy, mm, 0)).toISOString().slice(0, 10);
+  const back = (months: number) => { const d = new Date(Date.UTC(y, m - 1 - months, 1)); return d.toISOString().slice(0, 10); };
+  const lm = new Date(Date.UTC(y, m - 2, 1));
+  return [
+    { key: "fy", label: `This FY (${fy}-${String(fy + 1).slice(2)})`, from: `${fy}-04-01`, to: `${fy + 1}-03-31` },
+    { key: "lastfy", label: `Last FY (${fy - 1}-${String(fy).slice(2)})`, from: `${fy - 1}-04-01`, to: `${fy}-03-31` },
+    { key: "month", label: "This month", from: `${y}-${pad(m)}-01`, to: monthEnd(y, m) },
+    { key: "lastmonth", label: "Last month", from: lm.toISOString().slice(0, 10), to: monthEnd(lm.getUTCFullYear(), lm.getUTCMonth() + 1) },
+    { key: "3m", label: "Last 3 months", from: back(2), to: monthEnd(y, m) },
+    { key: "12m", label: "Last 12 months", from: back(11), to: monthEnd(y, m) },
+    { key: "all", label: "All time" },
+  ];
+}

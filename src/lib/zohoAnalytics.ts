@@ -117,6 +117,66 @@ export async function viewDetails(viewId: string): Promise<Record<string, unknow
 }
 
 /**
+ * A table's rows (Export API, JSON, column name → value) — tables only (Zoho refuses query tables and dashboards here).
+ * Values come as Zoho formats them (text); the semantic layer parses numbers and dates.
+ */
+/** RFC 4180 CSV (quoted fields, doubled quotes, newlines inside quotes) → rows keyed by the header row. */
+export function parseCsv(text: string): Record<string, string>[] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      rows.push(row); row = [];
+    } else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  const [head, ...body] = rows.filter((r) => r.length > 1 || r[0]);
+  return head ? body.map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ""]))) : [];
+}
+
+export async function exportTable(viewId: string, format: "json" | "csv" = "csv"): Promise<Record<string, string>[]> {
+  if (!/^\d+$/.test(viewId)) throw new Error("Not a view id");
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Analytics isn't connected yet — Admin connects it once");
+  const read = async (token: string) => {
+    const config = format === "json" ? { responseFormat: "json", keyValueFormat: true } : { responseFormat: "csv", includeHeader: true };
+    const url = `${API}/restapi/v2/workspaces/${c.workspaceId}/views/${viewId}/data?CONFIG=${encodeURIComponent(JSON.stringify(config))}`;
+    const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${token}`, "ZANALYTICS-ORGID": c.orgId }, cache: "no-store" });
+    if (res.status === 401) throw Object.assign(new Error("unauthorized"), { status: 401 });
+    const text = await res.text();
+    if (format === "csv" && res.ok && !text.trimStart().startsWith("{")) return parseCsv(text.replace(/^﻿/, ""));
+    let body: unknown = null;
+    try { body = JSON.parse(text); } catch {}
+    const b = (body ?? {}) as { status?: string; summary?: string; data?: unknown; response?: { result?: { rows?: unknown } } };
+    if (!res.ok || b.status === "failure") {
+      const msg = (b.data as { errorMessage?: string } | undefined)?.errorMessage ?? b.summary ?? `error ${res.status}`;
+      console.error(`[zoho analytics] export ${viewId} → ${res.status} ${msg}`);
+      throw new Error(`Zoho Analytics: ${msg}`);
+    }
+    // keyValueFormat → { data: [ { column: value } ] } (older shapes tolerated).
+    const rows = Array.isArray(body) ? body : Array.isArray(b.data) ? b.data : Array.isArray((b.data as { rows?: unknown })?.rows) ? (b.data as { rows: unknown[] }).rows : [];
+    return rows as Record<string, string>[];
+  };
+  try {
+    return await read(await accessFor(c));
+  } catch (e) {
+    if ((e as { status?: number }).status !== 401) throw e;
+    return read(await accessFor(c, true));
+  }
+}
+
+/**
  * Admin connects the workspace: swaps the one-time code for a refresh token, finds which of the account's Zoho Analytics
  * organisations holds the workspace, and lists its views once to check it reads right.
  */
