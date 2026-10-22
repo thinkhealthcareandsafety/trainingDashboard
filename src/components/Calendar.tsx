@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import type { BoardTraining, CalendarEntry, EntryType, Member } from "@/lib/types";
 import { addDays, daysBetween, fmtDate, parseYmd, startOfDay, ymd } from "@/lib/dates";
 import { type CardView, TRAINERS, busyTrainers, salespersonLabel, cardDue, daysValue, fmtDays, fulfilCardId, orderTrainers } from "@/lib/pipeline";
@@ -167,10 +168,19 @@ function DayAgenda({ date, items, known, today, onAdd, onOpen }: { date: string;
         {onAdd && <button className={btn.ghost} onClick={onAdd}><span aria-hidden>+</span> New</button>}
       </div>
       {items.length === 0 ? (
-        <div className="mt-4 rounded-lg border border-dashed border-line px-4 py-6 text-center text-[13px] text-muted">
-          Nothing on this day.
-          {onAdd && <><br /><button className="mt-1 font-medium text-ink-2 hover:text-ink" onClick={onAdd}>Schedule a training, meeting or event</button></>}
-        </div>
+        onAdd ? (
+          // An empty day is a "+" to add something on it (owner, 22 Oct) — not "Nothing on this day".
+          <button
+            type="button"
+            onClick={onAdd}
+            className="press group mt-4 flex w-full flex-col items-center gap-1.5 rounded-lg border border-dashed border-line px-4 py-5 text-[13px] text-muted transition hover:border-brand/60 hover:bg-brand-soft hover:text-ink"
+          >
+            <span className="grid size-9 place-items-center rounded-full border border-line-strong text-[20px] leading-none text-ink-2 transition group-hover:border-brand group-hover:bg-brand group-hover:text-brand-ink" aria-hidden>+</span>
+            Add a training, meeting or event
+          </button>
+        ) : (
+          <div className="mt-4 rounded-lg border border-dashed border-line px-4 py-6 text-center text-[13px] text-muted">Nothing on this day.</div>
+        )
       ) : (
         <ul className="no-scrollbar mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
           {items.map((it) => (
@@ -205,11 +215,23 @@ function MonthNav({ cursor, setCursor, onToday, large = false }: { cursor: Date;
 
 /* ---------------- Mini calendar (Overview) ---------------- */
 
+/**
+ * The calendar's New popup on the Overview — the deals (for a training) load only once it's open. Drawn on the page
+ * itself (portal): inside the calendar card it sat under the Overview's chart.
+ */
+function MiniNew({ date, member, onClose }: { date: string; member: Member; onClose: () => void }) {
+  const boards = boardsFor(member);
+  const cards = useBoardCards({ training: boards.includes("training"), aed: boards.includes("aed") });
+  return createPortal(<NewModal date={date} member={member} cards={cards} onClose={onClose} />, document.body);
+}
+
 export function MiniCalendar() {
   const { now } = useStore();
   const todayStr = ymd(now);
   const [cursor, setCursor] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   const [selected, setSelected] = useState(todayStr);
+  const [adding, setAdding] = useState<string | null>(null);
+  const { member } = useSession();
   const { byDate, known } = useCalendarItems("all", "mine");
   const days = monthGrid(cursor.getFullYear(), cursor.getMonth());
   const href = (it: Item) => (it.kind === "training" ? `/calendar?date=${it.date}&card=${encodeURIComponent(it.t.id)}` : `/calendar?date=${it.date}&entry=${encodeURIComponent(it.e.id)}`);
@@ -243,9 +265,10 @@ export function MiniCalendar() {
         })}
       </div>
       <div className="mt-5 border-t border-line pt-4">
-        <DayAgenda date={selected} items={byDate.get(selected) ?? []} known={known} today={todayStr} onOpen={(it) => { window.location.href = href(it); }} />
+        <DayAgenda date={selected} items={byDate.get(selected) ?? []} known={known} today={todayStr} onAdd={member ? () => setAdding(selected) : undefined} onOpen={(it) => { window.location.href = href(it); }} />
         <Link href={`/calendar?date=${selected}`} className="mt-3 inline-block text-[13px] font-semibold text-brand hover:underline">Open the calendar →</Link>
       </div>
+      {adding && member && <MiniNew date={adding} member={member} onClose={() => setAdding(null)} />}
     </section>
   );
 }
