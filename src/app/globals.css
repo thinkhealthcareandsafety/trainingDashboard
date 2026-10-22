@@ -158,10 +158,43 @@
 }
 
 /*
- * Background themes (owner, 21 Oct): soft pastel gradients behind the cards, each person's own pick, kept in their
- * browser (localStorage th.bg → <html data-bg>). Cards and popups stay white. Light mode only. An element with
- * data-bg (the picker's swatches) shows the same gradient.
+ * Themes (owner, 21–22 Oct): a gradient behind the cards, each person's own pick, kept in their browser (localStorage
+ * th.bg → <html data-bg>). Light themes are soft pastels behind white cards; dark themes ("dark-…") are deep colours
+ * behind the dark cards — picking one also sets light / dark (th.theme). An element with data-bg (the picker's
+ * swatches) shows the same gradient.
  */
+[data-bg="peach"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #ffdcc4 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #ffd3d6 0%, transparent 70%),
+    radial-gradient(60% 55% at 55% 100%, #ffe9c7 0%, transparent 70%), linear-gradient(160deg, #fff6ef, #fff1ee);
+}
+[data-bg="aqua"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #c9f2ee 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #cfe8ff 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #d8f6e9 0%, transparent 70%), linear-gradient(160deg, #effbfa, #eff6fd);
+}
+[data-bg="dark-midnight"] {
+  --bg-art: radial-gradient(55% 60% at 8% 6%, #1c2b63 0%, transparent 70%), radial-gradient(50% 55% at 92% 12%, #2b1d5c 0%, transparent 70%),
+    radial-gradient(60% 55% at 55% 100%, #0f2f4f 0%, transparent 70%), linear-gradient(160deg, #060912, #0a0d1c);
+}
+[data-bg="dark-aurora"] {
+  --bg-art: radial-gradient(50% 55% at 6% 8%, #0e4a46 0%, transparent 72%), radial-gradient(50% 55% at 94% 10%, #3a1f63 0%, transparent 72%),
+    radial-gradient(55% 50% at 50% 100%, #123d5e 0%, transparent 72%), linear-gradient(160deg, #04100f, #0b0a18);
+}
+[data-bg="dark-plum"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #4a1745 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #2e1a5a 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #3d1230 0%, transparent 70%), linear-gradient(160deg, #10060f, #0f0816);
+}
+[data-bg="dark-forest"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #123f2a 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #0d3a3d 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #24361a 0%, transparent 70%), linear-gradient(160deg, #050d09, #07100f);
+}
+[data-bg="dark-ember"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #4a1a12 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #4a2a0c 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #3a0f1c 0%, transparent 70%), linear-gradient(160deg, #110705, #120a07);
+}
+[data-bg="dark-ocean"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #0b3a5c 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #073f4a 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #10285a 0%, transparent 70%), linear-gradient(160deg, #030b12, #040d16);
+}
 [data-bg="blush"] {
   --bg-art: radial-gradient(55% 60% at 8% 6%, #ffd9cf 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #fbd3e6 0%, transparent 70%),
     radial-gradient(60% 55% at 60% 100%, #eadcff 0%, transparent 70%), linear-gradient(160deg, #fff4f0, #fbeff6);
@@ -187,10 +220,15 @@
     radial-gradient(45% 50% at 50% 45%, #fff0cf 0%, transparent 72%), radial-gradient(50% 55% at 8% 96%, #cfeefb 0%, transparent 72%),
     radial-gradient(50% 55% at 94% 94%, #d6f5e3 0%, transparent 72%), linear-gradient(160deg, #fbf5fb, #f3f6fc);
 }
+/* A light theme shows only in light mode, a dark one only in dark mode (Appearance can still flip it). */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) body { background-image: none; }
+  :root:not([data-theme="light"]):not([data-bg^="dark-"]) body { background-image: none; }
 }
-:root[data-theme="dark"] body { background-image: none; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"])[data-bg^="dark-"] body { background-image: none; }
+}
+:root[data-theme="dark"]:not([data-bg^="dark-"]) body { background-image: none; }
+:root[data-theme="light"][data-bg^="dark-"] body { background-image: none; }
 
 body {
   background-color: var(--bg);

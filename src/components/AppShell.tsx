@@ -28,32 +28,50 @@ function toggleTheme() {
   } catch {}
 }
 
-/** Change theme (owner, 21 Oct): a soft pastel background behind the cards — globals.css [data-bg]; this browser only. */
-const BG_THEMES = [
-  { id: "", label: "Plain" },
-  { id: "blush", label: "Blush" },
-  { id: "lavender", label: "Lavender" },
-  { id: "mint", label: "Mint" },
-  { id: "sky", label: "Sky" },
-  { id: "lemon", label: "Lemon" },
-  { id: "smoky", label: "Smoky pastel" },
+/**
+ * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
+ * light or dark: picking one also switches Appearance. "" = plain.
+ */
+type Mode = "light" | "dark";
+const THEMES: { mode: Mode; id: string; label: string }[] = [
+  { mode: "light", id: "", label: "Plain" },
+  { mode: "light", id: "blush", label: "Blush" },
+  { mode: "light", id: "peach", label: "Peach" },
+  { mode: "light", id: "lemon", label: "Lemon" },
+  { mode: "light", id: "mint", label: "Mint" },
+  { mode: "light", id: "aqua", label: "Aqua" },
+  { mode: "light", id: "sky", label: "Sky" },
+  { mode: "light", id: "lavender", label: "Lavender" },
+  { mode: "light", id: "smoky", label: "Smoky pastel" },
+  { mode: "dark", id: "", label: "Black" },
+  { mode: "dark", id: "dark-midnight", label: "Midnight" },
+  { mode: "dark", id: "dark-ocean", label: "Ocean" },
+  { mode: "dark", id: "dark-aurora", label: "Aurora" },
+  { mode: "dark", id: "dark-forest", label: "Forest" },
+  { mode: "dark", id: "dark-plum", label: "Plum" },
+  { mode: "dark", id: "dark-ember", label: "Ember" },
 ];
 const PALETTE = <path d="M10 3.5a6.5 6.5 0 1 0 0 13c.9 0 1.4-.6 1.4-1.3 0-.4-.2-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.6-1.3 1.4-1.3h1.6a3 3 0 0 0 2.9-3C16.5 6 13.6 3.5 10 3.5ZM6.5 10h.01M8 6.8h.01M12 6.8h.01" />;
 
-function setBackground(id: string) {
+const currentMode = (): Mode => {
   const root = document.documentElement;
+  return (root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+};
+
+function setTheme(mode: Mode, id: string) {
+  const root = document.documentElement;
+  root.dataset.theme = mode;
   if (id) root.dataset.bg = id;
   else delete root.dataset.bg;
   try {
+    localStorage.setItem("th.theme", mode);
     if (id) localStorage.setItem("th.bg", id);
     else localStorage.removeItem("th.bg");
   } catch {}
 }
 
 function ThemePicker({ onClose }: { onClose: () => void }) {
-  const [current, setCurrent] = useState(() => document.documentElement.dataset.bg ?? "");
-  const root = document.documentElement;
-  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const [current, setCurrent] = useState(() => ({ mode: currentMode(), id: document.documentElement.dataset.bg ?? "" }));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -61,30 +79,38 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
   }, [onClose]);
   return (
     <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/25 p-4" onMouseDown={onClose}>
-      <div role="dialog" aria-label="Change theme" className="modal-in w-full max-w-[460px] rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label="Change theme" className="modal-in w-full max-w-[560px] rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-[17px] font-bold tracking-tight text-ink">Change theme</h3>
-            <p className="mt-0.5 text-[13px] text-muted">The background behind the cards — saved on this browser only.{dark ? " Shows in light mode (Appearance)." : ""}</p>
+            <p className="mt-0.5 text-[13px] text-muted">The colours behind the cards — saved on this browser only.</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
             <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
           </button>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
-          {BG_THEMES.map((t) => (
-            <button
-              key={t.id || "plain"}
-              type="button"
-              aria-pressed={current === t.id}
-              onClick={() => { setBackground(t.id); setCurrent(t.id); }}
-              className={`press flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-[12.5px] font-medium ${current === t.id ? "text-ink ring-2 ring-brand" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
-            >
-              <span data-bg={t.id || undefined} className="h-14 w-full rounded-lg border border-line" style={{ backgroundColor: "#f5f5f7", backgroundImage: t.id ? "var(--bg-art)" : "none" }} />
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {(["light", "dark"] as const).map((mode) => (
+          <div key={mode} className="mt-4">
+            <div className="text-[12px] font-bold uppercase tracking-wide text-muted">{mode === "light" ? "Light" : "Dark"}</div>
+            <div className="mt-1.5 grid grid-cols-3 gap-2 sm:grid-cols-5">
+              {THEMES.filter((t) => t.mode === mode).map((t) => {
+                const on = current.mode === t.mode && current.id === t.id;
+                return (
+                  <button
+                    key={t.id || mode}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => { setTheme(t.mode, t.id); setCurrent({ mode: t.mode, id: t.id }); }}
+                    className={`press flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-[12.5px] font-medium ${on ? "text-ink ring-2 ring-brand" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
+                  >
+                    <span data-bg={t.id || undefined} className="h-12 w-full rounded-lg border border-line" style={{ backgroundColor: mode === "light" ? "#f5f5f7" : "#000000", backgroundImage: t.id ? "var(--bg-art)" : "none" }} />
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
