@@ -114,11 +114,13 @@ export function MultiSelect({ label, values, selected, onChange, loading }: { la
 export function PeriodSelect({ today, value, onChange }: { today: string; value: string; onChange: (v: string) => void }) {
   const list: Period[] = periods(today);
   return (
-    <label className="inline-flex items-center">
+    // Our own arrow (the browser's can't be moved): `right-4` sets where it sits, `pr-10` keeps the text clear of it.
+    <label className="relative inline-flex items-center">
       <span className="sr-only">Period</span>
-      <select className="h-9 rounded-full border border-line bg-surface pl-5 pr-8 text-[13px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="h-9 appearance-none rounded-full border border-line bg-surface pl-5 pr-10 text-[13px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={value} onChange={(e) => onChange(e.target.value)}>
         {list.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
       </select>
+      <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-4 size-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
     </label>
   );
 }
