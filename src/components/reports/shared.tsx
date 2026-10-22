@@ -116,7 +116,7 @@ export function PeriodSelect({ today, value, onChange }: { today: string; value:
   return (
     <label className="inline-flex items-center">
       <span className="sr-only">Period</span>
-      <select className="h-9 rounded-full border border-line bg-surface pl-3.5 pr-8 text-[13px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="h-9 rounded-full border border-line bg-surface pl-5 pr-8 text-[13px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={value} onChange={(e) => onChange(e.target.value)}>
         {list.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
       </select>
     </label>
