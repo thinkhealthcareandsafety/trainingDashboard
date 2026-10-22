@@ -157,8 +157,45 @@
   --shadow-pop: var(--shadow-lg);
 }
 
+/*
+ * Background themes (owner, 21 Oct): soft pastel gradients behind the cards, each person's own pick, kept in their
+ * browser (localStorage th.bg → <html data-bg>). Cards and popups stay white. Light mode only. An element with
+ * data-bg (the picker's swatches) shows the same gradient.
+ */
+[data-bg="blush"] {
+  --bg-art: radial-gradient(55% 60% at 8% 6%, #ffd9cf 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #fbd3e6 0%, transparent 70%),
+    radial-gradient(60% 55% at 60% 100%, #eadcff 0%, transparent 70%), linear-gradient(160deg, #fff4f0, #fbeff6);
+}
+[data-bg="lavender"] {
+  --bg-art: radial-gradient(55% 60% at 10% 8%, #e4dbff 0%, transparent 70%), radial-gradient(50% 55% at 90% 18%, #f5dbf2 0%, transparent 70%),
+    radial-gradient(60% 55% at 45% 100%, #d9e5ff 0%, transparent 70%), linear-gradient(160deg, #f5f2fe, #f1f2fd);
+}
+[data-bg="mint"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #cdf1e3 0%, transparent 70%), radial-gradient(50% 55% at 92% 16%, #dcf3f1 0%, transparent 70%),
+    radial-gradient(60% 55% at 55% 100%, #e7f6d8 0%, transparent 70%), linear-gradient(160deg, #f0faf6, #f2f9f3);
+}
+[data-bg="sky"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #d2e7fc 0%, transparent 70%), radial-gradient(50% 55% at 92% 14%, #dfdcfb 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #d4f2f5 0%, transparent 70%), linear-gradient(160deg, #f1f7fe, #f2f4fd);
+}
+[data-bg="lemon"] {
+  --bg-art: radial-gradient(55% 60% at 8% 8%, #fbefc6 0%, transparent 70%), radial-gradient(50% 55% at 92% 16%, #fde3d2 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #e8f5d6 0%, transparent 70%), linear-gradient(160deg, #fefbef, #fdf6ef);
+}
+[data-bg="smoky"] {
+  --bg-art: radial-gradient(45% 55% at 6% 10%, #ffd8e4 0%, transparent 72%), radial-gradient(45% 55% at 94% 8%, #dcd6ff 0%, transparent 72%),
+    radial-gradient(45% 50% at 50% 45%, #fff0cf 0%, transparent 72%), radial-gradient(50% 55% at 8% 96%, #cfeefb 0%, transparent 72%),
+    radial-gradient(50% 55% at 94% 94%, #d6f5e3 0%, transparent 72%), linear-gradient(160deg, #fbf5fb, #f3f6fc);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) body { background-image: none; }
+}
+:root[data-theme="dark"] body { background-image: none; }
+
 body {
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: var(--bg-art, none);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), system-ui, sans-serif;
   font-size: 14px;

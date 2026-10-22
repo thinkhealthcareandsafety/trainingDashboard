@@ -36,6 +36,7 @@ export interface TrainingSchedule {
   trainers: string[]; // who gives it (none when TBD)
   underName?: string; // older trainings: the alias they were scheduled under (shown now: CardView.certLocation)
   on?: string; // the card the date was set on (its PI / quotation / invoice) — where this training’s later changes go
+  people?: number; // checked (or corrected) when scheduling — wins over the PI's / quote's quantity (peopleOf)
   at: string;
   by: string;
   completed?: { at: string; by: string }; // "Training completed" pressed
@@ -254,17 +255,27 @@ function scheduleOf(events: CardEvent[]): TrainingSchedule | undefined {
       continue;
     }
     if (e.kind !== "set_training_date" || !e.value) continue;
-    if (e.value === "TBD") s = { status: "tbd", dates: [], trainers: [], at: e.at, by: e.by };
-    else if (s?.dates.length && s.dates.join(",") === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, underName: e.underName, on: e.cardIds[0], at: e.at, by: e.by }; // same dates: trainers / name changed
+    // The head-count checked when scheduling stays with the training (postponed, to be decided) until it's checked again.
+    const people = e.people ?? s?.people;
+    if (e.value === "TBD") s = { status: "tbd", dates: [], trainers: [], people, at: e.at, by: e.by };
+    else if (s?.dates.length && s.dates.join(",") === e.value) s = { ...s, trainers: e.trainers ?? s.trainers, underName: e.underName, on: e.cardIds[0], people, at: e.at, by: e.by }; // same dates: trainers / name / people changed
     else {
       const dates = trainingDays(e.value);
       // A new date replacing one is a postponement — unless it was "Change date" (a correction: the label stays).
       const status = !s || s.status === "tbd" ? "scheduled" : e.mode === "change" ? s.status : "postponed";
-      s = { status, date: dates[0], dates, trainers: e.trainers ?? [], underName: e.underName, on: e.cardIds[0], at: e.at, by: e.by };
+      s = { status, date: dates[0], dates, trainers: e.trainers ?? [], underName: e.underName, on: e.cardIds[0], people, at: e.at, by: e.by };
     }
   }
   return s;
 }
+
+/** The PI's / quote's own head-count: every training line's quantity added up. */
+export const zohoPeople = (c: { training: { qty: number }[] }) => c.training.reduce((n, t) => n + (t.qty || 0), 0);
+/**
+ * How many people the training is for: the number checked when it was scheduled (owner, 21 Oct — Zoho's quantity is
+ * sometimes a stray "1"), else Zoho's.
+ */
+export const peopleOf = (c: { training: { qty: number }[]; schedule?: { people?: number } }) => c.schedule?.people ?? zohoPeople(c);
 
 /** "Training completed" pressed on a quotation (before this was locked): ignored until there's a PI. */
 export function completionNotApplied(e: CardEvent): boolean {
@@ -1092,9 +1103,9 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "set_training_date": {
       const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDays(x));
       const who = (e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "") + (e.underName ? ` · Under name: ${e.underName}` : "")
-        + (e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : "") + (e.email ? ` · Email: ${e.email}` : "") + (e.phone ? ` · Contact number: ${e.phone}` : "");
+        + (e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : "") + (e.email ? ` · Email: ${e.email}` : "") + (e.phone ? ` · Contact number: ${e.phone}` : "") + (e.people !== undefined ? ` · People: ${e.people}` : "");
       if (e.mode === "invoice") return `Training date set to the invoice date, ${show(v)} — before the dashboard${e.trainers?.length ? who : " · Trainers not recorded"}`;
-      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : ""}${e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : ""}${e.email ? ` · Email: ${e.email}` : ""}${e.phone ? ` · Contact number: ${e.phone}` : ""}`;
+      if (v !== "TBD" && e.before === v) return `Trainers for ${show(v)}: ${e.trainers?.join(", ") || "none"}${e.underName ? ` · Under name: ${e.underName}` : ""}${e.location !== undefined ? ` · Location: ${e.location || "same as the customer's name"}` : ""}${e.email ? ` · Email: ${e.email}` : ""}${e.phone ? ` · Contact number: ${e.phone}` : ""}${e.people !== undefined ? ` · People: ${e.people}` : ""}`;
       if (v === "TBD") return `Training date set to To be decided${e.before ? ` (was ${show(e.before)})` : ""}`;
       if (e.before === "TBD") return `Training scheduled for ${show(v)} (was To be decided)${who}`;
       if (e.before && e.mode === "change") return `Training date changed from ${show(e.before)} to ${show(v)}${who}`;

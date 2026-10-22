@@ -28,6 +28,68 @@ function toggleTheme() {
   } catch {}
 }
 
+/** Change theme (owner, 21 Oct): a soft pastel background behind the cards — globals.css [data-bg]; this browser only. */
+const BG_THEMES = [
+  { id: "", label: "Plain" },
+  { id: "blush", label: "Blush" },
+  { id: "lavender", label: "Lavender" },
+  { id: "mint", label: "Mint" },
+  { id: "sky", label: "Sky" },
+  { id: "lemon", label: "Lemon" },
+  { id: "smoky", label: "Smoky pastel" },
+];
+const PALETTE = <path d="M10 3.5a6.5 6.5 0 1 0 0 13c.9 0 1.4-.6 1.4-1.3 0-.4-.2-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.6-1.3 1.4-1.3h1.6a3 3 0 0 0 2.9-3C16.5 6 13.6 3.5 10 3.5ZM6.5 10h.01M8 6.8h.01M12 6.8h.01" />;
+
+function setBackground(id: string) {
+  const root = document.documentElement;
+  if (id) root.dataset.bg = id;
+  else delete root.dataset.bg;
+  try {
+    if (id) localStorage.setItem("th.bg", id);
+    else localStorage.removeItem("th.bg");
+  } catch {}
+}
+
+function ThemePicker({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState(() => document.documentElement.dataset.bg ?? "");
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/25 p-4" onMouseDown={onClose}>
+      <div role="dialog" aria-label="Change theme" className="modal-in w-full max-w-[460px] rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-[17px] font-bold tracking-tight text-ink">Change theme</h3>
+            <p className="mt-0.5 text-[13px] text-muted">The background behind the cards — saved on this browser only.{dark ? " Shows in light mode (Appearance)." : ""}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
+            <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
+          </button>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {BG_THEMES.map((t) => (
+            <button
+              key={t.id || "plain"}
+              type="button"
+              aria-pressed={current === t.id}
+              onClick={() => { setBackground(t.id); setCurrent(t.id); }}
+              className={`press flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-[12.5px] font-medium ${current === t.id ? "text-ink ring-2 ring-brand" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
+            >
+              <span data-bg={t.id || undefined} className="h-14 w-full rounded-lg border border-line" style={{ backgroundColor: "#f5f5f7", backgroundImage: t.id ? "var(--bg-art)" : "none" }} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Icon({ children }: { children: React.ReactNode }) {
   return (
     <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -225,6 +287,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const zoho = useZohoSync(Boolean(session.ready && session.member));
   const [logOpen, setLogOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const closeTheme = useCallback(() => setThemeOpen(false), []);
 
   // One sign-in for the whole site, before anything else shows; after it, the Dashboard is the landing page.
   if (!session.ready) return null;
@@ -282,6 +346,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button onClick={toggleTheme} aria-label="Appearance" title="Appearance" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
             </button>
+            <button onClick={() => setThemeOpen(true)} aria-label="Change theme" title="Change theme" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
+              <Icon>{PALETTE}</Icon>
+            </button>
           </aside>
         )}
         <aside className={`glass sticky top-9 hidden h-[calc(100vh-36px)] w-60 shrink-0 flex-col border-r border-line/70 px-3 py-5 ${sidebar.hidden ? "" : "lg:flex"}`}>
@@ -320,6 +387,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
               Appearance
             </button>
+            <button onClick={() => setThemeOpen(true)} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
+              <Icon>{PALETTE}</Icon>
+              Change theme
+            </button>
           </div>
         </aside>
 
@@ -350,6 +421,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       {logOpen && <SyncLogWindow open onClose={() => setLogOpen(false)} />}
+      {themeOpen && <ThemePicker onClose={closeTheme} />}
       <RevertConfirm />
       <DayReminders />
 

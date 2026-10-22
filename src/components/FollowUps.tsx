@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Member } from "@/lib/types";
-import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerContacts, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, zohoNotices } from "@/lib/pipeline";
+import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerContacts, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, peopleOf, zohoNotices } from "@/lib/pipeline";
 import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
 import { type BoardKind, boardsFor } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
@@ -354,7 +354,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
 function FulfilItem({ card, onClick }: { card: CardView; onClick: () => void }) {
   const f = card.fulfillment!;
   const s = card.schedule;
-  const people = card.training.reduce((n, t) => n + t.qty, 0);
+  const people = peopleOf(card);
   const who = [people ? `${people} people` : "", s?.trainers.map((t) => t.split(" ")[0]).join(", ") ?? ""].filter(Boolean).join(" · ");
   return (
     <ItemShell card={card} onClick={onClick}>

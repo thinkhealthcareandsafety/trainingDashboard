@@ -2,7 +2,7 @@ import { buildMail, getTemplate } from "@/lib/mailTemplates";
 import { fileSentMail, mailContent, mailboxInfo, sendMail } from "@/lib/zohoMail";
 import { GRATITUDE_FOLDER } from "@/lib/gratitudeReplies";
 import { eventsCol, fulfilContext, recordServerEvent } from "@/lib/fulfilServer";
-import { fmtDays } from "@/lib/pipeline";
+import { fmtDays, peopleOf } from "@/lib/pipeline";
 import type { CardView } from "@/lib/pipeline";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ const varsOf = (card: CardView) => ({
   ref: card.docNumber ?? "",
   course: card.training.map((t) => t.name).join(", ") || "training",
   dates: card.schedule?.dates.length ? fmtDays(card.schedule.dates.join(",")) : "",
-  people: String(card.training[0]?.qty ?? ""),
+  people: String(peopleOf(card) || ""),
   person: card.concernedName || "Sir/ Ma'am", // "Dear {person}," — the concerned person's name when given
 });
 

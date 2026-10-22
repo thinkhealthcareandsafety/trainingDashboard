@@ -348,6 +348,7 @@ export interface CardEvent {
   location?: string; // set_training_date (since 15 Oct, required with a date): the certificate location name, "" = the customer's own name
   email?: string; // set_training_date (since 15 Oct, required with a date): the concerned person's email for this training
   phone?: string; // set_training_date (since 20 Oct): the concerned person's contact number for this training
+  people?: number; // set_training_date (since 21 Oct): how many people will be trained, as checked when scheduling (Zoho's quantity can be wrong)
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)
   messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)

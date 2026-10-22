@@ -11,8 +11,8 @@ import { boardsFor, canSeeTraining, isAdmin, ownsEntry, ownsTraining, seesWholeC
 import { WhatsAppSetup } from "./WhatsAppSetup";
 import { Combobox, IconButton, Segmented, btn, inputCls } from "./ui";
 import {
-  type CertChoice, ChangeLog, DocsSection, DueChip, FormRow, Header, NotesPanel, Row, ScheduleRows, Section, Shell, TrainingSection,
-  certEvents, certOf, certReady, dateAllowed, minTrainingDate, scheduleText, trainingDateEvents,
+  type CertChoice, ChangeLog, DocsSection, DueChip, FormRow, Header, NotesPanel, type PeopleChoice, Row, ScheduleRows, Section, Shell, TrainingSection,
+  certEvents, certOf, dateAllowed, minTrainingDate, peopleStart, scheduleMissing, scheduleText, trainingDateEvents,
 } from "./followups/CardModal";
 import { AedCardModal } from "./followups/AedModal";
 import { StatePill } from "./followups/FulfilCerts";
@@ -499,7 +499,7 @@ function CalendarTrainingModal({ card, cards, fulfil, member, options, onClose }
   const s = card.schedule;
   const today = ymd(now);
   const busyOn = (dates: string[]) => busyTrainers(dates, cards, card.id);
-  const schedule = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => addCardEvents(trainingDateEvents(card, value, trainers, mode, cert, member.name));
+  const schedule = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice, people?: number) => addCardEvents(trainingDateEvents(card, value, trainers, mode, cert, member.name, people));
   const complete = () => {
     const [ev] = addCardEvents([{ cardIds: [card.id], kind: "complete_training", by: member.name }]);
     toast({ text: `${card.name} moved to Training completed`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
@@ -543,7 +543,7 @@ function CalendarTrainingModal({ card, cards, fulfil, member, options, onClose }
                     <span className="flex flex-wrap gap-1.5">{s.trainers.map((n) => <span key={n} className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[13px] font-medium text-ink" style={{ background: tint(personColour(n, TRAINERS.includes(n)), 18) }}><span className="size-2 rounded-full" style={{ background: personColour(n, TRAINERS.includes(n)) }} />{n}</span>)}</span>
                   ) : <span className="text-muted">Not set</span>}
                 </Row>
-                <Row label="Training">{card.training.map((x) => `${x.name} · ${x.qty} people`).join("; ") || "—"}</Row>
+                <Row label="Training">{(card.schedule?.people !== undefined ? `${card.training.map((x) => x.name).join(", ")} · ${card.schedule.people} people` : card.training.map((x) => `${x.name} · ${x.qty} people`).join("; ")) || "—"}</Row>
                 <Row label="Location">{card.certLocation === undefined ? <span className="text-medium">Not chosen</span> : card.certLocation || card.name}</Row>
                 <Row label="Concerned">{card.concernedName ? `${card.concernedName} · ` : ""}{card.concernedEmail ? <a className="text-brand hover:underline" href={`mailto:${card.concernedEmail}`}>{card.concernedEmail}</a> : <span className="text-medium">Email not set</span>}{" · "}{card.concernedPhone ? <a className="num text-brand hover:underline" href={`tel:${card.concernedPhone.replace(/[^\d+]/g, "")}`}>{card.concernedPhone}</a> : <span className="text-medium">Number not set</span>}</Row>
                 <Row label="Contact">{card.phones.length ? card.phones.slice(0, 2).map((p) => <a key={p.value} className="num mr-3 text-brand hover:underline" href={`tel:${p.value.replace(/\s+/g, "")}`}>{p.value}</a>) : <span className="text-muted">No number</span>}</Row>
@@ -713,13 +713,15 @@ function NewTraining({ date, member, cards, tabs, onClose }: { date: string; mem
   const [days, setDays] = useState<string[]>([date]);
   const [trainers, setTrainers] = useState<string[]>([]);
   const [cert, setCert] = useState<CertChoice>({ location: null, email: "", phone: "", name: "" });
-  const pick = (c: CardView) => { setCard(c); setCert(certOf(c)); setTrainers([]); };
+  const [people, setPeople] = useState<PeopleChoice>({ n: 0, ok: false });
+  const pick = (c: CardView) => { setCard(c); setCert(certOf(c)); setTrainers([]); setPeople(peopleStart(c)); };
   const busy = card && all ? busyTrainers(days, all, card.id) : new Map<string, CardView>();
   const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
-  const valid = Boolean(card) && days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && certReady(cert);
+  const missing = card ? scheduleMissing(days, chosen, people, cert) : ["pick the deal"];
+  const valid = !missing.length;
   const save = () => {
     if (!card || !valid) return;
-    const evs = addCardEvents(trainingDateEvents(card, daysValue(days), chosen, undefined, cert, member.name));
+    const evs = addCardEvents(trainingDateEvents(card, daysValue(days), chosen, undefined, cert, member.name, people.n));
     const ev = evs[evs.length - 1];
     toast({ text: `${card.name} moved to Training scheduled`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
     onClose();
@@ -729,14 +731,14 @@ function NewTraining({ date, member, cards, tabs, onClose }: { date: string; mem
       title="New"
       sub="A training goes to Training scheduled on the board, with the same rules as there."
       onClose={onClose}
-      footer={<><button className={btn.ghost} onClick={onClose}>Cancel</button><button className={btn.primary} disabled={!valid} onClick={save} title={card && !certReady(cert) ? "Choose the certificate location, the concerned person's email and contact number first" : undefined}>Schedule training</button></>}
+      footer={<><button className={btn.ghost} onClick={onClose}>Cancel</button><button className={btn.primary} disabled={!valid} onClick={save} title={missing.length ? `To save: ${missing.join(" · ")}` : undefined}>Schedule training</button></>}
     >
       <div className="px-6 pb-3">{tabs}</div>
       <div className="border-t border-line px-6">
         <FormRow label="Deal" hint="The quotation or PI the training is for" required>
           {cards.loading && !all ? <span className="text-[13px] text-muted">Loading the board…</span> : <DealPicker options={options} value={card} onPick={pick} placeholder="Search customer, alias or quote / PI no." />}
         </FormRow>
-        {card && <ScheduleRows card={card} days={days} setDays={setDays} trainers={trainers} setTrainers={setTrainers} cert={cert} setCert={setCert} busy={busy} />}
+        {card && <ScheduleRows card={card} days={days} setDays={setDays} trainers={trainers} setTrainers={setTrainers} cert={cert} setCert={setCert} people={people} setPeople={setPeople} busy={busy} />}
       </div>
     </Popup>
   );

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "./db";
 import { signedInMember, unauthorized } from "./auth";
 import { boardsFor } from "./roles";
-import { buildAedBoard, buildBoard, buildFulfillmentBoard, cardCustomers, customerAliases, customerContacts, customerNameKeys, isCustomerCard, type CardView } from "./pipeline";
+import { buildAedBoard, buildBoard, buildFulfillmentBoard, cardCustomers, customerAliases, customerContacts, customerNameKeys, isCustomerCard, peopleOf, type CardView } from "./pipeline";
 import { aedData, getSnapshot, pipelineData } from "./zohoSync";
 import type { BoardTraining, CardEvent } from "./types";
 
@@ -57,7 +57,7 @@ function boardTraining(c: CardView, board: BoardTraining["board"]): BoardTrainin
     customerName: c.name,
     alias: c.certLocation || undefined,
     training: c.training.map((t) => t.name).join(", "),
-    people: board === "aed" ? 0 : c.training.reduce((n, t) => n + (t.qty || 0), 0),
+    people: board === "aed" ? 0 : peopleOf(c),
     dates: [...new Set(s.dates.map((d) => d.slice(0, 10)))].sort(),
     time: board === "aed" ? s.dates[0]?.slice(11, 16) || undefined : undefined,
     trainers: s.trainers,

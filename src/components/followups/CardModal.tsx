@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { CardEvent, CardEventKind, Member, Phase, ZohoInvoice, ZohoPayment } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
-  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, daysValue, partPaidText, receivedOn, externalTrainers, fmtDays, newestFirst, orderTrainers, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, phaseOf, salespersonLabel, sameWords,
+  type DueStatus, type DueTone, busyTrainers, cardDue, cardLabel, columnQuotes, daysValue, partPaidText, receivedOn, externalTrainers, fmtDays, newestFirst, orderTrainers, refQuoteNumber, completionNotApplied, describeEvent, fmtMonth, isCustomerCard, kindOfId, mergeNotApplied, potentialCardId, normEmail, normPhone, peopleOf, phaseOf, salespersonLabel, sameWords, zohoPeople,
 } from "@/lib/pipeline";
 import { fmtDate, fmtINR, fmtTime } from "@/lib/dates";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -429,7 +429,7 @@ export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DAT
  * to schedule — plus the concerned person's name (optional, per customer name, only a person).
  */
 export type CertChoice = { location: string | null; email: string; phone: string; name: string };
-type ScheduleFn = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => void;
+type ScheduleFn = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice, people?: number) => void;
 
 /** What the pickers start from: this training's own, else (a new training) the customer's latest email and number. */
 export const certOf = (card: CardView): CertChoice => ({ location: card.certLocation ?? null, email: card.concernedEmail ?? card.lastEmail ?? "", phone: card.concernedPhone ?? card.lastPhone ?? "", name: card.concernedName ?? "" });
@@ -515,13 +515,14 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
  * The entries a training date makes (board and calendar alike): the location and email ride on the date entry (the
  * server refuses a date without them); same days and trainers = only the location / email / name changed, no new date.
  */
-export function trainingDateEvents(card: CardView, value: string, trainers: string[] | undefined, mode: "change" | undefined, cert: CertChoice | undefined, by: string): Omit<CardEvent, "id" | "at">[] {
+export function trainingDateEvents(card: CardView, value: string, trainers: string[] | undefined, mode: "change" | undefined, cert: CertChoice | undefined, by: string, people?: number): Omit<CardEvent, "id" | "at">[] {
   const s = card.schedule;
   const before = s ? (s.status === "tbd" ? "TBD" : s.dates.join(",")) : undefined;
-  const sameRun = Boolean(s) && value !== "TBD" && before === value && (trainers ?? []).length === s!.trainers.length && (trainers ?? []).every((t) => s!.trainers.includes(t));
+  const sameRun = Boolean(s) && value !== "TBD" && before === value && (trainers ?? []).length === s!.trainers.length && (trainers ?? []).every((t) => s!.trainers.includes(t))
+    && (people === undefined || people === peopleOf(card));
   return [
     ...certEvents(card, cert, by, !sameRun),
-    ...(sameRun ? [] : [{ cardIds: [card.id], kind: "set_training_date" as const, value, before, by, ...(value !== "TBD" ? { trainers, ...(cert ? certFields(cert) : {}) } : {}), ...(mode ? { mode } : {}) }]),
+    ...(sameRun ? [] : [{ cardIds: [card.id], kind: "set_training_date" as const, value, before, by, ...(value !== "TBD" ? { trainers, ...(cert ? certFields(cert) : {}), ...(people !== undefined ? { people } : {}) } : {}), ...(mode ? { mode } : {}) }]),
   ];
 }
 
@@ -864,47 +865,19 @@ function TrainerPicker({ selected, onChange, busy, days, after }: { selected: st
   return rows ? <FieldRow label="Trainers" hint="One or more — nobody can be on two trainings in a day">{body}</FieldRow> : body;
 }
 
-/** Training date next to "No. of People", with postpone (calendar), trainers and to-be-decided. */
-function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditing }: { card: CardView; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn; compact?: boolean; onEditing?: (on: boolean) => void }) {
-  const [picking, setPicking] = useState(false);
-  const [days, setDays] = useState<string[]>([]);
-  const [trainers, setTrainers] = useState<string[]>([]);
-  const [cert, setCert] = useState<CertChoice>(certOf(card));
-  const [certOpen, setCertOpen] = useState(false);
-  const closeCertOpen = useCallback(() => setCertOpen(false), []);
+/**
+ * Training date next to "No. of People", with the trainers. Scheduling, postponing and changing the date happen in the
+ * schedule popup (owner, 21 Oct: "the popup looks much better") — the card says what's set and opens it.
+ */
+function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact }: { card: CardView; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn; compact?: boolean }) {
+  const [popup, setPopup] = useState<SchedulePopupMode | null>(null);
+  useEffect(() => setPopup(null), [card.id]);
   const s = card.schedule;
   // With a date set, a new one is a postponement or a correction ("Change date"); from nothing or TBD it's scheduling.
   const postponing = Boolean(s && s.status !== "tbd");
   const big = compact ? "text-[16px]" : "text-[20px]";
-  const busy = busyOn?.(days) ?? new Map<string, CardView>();
-  const chosen = trainers.filter((t) => !busy.has(t));
-  // Same days as now: only the trainers, the location, the email or the name change.
-  const sameDate = postponing && daysValue(days) === s!.dates.join(",");
-  const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t)) && sameCert(cert, certOf(card));
-  const valid = days.length > 0 && days.every(dateAllowed) && chosen.length > 0 && certReady(cert) && !unchanged;
   const blockers = completeBlockers(card);
-  // "Change date" corrects the date (earlier or later) and keeps the label; "Postpone" marks it postponed.
-  const [changing, setChanging] = useState(false);
-  const open = (change = false) => {
-    setDays(postponing ? s!.dates : []);
-    setTrainers(s?.trainers ?? []);
-    setCert(certOf(card)); // this training's own (a new one: the location is asked, the email starts at the customer's latest)
-    setChanging(change);
-    setPicking(true);
-    onEditing?.(true);
-  };
-  const close = () => {
-    setPicking(false);
-    onEditing?.(false);
-    setChanging(false);
-    setDays([]);
-    setTrainers([]);
-  };
-  const save = () => {
-    if (!valid) return;
-    onSchedule?.(daysValue(days), orderTrainers(chosen), changing && !sameDate ? "change" : undefined, cert);
-    close();
-  };
+  const canEdit = Boolean(onSchedule && card.canSchedule && !s?.completed);
   // Two grid cells: the date sits next to "No. of People"; the buttons get their own full-width row.
   return (
     <>
@@ -930,52 +903,30 @@ function ScheduleBlock({ card, onSchedule, onComplete, busyOn, compact, onEditin
       {s?.completed && (
         <p className="mt-1.5 text-[13px] text-muted">Completed by {s.completed.by} · {dateLong(s.completed.at)}</p>
       )}
+      {/* No date yet (or to be decided): one small link to the popup instead of buttons (owner, 21 Oct). */}
+      {canEdit && !postponing && (
+        <button type="button" className="mt-1 text-[13px] font-semibold text-brand hover:underline" onClick={() => setPopup("schedule")}>Schedule training…</button>
+      )}
       {onSchedule && !s && !card.canSchedule && card.flaggedWith.length > 0 && (
         <p className="mt-1.5 text-[13px] text-muted">Merge the flagged cards first, then the training can be scheduled.</p>
       )}
     </div>
-      {onSchedule && card.canSchedule && !s?.completed && (
+      {canEdit && postponing && (
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-          {picking ? (
-            <div className="w-full space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={postponing ? "New training dates" : "Training dates"} autoOpen={!postponing} />
-                <button className={`${btn.primary} shrink-0`} onClick={save} disabled={!valid} title={certReady(cert) ? undefined : CERT_NEEDED}>{sameDate ? "Save" : changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
-                <button className={`${btn.quiet} shrink-0`} onClick={close}>Cancel</button>
-                {/* On this row so the card doesn't grow; opens the labelled pickers — saved with the training date. */}
-                <button
-                  type="button"
-                  className={`ml-auto shrink-0 text-[13px] font-semibold hover:underline ${certReady(cert) ? "text-brand" : "text-high"}`}
-                  onClick={() => setCertOpen(true)}
-                  title={`Certificate location: ${cert.location === null ? "not chosen" : cert.location || `Same as original (${card.name})`}${cert.name.trim() ? ` · ${cert.name.trim()}` : ""} · Concerned email: ${cert.email || "not set"} · Contact number: ${cert.phone || "not set"}`}
-                >
-                  {certReady(cert) ? <>Location &amp; contact{sameCert(cert, certOf(card)) ? "" : " ✓"}</> : <>Location &amp; contact required *</>}
-                </button>
-              </div>
-              <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
-              {certOpen && (
-                <CertEditor card={card} initial={cert} saveLabel="Use" note={`Saved with the training date — the location, email and number for this training; the concerned person's name on every card of ${card.name}.`}
-                  onSave={setCert} onClose={closeCertOpen} />
-              )}
-            </div>
-          ) : (
-            <>
-              {postponing && <button className={btn.ghost} onClick={() => open(true)} title="Correct the date — earlier or later — without marking it postponed">Change date</button>}
-              <button className={postponing ? btn.ghost : btn.primary} onClick={() => open()}>{postponing ? "Postpone" : "Schedule training"}</button>
-              {s?.status !== "tbd" && <button className={btn.ghost} onClick={() => onSchedule("TBD")}>To be decided</button>}
-              {s?.date && onComplete && blockers.length === 0 && (
-                <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={(e) => { celebrate(e.currentTarget); onComplete(); }}>
-                  Training completed
-                </button>
-              )}
-            </>
+          <button className={btn.ghost} onClick={() => setPopup("change")} title="Correct the date — earlier or later — without marking it postponed">Change date</button>
+          <button className={btn.ghost} onClick={() => setPopup("postpone")}>Postpone</button>
+          {s?.date && onComplete && blockers.length === 0 && (
+            <button className="press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-low px-4 text-[13px] font-semibold text-white hover:brightness-110" onClick={(e) => { celebrate(e.currentTarget); onComplete(); }}>
+              Training completed
+            </button>
           )}
           {/* "Training completed" only shows once the deal is whole (owner, 19 Oct): say what's missing instead. */}
-          {!picking && s?.date && onComplete && blockers.length > 0 && (
+          {s?.date && onComplete && blockers.length > 0 && (
             <p className="w-full text-[13px] font-medium text-medium">To mark it completed: {blockers.join(" · ")}.</p>
           )}
         </div>
       )}
+      {popup && onSchedule && <SchedulePopup card={card} mode={popup} onSchedule={onSchedule} onClose={() => setPopup(null)} busyOn={busyOn} />}
     </>
   );
 }
@@ -1056,8 +1007,9 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
 }) {
   const quoted = card.kind === "pi" ? card.linkedQuote : undefined;
   const showSchedule = card.kind !== "lead" && Boolean(card.schedule || onSchedule);
-  // While the date is being edited, its pickers show the alias and email — the lines under the head-count step aside (no scrolling).
-  const [editing, setEditing] = useState(false);
+  // The head-count checked when scheduling (owner, 21 Oct) wins over the PI's; with several kinds of training it's the total.
+  const checked = card.schedule?.people;
+  const zohoTotal = zohoPeople(card);
   const [certEditing, setCertEditing] = useState(false);
   useEffect(() => setCertEditing(false), [card.id]);
   const closeCert = useCallback(() => setCertEditing(false), []);
@@ -1082,7 +1034,7 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
                   </div>
                   <div className={stacked ? "" : "text-right"}>
                     <div className="text-[11px] font-bold uppercase tracking-wide text-brand">{card.peopleLabel.replace("No. of People", "People")}</div>
-                    <div className="num text-[16px] font-semibold text-ink">{t.qty}</div>
+                    <div className="num text-[16px] font-semibold text-ink">{card.training.length === 1 && checked !== undefined ? checked : t.qty}</div>
                   </div>
                 </div>
               );
@@ -1095,14 +1047,16 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
                   <div>
                     <div className="text-[12px] font-bold uppercase tracking-wide text-brand">{card.peopleLabel}</div>
                     <div className={`num mt-0.5 font-semibold text-ink ${compact ? "text-[16px]" : "text-[20px]"}`}>
-                      {t.qty}
-                      {expected !== undefined && expected !== t.qty && <span className="ml-2 text-[13px] font-medium text-muted">({expected} expected at quotation)</span>}
+                      {card.training.length === 1 && checked !== undefined ? checked : t.qty}
+                      {checked !== undefined && checked !== zohoTotal && i === 0
+                        ? <span className="ml-2 text-[13px] font-medium text-muted">{card.training.length === 1 ? `(PI: ${t.qty})` : `· ${checked} in total, checked`}</span>
+                        : expected !== undefined && expected !== t.qty && <span className="ml-2 text-[13px] font-medium text-muted">({expected} expected at quotation)</span>}
                     </div>
-                    {i === 0 && showCert && !editing && (
+                    {i === 0 && showCert && (
                       <CertLines card={card} needEmail={needEmail} onChange={onCert ? () => setCertEditing(true) : undefined} />
                     )}
                   </div>
-                  {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} busyOn={busyOn} compact={compact} onEditing={setEditing} />}
+                  {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} busyOn={busyOn} compact={compact} />}
                   {i === 0 && certEditing && onCert && <CertEditor card={card} onSave={onCert} onClose={closeCert} />}
                 </div>
               </div>
@@ -1115,20 +1069,57 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
   );
 }
 
-/** Schedule a training as form rows: dates, trainers, location, email, name — the Ready popup and the calendar. */
-export function ScheduleRows({ card, days, setDays, trainers, setTrainers, cert, setCert, busy }: {
+/**
+ * How many people the training is for, to check before scheduling (owner, 21 Oct): the PI's quantity is sometimes a
+ * stray "1". `ok` = ticked (or corrected); a training that already has a date starts ticked.
+ */
+export type PeopleChoice = { n: number; ok: boolean };
+export const peopleStart = (card: CardView): PeopleChoice => ({ n: peopleOf(card), ok: card.schedule?.people !== undefined || Boolean(card.schedule && card.schedule.status !== "tbd") });
+
+/** "☐ No. of People: 20 · Change" — small, next to the training dates. Typing a new number counts as checked. */
+function PeopleCheck({ card, value, onChange }: { card: CardView; value: PeopleChoice; onChange: (v: PeopleChoice) => void }) {
+  const [editing, setEditing] = useState(false);
+  const zoho = zohoPeople(card);
+  return (
+    <span className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-[13px] ${value.ok ? "border-low/50 bg-low-bg" : "border-medium/60 bg-medium-bg"}`}>
+      <label className="inline-flex cursor-pointer items-center gap-1.5" title="Tick once you've checked the number — the PI sometimes carries a wrong quantity">
+        <input type="checkbox" className="size-3.5 accent-[var(--low)]" checked={value.ok} disabled={value.n < 1} onChange={(e) => onChange({ ...value, ok: e.target.checked })} />
+        <span className="text-ink-2">No. of People:</span>
+      </label>
+      {editing ? (
+        <input
+          autoFocus type="number" min={1} inputMode="numeric" aria-label="Number of people"
+          className="num h-6 w-14 rounded-md border border-line bg-surface px-1.5 text-[13px] text-ink focus:border-brand focus:outline-none"
+          value={value.n || ""}
+          onChange={(e) => { const n = Math.max(0, Math.floor(Number(e.target.value) || 0)); onChange({ n, ok: n > 0 }); }}
+          onBlur={() => setEditing(false)}
+          onKeyDown={(e) => { if (e.key === "Enter") setEditing(false); }}
+        />
+      ) : (
+        <b className="num font-semibold text-ink">{value.n}</b>
+      )}
+      {value.n !== zoho && !editing && <span className="text-[12px] text-muted">(PI: {zoho})</span>}
+      {!editing && <button type="button" className="text-[12.5px] font-semibold text-brand hover:underline" onClick={() => setEditing(true)}>Change</button>}
+    </span>
+  );
+}
+
+/** Schedule a training as form rows: dates (with the head-count check), trainers, location, name, email, number — the popups and the calendar. */
+export function ScheduleRows({ card, days, setDays, trainers, setTrainers, cert, setCert, people, setPeople, busy, datesLabel = "Training dates" }: {
   card: CardView; days: string[]; setDays: (d: string[]) => void; trainers: string[]; setTrainers: (t: string[]) => void;
-  cert: CertChoice; setCert: (c: CertChoice) => void; busy: Map<string, CardView>;
+  cert: CertChoice; setCert: (c: CertChoice) => void; people: PeopleChoice; setPeople: (p: PeopleChoice) => void; busy: Map<string, CardView>;
+  datesLabel?: string;
 }) {
   return (
     <FormRows.Provider value={true}>
-      <FieldRow label="Training dates" hint="Click each day, or drag for a range">
-        <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label="Training dates" />
+      <FieldRow label={datesLabel} hint="Click each day, or drag for a range" required>
+        <div className="flex flex-wrap items-center gap-2">
+          <DaysPicker value={days} onChange={setDays} min={minTrainingDate()} label={datesLabel} />
+          <PeopleCheck card={card} value={people} onChange={setPeople} />
+        </div>
       </FieldRow>
       <TrainerPicker selected={trainers} onChange={setTrainers} busy={busy} days={days.length} />
-      <LocationPicker card={card} value={cert.location} onChange={(location) => setCert({ ...cert, location })} />
-      <EmailPicker card={card} value={cert.email} onChange={(email) => setCert({ ...cert, email })} />
-      <NamePicker value={cert.name} onChange={(name) => setCert({ ...cert, name })} />
+      <CertPickers card={card} value={cert} onChange={setCert} />
     </FormRows.Provider>
   );
 }
@@ -1138,32 +1129,77 @@ export function FormRow({ label, hint, required, children }: { label: string; hi
   return <FieldRow label={label} hint={hint} required={required}>{children}</FieldRow>;
 }
 
-/** Pops up over a merged, unflagged PI that has no training date yet. */
-function SchedulePrompt({ card, onSchedule, onLater, busyOn }: { card: CardView; onSchedule: ScheduleFn; onLater: () => void; busyOn: BusyFn }) {
-  const [days, setDays] = useState<string[]>([]);
-  const [trainers, setTrainers] = useState<string[]>([]);
-  const [cert, setCert] = useState<CertChoice>(certOf(card));
-  const busy = busyOn(days);
+/** What a schedule form still needs — the button's tooltip says it. Empty = ready. */
+export function scheduleMissing(days: string[], trainers: string[], people: PeopleChoice, cert: CertChoice): string[] {
+  return [
+    ...(!days.length ? ["pick the training dates"] : !days.every(dateAllowed) ? ["pick dates that aren't in the past"] : []),
+    ...(!trainers.length ? ["pick a trainer"] : []),
+    ...(!people.ok ? ["tick No. of People once it's checked"] : []),
+    ...(!certReady(cert) ? ["choose the certificate location, the concerned person's email and contact number"] : []),
+  ];
+}
+
+type SchedulePopupMode = "ready" | "schedule" | "postpone" | "change";
+
+/**
+ * The one place a training is scheduled (owner, 21 Oct): the "is ready" popup over a merged PI, or Schedule training… /
+ * Postpone / Change date from the card. Dates with the head-count check, trainers, location, name, email, number;
+ * "To be decided" sits in the footer.
+ */
+function SchedulePopup({ card, mode, onSchedule, onClose, busyOn }: { card: CardView; mode: SchedulePopupMode; onSchedule: ScheduleFn; onClose: () => void; busyOn?: BusyFn }) {
+  const s = card.schedule;
+  const dated = Boolean(s && s.status !== "tbd");
+  const [days, setDays] = useState<string[]>(dated ? s!.dates : []);
+  const [trainers, setTrainers] = useState<string[]>(s?.trainers ?? []);
+  const [cert, setCert] = useState<CertChoice>(certOf(card)); // this training's own (a new one: the location is asked, the email and number start at the customer's latest)
+  const [people, setPeople] = useState<PeopleChoice>(peopleStart(card));
+  const busy = busyOn?.(days) ?? new Map<string, CardView>();
   const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
+  // Same days as now: only the trainers, the location, the email, the number, the name or the head-count change.
+  const sameDate = dated && daysValue(days) === s!.dates.join(",");
+  const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t)) && sameCert(cert, certOf(card)) && people.n === peopleOf(card);
+  const missing = scheduleMissing(days, chosen, people, cert);
+  const valid = !missing.length && !unchanged;
+  const save = () => {
+    if (!valid) return;
+    onSchedule(daysValue(days), chosen, mode === "change" && !sameDate ? "change" : undefined, cert, people.n);
+    onClose();
+  };
+  const ready = mode === "ready";
+  const what = card.training.map((t) => t.name).filter(Boolean).join(", ");
+  const title = ready ? `${card.name} is ready` : mode === "change" ? "Change the training date" : dated ? "Postpone the training" : "Schedule the training";
   return (
-    <div className="fade-in absolute inset-0 z-20 grid place-items-center bg-black/25 p-4 backdrop-blur-[2px]" onMouseDown={onLater}>
-      <div role="alertdialog" aria-label="Ready for training" className="modal-in w-full max-w-[680px] rounded-2xl border-2 border-low bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4 backdrop-blur-[2px]" onMouseDown={onClose}>
+      <div role="alertdialog" aria-label={title} className={`modal-in flex max-h-full w-full max-w-[720px] flex-col rounded-2xl bg-surface shadow-pop ${ready ? "border-2 border-low" : ""}`} onMouseDown={(e) => e.stopPropagation()}>
         <div className="px-6 pb-4 pt-5">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-            <h3 className="min-w-0 text-[19px] font-bold leading-snug tracking-tight text-ink">{card.name} is ready</h3>
-            <span className="mt-0.5 shrink-0 rounded-full bg-low-bg px-2.5 py-0.5 text-[12px] font-semibold text-low">Ready for training</span>
+            <h3 className="min-w-0 text-[19px] font-bold leading-snug tracking-tight text-ink">{title}</h3>
+            {ready && <span className="mt-0.5 shrink-0 rounded-full bg-low-bg px-2.5 py-0.5 text-[12px] font-semibold text-low">Ready for training</span>}
           </div>
           <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2">
-            Everything is merged into <b className="font-semibold text-ink">{card.docNumber}</b>
-            {card.training[0] && <> for <b className="font-semibold text-ink">{card.training[0].name}</b> ({card.training[0].qty} people)</>}. Would you like to schedule their training right now?
+            {ready ? (
+              <>Everything is merged into <b className="font-semibold text-ink">{card.docNumber}</b>{what && <> for <b className="font-semibold text-ink">{what}</b></>}. Would you like to schedule their training right now?</>
+            ) : (
+              <>
+                <b className="font-semibold text-ink">{card.name}</b> · {card.docNumber}{what && <> · {what}</>}
+                {dated && <> · now <span className="num">{scheduleText(s!)}</span>{mode === "change" && " — correct the date (earlier or later) without marking it postponed"}</>}
+              </>
+            )}
           </p>
         </div>
-        <div className="border-y border-line px-6">
-          <ScheduleRows card={card} days={days} setDays={setDays} trainers={trainers} setTrainers={setTrainers} cert={cert} setCert={setCert} busy={busy} />
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto border-y border-line px-6">
+          <ScheduleRows card={card} days={days} setDays={setDays} trainers={trainers} setTrainers={setTrainers} cert={cert} setCert={setCert} people={people} setPeople={setPeople} busy={busy}
+            datesLabel={dated ? "New training dates" : "Training dates"} />
         </div>
-        <div className="flex justify-end gap-2 px-6 py-4">
-          <button className={btn.ghost} onClick={onLater}>Later</button>
-          <button className={btn.primary} disabled={!days.length || !days.every(dateAllowed) || !chosen.length || !certReady(cert)} title={certReady(cert) ? undefined : CERT_NEEDED} onClick={() => onSchedule(daysValue(days), chosen, undefined, cert)}>Schedule training</button>
+        <div className="flex flex-wrap items-center gap-2 px-6 py-4">
+          {s?.status !== "tbd" && mode !== "change" && (
+            <button className={btn.ghost} onClick={() => { onSchedule("TBD"); onClose(); }} title="No date yet — the card shows To be decided">To be decided</button>
+          )}
+          <span className="ml-auto" />
+          <button className={btn.ghost} onClick={onClose}>{ready ? "Later" : "Cancel"}</button>
+          <button className={btn.primary} disabled={!valid} title={missing.length ? `To save: ${missing.join(" · ")}` : unchanged ? "Nothing has changed" : undefined} onClick={save}>
+            {sameDate ? "Save" : mode === "change" ? "Change date" : dated ? "Postpone" : "Schedule training"}
+          </button>
         </div>
       </div>
     </div>
@@ -1715,8 +1751,8 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const [prompt, setPrompt] = useState(card.readyToSchedule);
   useEffect(() => { setDraft(null); setError(""); setConfirmDelete(false); setPrompt(card.readyToSchedule); }, [card.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const schedule = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice) => {
-    const evs = addCardEvents(trainingDateEvents(card, value, trainers, mode, cert, member.name));
+  const schedule = (value: string, trainers?: string[], mode?: "change", cert?: CertChoice, people?: number) => {
+    const evs = addCardEvents(trainingDateEvents(card, value, trainers, mode, cert, member.name, people));
     const ev = evs[evs.length - 1];
     if (!card.schedule) {
       const skip = card.kind === "quote" ? " — create its PI before completing" : "";
@@ -1804,7 +1840,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       onClose={onClose}
       footer={footer}
       side={<ChangeLog cardIds={card.historyIds} cards={cards} member={member} />}
-      overlay={prompt && card.readyToSchedule && <SchedulePrompt card={card} onSchedule={schedule} onLater={() => setPrompt(false)} busyOn={busyOn} />}
+      overlay={prompt && card.readyToSchedule && <SchedulePopup card={card} mode="ready" onSchedule={schedule} onClose={() => setPrompt(false)} busyOn={busyOn} />}
     >
       <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} onClose={onClose} />
       <div className="space-y-3 p-4">

@@ -3,7 +3,7 @@ import { db } from "./db";
 import { fileSentMail, latestMail, sendMail } from "./zohoMail";
 import { boardsNow, recordServerEvent } from "./fulfilServer";
 import { getSnapshot } from "./zohoSync";
-import { type CardView, isCustomerCard } from "./pipeline";
+import { type CardView, isCustomerCard, peopleOf } from "./pipeline";
 import { type DatesInfo, datesInfo, istDay, reminderDays, reminderKey, reminderRecipients, whatsappKey } from "./reminderPlan";
 import { sendWaTemplate, waPublic, waStored } from "./whatsapp";
 import type { CardEvent } from "./types";
@@ -45,13 +45,13 @@ const names = (list: { name: string }[]) => {
 /** The owner's fields (19 Oct; the contact number 20 Oct), in order — the email's table; WhatsApp lays them out its own way. */
 function reminderRows(card: CardView, info: DatesInfo, long = true): [string, string][] {
   const aed = card.id.startsWith("aed:");
-  const people = card.training.reduce((n, t) => n + (t.qty || 0), 0);
+  const people = peopleOf(card);
   const email = aed ? card.outreach?.email ?? card.concernedEmail : card.concernedEmail;
   // AedSmartx: the number Priyanka last called, else the first one she has.
   const phone = aed ? card.outreach?.lastCall?.to ?? card.outreach?.phones[0]?.value : card.concernedPhone;
   // What's taught, as on the PI / quote; several kinds each with their head-count. AedSmartx invoices list the AED itself.
   const kinds = card.training.filter((t) => t.name.trim());
-  const what = aed ? "AED training" : kinds.length > 1 ? kinds.map((t) => `${t.name} (${t.qty})`).join(", ") : kinds[0]?.name ?? "—";
+  const what = aed ? "AED training" : kinds.length > 1 ? kinds.map((t) => card.schedule?.people === undefined ? `${t.name} (${t.qty})` : t.name).join(", ") : kinds[0]?.name ?? "—";
   return [
     ["Customer name", card.name],
     ["Type of Training", what],
