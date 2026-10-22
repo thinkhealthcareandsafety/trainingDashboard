@@ -1,35 +1,65 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 19 Oct 2026, end of session 11 (Mon 19 Oct) — everything pushed. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: 20 Oct 2026, end of session 12 (Tue 20 Oct) — all code pushed (`98381ce`); this file is the only uncommitted change. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all eleven sessions — §5),
+Read this end to end before touching code. It records what the owner asked for (every prompt, all twelve sessions — §5),
 the business rules that came out of it, how the code works **now**, what was verified, and what is still open.
 `MONDAY-PLAN.md` (repo root) is the feature backlog agreed on 17 Oct — §3a "My day" + renewals is the next item.
 
-**Start of the next session — do these first (details in §3 "Calendar & reminders", §10 #69–#84):**
-1. `git status` — **everything is pushed** (19 Oct ~16:35 IST: the training reminder emails + this file, the commit after
-   `3af5c58`). Only the owner's own later work can be uncommitted.
-2. **The reminder emails went live on 19 Oct.** First run (next sync, or the 8:30 cron on 20 Oct as a catch-up) was due to
-   send 3: Sierragold Heights Quotation-24-002305 (Thu 22 Oct) and Diana Builwell W Goa Quotation-24-002198 (Wed 21 Oct)
-   → Ashish (sales@) + Sumit (sshah@); K Raheja IT Park AED (Thu 22 Oct) → hello@. **Check** `cardEvents` kind
-   `training_reminder` (and the Sync log `reminders` / `reminderError`) that they went and landed in learn@'s
-   /Sent/Training Reminders. Note: Diana Builwell's Quotation-24-002198 is the quote left behind by "Completed on invoice
-   date" (§10 #42) — ask the owner whether Shikha meant a new training there.
-3. **After that push, check Vercel accepted the 2nd cron** (`vercel.json`: `/api/cron/reminders` `0 3 * * *` = ~8:30 IST
-   daily incl. Sundays; Hobby plan limits crons — if the deploy fails on it, drop the entry; the hourly syncs and the
-   instant run after a date change still send). Then the team presses **Ctrl + Shift + R**.
-4. **WhatsApp (Anantya AI) — the owner's first item for 20 Oct** ("leave it for tomorrow"). Needed from them: Anantya's API docs, an API key (to go into an Admin popup to build —
-   never in chat), two Meta-approved Utility templates (suggested text in §10 #78), WhatsApp numbers of Sumit, Shikha,
-   Ashish, Priyanka. No public Anantya API docs exist (searched 19 Oct).
-5. **Next feature: "My day" with certificate renewals** — owner said "yeah" to all six defaults (§10 #80). Calendar came
-   first by their choice; My day can also list today's calendar items.
-6. **Pushing:** worked from Claude's shell again on 19 Oct (`git push origin master`). If it ever fails with "could not
-   read Username", don't retry — the owner pushes from Cursor (Source Control → Sync Changes).
-7. **Still owner-side:** reconnect **hello@** (8 Oct connection; Priyanka has still sent 0 emails from the board), the
-   **`CRON_SECRET`** GitHub secret (17 Oct runs still "skipping"), 4 Classic Citi test rows in the master sheet, Zoho Mail
+**Start of the next session (Wed 21 Oct) — do these first (details in §3 "Calendar & reminders", §10 #85–#100):**
+1. `git status` — code is pushed (`98381ce`, live on both addresses ~13:08 IST 20 Oct). Commit this HANDOFF.md if the
+   owner hasn't (only push when they ask).
+2. **WhatsApp reminders: switched on but nothing has been sent yet — find out why first (§10 #85).** Settings are complete
+   (kv `whatsapp:anantya`: key, 4 numbers, templates `training_reminder_v4` id 83 / `training_postponed_v4` id 84, both
+   11 values, saved 13:06 IST → `ready: true`). The live syncs at 14:00 (full) and 15:00 IST ran the reminder step and
+   returned **0 WhatsApps, no error**; `cardEvents` has **no `training_whatsapp`** entries. A **dry run** of the pushed
+   code against the live data at 15:20 (sends / records / lock faked) said it **would send 5**: Sierragold → Ashish +
+   Sumit (catch-up of the 19 Oct key), Diana → Ashish + Sumit (20 Oct key), K Raheja AED → Priyanka. The settings, lock
+   (`until: 0`) and code all check out, so the live run must have left early at one of its two **silent** exits:
+   `VERCEL_ENV !== "production"` or the lock (`lock()` → null). Not caused by the local dev server (its syncs were all
+   "not due", < 0.2 s). **Do:** (a) look at the Sync log lines from 16:00 IST 20 Oct on (`zohoSyncLog`, fields `whatsapp`
+   / `whatsappError`) and `cardEvents` kind `training_whatsapp` — maybe a later run sent them; (b) if still 0, ask the
+   owner for Vercel → Project → Logs (filter `[whatsapp]` / `[reminders]`) or add a `reminderNote` to `ReminderRun` +
+   the Sync log saying *why* a run sent nothing (not production / locked / WhatsApp off: what's missing / no number) —
+   small, then push on the owner's OK. The owner's test send from the popup arrived ("test is working", 20 Oct), so
+   Anantya and the key work.
+3. **Wed 21 Oct reminders (8:30 cron + syncs):** due by email **and** WhatsApp — Sierragold Heights (Thu 22 Oct,
+   day-before) → Ashish + Sumit; K Raheja IT Park AED (Thu 22 Oct 11:00, day-before) → hello@ + Priyanka; Tata Motors
+   Pune AED (Mon 26 Oct, 5 days before) → hello@ + Priyanka. Check `training_reminder` / `training_whatsapp` entries and
+   learn@'s /Sent/Training Reminders. The cron now writes its **own Sync log line** ("Vercel cron · reminders", result
+   "not due", `reminders` / `whatsapp` counts) — confirm it appears ~08:30–09:30 IST. Sun 25 Oct (Tata's day-before)
+   depends on the cron alone (no Sunday syncs).
+4. **Diana Builwell W Goa, Wed 21 Oct** — real: Shikha merged Quotation-24-002198 into **Performa-25-1127** (20 Oct
+   11:15). To mark it completed it still needs the **concerned person's contact number** (new rule, §3). Kamal Naik /
+   asit.das@whotels.com.
+5. **Contact numbers:** no training has one yet (field new on 20 Oct). Every scheduled training needs it before
+   **Training completed** shows and before it can be rescheduled. The team was to press **Ctrl + Shift + R** and add them
+   (card → Change). If the team finds "required to reschedule" a nuisance, the owner may relax it to completion-only
+   (`certReady` in CardModal — offered, no answer).
+6. **Next feature: "My day" with certificate renewals** — defaults agreed (§10 #80). Restate it before building. The
+   owner's Zoho Sprints status list (20 Oct, §10 #99) also proposes: pre-training check 2 days before (WhatsApp),
+   quotes about to expire (day 10 of 15), AED battery / pads expiry, overdue payments by age, profit per training,
+   participant-list form.
+7. **Pushing** works from Claude's shell (`git push origin master`, ~1–2 min; Vercel live ~2 min later). If it fails with
+   "could not read Username", don't retry — the owner pushes from Cursor.
+8. **Still owner-side:** the **`CRON_SECRET`** GitHub secret (why 19 Oct's reminders went a day late), reconnect
+   **hello@** (Priyanka has sent 0 emails from the board), 4 Classic Citi test rows in the master sheet, Zoho Mail
    forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41), Classic Citi test batches (#38).
-8. **Old certificate designs:** originals at `D:\Projects\certificate-generator\private\A4 CA / FA Photoedit.pdf` (9 Oct);
+9. **Old certificate designs:** originals at `D:\Projects\certificate-generator\private\A4 CA / FA Photoedit.pdf` (9 Oct);
    the current ones (14 Oct) in `D:\New folder\`.
+
+**Session 12 in one paragraph (20 Oct):** morning checks — all 3 first reminder emails went at 08:18 IST (the owner's
+page load started a sync), filed in /Sent/Training Reminders; two were a day late (no sync after the 19 Oct push, no
+`CRON_SECRET`), Diana's 2-day email skipped by the catch-up rule; Diana's quote is a real new one (30 Jun), not a
+leftover. **Overview:** the meter ticks got a "today" label + hover/tap note, and a **revenue forecast** (month end =
+invoiced + booked PIs / quotes ≤ 15 days old; later months = last year × this FY's growth, ~+3 %; FY ~₹17.6L vs ₹17.1L)
+with a Trainings | Revenue switch on the trend card (`fd2e449`). **WhatsApp through Anantya** — found their API (dashboard
+Integrations → API Key / API Docs; Swagger at apiv1.anantya.ai), built the Admin popup (Calendar → WhatsApp: key, numbers,
+template pickers, "Text to create" + phone preview, test send), per-person sending on the email days, Sync log + cron log
+lines; templates went v1 → v2 (readable layout) → v3 (+ contact number) → **v4 (+ type of training, 11 values, picked)**.
+**Concerned person's contact number** per training (required to schedule and to complete; order location → name →
+email → number), and the **type of training** in the reminder email. Pushed `98381ce`. Wrote the owner's Zoho Sprints
+status + suggestions and a dashboard description. **Open:** WhatsApp hasn't sent on the live site yet (#2 above).
 
 **Session 11 in one paragraph (19 Oct):** checked live state (all pushed, both addresses on `3f82378`; 0 failed syncs /
 mail errors since 17 Oct; Sat 17 Oct afternoon syncs missing — nobody online + no `CRON_SECRET`; only one training
@@ -415,12 +445,24 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   tomorrow (was "high priority entries").
 - **Training completed gate** (`completeBlockers` in CardModal, owner 19 Oct): the button shows only when the quote is
   merged into the PI (a PI with no quotation in Zoho passes), the location is chosen and the concerned email set;
-  otherwise "To mark it completed: …". Board and calendar alike (client-side only). Scheduling rules unchanged.
-- **Training reminder emails** (**built, not pushed**) — `src/lib/reminderPlan.ts` (pure, shared) +
+  otherwise "To mark it completed: …". Board and calendar alike (client-side only). **20 Oct:** also needs the
+  concerned person's **contact number** (`phoneOk`: 10–13 digits).
+- **Concerned person's contact number** (session 12, owner 20 Oct) — per training, like the email: `CertChoice.phone`,
+  `PhonePicker` (Used last time = `card.lastPhone` / Same as original = `card.phones` from Zoho / + Add new; a short Zoho
+  number says why Save stays off). Popup order: location → name (optional) → email → number. **Required to schedule /
+  postpone** (`certReady`) and to complete (`completeBlockers`); the server rule `missingCertFields` was **not** changed
+  (location + email only), so an old tab can still schedule without it. Stored as `set_training_date.phone` (with a new
+  date) or event `set_training_phone` (value, before; on the training's card / Fulfillment card like
+  `set_training_email`); replayed in `pipeline.applyCert` → `CardView.concernedPhone`, customer-wide `lastPhone` in
+  `customerCert`. Shown on the card's Concerned line ("no number" in amber), the calendar card's Concerned row (tel:),
+  the change log.
+- **Training reminder emails** (live since 19 Oct) — `src/lib/reminderPlan.ts` (pure, shared) +
   `src/lib/trainingReminders.ts` (server): from **learn@** to the trainers (`TRAINER_EMAILS`: sumit → sshah@, shikha →
   shikhadixit@, ashish → sales@, AED → hello@; external trainers skipped), **one email for all**, subject
-  "Training Reminder: Sat, 25 Oct 2026 — <Customer>", body = the owner's 7 fields (Customer name, Location / Alias,
-  Concerned Person's name, Concerned Person's Email, Training Date, Training Persons, Number of People Expected).
+  "Training Reminder: Sat, 25 Oct 2026 — <Customer>", body = `reminderRows` (Customer name, **Type of Training** (20 Oct:
+  the PI / quote line names, several = "name (qty)", AED = "AED training"), Location / Alias, Concerned Person's name,
+  Concerned Person's Email, **Concerned Person's Contact Number** (20 Oct; AED = Priyanka's last-called number), Training
+  Date, Training Persons, Number of People Expected).
   **Days** (`reminderDays(firstDay, day the dates were set)`): ≥5 days ahead → 5, 3, 1 before; 4 or 3 → 3, 1; 2 → 2, 1;
   1 → 1 (owner's table). A missed run sends one email for the latest due day (catch-up), never several. **Postponed**
   (`datesInfo`: new dates replacing dates, not `mode: "change"`): "Training Postponed to <date> — <Customer>", "postponed
@@ -434,6 +476,41 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   /api/store` when a `set_training_date` arrives. Mongo lease lock `training_reminders_lock`. **Only production sends**
   (`VERCEL_ENV === "production"`) — a local server never does. Admin tools: `GET /api/mail/reminders?card=&kind=` preview,
   `?folders=1` learn@'s folder names, `POST {card, kind, testTo}` a [TEST] copy (recorded nowhere), `PUT` files strays now.
+- **WhatsApp reminders through Anantya** (session 12, live 20 Oct, **not yet seen sending — §10 #85**):
+  - **API** (no public docs; found in their dashboard → Integrations → API Key / API Docs, Swagger
+    `https://apiv1.anantya.ai/swagger/v1/swagger.json`): header `X-Api-Key`; `GET /api/Campaign/GetTemplates` →
+    `{id, templateName, msgText, templateStatus, isActive}` — **lists every template twice** (deduped by id) and says
+    **"Accepted"** for Meta-approved; `POST /api/Campaign/SendSingleTemplateMessage?templateId=<id>` multipart:
+    ContactNo (country code, no "+"), ContactName (≤ 15 chars, first name), Attribute1…13 = `{{1}}…`. Answers
+    `{isSuccess, responseCode, message, dataObj}`; message id read from dataObj (msgId / messageId / id) — **the real
+    shape of a send's answer is still unconfirmed** (check `messageId` on the first `training_whatsapp` entry).
+    `ANANTYA_API` env overrides the base URL.
+  - **Code:** `src/lib/whatsapp.ts` (server-only; kv **`whatsapp:anantya`** = `{apiKey (secret), numbers{sumit, shikha,
+    ashish, priyanka} as 91…, templates{reminder, postponed: {id, name, vars}}, updatedAt, updatedBy}`; `waPublic` never
+    returns the key, only `keyEnd`; `ready` = key + ≥ 1 number + **both templates whose `vars` = `WA_VARS` (11)** — a
+    template picked with another count never sends; `waNumber` 10 digits → "91…"; `clean` flattens line breaks, empty →
+    "—"). `src/app/api/whatsapp/route.ts` (Admin only): GET settings + templates; POST {apiKey?, numbers?, templates?} (a
+    new key is tried with GetTemplates first; `vars` looked up from Anantya's list); PUT {kind, to} test send with the
+    next training's values (or TEST values), "Hi <first name>" when `to` is a team number, recorded nowhere.
+    `src/components/WhatsAppSetup.tsx` — the popup (Calendar → **WhatsApp**, Admin only): key, numbers, template pickers
+    (warns on wrong count / not approved), **Text to create** (exact template text + Copy + a WhatsApp-bubble preview
+    with sample values), test send, footer On / "Off until …".
+  - **Sending** (`runTrainingReminders`, same days / catch-up as the emails): after the email step (wrapped in its own
+    try — a failed email no longer stops the run), if `ready`, **one message per recipient with a number** (AED →
+    Priyanka; external trainers none): postponed (once per postponement since go-live) else the due reminder. Recorded
+    per person as server-only **`training_whatsapp`** (value `reminder:<reminderKey>:<person>` or
+    `postponed:<eventId>:<person>`, trainers [that person], subject = template name, messageId) — a failed number is
+    retried next run without repeating the others; a postponement also records that day's reminder key. Production only.
+  - **Template values** (`whatsappValues`, 11): 1 first name, 2 customer, 3 "today / tomorrow / in n days" (reminder) or
+    old dates (postponed), 4 date / new dates, 5 type of training, 6 location, 7 people, 8 trainers, 9 concerned name,
+    10 contact number, 11 email. Approved templates in Anantya: **`training_reminder_v4` (83)**, **`training_postponed_v4`
+    (84)**; v1–v3 and a stray `training_reminder_v5` (85) are deactivated. Text in `WhatsAppSetup.tsx` `TEXT`.
+  - **Logs:** `ReminderRun {emails, whatsapp, error?, whatsappError?}`; `runSync` writes `reminders` / `reminderError` /
+    `whatsapp` / `whatsappError` on its Sync log line; `/api/cron/reminders` now writes its **own line**
+    (trigger scheduler, source "Vercel cron · reminders", result "not due"), shown as a full row in `SyncLog.tsx`
+    ("nothing due" when it sent nothing). Calendar card "Reminders" row shows "+ WhatsApp" per day sent (tooltip: who).
+  - Adding a value to a message = **new Meta template** (approved text can't change) + bump `WA_VARS` + `whatsappValues`
+    + `TEXT` + the route's TEST values; the old pick then reads "Off" until the new one is picked.
 - `zohoMail.mailApi` now logs Zoho's raw answer on any refusal (`[zoho mail] GET /accounts/…/folders → 401 …`, no tokens)
   and `mailboxCall` errors carry Zoho's `errorCode` (it sometimes answers `[2, {errorCode, msg}]`).
 
@@ -783,6 +860,17 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
   trainers), then overdue invoices, renewals, high calendar entries, pace (trainings + people), news. The legacy follow-up
   items ("Payment follow-up … · 35d late", "Chase quote …") and the sidebar's red follow-ups count are gone. Who sees what:
   Training-board trainings everyone but Priyanka; AED trainings members with AedSmartx; money / pace members with Training.
+- **Session 12 (`fd2e449`):** meter ticks = "where you should be by today at an even pace" — now labelled **"today"**
+  with a hover / focus note (`Meter hint`, `tickHint` in Kpis.tsx). **Revenue forecast** (`src/lib/forecast.ts`,
+  `revenueForecast`): this month = invoiced so far + invoiced for later this month + **booked** = this month's board
+  trainings still on a `quote:` / `pi:` card, valued at the PI amount (PI open) or the quote amount **only if the quote is
+  ≤ 15 days old** (`QUOTE_VALID_DAYS`; owner: quotes expire after 15 days, they make a new one) — `bookedThisMonth` lists
+  what was left out and why (expired / part invoiced / no amount); later months = **last year's same month × growth**
+  (this FY so far ÷ the same days last year; ~1.03 on 20 Oct → FY ~₹17.6L vs ₹17.1L). `/api/trainings` also returns
+  **`lastYear`** (tracked invoices with a training date in the previous FY). Revenue tile: "On this pace" (month end, FY,
+  not counted, **See forecast →** = `th:trend-view` event + scroll to `#trend`); trend card: **Trainings | Revenue**
+  switch — cumulative SVG (this year solid, projection dashed, last year grey, hover per month), table, method line,
+  booked list. Phone: every other month label hidden (`max-sm:invisible`), `min-w-0` on `#trend` (was 26 px overflow).
 
 ### Layout preferences (see also §8)
 Columns side by side as a sliding window (as many as fit at ≥184 px with full names; ◀ ▶, arrow keys, swipe); board fits the screen
@@ -1055,6 +1143,28 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 223 | "write a handoff for tomorrow" | This update. |
 | 224 | "push the rest to github, leave the WhatsApp integration for tomorrow" | Checked the first run (3 emails: Sierragold, Diana Builwell → Ashish + Sumit; K Raheja AED → hello@); pushed everything. |
 
+### Session 12 (20 Oct 2026) — revenue forecast, WhatsApp through Anantya, contact number, training type
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 225 | Brief: read HANDOFF + MONDAY-PLAN; rules (no test data, no customer emails, push only when asked); check git / live, the first reminder emails, next 5 days, Diana's 21 Oct training; then WhatsApp (Anantya) and My day, restating with defaults first | All pushed (`a3bb528` live); 3 reminders went 08:18 IST (owner's page load), filed; 2 a day late (no `CRON_SECRET`); Diana = a real new quote (30 Jun); WhatsApp questions asked. |
+| 226 | Two screenshots: "the small vertical bars make no sense — tell the user what they are; add a forecasting line chart for sales from past records, what the outcome would be at the same momentum" | Checked the numbers; proposed "today" ticks + a Trainings / Revenue switch + last year × growth. |
+| 227 | "1) yes 2) recommended 3) yes 4) quotes OK, but a quote older than 15 days doesn't count — they make a new one" | Built (§4 Overview, session 12). |
+| 228 | "push it, then let's do the WhatsApp" | `fd2e449`, live. |
+| 229 | WhatsApp answers: "no docs, only a login to the Anantya dashboard"; send any time; numbers in an Admin popup (DB); test on "my own number, no need to ask" | Found the API in their dashboard JS + Swagger; built `whatsapp.ts`, `/api/whatsapp`, `WhatsAppSetup.tsx`, per-person sending, Sync log / cron lines; 13/13 tests vs a fake Anantya; browser checks with saves blocked. |
+| 230 | Screenshot of Anantya's Create Template form | Field-by-field guidance (Utility, English, Variable type Number, no header / footer, body ends in text). |
+| 231 | "created the templates, have the API key, it says pending" | Told to save key + numbers on localhost, pick templates after approval. |
+| 232 | Screenshot: every template listed twice, "Accepted" — "which ones" | Anantya lists each twice (same id) → deduped; "Accepted" counts as approved (popup had warned wrongly). |
+| 233 | "test is working, but the text looks mid to trash — fix the UI for the text" | v2 templates: greeting, "in n days", bold labels + icons, one fact per line; phone preview in the popup; `vars` stored per pick, sending off until the picked templates take the right count. |
+| 234 | Screenshot of Certificate details: add "Concerned Person's Contact Number" (Same as original or add new), mandatory; order location, name, email, phone; can't complete without them (name optional); add the number to the template | Built (§3); v3 templates (10 values). |
+| 235 | "which line to add?" | Gave both full v3 texts. |
+| 236 | "both approved and I put them on the board" | Checked: v3 picked, `ready`. |
+| 237 | "we didn't even add what kind of training it isss — fix it quick" | Type of training in email + WhatsApp → v4 (11 values). |
+| 238 | "push it to github" | Secret scan, `next build`, `98381ce` pushed, live ~13:08 IST. Owner then picked v4 (13:06). |
+| 239 | "pushed it to github?" | Yes. |
+| 240–242 | Status for Zoho Sprints; "what's 11th, drop 12th, add suggestions"; "write a full text directly" | Plain-text Sprints list: done / waiting on us / next / suggestions (§10 #99). |
+| 243 | "write a description for this training dashboard" | Long + one-line description (Sprints). |
+| 244 | "write whatever is left for tomorrow, prepare a handoff for the new session" | Found WhatsApp hasn't sent on the live site (dry run says it would send 5) → §10 #85; this update. |
+
 ---
 
 ## 6. Zoho facts learned the hard way
@@ -1096,6 +1206,10 @@ and the two restored batches `restoredAt` / `restoreSkipped`.
 Session 11: `entries` docs carry `createdBy` (server) / `people` / `everyone` (0 entries on 19 Oct); **`reminderSeen`**
 (`_id` memberId:IST day, `ids`, TTL 3 days — popups seen); `cardEvents` kinds `training_reminder` / `training_postponed_mail`
 (server only); kv `training_reminders_lock`; learn@'s kv doc caches `folders.named["Training Reminders"]` once filed.
+Session 12: kv **`whatsapp:anantya`** (Anantya **API key — secret, never print / export**, team WhatsApp numbers, picked
+templates with `vars`); `cardEvents` kinds **`training_whatsapp`** (server only) and **`set_training_phone`**, and field
+**`phone`** on `set_training_date`; `zohoSyncLog` entries may carry `whatsapp` / `whatsappError`, and the reminders cron
+writes its own entries (`trigger: "scheduler"`, `source: "Vercel cron · reminders"`, `result: "not due"`).
 Legacy: `leads` (4,105 docs, unused since session 1) — drop only with the owner's OK. History: `cardEvents` was cleared by
 request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Everything by mistake on 3 Oct and 10 Oct**
 (both restored in session 6). Archive keeps copies of every clear.
@@ -1424,3 +1538,51 @@ No test suite. Pattern used throughout:
     answered "not due", stand-in member via `/api/members/session` interception, a patched `window.fetch` to move a training
     to today in the browser only), esbuild of `reminderPlan.ts` for the day table, and an Admin fetch script for the
     `/api/mail/reminders` preview / test / file routes. Rebuild them from §9.
+
+**Session 12 — open items:**
+
+85. **WhatsApp hasn't sent on the live site yet** (see "Start of the next session" #2). Facts at 15:20 IST 20 Oct:
+    settings `ready`; lock `until: 0`; live syncs 14:00 (full, 34 s) and 15:00 (quick, 9 s) logged no `whatsapp` and no
+    `whatsappError`; 0 `training_whatsapp` events; the pushed code (`git show 98381ce` = working tree) dry-run against
+    live data **would send 5**. Remaining suspects = the silent exits in `runTrainingReminders` (`VERCEL_ENV`, `lock()`).
+    The emails' first run on 20 Oct 08:18 used the same two checks and worked. Fix path: Vercel logs, or add a
+    `reminderNote` (why nothing was sent) to `ReminderRun` → Sync log, push, watch the next hourly line. If the 5 were
+    sent by a later run, note that Sierragold's went as a catch-up of the 19 Oct key ("in 2 days").
+86. **First real WhatsApp:** confirm the message id is parsed (`training_whatsapp.messageId`) and the text renders as the
+    preview (bold, icons). The owner tested only v1 from the popup; v4 hasn't been test-sent by Claude (owner's number
+    allowed without asking — "my own number, no need to ask").
+87. **Contact number required to schedule** — the owner asked for "mandatory" and "can't mark completed without";
+    Claude made it required in the schedule forms too (like location + email) and said so. Server still accepts a date
+    without it (`missingCertFields` unchanged) — change both together if the owner wants it server-side.
+88. Every training scheduled before 20 Oct has **no contact number** → "no number" on the card and blocked completion
+    until the team adds it. AED cards use Priyanka's last-called number in reminders (no picker there).
+89. `phoneOk` accepts 10–13 digits with + ( ) - spaces; the "Same as original" list is the customer's Zoho phones (may be
+    landlines without a code — the picker says why Save stays off).
+90. Template text lives in three places that must agree: Anantya (approved), `WhatsAppSetup.tsx` `TEXT` (+ samples),
+    `whatsappValues` order. The test route's made-up values too.
+91. WhatsApp **postponement** messages only for postponements after `POSTPONED_SINCE` (19 Oct 10:00 UTC), as emails.
+92. Anantya's `ContactName` is set to the trainer's first name on every send — it may create / rename contacts in their
+    Anantya inbox; harmless so far.
+93. **Revenue forecast:** month-end counts quotes ≤ 15 days old only; Diana's (30 Jun) and Sierragold's (16 Jul) are
+    expired → October "booked" = 0 until their PIs exist (Diana's PI now exists, Performa-25-1127 — check it shows as
+    booked if its status is open).
+94. The 26 px phone overflow fix on the revenue chart hides every other month label below `sm`.
+95. The local dev server shares the live database: settings saved on localhost are live at once (WhatsApp was set up
+    there). A local server never sends (production-only) — but its tabs can still run the hourly Zoho sync.
+96. `next build` while `next dev` runs worked on 20 Oct (separate output dirs in Next 16).
+97. Scripts this session (scratchpad, gone after the session): `admin.cjs` (Admin sign-in via `ADMIN_PIN` from
+    `.env.local`, GET any route, writes JSON), puppeteer read-only runs (saves aborted, `/api/zoho/sync` → `{enabled:
+    false}`), and the **reminder dry run** (`dry/`): esbuild bundle of `trainingReminders.ts` with `./whatsapp`
+    `sendWaTemplate`, `./fulfilServer` `recordServerEvent`, `./zohoMail` send/file/list and the lock's `./db` swapped for
+    fakes (only for importer `trainingReminders.ts`), `VERCEL_ENV=production`, global `fetch` blocked — prints what it
+    would send. Rebuild from this description when needed.
+98. Test data: none written to `cardEvents` / Sync log by Claude. WhatsApp settings were saved by the owner. No real
+    WhatsApp sent by Claude.
+99. **Owner's Zoho Sprints list (20 Oct)** — waiting on us: v4 templates (done since), contact numbers (team),
+    `CRON_SECRET`, Diana with Shikha, certificate filter + wording. Next: check 21 Oct reminders; **My day + renewals**.
+    Suggestions given: pre-training check 2 days before (no number / email / participant list / trainer clash → WhatsApp
+    trainer + Shikha), quotes about to expire (day 10 of 15, no PI → sales person), AED battery & pads expiry (90 days,
+    Priyanka), overdue payments by age (0–30 / 31–60 / 60+, stalled part-payments), profit per training (needs where
+    costs live), participant-list form for clients.
+100. #78 (WhatsApp) is done; #70's cron is confirmed accepted by Vercel (deploy went through, route exists) but its first
+     run left no trace on 20 Oct (it wrote nothing then) — from 21 Oct it writes its own Sync log line.
