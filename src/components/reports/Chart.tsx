@@ -60,19 +60,37 @@ export function resolveKind(kind: ChartKind | undefined, r: Pick<Result, "by" | 
   return r.by[0].date ? "column" : "bar";
 }
 
-/** Series colours by name: sorted names take the palette in order; "Others" / "(not set)" are grey. */
+/** A name's own palette slot (FNV-1a) — the same name gets the same colour on every chart and after any filter. */
+const slotOf = (name: string, size: number) => {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return (h >>> 0) % size;
+};
+
+/**
+ * Colours by name: each takes its own slot; two names on one chart that land on the same slot — the second (A–Z) takes
+ * the next free one, so a chart never shows one colour twice (up to 8 names). "Others" / "(not set)" are grey.
+ */
 function colourMap(names: string[], dark: boolean): Map<string, string> {
   const pal = dark ? PALETTE_DARK : PALETTE_LIGHT;
   const m = new Map<string, string>();
+  const taken = new Set<number>();
   const real = [...new Set(names)].filter((n) => n !== OTHERS && n !== BLANK).sort((a, b) => a.localeCompare(b));
-  real.forEach((n, i) => m.set(n, pal[i % pal.length]));
+  for (const n of real) {
+    let s = slotOf(n, pal.length);
+    for (let i = 0; i < pal.length && taken.has(s) && taken.size < pal.length; i++) s = (s + 1) % pal.length;
+    taken.add(s);
+    m.set(n, pal[s]);
+  }
   m.set(OTHERS, dark ? OTHERS_DARK : OTHERS_LIGHT);
   m.set(BLANK, dark ? OTHERS_DARK : OTHERS_LIGHT);
   return m;
 }
 
-export function Chart({ result, kind, grain = "month", height = 280, picked, onPick }: {
+export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0 }: {
   result: Result; kind: ChartKind | undefined; grain?: Grain; height?: number;
+  /** Palette slot for a one-colour chart — each chart on a page takes its own hue. */
+  accent?: number;
   /** The value clicked on this chart's first field (others fade). */
   picked?: string | null;
   onPick?: (value: string) => void;
@@ -94,7 +112,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       if (disposed || !el.current) return;
       const c = chart.current ?? ec.init(el.current, undefined, { renderer: "canvas" });
       chart.current = c;
-      c.setOption(option(model, k, readTheme(), picked ?? null), { notMerge: true });
+      c.setOption(option(model, k, readTheme(), picked ?? null, accent), { notMerge: true });
       c.off("click");
       c.on("click", (p: { dataIndex?: number; name?: string }) => {
         const key = model.keyByLabel.get(String(p.name ?? "")) ?? (p.dataIndex !== undefined ? model.x[p.dataIndex] : undefined);
@@ -104,7 +122,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       ro.observe(el.current);
     });
     return () => { disposed = true; ro?.disconnect(); };
-  }, [model, k, tick, picked]);
+  }, [model, k, tick, picked, accent]);
   useEffect(() => () => { chart.current?.dispose(); chart.current = null; }, []);
 
   if (k === "kpi") return <Kpi result={result} />;
@@ -135,6 +153,8 @@ type Model = {
   measureLabel: string;
   summary: string;
   stackedBy?: string;
+  /** The first field is a date (months…) — one colour; named categories may take a colour each. */
+  dateX: boolean;
   /** Bars: "Others" is a line under the chart, not a bar — it would dwarf the top N it summarises. */
   others?: number | null;
 };
@@ -158,13 +178,20 @@ function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Mod
   }
   const top = r.rows[0];
   const summary = `${r.measures[0]?.label ?? ""}${r.by[0] ? ` by ${r.by[0].label.toLowerCase()}` : ""}: ${top ? `largest ${labelOf(top.keys[0] ?? "", date0, grain, true)} ${formatValue(top.values[0], format)}` : "no data"} (table view available)`;
-  return { x, xLabels, keyByLabel, series, format, measureLabel: r.measures[0]?.label ?? "", summary, stackedBy: k === "stacked" ? r.by[1]?.label : undefined, others: othersRow ? othersRow.values[0] : undefined };
+  return { x, xLabels, keyByLabel, series, format, measureLabel: r.measures[0]?.label ?? "", summary, dateX: date0, stackedBy: k === "stacked" ? r.by[1]?.label : undefined, others: othersRow ? othersRow.values[0] : undefined };
 }
 
-function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Theme, picked: string | null) {
+function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Theme, picked: string | null, accent: number) {
+  const pal = t.dark ? PALETTE_DARK : PALETTE_LIGHT;
   const colours = colourMap(m.series.map((s) => s.key), t.dark);
   const single = m.series.length === 1;
-  const colourOf = (key: string) => (single ? t.brand : colours.get(key) ?? t.brand);
+  const own = pal[((accent % pal.length) + pal.length) % pal.length];
+  const colourOf = (key: string) => (single ? own : colours.get(key) ?? own);
+  // One series of up to 8 named categories (sectors, lead sources…): a colour per bar, from its name (colourMap).
+  // More than 8, or months: the chart's own colour — a 9th hue would repeat.
+  const named = m.x.filter((x) => x !== OTHERS && x !== BLANK);
+  const perBar = single && !m.dateX && (k === "bar" || k === "column") && named.length > 1 && named.length <= pal.length;
+  const barColours = perBar ? colourMap(m.x, t.dark) : null;
   const fade = (xKey: string) => (picked && xKey !== picked ? 0.3 : 1);
   const fmt = (v: number | null) => formatValue(v, m.format);
   const axisText = { color: t.muted, fontSize: 11 };
@@ -210,7 +237,7 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
       type: "bar", name: s.name, color: colour, itemStyle: { color: colour }, stack: k === "stacked" ? "total" : undefined,
       barMaxWidth: horizontal ? 18 : 36, barGap: "20%",
       // Stacks: only the top segment is rounded; segments are parted by a 2 px surface gap.
-      data: s.values.map((v, i) => ({ value: v, itemStyle: { color: colour, opacity: fade(m.x[i]), borderRadius: k === "stacked" && !last ? 0 : radius, borderColor: k === "stacked" ? t.surface : undefined, borderWidth: k === "stacked" ? 1 : 0 } })),
+      data: s.values.map((v, i) => ({ value: v, itemStyle: { color: barColours?.get(m.x[i]) ?? colour, opacity: fade(m.x[i]), borderRadius: k === "stacked" && !last ? 0 : radius, borderColor: k === "stacked" ? t.surface : undefined, borderWidth: k === "stacked" ? 1 : 0 } })),
       label: horizontal && single ? { show: true, position: "right", color: t.ink2, fontSize: 11, formatter: (p: { value: number }) => fmt(p.value) } : undefined,
       emphasis: { focus: k === "stacked" ? "series" : "none" },
     };

@@ -96,7 +96,7 @@ function SavedReports({ list, today, canBuild, onEdit, onChanged, onNew }: { lis
       {list.map((r, i) => {
         const tile: Tile = { id: r.id, spec: r.spec, w: !r.spec.by?.length ? 3 : 6 };
         return (
-          <TileCard key={r.id} tile={tile} spec={specs[i]} answer={answers[i]}
+          <TileCard key={r.id} tile={tile} spec={specs[i]} answer={answers[i]} accent={i}
             actions={<>
               <span className="mr-1 hidden text-[11.5px] text-faint sm:inline" title={`Saved by ${r.by}, ${stamp(r.updatedAt)}`}>{r.by.split(" ")[0]} · {datasetOf(r.spec.dataset)?.label}</span>
               {r.mine && <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => onEdit(r)}>Edit</button>}

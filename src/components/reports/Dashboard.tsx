@@ -81,7 +81,7 @@ export function DashboardView({ def, today }: { def: DashboardDef; today: string
       )}
       <div className="mt-4 grid grid-cols-12 gap-3">
         {def.tiles.map((t, i) => (
-          <TileCard key={t.id} tile={t} spec={specs[i]} answer={answers[t.id]}
+          <TileCard key={t.id} tile={t} spec={specs[i]} answer={answers[t.id]} accent={i}
             picked={pick?.tileId === t.id ? pick.value : null}
             onPick={(value) => {
               const field = t.spec.by?.[0];
@@ -104,10 +104,17 @@ function FilterControl({ dataset, field, label, selected, onChange }: { dataset?
 
 const SPAN: Record<Tile["w"], string> = { 3: "col-span-12 sm:col-span-6 xl:col-span-3", 4: "col-span-12 sm:col-span-6 xl:col-span-4", 6: "col-span-12 xl:col-span-6", 12: "col-span-12" };
 
-export function TileCard({ tile, spec, answer, picked, onPick, actions }: { tile: Tile; spec: Spec; answer?: Answer; picked?: string | null; onPick?: (value: string) => void; actions?: React.ReactNode }) {
+export function TileCard({ tile, spec, answer, picked, onPick, actions, accent }: {
+  tile: Tile; spec: Spec; answer?: Answer; picked?: string | null; onPick?: (value: string) => void;
+  /** Edit / Delete on saved reports — shown on every kind of tile, single numbers and failed ones too. */
+  actions?: React.ReactNode;
+  /** This chart's colour (a palette slot) — charts on a page take different hues. */
+  accent?: number;
+}) {
   const [table, setTable] = useState(false);
   const kind = answer && !isError(answer) ? resolveKind(spec.chart, answer) : spec.chart;
   const isKpi = kind === "kpi";
+  const ok = answer && !isError(answer);
   return (
     <section className={`card flex min-w-0 flex-col p-4 ${SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
@@ -115,18 +122,22 @@ export function TileCard({ tile, spec, answer, picked, onPick, actions }: { tile
           <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[13px] text-ink-2" : "text-[14.5px]"}`} title={spec.title}>{spec.title}</h3>
           {tile.note && !isKpi && <p className="truncate text-[12px] text-muted">{tile.note}</p>}
         </div>
-        {!isKpi && answer && !isError(answer) && (
+        {(actions || (!isKpi && ok)) && (
           <div className="flex shrink-0 items-center gap-0.5">
             {actions}
-            <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => setTable((x) => !x)} aria-pressed={table}>{table ? "Chart" : "Table"}</button>
-            <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => downloadCsv(answer, spec.title ?? "report", spec.grain)} title="Download the numbers (opens in Excel)">CSV</button>
+            {!isKpi && ok && (
+              <>
+                <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => setTable((x) => !x)} aria-pressed={table}>{table ? "Chart" : "Table"}</button>
+                <button type="button" className="rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => downloadCsv(answer, spec.title ?? "report", spec.grain)} title="Download the numbers (opens in Excel)">CSV</button>
+              </>
+            )}
           </div>
         )}
       </div>
       <div className={isKpi ? "mt-2" : "mt-3 min-h-0 flex-1"}>
         {!answer ? <div className={`animate-pulse rounded-lg bg-surface-2 ${isKpi ? "h-12" : "h-[260px]"}`} />
           : isError(answer) ? <p className="text-[13px] text-high">{answer.error}</p>
-          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} />}
+          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} />}
       </div>
     </section>
   );
