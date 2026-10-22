@@ -14,6 +14,8 @@ import { BLANK, type ChartKind, OTHERS, type Result } from "@/lib/analytics/quer
  * shades never carries identity alone.
  */
 
+const MINT_LIGHT = "#45cf9c";
+const MINT_DARK = "#40a985";
 const PLAIN_LIGHT = ["#2a78d6", "#eb6834", "#45cf9c", "#eda100", "#6250d6", "#008300", "#e34948"];
 const PLAIN_DARK = ["#3987e5", "#d95926", "#40a985", "#c98500", "#9085e9", "#008300", "#e66767"];
 /** Chart colours per background theme (globals.css [data-bg] / AppShell THEMES). */
@@ -40,7 +42,8 @@ const OTHERS_DARK = "#636366";
 
 export const labelOf = (key: string, date: boolean, grain: Grain, long = false) => (key === BLANK ? "(not set)" : date ? grainLabel(key, grain, long) : key);
 
-type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string; palette: string[] };
+/** `mono`: Plain and Black (owner, 22 Oct) — every bar and line in mint; only donuts / stacks / several series get the mixed set. */
+type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string; palette: string[]; mono?: string };
 function readTheme(): Theme {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
@@ -49,8 +52,10 @@ function readTheme(): Theme {
   // A theme's own colours only while it's showing (a light theme under dark mode shows plain black, globals.css).
   const bg = root.dataset.bg ?? "";
   const showing = bg && (bg.startsWith("dark-") === dark);
-  const palette = (showing && THEME_PALETTES[bg]) || (dark ? PLAIN_DARK : PLAIN_LIGHT);
-  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand"), palette };
+  const own = showing ? THEME_PALETTES[bg] : undefined;
+  const palette = own ?? (dark ? PLAIN_DARK : PLAIN_LIGHT);
+  const mono = own ? undefined : dark ? MINT_DARK : MINT_LIGHT;
+  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand"), palette, mono };
 }
 
 /** Re-renders when the theme or the background theme changes (Change theme, OS setting). */
@@ -220,12 +225,12 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
   const pal = t.palette;
   const colours = colourMap(m.series.map((s) => s.key), t.dark, pal);
   const single = m.series.length === 1;
-  const own = pal[((accent % pal.length) + pal.length) % pal.length];
+  const own = t.mono ?? pal[((accent % pal.length) + pal.length) % pal.length];
   const colourOf = (key: string) => (single ? own : colours.get(key) ?? own);
   // One series of up to 8 named categories (sectors, lead sources…): a colour per bar, from its name (colourMap).
   // More than 8, or months: the chart's own colour — a 9th hue would repeat.
   const named = m.x.filter((x) => x !== OTHERS && x !== BLANK);
-  const perBar = single && !m.dateX && (k === "bar" || k === "column") && named.length > 1 && named.length <= pal.length;
+  const perBar = !t.mono && single && !m.dateX && (k === "bar" || k === "column") && named.length > 1 && named.length <= pal.length;
   const barColours = perBar ? colourMap(m.x, t.dark, pal) : null;
   const fade = (xKey: string) => (picked && xKey !== picked ? 0.3 : 1);
   const fmt = (v: number | null) => formatValue(v, m.format);
