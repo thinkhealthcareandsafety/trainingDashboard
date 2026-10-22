@@ -944,21 +944,22 @@ function CertLines({ card, onChange, needEmail }: { card: CardView; onChange?: (
           {card.certLocation === undefined && !card.certLocked ? <span className={needEmail ? "font-medium text-medium" : "text-muted"}>not chosen</span> : card.certLocation || <span className="text-muted">same as customer name</span>}
         </p>
       )}
+      {/* One short line each, so nothing is cut short or pushed into the date column (owner, 22 Oct): the person, their email, their number · Change. */}
+      {/* No name given: the email takes the "Concerned:" line (one line less). */}
+      {card.concernedName && (
+        <p className="mt-0.5 truncate text-[12.5px] leading-snug text-ink-2" title={card.concernedName}>
+          <span className="font-semibold">Concerned:</span> <span className="font-medium text-ink">{card.concernedName}</span>
+        </p>
+      )}
+      <p className="mt-0.5 truncate text-[12.5px] leading-snug text-ink-2" title={card.concernedEmail || undefined}>
+        {!card.concernedName && <><span className="font-semibold">Concerned:</span>{" "}</>}
+        {card.concernedEmail || <span className={needEmail ? "font-medium text-medium" : "text-muted"} title={needEmail ? "Needed for the gratitude email and the certificates" : undefined}>no email</span>}
+      </p>
       <p className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[12.5px] leading-snug text-ink-2">
-        <span className="shrink-0 font-semibold">{card.concernedName ? "Concerned:" : "Concerned email:"}</span>
-        {card.concernedName && <span className="shrink-0 font-medium text-ink">{card.concernedName}{card.concernedEmail ? " ·" : ""}</span>}
-        {card.concernedEmail
-          ? <span className="truncate" title={card.concernedEmail}>{card.concernedEmail}</span>
-          : <span className={needEmail ? "font-medium text-medium" : "text-muted"} title={needEmail ? "Needed for the gratitude email and the certificates" : undefined}>not set</span>}
-        {card.schedule && (
-          <span className="shrink-0">
-            {" · "}
-            {card.concernedPhone
-              ? <a className="num hover:underline" href={`tel:${card.concernedPhone.replace(/[^\d+]/g, "")}`}>{card.concernedPhone}</a>
-              : <span className="text-medium" title="Needed to mark the training completed — and it goes in the trainers' reminders">no number</span>}
-          </span>
-        )}
-        {onChange && <button type="button" className="ml-1 shrink-0 font-semibold text-brand hover:underline" onClick={onChange}>Change</button>}
+        {card.schedule && (card.concernedPhone
+          ? <a className="num min-w-0 truncate hover:underline" href={`tel:${card.concernedPhone.replace(/[^\d+]/g, "")}`}>{card.concernedPhone}</a>
+          : <span className="shrink-0 text-medium" title="Needed to mark the training completed — and it goes in the trainers' reminders">no number</span>)}
+        {onChange && <button type="button" className={`shrink-0 font-semibold text-brand hover:underline ${card.schedule ? "ml-1" : ""}`} onClick={onChange}>Change</button>}
       </p>
     </>
   );
@@ -1043,8 +1044,8 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
               <div key={i} className={`rounded-xl border-2 bg-brand-soft ${tone} ${compact ? "px-3 py-2.5" : "px-4 py-3"}`}>
                 <div className="text-[12px] font-bold uppercase tracking-wide text-brand">Type of Training</div>
                 <div className={`mt-0.5 font-semibold leading-snug text-ink ${compact ? "text-[16px]" : "text-[20px]"}`}>{t.name}</div>
-                <div className={`mt-2 grid gap-x-4 gap-y-2.5 ${showSchedule && i === 0 ? "sm:grid-cols-2" : ""}`}>
-                  <div>
+                <div className={`mt-2 grid gap-x-4 gap-y-2.5 ${showSchedule && i === 0 ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : ""}`}>
+                  <div className="min-w-0">
                     <div className="text-[12px] font-bold uppercase tracking-wide text-brand">{card.peopleLabel}</div>
                     <div className={`num mt-0.5 font-semibold text-ink ${compact ? "text-[16px]" : "text-[20px]"}`}>
                       {card.training.length === 1 && checked !== undefined ? checked : t.qty}
