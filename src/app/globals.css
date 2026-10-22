@@ -220,7 +220,58 @@
     radial-gradient(45% 50% at 50% 45%, #fff0cf 0%, transparent 72%), radial-gradient(50% 55% at 8% 96%, #cfeefb 0%, transparent 72%),
     radial-gradient(50% 55% at 94% 94%, #d6f5e3 0%, transparent 72%), linear-gradient(160deg, #fbf5fb, #f3f6fc);
 }
-/* A light theme shows only in light mode, a dark one only in dark mode (Appearance can still flip it). */
+/*
+ * Experimental themes (owner, 22 Oct): they colour everything — cards, lines, text, accents — not just the background.
+ * Plum (dark) and Smoky coastal (light); applied only together with their mode (the picker sets both).
+ */
+[data-bg="dark-xplum"] {
+  --bg-art: radial-gradient(55% 60% at 6% 6%, #4d1a4a 0%, transparent 70%), radial-gradient(50% 55% at 94% 10%, #33205f 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #421435 0%, transparent 70%), linear-gradient(160deg, #150a18, #120a1a);
+}
+:root[data-theme="dark"][data-bg="dark-xplum"] {
+  --bg: #120a14;
+  --surface: #22152a;
+  --surface-2: #2e1d37;
+  --line: #3a2742;
+  --line-strong: #4a3354;
+  --ink: #f7eef9;
+  --ink-2: #e0cfe6;
+  --muted: #b19bba;
+  --faint: #7a6584;
+  --brand: #e29ad6;
+  --brand-2: #6b3a66;
+  --brand-ink: #2a0b26;
+  --brand-soft: #3a1f3c;
+  --ticker: #0e0710;
+  --ticker-ink: #f7eef9;
+  --purple-bg: #2c1a40;
+  --shadow: 0 0 0 1px rgb(255 220 250 / 0.06), 0 8px 24px -16px rgb(0 0 0 / 0.8);
+  --shadow-lg: 0 0 0 1px rgb(255 220 250 / 0.08), 0 28px 70px -20px rgb(0 0 0 / 0.9);
+}
+[data-bg="xcoastal"] {
+  --bg-art: radial-gradient(50% 55% at 6% 8%, #cbe2ea 0%, transparent 72%), radial-gradient(45% 55% at 94% 8%, #ece3d2 0%, transparent 72%),
+    radial-gradient(50% 55% at 8% 96%, #cfeae3 0%, transparent 72%), radial-gradient(50% 55% at 94% 94%, #dbe3f0 0%, transparent 72%),
+    linear-gradient(160deg, #eef4f5, #e8f0f2);
+}
+:root[data-theme="light"][data-bg="xcoastal"] {
+  --bg: #e9f0f2;
+  --surface: #f2f7f7;
+  --surface-2: #e4eef0;
+  --line: #d3e0e3;
+  --line-strong: #bfd0d4;
+  --ink: #14262d;
+  --ink-2: #2b3f46;
+  --muted: #5e737a;
+  --faint: #93a6ab;
+  --brand: #1f6f8b;
+  --brand-2: #9cc9d8;
+  --brand-ink: #ffffff;
+  --brand-soft: #dcecf1;
+  --ticker: #12242b;
+  --ticker-ink: #eef6f7;
+}
+
+/* A light theme shows only in light mode, a dark one only in dark mode. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-bg^="dark-"]) body { background-image: none; }
 }

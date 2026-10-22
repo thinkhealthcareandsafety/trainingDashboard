@@ -19,21 +19,14 @@ const NAV = [
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
 ];
 
-function toggleTheme() {
-  const root = document.documentElement;
-  const isDark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  root.dataset.theme = isDark ? "light" : "dark";
-  try {
-    localStorage.setItem("th.theme", root.dataset.theme);
-  } catch {}
-}
-
 /**
  * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
- * light or dark: picking one also switches Appearance. "" = plain.
+ * light or dark (picking one sets the mode; there's no separate Appearance switch any more). "" = plain. Experimental
+ * themes colour the cards, lines and text too (`card` / `accent` only draw their swatch).
  */
 type Mode = "light" | "dark";
-const THEMES: { mode: Mode; id: string; label: string }[] = [
+type Theme = { mode: Mode; id: string; label: string; experimental?: boolean; card?: string; accent?: string };
+const THEMES: Theme[] = [
   { mode: "light", id: "", label: "Plain" },
   { mode: "light", id: "blush", label: "Blush" },
   { mode: "light", id: "peach", label: "Peach" },
@@ -50,6 +43,13 @@ const THEMES: { mode: Mode; id: string; label: string }[] = [
   { mode: "dark", id: "dark-forest", label: "Forest" },
   { mode: "dark", id: "dark-plum", label: "Plum" },
   { mode: "dark", id: "dark-ember", label: "Ember" },
+  { mode: "dark", id: "dark-xplum", label: "Plum", experimental: true, card: "#22152a", accent: "#e29ad6" },
+  { mode: "light", id: "xcoastal", label: "Smoky coastal", experimental: true, card: "#f2f7f7", accent: "#1f6f8b" },
+];
+const GROUPS = [
+  { key: "light", label: "Light", themes: THEMES.filter((t) => t.mode === "light" && !t.experimental) },
+  { key: "dark", label: "Dark", themes: THEMES.filter((t) => t.mode === "dark" && !t.experimental) },
+  { key: "experimental", label: "Experimental", themes: THEMES.filter((t) => t.experimental) },
 ];
 const PALETTE = <path d="M10 3.5a6.5 6.5 0 1 0 0 13c.9 0 1.4-.6 1.4-1.3 0-.4-.2-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.6-1.3 1.4-1.3h1.6a3 3 0 0 0 2.9-3C16.5 6 13.6 3.5 10 3.5ZM6.5 10h.01M8 6.8h.01M12 6.8h.01" />;
 
@@ -89,21 +89,31 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
             <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
           </button>
         </div>
-        {(["light", "dark"] as const).map((mode) => (
-          <div key={mode} className="mt-4">
-            <div className="text-[12px] font-bold uppercase tracking-wide text-muted">{mode === "light" ? "Light" : "Dark"}</div>
+        {GROUPS.map((g) => (
+          <div key={g.key} className="mt-4">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[12px] font-bold uppercase tracking-wide text-muted">{g.label}</span>
+              {g.key === "experimental" && <span className="text-[12px] text-faint">Colours the cards and text too — still being tried out</span>}
+            </div>
             <div className="mt-1.5 grid grid-cols-3 gap-2 sm:grid-cols-5">
-              {THEMES.filter((t) => t.mode === mode).map((t) => {
+              {g.themes.map((t) => {
                 const on = current.mode === t.mode && current.id === t.id;
                 return (
                   <button
-                    key={t.id || mode}
+                    key={t.id || t.mode}
                     type="button"
                     aria-pressed={on}
                     onClick={() => { setTheme(t.mode, t.id); setCurrent({ mode: t.mode, id: t.id }); }}
-                    className={`press flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-[12.5px] font-medium ${on ? "text-ink ring-2 ring-brand" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
+                    className={`press flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-center text-[12.5px] font-medium ${on ? "text-ink ring-2 ring-brand" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
                   >
-                    <span data-bg={t.id || undefined} className="h-12 w-full rounded-lg border border-line" style={{ backgroundColor: mode === "light" ? "#f5f5f7" : "#000000", backgroundImage: t.id ? "var(--bg-art)" : "none" }} />
+                    <span data-bg={t.id || undefined} className="relative h-12 w-full overflow-hidden rounded-lg border border-line" style={{ backgroundColor: t.mode === "light" ? "#f5f5f7" : "#000000", backgroundImage: t.id ? "var(--bg-art)" : "none" }}>
+                      {/* Experimental: a little card in the theme's own colours. */}
+                      {t.card && (
+                        <span className="absolute inset-x-2.5 bottom-0 top-3 rounded-t-md p-1.5" style={{ background: t.card }}>
+                          <span className="block h-1.5 w-2/3 rounded-full" style={{ background: t.accent }} />
+                        </span>
+                      )}
+                    </span>
                     {t.label}
                   </button>
                 );
@@ -369,9 +379,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <LogIcon />
               </button>
             )}
-            <button onClick={toggleTheme} aria-label="Appearance" title="Appearance" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
-              <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
-            </button>
             <button onClick={() => setThemeOpen(true)} aria-label="Change theme" title="Change theme" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon>{PALETTE}</Icon>
             </button>
@@ -409,10 +416,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             {storageWarn && <StorageStatus />}
             <SyncPanel sync={zoho} onLog={() => setLogOpen(true)} />
-            <button onClick={toggleTheme} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
-              <Icon><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5Z" /></Icon>
-              Appearance
-            </button>
             <button onClick={() => setThemeOpen(true)} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
               <Icon>{PALETTE}</Icon>
               Change theme
