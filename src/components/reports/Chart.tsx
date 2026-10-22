@@ -5,26 +5,52 @@ import { type Format, type Grain, formatValue, grainLabel } from "@/lib/analytic
 import { BLANK, type ChartKind, OTHERS, type Result } from "@/lib/analytics/query";
 
 /*
- * One report drawn with Apache ECharts (loaded only on the Reports page). Follows the dataviz rules: categorical hues
- * in a fixed order, validated for colour-blind separation on our light (#ffffff) and dark (#1c1c1e) surfaces; a colour
- * belongs to the series' name, not its rank; one axis; thin marks with 4 px rounded ends, 2 px lines; recessive grid;
- * hover tooltips; a table view for every chart (three light hues are under 3:1 — the table is the required relief).
+ * One report drawn with Apache ECharts (loaded only on the Reports page). Dataviz rules: a colour belongs to the name,
+ * not its rank; one axis; thin marks with 4 px rounded ends, 2 px lines; recessive grid; hover tooltips; a table view
+ * for every chart. Colours follow the theme picked in Change theme (owner, 22 Oct: bars that clash with the theme
+ * "look really weird"): Plain / Black use the validated mixed set (CVD-checked on #ffffff / #1c1c1e with the dataviz
+ * validator; pink swapped for mint at the owner's ask, aqua dropped — too close to mint); every other theme has its own
+ * family of shades, spread in lightness. Bars are named on their axis and every chart has a table, so a family of close
+ * shades never carries identity alone.
  */
 
-const PALETTE_LIGHT = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
-const PALETTE_DARK = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
+const PLAIN_LIGHT = ["#2a78d6", "#eb6834", "#45cf9c", "#eda100", "#6250d6", "#008300", "#e34948"];
+const PLAIN_DARK = ["#3987e5", "#d95926", "#40a985", "#c98500", "#9085e9", "#008300", "#e66767"];
+/** Chart colours per background theme (globals.css [data-bg] / AppShell THEMES). */
+const THEME_PALETTES: Record<string, string[]> = {
+  blush: ["#d9577a", "#ef8a6a", "#b8466f", "#e9a07f", "#a33d63", "#f0b29a", "#c9708f"],
+  peach: ["#e8754a", "#f0a05c", "#d65d4a", "#e8b46a", "#c4683c", "#f08f70", "#b8553a"],
+  lemon: ["#c99a00", "#9fb83a", "#d9a92e", "#7d9e2f", "#b8862a", "#c7c04a", "#8a8a2a"],
+  mint: ["#2fb58a", "#45cf9c", "#1f9e7a", "#6fcfae", "#178a6a", "#5ab89a", "#0f7a5c"],
+  aqua: ["#1ba8a0", "#3cc0b8", "#13858f", "#5fcfc6", "#0f6f7a", "#2a9fb5", "#48b3a8"],
+  sky: ["#2f7fd6", "#5aa2ea", "#1f62b8", "#7ab3ee", "#184f95", "#4590d9", "#2a6fc4"],
+  lavender: ["#7b6ad8", "#9c8ae8", "#5f4fc4", "#b3a3ee", "#4b3da8", "#8c7ae0", "#6a5acd"],
+  smoky: ["#d8789a", "#8f7fe0", "#5598e0", "#3fbf95", "#e0a83a", "#ea8a64", "#b07cc8"],
+  xcoastal: ["#1f6f8b", "#3f9bb0", "#5fae9c", "#c79a5c", "#2a86a0", "#8ab4c0", "#8a6f4a"],
+  "dark-midnight": ["#5b8def", "#8fb0ff", "#4a6fd8", "#a8b8ff", "#6c7fe8", "#3f5fc4", "#7f9cf5"],
+  "dark-ocean": ["#2fa8d8", "#5fc8ea", "#1f8fc0", "#7fd4f0", "#2b7fb8", "#3fb6c9", "#4f9fe0"],
+  "dark-aurora": ["#2fc2a8", "#8a7cf0", "#3fb0d8", "#a98af5", "#23a58e", "#6fd4c0", "#6a8ae8"],
+  "dark-forest": ["#3fbf7a", "#7fd49e", "#2fa36a", "#a3dcb0", "#4fae5f", "#8cc96f", "#2f8f5a"],
+  "dark-plum": ["#d77fc8", "#b78af0", "#c25fae", "#e6a6dc", "#9a6ad8", "#e090c0", "#a855a0"],
+  "dark-ember": ["#f0844f", "#f5b05a", "#e2604a", "#f6c47a", "#d9773a", "#ef9a80", "#c8502f"],
+  "dark-xplum": ["#e29ad6", "#b78af0", "#d06fbe", "#f0b8e6", "#9a6ad8", "#e888b8", "#b062a8"],
+};
 const OTHERS_LIGHT = "#a1a1a6";
 const OTHERS_DARK = "#636366";
 
 export const labelOf = (key: string, date: boolean, grain: Grain, long = false) => (key === BLANK ? "(not set)" : date ? grainLabel(key, grain, long) : key);
 
-type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string };
+type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string; palette: string[] };
 function readTheme(): Theme {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
   const v = (n: string) => cs.getPropertyValue(n).trim();
   const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand") };
+  // A theme's own colours only while it's showing (a light theme under dark mode shows plain black, globals.css).
+  const bg = root.dataset.bg ?? "";
+  const showing = bg && (bg.startsWith("dark-") === dark);
+  const palette = (showing && THEME_PALETTES[bg]) || (dark ? PLAIN_DARK : PLAIN_LIGHT);
+  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand"), palette };
 }
 
 /** Re-renders when the theme or the background theme changes (Change theme, OS setting). */
@@ -71,8 +97,7 @@ const slotOf = (name: string, size: number) => {
  * Colours by name: each takes its own slot; two names on one chart that land on the same slot — the second (A–Z) takes
  * the next free one, so a chart never shows one colour twice (up to 8 names). "Others" / "(not set)" are grey.
  */
-function colourMap(names: string[], dark: boolean): Map<string, string> {
-  const pal = dark ? PALETTE_DARK : PALETTE_LIGHT;
+function colourMap(names: string[], dark: boolean, pal: string[]): Map<string, string> {
   const m = new Map<string, string>();
   const taken = new Set<number>();
   const real = [...new Set(names)].filter((n) => n !== OTHERS && n !== BLANK).sort((a, b) => a.localeCompare(b));
@@ -105,11 +130,21 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
   const model = useMemo(() => buildModel(result, k, grain), [result, k, grain]);
 
   useEffect(() => {
-    if (k === "kpi" || k === "table" || !el.current) return;
+    // No chart box (table view, a number, no data): let the old drawing go — its box is gone.
+    if (k === "kpi" || k === "table" || !el.current) {
+      chart.current?.dispose();
+      chart.current = null;
+      return;
+    }
     let disposed = false;
     let ro: ResizeObserver | null = null;
     loadEcharts().then((ec) => {
       if (disposed || !el.current) return;
+      // Back from the table: a new box — draw into it, not into the one that was removed.
+      if (chart.current && chart.current.getDom() !== el.current) {
+        chart.current.dispose();
+        chart.current = null;
+      }
       const c = chart.current ?? ec.init(el.current, undefined, { renderer: "canvas" });
       chart.current = c;
       c.setOption(option(model, k, readTheme(), picked ?? null, accent), { notMerge: true });
@@ -182,8 +217,8 @@ function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Mod
 }
 
 function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Theme, picked: string | null, accent: number) {
-  const pal = t.dark ? PALETTE_DARK : PALETTE_LIGHT;
-  const colours = colourMap(m.series.map((s) => s.key), t.dark);
+  const pal = t.palette;
+  const colours = colourMap(m.series.map((s) => s.key), t.dark, pal);
   const single = m.series.length === 1;
   const own = pal[((accent % pal.length) + pal.length) % pal.length];
   const colourOf = (key: string) => (single ? own : colours.get(key) ?? own);
@@ -191,7 +226,7 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
   // More than 8, or months: the chart's own colour — a 9th hue would repeat.
   const named = m.x.filter((x) => x !== OTHERS && x !== BLANK);
   const perBar = single && !m.dateX && (k === "bar" || k === "column") && named.length > 1 && named.length <= pal.length;
-  const barColours = perBar ? colourMap(m.x, t.dark) : null;
+  const barColours = perBar ? colourMap(m.x, t.dark, pal) : null;
   const fade = (xKey: string) => (picked && xKey !== picked ? 0.3 : 1);
   const fmt = (v: number | null) => formatValue(v, m.format);
   const axisText = { color: t.muted, fontSize: 11 };
@@ -209,7 +244,7 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
 
   if (k === "donut") {
     const s = m.series[0];
-    const pieColours = colourMap(m.x, t.dark);
+    const pieColours = colourMap(m.x, t.dark, pal);
     return {
       ...base,
       legend: { orient: "vertical", right: 0, top: "middle", icon: "roundRect", itemWidth: 10, itemHeight: 10, textStyle: { color: t.ink2, fontSize: 12 } },
