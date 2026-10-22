@@ -12,6 +12,8 @@ import { Ticker } from "./Ticker";
 import { SyncLogWindow } from "./SyncLog";
 import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
+import { AnalyticsConnect } from "./AnalyticsConnect";
+import { isAdmin } from "@/lib/roles";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
@@ -325,6 +327,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [logOpen, setLogOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const closeTheme = useCallback(() => setThemeOpen(false), []);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const closeAnalytics = useCallback(() => setAnalyticsOpen(false), []);
 
   // One sign-in for the whole site, before anything else shows; after it, the Dashboard is the landing page.
   if (!session.ready) return null;
@@ -420,6 +424,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Icon>{PALETTE}</Icon>
               Change theme
             </button>
+            {/* Admin: the owner's Zoho Analytics workspace (read-only) — ANALYTICS-PLAN.md §2b.2. */}
+            {isAdmin(session.member) && (
+              <button onClick={() => setAnalyticsOpen(true)} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
+                <Icon><path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /></Icon>
+                Zoho Analytics
+              </button>
+            )}
           </div>
         </aside>
 
@@ -451,6 +462,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {logOpen && <SyncLogWindow open onClose={() => setLogOpen(false)} />}
       {themeOpen && <ThemePicker onClose={closeTheme} />}
+      {analyticsOpen && <AnalyticsConnect onClose={closeAnalytics} />}
       <RevertConfirm />
       <DayReminders />
 
