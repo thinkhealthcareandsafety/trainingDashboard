@@ -768,19 +768,22 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
   const deletedCount = [...board.cards.values()].filter((c) => c.deleted).length;
   const switchBoard = (b: BoardKind) => { setBoardKind(b); setOpen(null); };
 
-  // Opened from a link (the calendar, a reminder): that card, on its own board, once the board has it.
+  // Opened from a link (the calendar, a reminder, the Progress tracker's to-dos): that card, on its own board, once the
+  // board has it. An AED card is on AedSmartx, or on Logistics for whoever only has that board (Arti).
   const wantOpen = useRef(initialOpen ?? null);
   useEffect(() => {
     const id = wantOpen.current;
     if (!id) return;
-    const kind: BoardKind = id.startsWith("aed:") ? "aed" : "training";
-    if (!allowed.includes(kind)) return void (wantOpen.current = null);
+    const homes: BoardKind[] = id.startsWith("aed:") ? ["aed", "logistics"] : id.startsWith("fulfil:") ? ["fulfil"] : /^logi(pay)?:/.test(id) ? ["logistics"] : ["training"];
+    const kind = homes.find((k) => allowed.includes(k));
+    if (!kind) return void (wantOpen.current = null);
     if (boardKind !== kind) return setBoardKind(kind);
-    if ((kind === "aed" ? aedBoard?.cards : board.cards)?.has(id)) {
+    const cards = kind === "aed" ? aedBoard?.cards : kind === "fulfil" ? fulBoard?.cards : kind === "logistics" ? logiBoard?.cards : board.cards;
+    if (cards?.has(id)) {
       wantOpen.current = null;
       setOpen({ id, merge: false });
     }
-  }, [boardKind, board, aedBoard]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [boardKind, board, aedBoard, fulBoard, logiBoard]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });

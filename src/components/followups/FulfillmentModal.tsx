@@ -6,7 +6,7 @@ import { type CardView, FULFIL_LABEL } from "@/lib/pipeline";
 import { fmtDate } from "@/lib/dates";
 import { useStore } from "@/lib/store";
 import {
-  type BoardOptions, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection,
+  type BoardOptions, AskLink, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection,
   SalesSection, Shell, TrainingSection, certEvents,
 } from "./CardModal";
 import { FulfilActions, FulfilSteps, ReplyPopup } from "./FulfilCerts";
@@ -53,7 +53,7 @@ export function FulfillmentModal({ card, cards, trainingCards, member, options, 
 
   return (
     <Shell label={`${card.name} fulfillment`} onClose={onClose} side={<ChangeLog cardIds={card.historyIds} cards={allCards} member={member} />}>
-      <Header sub={sub} title={card.name} aside={<FulfilSteps f={f} />} onClose={onClose} />
+      <Header sub={sub} title={card.name} aside={<FulfilSteps f={f} />} ask={<AskLink cardId={card.id} title={`${card.name}${card.docNumber ? ` · ${card.docNumber}` : ""} · certificates`} search={card.name} />} onClose={onClose} />
       <div className="grid items-start gap-3 p-4 xl:grid-cols-2">
         <div ref={leftRef} className="min-w-0 space-y-3">
           <CustomerSection card={card} />

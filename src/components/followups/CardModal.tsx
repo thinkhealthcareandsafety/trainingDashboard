@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { CardEvent, CardEventKind, Member, Phase, ZohoInvoice, ZohoPayment } from "@/lib/types";
 import {
   type CardKind, type CardView, type ContactEntry, type ScheduleStatus, type TrainingSchedule, KIND_LABEL, STAGE_ORDER, STAGE_RANK, TRAINERS,
@@ -1601,7 +1602,22 @@ export function Shell({ label, onClose, side, footer, overlay, children }: { lab
   );
 }
 
-export function Header({ kind, sub, title, flagged, aside, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; aside?: React.ReactNode; onClose: () => void }) {
+/**
+ * "Ask a teammate" on a card: opens the Progress tracker's request form about this card (PROGRESS-TRACKER-PLAN.md
+ * §3.2 — requests start from a task card [S13]). `search` = what finds the card on boards the link can't open directly.
+ */
+export function AskLink({ cardId, title, search }: { cardId: string; title: string; search?: string }) {
+  const href = `/reports/progress-tracker?task=${encodeURIComponent(cardId)}&title=${encodeURIComponent(title)}${search ? `&q=${encodeURIComponent(search)}` : ""}`;
+  return (
+    <Link href={href} className="press grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink" aria-label="Ask a teammate about this card" title="Ask a teammate about this card (Progress tracker)">
+      <svg viewBox="0 0 20 20" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M4 5.5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-3.5 3v-3H6a2 2 0 0 1-2-2v-6Z" /><path d="M7.5 8.5h5M7.5 11h3" />
+      </svg>
+    </Link>
+  );
+}
+
+export function Header({ kind, sub, title, flagged, aside, ask, onClose }: { kind?: CardKind; sub: string; title: string; flagged?: boolean; aside?: React.ReactNode; ask?: React.ReactNode; onClose: () => void }) {
   return (
     // The steps (aside) share the top row with the document line, so the customer's name keeps the full width below (owner, 22 Oct).
     <div className="sticky top-0 z-10 border-b border-line bg-surface px-6 pb-3 pt-4">
@@ -1612,7 +1628,10 @@ export function Header({ kind, sub, title, flagged, aside, onClose }: { kind?: C
         </div>
         <div className="-my-1.5 flex shrink-0 items-center gap-4">
           {aside}
-          <IconButton label="Close" onClick={onClose}><path d="M5 5l10 10M15 5L5 15" /></IconButton>
+          <span className="flex items-center gap-1">
+            {ask}
+            <IconButton label="Close" onClick={onClose}><path d="M5 5l10 10M15 5L5 15" /></IconButton>
+          </span>
         </div>
       </div>
       <h2 className="mt-1 flex items-center gap-2 pr-10 text-[22px] font-bold leading-tight tracking-tight text-ink">
@@ -1846,7 +1865,8 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       side={<ChangeLog cardIds={card.historyIds} cards={cards} member={member} />}
       overlay={prompt && card.readyToSchedule && <SchedulePopup card={card} mode="ready" onSchedule={schedule} onClose={() => setPrompt(false)} busyOn={busyOn} />}
     >
-      <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} aside={steps && <StepTracker steps={steps} label="Deal progress" />} onClose={onClose} />
+      <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} aside={steps && <StepTracker steps={steps} label="Deal progress" />}
+        ask={<AskLink cardId={card.id} title={`${card.name}${card.docNumber ? ` · ${card.docNumber}` : ""}`} search={card.name} />} onClose={onClose} />
       <div className="space-y-3 p-4">
         {card.deleted && (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-high-bg px-4 py-3 text-[14px] text-high">

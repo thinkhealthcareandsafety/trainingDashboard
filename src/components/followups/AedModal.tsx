@@ -13,7 +13,7 @@ import { StepTracker, aedSteps } from "./Steps";
 import { canMarkDelivered, canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
-  type BoardOptions, type Draft, ChangeLog, ContactSection, CustomerSection, DueChip, Editor, Header, Lock, Row, SCHEDULE_TONE,
+  type BoardOptions, type Draft, AskLink, ChangeLog, ContactSection, CustomerSection, DueChip, Editor, Header, Lock, Row, SCHEDULE_TONE,
   NotesPanel, Section, Shell, dateAllowed, diff, minTrainingDate,
 } from "./CardModal";
 
@@ -413,7 +413,7 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
 
   return (
     <Shell label={`${card.name} details`} onClose={onClose} footer={footer} side={<ChangeLog cardIds={[card.id, aedCustomerId(card.customerId)]} cards={cards} member={member} />}>
-      <Header kind="invoice" sub={`${inv.number} · ${dateLong(inv.date)} · AedSmartx`} title={card.name} aside={<StepTracker steps={aedSteps(card)} label="AED training progress" />} onClose={onClose} />
+      <Header kind="invoice" sub={`${inv.number} · ${dateLong(inv.date)} · AedSmartx`} title={card.name} aside={<StepTracker steps={aedSteps(card)} label="AED training progress" />} ask={<AskLink cardId={card.id} title={`${card.name} · ${inv.number} · AED`} search={card.name} />} onClose={onClose} />
       <div className="grid gap-3 p-4 xl:grid-cols-2">
         <div className="space-y-3">
           {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={withoutRemoved(card)} /></>}

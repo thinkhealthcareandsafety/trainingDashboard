@@ -13,15 +13,18 @@ import { SyncLogWindow } from "./SyncLog";
 import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
 import { AnalyticsConnect } from "./AnalyticsConnect";
+import { ProgressToasts, useProgressPulse } from "./progress/ProgressPulse";
 import { boardsFor, isAdmin } from "@/lib/roles";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
   { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
-  // Reports (ANALYTICS-PLAN.md): only for members whose boards include the Training board (its data is Books money).
+  // Reports (ANALYTICS-PLAN.md): its dashboards are Books money — Training-board members only. Since 26 Oct it also
+  // holds the Progress tracker (PROGRESS-TRACKER-PLAN.md), which is for everyone: their Reports link goes straight there.
   { href: "/reports", label: "Reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
 ];
+const TRACKER = "/reports/progress-tracker";
 
 /**
  * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
@@ -326,6 +329,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   const router = useRouter();
   const zoho = useZohoSync(Boolean(session.ready && session.member));
+  const progress = useProgressPulse(Boolean(session.ready && session.member));
   const [logOpen, setLogOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const closeTheme = useCallback(() => setThemeOpen(false), []);
@@ -344,7 +348,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       />
     );
   }
-  const nav = NAV.filter((n) => n.href !== "/reports" || boardsFor(session.member!).includes("training"));
+  const money = boardsFor(session.member!).includes("training");
+  const nav = NAV.map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
+  const onTracker = path.startsWith(TRACKER);
+  // Requests waiting on you: a count on Progress tracker, red when one is critical, urgent or over a day old [S15].
+  const trackerBadge = progress.incoming > 0 && (
+    <span className={`grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[11px] font-bold leading-none ${progress.severe ? "bg-high text-white" : "bg-ink text-surface"}`} title={`${progress.incoming} waiting on you`}>{progress.incoming}</span>
+  );
 
   return (
     <>
@@ -365,6 +375,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={`press relative grid size-9 place-items-center rounded-[10px] ${isOn(n.href) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"}`}
               >
                 <Icon>{n.icon}</Icon>
+                {n.label === "Reports" && progress.incoming > 0 && <span className={`absolute right-0.5 top-0.5 size-2.5 rounded-full ring-2 ring-surface ${progress.severe ? "bg-high" : "bg-ink"}`} aria-hidden />}
               </Link>
             ))}
             <button onClick={session.signOut} aria-label="Sign out" title={`Sign out (${session.member.name})`} className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
@@ -402,18 +413,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           <nav className="space-y-0.5">
-            {nav.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className={`press flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
-                  isOn(n.href) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
-                }`}
-              >
-                <Icon>{n.icon}</Icon>
-                <span className="flex-1">{n.label}</span>
-              </Link>
-            ))}
+            {nav.map((n) => {
+              const reports = n.label === "Reports";
+              const on = reports ? isOn(n.href) && !onTracker : isOn(n.href);
+              return (
+                <div key={n.href}>
+                  <Link
+                    href={n.href}
+                    className={`press flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
+                      on ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+                    }`}
+                  >
+                    <Icon>{n.icon}</Icon>
+                    <span className="flex-1">{n.label}</span>
+                  </Link>
+                  {/* Reports → Progress tracker (owner, 26 Oct: "it goes under report, section"). */}
+                  {reports && (
+                    <Link
+                      href={TRACKER}
+                      className={`press mt-0.5 flex h-8 items-center gap-2 rounded-[10px] pl-6 pr-2.5 text-[13px] font-medium ${
+                        onTracker ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+                      }`}
+                    >
+                      {/* A ticked checklist: what everyone has to do and has done. */}
+                      <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M3 6.2l1.8 1.8 3.2-3.5M3 13.7l1.8 1.8 3.2-3.5M10.5 6.5h6.5M10.5 14h6.5" />
+                      </svg>
+                      <span className="flex-1">Progress tracker</span>
+                      {trackerBadge}
+                    </Link>
+                  )}
+                </div>
+              );
+            })}
           </nav>
           <div className="mt-auto space-y-1 border-t border-line pt-3">
             <div className="flex items-center gap-2.5 px-2.5 py-1.5">
@@ -459,6 +491,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOn(n.href) ? "text-ink" : "text-muted"}`}>
             <Icon>{n.icon}</Icon>
             {n.label}
+            {n.label === "Reports" && progress.incoming > 0 && <span className={`absolute right-[calc(50%-16px)] top-1.5 size-2.5 rounded-full ring-2 ring-surface ${progress.severe ? "bg-high" : "bg-ink"}`} aria-hidden />}
           </Link>
         ))}
       </nav>
@@ -468,6 +501,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {analyticsOpen && <AnalyticsConnect onClose={closeAnalytics} />}
       <RevertConfirm />
       <DayReminders />
+      <ProgressToasts notices={progress.notices} markRead={progress.markRead} />
 
       {/* Toasts */}
       <div className="fixed bottom-20 left-1/2 z-[60] flex -translate-x-1/2 flex-col gap-2 lg:bottom-6">
@@ -505,11 +539,11 @@ export function MemberPill() {
   );
 }
 
-export function PageHeader({ title, sub, actions }: { title: string; sub?: string; actions?: React.ReactNode }) {
+export function PageHeader({ title, sub, actions, titleAside }: { title: string; sub?: string; actions?: React.ReactNode; titleAside?: React.ReactNode }) {
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.025em]">{title}</h1>
+        <h1 className="flex items-center gap-2.5 text-[28px] font-semibold leading-tight tracking-[-0.025em]">{title}{titleAside}</h1>
         {sub && <p className="mt-1.5 max-w-2xl text-[14px] text-muted">{sub}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">

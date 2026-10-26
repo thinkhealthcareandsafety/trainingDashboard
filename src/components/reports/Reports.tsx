@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { DASHBOARDS, type Tile } from "@/lib/analytics/dashboards";
 import { datasetOf } from "@/lib/analytics/model";
 import type { Spec } from "@/lib/analytics/query";
@@ -57,6 +58,8 @@ export function Reports() {
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
               className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
+          {/* Its own page (PROGRESS-TRACKER-PLAN.md) — it needs the whole screen, not a dashboard tile. */}
+          <Link href="/reports/progress-tracker" className="rounded-full px-4 py-1.5 text-[14px] font-medium text-muted transition hover:text-ink">Progress tracker →</Link>
         </div>
         <button className={btn.primary} onClick={() => setBuilder({})}>+ New report</button>
         <span className="ml-auto text-[13.5px] text-muted" title={st.error ? `Last refresh: ${st.error}` : undefined}>

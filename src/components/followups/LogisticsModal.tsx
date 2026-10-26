@@ -10,7 +10,7 @@ import { confettiPop } from "@/lib/confetti";
 import { canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
-  type BoardOptions, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection, Section, Shell,
+  type BoardOptions, AskLink, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Header, NotesPanel, PaymentSection, Section, Shell,
   TrainingSection,
 } from "./CardModal";
 import { AedDocsSection, AedNotesSection, ItemDescriptionSection } from "./AedModal";
@@ -301,7 +301,8 @@ export function LogisticsModal({ card, cards, trainingCards, member, options, on
   const sub = `${LOGI_COLUMN_LABEL[l.column]}${pi ? ` · ${pi.number}` : card.docNumber ? ` · ${card.docNumber}` : ""}`;
   return (
     <Shell label={`${card.name} logistics`} onClose={onClose} side={<ChangeLog cardIds={card.historyIds} cards={allCards} member={member} />}>
-      <Header sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} aside={logiSteps && <StepTracker steps={logiSteps} label="Shipping progress" />} onClose={onClose} />
+      <Header sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} aside={logiSteps && <StepTracker steps={logiSteps} label="Shipping progress" />}
+        ask={<AskLink cardId={card.id} title={`${card.name}${card.docNumber ? ` · ${card.docNumber}` : ""} · shipping`} search={card.name} />} onClose={onClose} />
       <div className="grid items-start gap-3 p-4 xl:grid-cols-2">
         <div className="space-y-3">
           <CustomerSection card={card} />
