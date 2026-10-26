@@ -431,8 +431,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {reports && (
                     <Link
                       href={TRACKER}
-                      // Nested under Reports: its icon starts where "Reports" starts (10 px + 18 px icon + 10 px gap).
-                      className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] pl-[38px] pr-2.5 text-[13.5px] font-medium ${
+                      // In line with every other item: icons in one column, names in one column (owner, 26 Oct).
+                      className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
                         onTracker ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
                       }`}
                     >
