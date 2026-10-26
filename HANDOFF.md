@@ -1,52 +1,55 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: 20 Oct 2026, end of session 12 (Tue 20 Oct) — all code pushed (`98381ce`); this file is the only uncommitted change. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: Mon 26 Oct 2026, after session 13 (21–22 Oct) — all code pushed (`b88fb24`, live on both addresses);
+this file is the only uncommitted change. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all twelve sessions — §5),
+Read this end to end before touching code. It records what the owner asked for (every prompt, all thirteen sessions — §5),
 the business rules that came out of it, how the code works **now**, what was verified, and what is still open.
-`MONDAY-PLAN.md` (repo root) is the feature backlog agreed on 17 Oct — §3a "My day" + renewals is the next item.
+**§11 "Changing things without breaking the live site" is new — read it before the first edit.**
+Plans: `ANALYTICS-PLAN.md` (Reports — Phase 1 done, Phase 2 next), `ANALYTICS-SCHEMA.md` (every Zoho Analytics table /
+column), `MONDAY-PLAN.md` (older feature backlog — "My day" + renewals still waiting).
 
-**Start of the next session (Wed 21 Oct) — do these first (details in §3 "Calendar & reminders", §10 #85–#100):**
-1. `git status` — code is pushed (`98381ce`, live on both addresses ~13:08 IST 20 Oct). Commit this HANDOFF.md if the
-   owner hasn't (only push when they ask).
-2. **WhatsApp reminders: switched on but nothing has been sent yet — find out why first (§10 #85).** Settings are complete
-   (kv `whatsapp:anantya`: key, 4 numbers, templates `training_reminder_v4` id 83 / `training_postponed_v4` id 84, both
-   11 values, saved 13:06 IST → `ready: true`). The live syncs at 14:00 (full) and 15:00 IST ran the reminder step and
-   returned **0 WhatsApps, no error**; `cardEvents` has **no `training_whatsapp`** entries. A **dry run** of the pushed
-   code against the live data at 15:20 (sends / records / lock faked) said it **would send 5**: Sierragold → Ashish +
-   Sumit (catch-up of the 19 Oct key), Diana → Ashish + Sumit (20 Oct key), K Raheja AED → Priyanka. The settings, lock
-   (`until: 0`) and code all check out, so the live run must have left early at one of its two **silent** exits:
-   `VERCEL_ENV !== "production"` or the lock (`lock()` → null). Not caused by the local dev server (its syncs were all
-   "not due", < 0.2 s). **Do:** (a) look at the Sync log lines from 16:00 IST 20 Oct on (`zohoSyncLog`, fields `whatsapp`
-   / `whatsappError`) and `cardEvents` kind `training_whatsapp` — maybe a later run sent them; (b) if still 0, ask the
-   owner for Vercel → Project → Logs (filter `[whatsapp]` / `[reminders]`) or add a `reminderNote` to `ReminderRun` +
-   the Sync log saying *why* a run sent nothing (not production / locked / WhatsApp off: what's missing / no number) —
-   small, then push on the owner's OK. The owner's test send from the popup arrived ("test is working", 20 Oct), so
-   Anantya and the key work.
-3. **Wed 21 Oct reminders (8:30 cron + syncs):** due by email **and** WhatsApp — Sierragold Heights (Thu 22 Oct,
-   day-before) → Ashish + Sumit; K Raheja IT Park AED (Thu 22 Oct 11:00, day-before) → hello@ + Priyanka; Tata Motors
-   Pune AED (Mon 26 Oct, 5 days before) → hello@ + Priyanka. Check `training_reminder` / `training_whatsapp` entries and
-   learn@'s /Sent/Training Reminders. The cron now writes its **own Sync log line** ("Vercel cron · reminders", result
-   "not due", `reminders` / `whatsapp` counts) — confirm it appears ~08:30–09:30 IST. Sun 25 Oct (Tata's day-before)
-   depends on the cron alone (no Sunday syncs).
-4. **Diana Builwell W Goa, Wed 21 Oct** — real: Shikha merged Quotation-24-002198 into **Performa-25-1127** (20 Oct
-   11:15). To mark it completed it still needs the **concerned person's contact number** (new rule, §3). Kamal Naik /
-   asit.das@whotels.com.
-5. **Contact numbers:** no training has one yet (field new on 20 Oct). Every scheduled training needs it before
-   **Training completed** shows and before it can be rescheduled. The team was to press **Ctrl + Shift + R** and add them
-   (card → Change). If the team finds "required to reschedule" a nuisance, the owner may relax it to completion-only
-   (`certReady` in CardModal — offered, no answer).
-6. **Next feature: "My day" with certificate renewals** — defaults agreed (§10 #80). Restate it before building. The
-   owner's Zoho Sprints status list (20 Oct, §10 #99) also proposes: pre-training check 2 days before (WhatsApp),
-   quotes about to expire (day 10 of 15), AED battery / pads expiry, overdue payments by age, profit per training,
-   participant-list form.
-7. **Pushing** works from Claude's shell (`git push origin master`, ~1–2 min; Vercel live ~2 min later). If it fails with
-   "could not read Username", don't retry — the owner pushes from Cursor.
-8. **Still owner-side:** the **`CRON_SECRET`** GitHub secret (why 19 Oct's reminders went a day late), reconnect
-   **hello@** (Priyanka has sent 0 emails from the board), 4 Classic Citi test rows in the master sheet, Zoho Mail
-   forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41), Classic Citi test batches (#38).
-9. **Old certificate designs:** originals at `D:\Projects\certificate-generator\private\A4 CA / FA Photoedit.pdf` (9 Oct);
-   the current ones (14 Oct) in `D:\New folder\`.
+**Start of the next session — do these first (details in §3 and §10 #101–#117):**
+1. `git status` — code is pushed (`b88fb24`). Commit this HANDOFF.md only when the owner says "push".
+2. **Tata Motors Pune AED** was moved to **Sat 31 Oct 11:00** by Priyanka (Change date, 24 Oct — a correction, so no
+   "postponed" message, by design). Its reminders: **Mon 26 Oct (5 days), Wed 28 Oct (3 days), Fri 30 Oct (day before)**,
+   email to hello@ + WhatsApp to Priyanka. Check `cardEvents` kinds `training_reminder` / `training_whatsapp` on
+   `aed:982417000020541273` and the Sync log ("Vercel cron · reminders" line ~08:30–09:30 IST). Reminders and WhatsApp
+   have been working since 20 Oct 16:01 (§10 #85 closed).
+3. **Diana Builwell W Goa (21 Oct, Performa-25-1127)** and **Sierragold Heights (22 Oct, Quotation-24-002305)** are
+   still **not marked completed** — both need the concerned person's **contact number** first (card → Change). Sierragold
+   is still a quote: its PI must be created in Zoho and merged before "Training completed" shows. K Raheja AED was
+   completed by Priyanka (22 Oct 12:08). Only 2 contact-number entries exist so far (Admin, 23 Oct, on an invoice card).
+4. **Reports (new page, §3 "Reports")** — the Zoho Analytics copy (`za_tables`) was last refreshed **23 Oct 09:39 IST**
+   (automatic when someone opens Reports and the copy is > 6 h old; Admin also has "Refresh now"). 0 saved reports.
+5. **Questions still open with the owner** (ask, don't assume):
+   (a) how often Zoho Analytics syncs from Zoho Books (workspace → data sources → Zoho Books → settings);
+   (b) which Zoho Analytics dashboards to rebuild first (default offered: Sales & Receivables, Marriot, Customers
+   Insights / churn, Inventory, Finance Overview) and the **SQL of their query tables** (API gives columns, not SQL);
+   (c) go-ahead for **Reports Phase 2** (own dashboards, drag / resize, drill-through to documents);
+   (d) the builder window is ~900 px tall at 1728×958 — offered to make it shorter with the left column scrolling; no
+   answer yet; (e) "My day" + renewals defaults (§10 #80) — still agreed, not started.
+6. **Pushing** works from Claude's shell (`git push origin master`; Vercel live ~1–3 min later). If it fails with
+   "could not read Username", don't retry — the owner pushes from Cursor. The owner says "push it to github" after
+   almost every change; follow §11's checklist every time.
+7. **Still owner-side:** `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic Citi test rows in the master sheet,
+   Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41).
+8. **Screenshots of session 13's work** (for the owner / team): `D:\Projects\Training Dashboard\Screenshots 2026-10-22\`
+   (12 PNGs, real data — outside the repo on purpose).
+
+**Session 13 in one paragraph (21–22 Oct):** morning checks — WhatsApp had started on its own (5 sent 20 Oct 16:01, 4 on
+21 Oct 07:59), all 21 Oct reminders sent and recorded. Then, all pushed and live: **fixed** the "Ready for training" popup
+(had no contact-number row → could never schedule); **scheduling only in a popup** (Schedule / Postpone / Change date /
+To be decided) with a **"No. of People" check** (tick or correct; the checked number wins everywhere — `peopleOf`);
+**themes** (Change theme: 9 light + 7 dark gradients, then Appearance removed and 2 **experimental full themes** — Plum,
+Smoky coastal — that recolour cards and text); **Training box** concerned person / email / number on their own lines;
+**step tracker** on every board's card; **calendar "+"** on empty days (Overview popup via portal); **Zoho Analytics
+connected** (Admin popup, read-only; 475 items read) and **ANALYTICS-PLAN.md / ANALYTICS-SCHEMA.md** written; **Reports
+Phase 1** — semantic layer + query engine + Sales / Trainings / Quotes dashboards + builder + saved reports, data from
+the Zoho Analytics copy of all of Books (checked: Oct 2026 = 49 invoices, ₹59.04L incl. tax in both); polish after owner
+feedback: same-days comparison, Others as a note, Nikita Shah merged, Edit / Delete on every saved report, colours per
+chart → per theme (Plain / Black = mint bars), Table → Chart fix, bigger text, builder via portal. 22 pushes in all
+(`8eaea44` … `b88fb24`). Wrote the owner's Zoho Sprints status for 22 Oct.
 
 **Session 12 in one paragraph (20 Oct):** morning checks — all 3 first reminder emails went at 08:18 IST (the owner's
 page load started a sync), filed in /Sent/Training Reminders; two were a day late (no sync after the 19 Oct push, no
@@ -153,9 +156,14 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit `3af5c58`
-  (19 Oct — calendar; live, verified in the deployed JS on both addresses; the reminder emails are **uncommitted**).
-  Session 11: `72486bb` (calendar, popups, year from Oct, Training completed gate, AedSmartx fold), `3af5c58` (external
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit **`b88fb24`**
+  (22 Oct — Reports text size + builder portal; live on both addresses, verified in the deployed JS).
+  Session 13 (22 pushes, oldest first): `c1aa959` schedule popup + people check + themes v1 · `e94d50c` handoff ·
+  `bfed393` light / dark themes · `8eaea44` Training box lines · `0afbfe2` step tracker · `66230d3` experimental themes,
+  Appearance removed · `89a7655` calendar "+" · `c58fd75` Zoho Analytics connection + plans · `5b623b7` Reports Phase 1 ·
+  `a9e2716` / `98b44c5` period picker (owner's `pl-5`, own arrow) · `1b67e25` Edit / Delete + colours · `9c64aaa` theme
+  colours, mint, Table → Chart fix · `1bd3873` mint on Plain / Black · `b88fb24` bigger text, builder portal.
+  Session 12: `fd2e449`, `98381ce`. Session 11: `72486bb` (calendar, popups, year from Oct, Training completed gate, AedSmartx fold), `3af5c58` (external
   trainers, legend filter, deal list). Session 10: `5d167c2`, `a25a72f`, `f642de7`,
   `3f82378` (+ certificate-generator repo `44795c9`, `17853af`). Session 9: `40cb462`, `9459193`. Session 8 commits: `01f028c`,
   `4745553`, `ca83971`, `3e57bb2`. Session 7: `cb906d4`, `7025bbe`, `3a5b002`, `85f13c2`, `633f1ec`.
@@ -250,6 +258,9 @@ npx next build                       # production build (passes)
 - **To make the hourly checks reliable** (Books sync + gratitude replies), the owner must add the GitHub secret — steps given on
   10 Oct: Vercel → project → Settings → Environment Variables → copy `CRON_SECRET`; GitHub repo → **Settings** tab → Secrets
   and variables → Actions → **New repository secret** `CRON_SECRET`; then Actions → *Zoho sync* → **Run workflow** (green = ok).
+- Dependency added in session 13: **`echarts@5.6.0`** (exact; Apache-2.0) — Reports charts only, loaded with dynamic
+  `import("echarts/core")` + the Bar / Line / Pie charts, Grid / Tooltip / Legend, Canvas renderer (`Chart.tsx`
+  `loadEcharts`), so no other page ships it.
 - Dependencies added in session 6: `pdf-lib@1.17.1`, `@pdf-lib/fontkit@1.1.1` (certificates, used in the browser only).
   Fonts in `public/certificate-fonts/` (Great Vibes, Montserrat Bold Italic, Open Sans Bold Italic — SIL OFL, licence files there).
 - Dependencies added in session 3: `canvas-confetti` (+ `@types/canvas-confetti`). `npm audit` flags **Next.js 16.3 (critical)**
@@ -513,6 +524,110 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
     + `TEXT` + the route's TEST values; the old pick then reads "Off" until the new one is picked.
 - `zohoMail.mailApi` now logs Zoho's raw answer on any refusal (`[zoho mail] GET /accounts/…/folders → 401 …`, no tokens)
   and `mailboxCall` errors carry Zoho's `errorCode` (it sometimes answers `[2, {errorCode, msg}]`).
+
+### Scheduling popup + "No. of People" check (session 13) — `src/components/followups/CardModal.tsx`
+- **One popup for every date change** (`SchedulePopup`, modes `ready` / `schedule` / `postpone` / `change`, rendered
+  `fixed z-[70]`): the "<customer> is ready" popup on a merged PI (CardModal `overlay`), **Schedule training…** (a small
+  link under "Not set" — the old inline buttons are gone, owner: "the popup looks much better"), **Postpone** and
+  **Change date** (buttons stay on dated cards). Footer: **To be decided** (not in Change date), Later / Cancel, and
+  Schedule training / Postpone / Change date / Save (same dates). Disabled button's tooltip lists what's missing
+  (`scheduleMissing`). The inline picker in `ScheduleBlock` is gone (`onEditing` removed).
+- **`ScheduleRows`** (shared by the popup and Calendar → + New → Training) = Training dates + **`PeopleCheck`** pill
+  ("☐ No. of People: 20 · Change", "(PI: 20)" when changed), `TrainerPicker`, then **`CertPickers`** (location → name →
+  email → **number**). Fix: the Ready popup and Calendar New had **no number row** since 20 Oct, so their Schedule button
+  could never enable (certReady needs a phone).
+- **People:** `PeopleChoice {n, ok}`, `peopleStart(card)` (ticked when the training already has a date or a checked
+  number). Saved as **`people`** on the `set_training_date` entry (`trainingDateEvents(…, people)`; a same-dates save with
+  a new number still writes an entry). `pipeline.scheduleOf` carries `people` through postpone / TBD;
+  **`peopleOf(card)`** = `schedule.people ?? zohoPeople(card)` — used by `boardTraining` (Overview / calendar / Reports
+  trainings), `trainingReminders` (email + WhatsApp "Number of People"; with several kinds of training and a checked
+  total the kinds lose their per-line qty), FollowUps `FulfilItem`, the gratitude email `{people}`, the calendar card.
+  Change log: "· People: N". **Browser-only rule** (server `missingCertFields` unchanged) — an old tab can skip it.
+- Training box shows the checked number (one kind: "18 (PI: 20)"; several: "· N in total, checked").
+- **Training box Concerned lines** (`CertLines`, owner screenshot 22 Oct): "Concerned: <name>" / email / "no number ·
+  Change" each on its own line (no name → "Concerned: <email>"); the left grid cell is `minmax(0,1fr)` + `min-w-0`, so
+  nothing spills into the date column. Fulfillment FLAME card: modal overflow 15 px (≤ 16 = padding, OK).
+
+### Step tracker on every card (session 13) — `src/components/followups/Steps.tsx`
+- `StepTracker` (Fulfillment look: ✓ done, ring = here, grey = later, ~~struck~~ = known skipped, grey + tooltip =
+  "Not merged into this card yet"; current step tinted amber `warn` / red `bad` / purple). Builders:
+  `trainingSteps` (Lead → Quotation → PI → Scheduled → Completed → Invoice → Paid; Lost / To be decided / Postponed /
+  Overdue / Part paid on the current step; none for leads / potential), `aedSteps` (Invoice → Delivered → Contacted →
+  Scheduled → Completed, or "Not required" purple), `logisticsSteps` (Sent to Logistics → Payment → Packing → Shipped →
+  Received; On hold / Expected <date>; none for AED delivery cards). Fulfillment keeps its own `FulfilSteps`.
+- **Header layout changed for every modal** (`Header` in CardModal): row 1 = kind chip + sub (truncated, full in
+  tooltip) + steps + ×; row 2 = the customer name, full width — so 7 steps never wrap long names (measured: Training
+  modals back to their old height; Tata Motors AED card 55 px and Sent-to-Logistics cards ~19 px scroll — **pre-existing**).
+
+### Themes (session 13) — `src/app/globals.css`, `src/components/AppShell.tsx` (`THEMES`, `ThemePicker`, `setTheme`)
+- Sidebar → **Change theme** (Admin also sees **Zoho Analytics** below it; **Appearance** is gone — a theme sets light
+  or dark). Saved per browser only: localStorage `th.theme` (light / dark) + `th.bg` → `<html data-theme data-bg>`, set
+  before paint by `layout.tsx`'s script.
+- **Light** (pastel gradient behind white cards): Plain, Blush, Peach, Lemon, Mint, Aqua, Sky, Lavender, Smoky pastel.
+  **Dark** (`dark-…` ids): Black, Midnight, Ocean, Aurora, Forest, Plum, Ember. A light gradient only shows in light
+  mode and a dark one only in dark (globals.css rules) — picking a theme sets both.
+- **Experimental** (recolour cards, lines, text, accents — token overrides under `:root[data-theme=…][data-bg=…]`):
+  **Plum** (`dark-xplum`) and **Smoky coastal** (`xcoastal`). Status colours (high / medium / low) are left alone.
+- Phones have no sidebar → no theme picker there yet.
+
+### Reports + Zoho Analytics (session 13) — see `ANALYTICS-PLAN.md` for the plan, `ANALYTICS-SCHEMA.md` for the tables
+- **Zoho Analytics connection** (`src/lib/zohoAnalytics.ts`, route `/api/zoho-analytics`, Admin popup
+  `AnalyticsConnect.tsx`): Self Client code with scope `ZohoAnalytics.metadata.read,ZohoAnalytics.data.read`, Client
+  ID + Secret, workspace link; API `https://analyticsapi.zoho.in/restapi/v2` with headers `Authorization:
+  Zoho-oauthtoken …` + `ZANALYTICS-ORGID`. GET `/orgs`, GET `/workspaces/<ws>/views` (paged), GET `/views/<id>`
+  (`withInvolvedMetaInfo` → columns, row count, `involvedViews` for query tables — **no SQL**), export
+  GET `/workspaces/<ws>/views/<id>/data?CONFIG={"responseFormat":"csv"}` (`parseCsv`; JSON gives the same formatted
+  values). Route: GET = info + all views; `?view=<id>` = details; `?export=<id>` = first 5 rows (Admin look). Zoho
+  refuses bursts (~50 quick calls) — **pace ≥ 2.5 s** (`PACE_MS`).
+- **Exported values are formatted like the workspace shows them**: money "INR 852,000.00", dates "20/07/2021".
+  **Invoice "Total (BCY)" is set to show "K" in the workspace → exported "INR 954.24K" (lossy) — never use it.** Revenue
+  = line `Sub Total (BCY)` (exact) with an invoice-level before-tax discount shared out by line share; incl. tax = line
+  `Tax Inclusive Total (BCY)`. Checked vs Zoho Books (MCP `list_invoices` `response_option: 3`): Oct 2026 = 49 live
+  invoices, ₹59,03,910 here vs ₹59,04,441.50 in Books (difference = shipping / adjustments on the invoice, not lines).
+- **Data copy:** `src/lib/analytics/source.ts` `refreshAnalyticsData` exports the 8 tables in `build.ts` `TABLES` (only
+  the listed columns) into Mongo `za_tables`, under lock `za_refresh_lock`; automatic after a Reports query when the copy
+  is > 6 h old (`STALE_MS`, via `after()`), Admin **Refresh now** = `PUT /api/analytics`. ~27 s. `datasetRows(today)`
+  builds and memoises the rows (key = refreshedAt + Zoho snapshot version + day; trainings re-read every 60 s from
+  `boardTrainings`).
+- **Semantic layer** `src/lib/analytics/model.ts` (pure): datasets **sales** (invoice lines), **invoices** (receivables:
+  `ageBand` with a fixed `order`), **quotes** (`outcome` Won / Lost / Expired / Open, `winRate`), **payments**,
+  **trainings** (Training board, one per deal, date = last day, trainer multi-valued); fields incl. customer type,
+  sector, **chain** (`Special Identifier`), state / city (billing address), sales person (duplicate spellings merged —
+  "Nikita Shah" / "Nikita shah"), item, **item group** (`Item Identifier`), product type (multi), business type, lead
+  source; measures with a plain-English `def`. `formatValue` (₹ lakh / crore), Indian FY grains, `periods(today)`.
+  `build.ts` (pure) = raw tables → rows (`money`, `day` parsers). Void / draft invoices left out.
+- **Query engine** `query.ts` (pure): `checkSpec` refuses unknown datasets / fields / measures; filters, date range,
+  up to two splits, grains, top N + "Others" (recomputed from its own rows), max 8 series (rest → Others), `sort`
+  value / label (field `order` respected), **`compare`** = the period before — and when the period is still running
+  (server sets `asOf` = today) **the same days of the period before** (owner's rule: never part vs whole).
+- **API** `/api/analytics`: GET = datasets this member may use (board rule: every dataset needs the **training** board
+  — money; Priyanka / Arti / Shreya get none and no nav item) + data state; POST `{specs}` (≤ 40) = results; PUT =
+  Admin refresh. `/api/analytics/reports`: saved reports — GET, POST (Admin, Ashish, Shikha, Sumit = `hasFullAccess`;
+  edit only author or Admin), DELETE (author / Admin).
+- **Pages:** `/reports` (sidebar "Reports" under Calendar, phone tab bar becomes 4 columns) → `Reports.tsx` tabs: official
+  dashboards from `dashboards.ts` (**Sales**, **Trainings**, **Quotes** — code, not DB) + **Saved reports** + **+ New
+  report**; data line "Zoho data copied … · Refresh now" (Admin). `Dashboard.tsx`: filter bar (period select +
+  `MultiSelect` per field) applied to every tile whose dataset has the field; **click a bar / slice / month** → `pick`
+  filters the other tiles (date → that month's range), chip + Esc to clear; `TileCard` (KPI / chart / table, Table ↔
+  Chart, CSV, Edit / Delete actions on saved ones — on every kind of tile). `Builder.tsx` (portal): data → measure →
+  split by (+ grain) → chart → period (saved as a relative key) → top N → filters → title; live preview; Save.
+- **Charts** `Chart.tsx` (ECharts): `resolveKind` (auto: number / column for dates / bar for text / stacked for two
+  splits), bars with 4 px rounded ends, horizontal bars labelled, **"Others" shown as a line under bar charts** (not a
+  bar), legend colours set per series, `ResultTable` + `downloadCsv` (BOM, opens in Excel). **Colours:** Plain / Black
+  themes → every single-series bar / line **mint** (`#45cf9c` light, `#40a985` dark); donuts / stacks / several series
+  → the validated mixed set (blue, orange, mint, yellow, violet, green, red — aqua dropped as too close to mint);
+  every other theme → its own family in `THEME_PALETTES` (one hue per chart by position; ≤ 7 named categories get a
+  colour each, by name — `colourMap` hashes the name so a name keeps its colour). Theme change re-renders
+  (`useThemeTick`). **Fix:** an ECharts instance is reused only if `getDom()` is the current box (Table → Chart left
+  an empty tile).
+- **Text sizes** were raised one step (owner, 22 Oct: "too small"): axes 13, bar values 13, legends 13.5, tooltips 14,
+  tile titles 16.5, KPI 36, tables 14.5, filters / tabs 14.
+
+### Calendar "+" (session 13) — `src/components/Calendar.tsx`
+- `DayAgenda`: an empty day is a **"+ Add a training, meeting or event"** tile (Calendar side panel and the Overview's
+  mini calendar); the mini calendar also gets "+ New". On the Overview it opens `NewModal` via **`MiniNew`**, rendered
+  with `createPortal(…, document.body)` (inside the card it sat under the chart) and loading the deals
+  (`useBoardCards`) only once opened.
 
 ### Sign-in and API protection
 - **One sign-in page for the whole site** (`AppShell` → `SignInPage` + `MembersScreen`): pick your name (or **Admin**), type the
@@ -1165,6 +1280,36 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 243 | "write a description for this training dashboard" | Long + one-line description (Sprints). |
 | 244 | "write whatever is left for tomorrow, prepare a handoff for the new session" | Found WhatsApp hasn't sent on the live site (dry run says it would send 5) → §10 #85; this update. |
 
+### Session 13 (21–22 Oct 2026) — schedule popup, themes, step tracker, Zoho Analytics, Reports
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 245 | Brief: read HANDOFF; rules (no test data, emails / WhatsApps only to the owner, push only when asked, never print the Anantya key); check git / live, WhatsApp since 20 Oct, 21 Oct reminders, Diana, contact numbers; then fix WhatsApp + restate My day | All pushed and live; **WhatsApp working** (5 on 20 Oct 16:01, 4 on 21 Oct 07:59); 21 Oct emails + WhatsApps sent and recorded; Diana not completed, 0 contact numbers; My day restated with 6 questions (no answer yet). |
+| 246 | Screenshots: pastel "background theme" per user; on a PI the inline Schedule / TBD buttons should go ("the popup looks much better"); a "No. of People" check with Change next to the dates, required to schedule | Restated with 6 questions; found the Ready popup **couldn't schedule** (no number row). |
+| 247 | "only one change theme option · save it browser only · popup better, we can go back · people asked with the schedule · yes" | Built: schedule popup everywhere, people check, `peopleOf`, themes v1 (`c1aa959`). |
+| 248–249 | "continue" · "push it to github" | `c1aa959` + handoff `e94d50c`, live. |
+| 250 | Fulfillment tracker screenshot: "same phases for all other boards' merged cards" | Restated with defaults. |
+| 251–252 | "theme in colours for the black one too, more themes, make them themes" · push | Light / dark theme sets (`bfed393`). |
+| 253–254 | Screenshot: Training box Concerned line overlapping the date — "fix the ui" · "push it obv" | Own lines per item (`8eaea44`). |
+| 255–256 | "why haven't we added something like this to other boards" · push | Step tracker on Training / AedSmartx / Logistics (`0afbfe2`). |
+| 257–258 | "remove Appearance; experimental themes that colour the cards too: Plum (black), Smoky coastal (white)" · push | `66230d3`. |
+| 259–260 | Mini calendar: "a + instead of nothing on this day" · push | `89a7655` (portal for the Overview popup). |
+| 261 | "what UI changes for quality? bring my Zoho Analytics analysis here as a page under Calendar — Power BI for visuals, Zoho Analytics for data?" | Advised against Power BI (licences / capacity, no connector); listed UI priorities. |
+| 262–265 | "can Tableau work?" · "use the format like Tableau / Power BI — ZA reports look terrible" · "better if I could generate reports in my dashboard" · "interactive dashboards btw" | Same cons for Tableau; proposed building reports + interactive dashboards in the dashboard. |
+| 266 | "write a big big plan on everything Power BI and Tableau do, and do it better — look at their cons and fix them" | `ANALYTICS-PLAN.md`. |
+| 267–270 | "double-check all data from Zoho Books and Analytics" (+ private workspace link) · "how do I do that?" · "run it locally" · "how do I put the client id and secret" → built the Connect popup; "all is connected yessir" | Books checked via the Zoho Books connector (custom fields, modules, Zoho One Enterprise); ZA read via the app (475 items); `ANALYTICS-SCHEMA.md`. |
+| 271 | "push it to github!" | `c58fd75`. |
+| 272 | "yeah" (all §10 defaults of the plan) | **Reports Phase 1** built (data via Zoho Analytics, checked vs Books). |
+| 273 | "push it" | `5b623b7`, live. |
+| 274 | Period picker screenshot: "how can I edit this?" · "which file / where is the arrow" · owner set `pl-5` ("push") · "move the arrow a little left" · push | Explained; `a9e2716` (owner's edit) · `98b44c5` (own chevron, `right-4`, `pr-10`). |
+| 275 | "why no option to delete reports I make lmao; more colours than all green" | Edit / Delete on KPI tiles; colour per chart / per named bar (`1b67e25`). |
+| 276 | "change the pink to mint blue #98FBCB" + "palettes depending on the theme selected, otherwise it looks weird" + "switching chart → table, the report disappears" · push | #98FBCB fails contrast on white → `#45cf9c` / `#40a985`; aqua dropped; theme palettes; ECharts fix (`9c64aaa`). |
+| 277 | "for base black and white keep the bars mint green" · push | `1bd3873`. |
+| 278 | "push it, and fetch me some interesting screenshots of today's changes" | 12 screenshots in `D:\Projects\Training Dashboard\Screenshots 2026-10-22\`. |
+| 279 | "write a text for me to update my work" | Zoho Sprints block (DONE / WAITING ON US / NEXT / SUGGESTIONS). |
+| 280 | "the fonts on the reports are too small" · push | One step up everywhere; builder via portal (opened low on long pages) (`b88fb24`). |
+| 281 | "new report should pop up in the middle of the screen" | Measured on the live site: centred at 1366×768 / 1728×958 / 1920×1080, scrolled or not — owner's tab was likely old (Ctrl + Shift + R); offered a shorter window. |
+| 282 | "write a handoff for a new session, tips for suggestions without breaking the current software, and a message to pass" | This update (+ §11) and the starter message for the next session. |
+
 ---
 
 ## 6. Zoho facts learned the hard way
@@ -1210,6 +1355,14 @@ Session 12: kv **`whatsapp:anantya`** (Anantya **API key — secret, never print
 templates with `vars`); `cardEvents` kinds **`training_whatsapp`** (server only) and **`set_training_phone`**, and field
 **`phone`** on `set_training_date`; `zohoSyncLog` entries may carry `whatsapp` / `whatsappError`, and the reminders cron
 writes its own entries (`trigger: "scheduler"`, `source: "Vercel cron · reminders"`, `result: "not due"`).
+Session 13: field **`people`** on `set_training_date` (the checked head-count; replayed into `TrainingSchedule.people`);
+kv **`zoho_analytics:workspace`** (Zoho Analytics connection — **client secret + refresh token, secret, never print**;
+`workspaceId` 421000000000021002, `orgId`, `orgName`, `connectedBy`), collection **`za_tables`** (one doc per Zoho
+Analytics table — `_id` = key in `build.ts` `TABLES`: invoices, invoiceItems, customers, addresses, salespersons, items,
+quotes, payments; `rows` = only the listed columns as Zoho formats them, `count`, `at`) — a **cache of Zoho data, safe
+to rebuild** (Admin → Reports → Refresh now), kv **`za_state`** (`refreshedAt`, `refreshedBy`, `error`, `tables` counts),
+kv **`za_refresh_lock`** (lease, 5 min), collection **`reports`** (saved reports: `_id` uuid, `spec`, `by`, `byId`, `at`,
+`updatedAt` — **real team data**; 0 on 26 Oct).
 Legacy: `leads` (4,105 docs, unused since session 1) — drop only with the owner's OK. History: `cardEvents` was cleared by
 request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Everything by mistake on 3 Oct and 10 Oct**
 (both restored in session 6). Archive keeps copies of every clear.
@@ -1260,6 +1413,21 @@ request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Ev
   the DNS is on Cloudflare, not GoDaddy).
 - They use **Admin** on the live site themselves during the day (merges, syncs) — live entries by "Admin" are usually theirs,
   not a test; confirm from the local server log before suspecting your own scripts.
+- Session 13: the owner says **"push it to github" after nearly every change** (sometimes "push it obv", typos like
+  "pushi t") — do the §11 checklist each time; if nothing changed, say so plainly (they asked twice when nothing was
+  left — likely an unsaved edit in their editor: check `git status`, and if their described edit isn't on disk, say it
+  isn't saved).
+- They edit small things themselves in Cursor (e.g. `pl-5` on the period picker) and ask which file / line to change —
+  answer with the exact file:line and the class to change, then push their edit unchanged.
+- Visual taste: colours that match the chosen theme ("otherwise it looks really weird"), **mint green** bars on the plain
+  white / black themes, **bigger text** in Reports, popups **in the middle of the screen**. They dislike plain pink and
+  "all green" brand-teal charts. When a requested colour fails contrast (#98FBCB on white), use the nearest passing
+  shade of the same hue and say why in one line.
+- Analytics: they built reports in **Zoho Analytics** (query tables by Sumit A Shah) but find its look "terrible"; they
+  want Power BI / Tableau-like interactive dashboards **inside this dashboard**, generated by the team themselves.
+  Recommend building, not licensing (Power BI / Tableau licence + no direct Zoho Analytics connector).
+- "yeah" = all defaults of the last numbered list (again in session 13, for the whole ANALYTICS-PLAN §10).
+- They like a folder of screenshots and a pasteable Zoho Sprints status after a day's work (reference memory).
 
 ---
 
@@ -1326,6 +1494,27 @@ No test suite. Pattern used throughout:
       a tiny Node server on 127.0.0.1, screenshot with puppeteer — Chrome's `--screenshot` doesn't wait for pdf.js). The
       Read tool can't render PDFs here (no pdftoppm).
     - esbuild bundles that share objects with the test script need `--external:pdf-lib` (two copies break `instanceof`).
+15. **Session 13 patterns (scripts were in the session scratchpad — rebuild from this):**
+    - **`env.cjs`** loads `.env.local` into `process.env` without printing; every script `require`s it.
+    - **Read-only Mongo queries** with the project's own driver (`require("<repo>/node_modules/mongodb")`): Sync log
+      (`zohoSyncLog` since a time), `cardEvents` by kind / card id, kv docs **projected without secret fields**.
+    - **Server modules on live data without a server:** esbuild-bundle a small TS entry that imports `getSnapshot` +
+      `boardsNow` (aliases: `server-only` → empty file, `next/server` → `{ after(){} }`, `--external:mongodb`) — prints
+      board cards (e.g. which trainings lack a contact number). `getSnapshot` only *schedules* a sync via `after()`, which
+      the stub turns into a no-op.
+    - **Admin helper** (`admin.cjs`): POST `/api/members/sign-in` with `ADMIN_PIN` → cookie → GET any route on
+      localhost (Git Bash mangles a leading "/" in args: pass `api/…` and add the slash in code). Used for
+      `/api/zoho-analytics` (views, `?view=`, `?export=`) and `/api/analytics` (POST report specs, read-only).
+    - **Browser checks** (puppeteer-core 23 in the scratchpad, Chrome at `C:/Program Files/Google/Chrome/Application/
+      chrome.exe`, 1728×958): abort every non-GET `/api/*` **except** sign-in / session and `POST /api/analytics`
+      (report queries are read-only); answer `/api/zoho/sync` with `{"enabled":false}` and `/api/reminders` with
+      `{"seen":[]}`; set `th.theme` / `th.bg` / `th.board` / `th.reports.tab` in localStorage; `emulateMediaFeatures`
+      `prefers-color-scheme: light` for light shots. Canvas check for charts: count non-transparent pixels.
+    - **Zoho Books numbers** via the claude.ai Zoho Books connector (org `60016330017`): `list_invoices` with
+      `date_start` / `date_end` and `response_option: 3` returns count + total + balance — compare with Reports.
+    - **Palette check:** dataviz skill's `scripts/validate_palette.js "<hex,…>" --mode light --surface "#ffffff"` (and
+      `--mode dark --surface "#1c1c1e"`).
+    - Inline `node -e '…'` breaks on any apostrophe in the code (bash quoting) — write a `.cjs` file instead.
 
 ---
 
@@ -1586,3 +1775,112 @@ No test suite. Pattern used throughout:
     costs live), participant-list form for clients.
 100. #78 (WhatsApp) is done; #70's cron is confirmed accepted by Vercel (deploy went through, route exists) but its first
      run left no trace on 20 Oct (it wrote nothing then) — from 21 Oct it writes its own Sync log line.
+
+**Session 13 — open items** (closed: #85 — WhatsApp works since 20 Oct 16:01; #86 — message ids are stored on every
+`training_whatsapp`):
+
+101. **Contact numbers / completions:** Diana (21 Oct) and Sierragold (22 Oct, still a quote — PI needed) not completed;
+     every older training still lacks a number. The team should add them (card → Change). Consider a ticker / My day
+     item "add the contact number" once My day exists.
+102. **"No. of People" and the contact number are browser-only rules** (server `missingCertFields` checks location +
+     email only). An old tab (no Ctrl + Shift + R) can still schedule without them. Make them server rules together only
+     if the owner wants (it would also block old tabs' schedules silently — tell the team first).
+103. **0 schedules with a checked head-count yet** (`set_training_date.people`): nobody has scheduled since the release.
+     Check the first one: the Overview people count, the reminder's "Number of People" and the card's "(PI: n)".
+104. **Reports data freshness:** `za_tables` refreshes only when someone opens Reports (> 6 h old) or Admin presses
+     Refresh. Ask the owner how often Zoho Analytics itself syncs from Books (if hourly, a 2–3 h refresh is enough; if
+     daily, say so on the page). A Vercel cron could refresh it too (Hobby = daily crons only).
+105. **Reports Phase 2** (owner to confirm): own dashboards (save a set of tiles, drag / resize — `react-grid-layout` or
+     a small own grid), drill-through from a bar to the documents behind it → open the card on its board
+     (`/follow-up?open=`), hover cards. Then Phase 3–7 per `ANALYTICS-PLAN.md` §6.
+106. **Rebuild the owner's Zoho Analytics query tables** as datasets / measures (churn risk, Marriott conversion /
+     outstanding, YoY by type / sector / state, stock on hand, product prices, KPI) — needs each one's SQL (the API gives
+     only columns + source tables, `ANALYTICS-SCHEMA.md`). Check every rebuilt number against Zoho Analytics' own result.
+107. **Wider data for Reports** (`ANALYTICS-PLAN` Phase 1b): add tables to `build.ts` `TABLES` (Bills, Bill Item,
+     Purchase Orders, Purchase Order Items, Vendors, Vendor Payments, Expenses, Expense Item, Accounts, Accrual
+     Transactions, stock flows, Credit Notes…) — **check each money column's export format first** (a column shown as
+     "K" / "M" in the workspace is lossy). Margin / profit numbers: **Admin only** by default.
+108. **Builder window height:** ~900 / 958 px at 1728×958 (centred, measured on live). Owner was offered a shorter
+     window with the left column scrolling — no answer.
+109. **Theme palettes other than Plain / Black are not CVD-validated** (chosen to match the themes; bars are named on
+     their axis and every chart has a table, so colour never carries identity alone). Validate them with the dataviz
+     script before using them for legends with many series.
+110. **Colour by name** (`colourMap`, FNV hash + probing) keeps a name's colour across charts, but two names on one
+     chart that hash to the same slot shift each other when a filter hides one — rare; if the owner notices, switch to a
+     stored per-field colour list.
+111. **Phones:** no theme picker (sidebar only on desktop); Reports work on phones (charts stack, 0 px page overflow at
+     390 px) but the filter bar wraps to 3–4 rows.
+112. **Pre-existing modal scroll:** Tata Motors Pune AedSmartx card 55 px, Sent-to-Logistics cards ~19 px at 1728×958
+     (not caused by the step tracker — measured with it hidden). Offered to trim; no answer.
+113. **`npm audit`** still flags Next 16.3 (critical) — plan a careful upgrade (§10 #54); echarts 5.6.0 added no
+     advisories of its own that blocked the build.
+114. **Screenshots** of 22 Oct live outside the repo (`D:\Projects\Training Dashboard\Screenshots 2026-10-22\`) — real
+     customer names and revenue; don't commit them (the repo is public).
+115. **`ANALYTICS-PLAN.md` / `ANALYTICS-SCHEMA.md` are public** (repo is public): table / column names, row counts,
+     workspace number, dashboard names — no data, no secrets; the owner was told. Don't add customer-level numbers there.
+116. `zohoAnalytics.ts` `?export=<id>` returns the first 5 rows of any table to Admin (a look only) — keep it Admin-only.
+117. "My day" + certificate renewals (§10 #80) — still agreed, not started; the Reports engine can feed a Renewals
+     dashboard once certificate expiry data is in (Phase 1b + the 2024–25 invoices back-fill in #80).
+
+---
+
+## 11. Changing things without breaking the live site (read before the first edit)
+
+The dashboard is **in daily use by 7 people**, the local server **shares the live database**, and **every push to
+`master` is a production release**. These are the habits that kept 13 sessions incident-free — and the traps found.
+
+**Before you change anything**
+1. Read the relevant part of §3 and the code around it; match the surrounding style (comments explain *why*, owner's
+   words and dates in comments, short functions, Tailwind classes inline). `AGENTS.md`: this Next.js (16.3) differs from
+   training data — read `node_modules/next/dist/docs/` before Next-specific code (route handlers, `after()`).
+2. For anything structural, **restate in numbered steps with a recommended default per question** and wait for "yeah".
+   Small visual fixes the owner points at (screenshot + "fix the ui"): just fix, measure, report.
+3. Check whether the thing is **live data**: `cardEvents`, `members`, `entries`, `reports`, kv connections are real.
+   `zohoDocs` / `zohoCustomers` / `zohoPayments` / `za_tables` are caches of Zoho (rebuildable) — still never delete
+   them by hand.
+
+**While building**
+4. **Never write test data to the shared database.** Browser tests abort every non-GET `/api/*` (allow sign-in /
+   session and read-only `POST /api/analytics`); scripts are read-only; for flows that must write, use a throwaway
+   `thinkhealth_qa` database only with the owner's OK (§9 #3, #10).
+5. **Never send** emails / WhatsApps except a [TEST] to the owner (sshah@thinkhealth.in / their own number). Sending
+   code runs only in production (`VERCEL_ENV`), so a local server can't send by accident — keep it that way.
+6. **New event kinds** need: `types.ts` kind, `roles.ts` (`canWriteEvent`, `SERVER_KINDS` if server-only), `cascade.ts`
+   if it's a flow step, `pipeline.describeEvent` (change log), replay in `pipeline.ts`. A new *field* on an existing
+   kind (like `people`) needs none of the role changes — `/api/store` keeps unknown fields.
+7. **Zoho sync window:** `zohoSync.reconcile` deletes tracked docs it no longer lists (previous-FY window). Never put
+   older or wider data into `zohoDocs` — keep it separate (as `za_tables`, or the renewals back-fill plan in #80).
+8. **Reports:** add fields / measures in `model.ts` (with a `def`) and their values in `build.ts` — never ad-hoc
+   queries in the UI. Verify every new money measure against Zoho Books (Zoho Books connector `list_invoices`
+   `response_option: 3`, or Zoho Analytics' own report). Check the **export format** of any new column first (lossy "K").
+   Pace Zoho Analytics calls (≥ 2.5 s); read stored tokens only through the app's routes (direct token reads were
+   refused as "credential exploration").
+9. **Popups:** a `fixed` overlay inside page content can centre on the whole page (tall / transformed ancestors) —
+   render popups opened from page content with `createPortal(…, document.body)` (`MiniNew`, Builder). Modals must fit
+   1728×958 without inner scroll (measure `scrollHeight − clientHeight`, 0–16 px OK).
+10. **ECharts:** dispose / re-init when the chart's box changes (`getDom()` check); colours come from the theme
+    (`THEME_PALETTES`, `MINT_*`); text uses ink tokens, never the series colour; no second y-axis ever.
+11. **Themes:** a new theme = `globals.css` `[data-bg]` gradient (+ token overrides if experimental) + `AppShell`
+    `THEMES` entry + `Chart.tsx` `THEME_PALETTES` entry. Light themes have no prefix, dark ones `dark-`.
+12. **Files:** `kpi.ts` is CRLF; the rest LF (git warns, harmless). Edit with the Edit tool; avoid `node -e` with
+    apostrophes; never `sed` across many files without checking the match count.
+
+**Before every push (the owner asks often — do all of it every time)**
+13. `npx tsc --noEmit -p tsconfig.json` and `npx next build` pass.
+14. **Secret scan** of the diff *and* new untracked files against `.env.local` values (Zoho client / secret / refresh
+    token, `MONGODB_URI`, `ADMIN_PIN`, `CLEAR_LOGS_PIN`) and token-like strings (`1000.<hex>`). Never print them.
+15. Read-only browser check of the changed screen at 1728×958 (and 390 px if layout changed), light + one dark theme.
+16. Commit with a clear message (what the owner sees + why) and the attribution line; `git push origin master`.
+17. Poll both addresses (`work.thinkhealth.in`, `training-dashboard-xfwl.vercel.app`) until a string unique to the change
+    appears in the served JS (constants may be minified — pick a CSS class or text), then tell the owner it's live and
+    **Ctrl + Shift + R**.
+
+**Safe-by-default suggestions for what to build next** (each small, additive, reversible):
+- **Read-only first:** new Reports datasets / dashboards, new KPI tiles, new ticker lines — they can't damage data.
+- **Behind Admin first:** new connections and tools (like Zoho Analytics) start Admin-only; widen after the owner tries.
+- **Additive fields** on existing events (like `people`) rather than new kinds; old entries keep working.
+- **Browser-only rules first** (they don't refuse old tabs' writes); move to the server only with the owner's OK and a
+  note to the team (an old tab would lose its change silently).
+- **One release per idea:** small commits the owner can try live within minutes; don't bundle unrelated changes.
+- **Undo path:** every board action is a revertable `cardEvents` entry; keep new actions that way (no direct edits of
+  Zoho data, no deletes of entries without the owner's explicit OK and an archive copy).

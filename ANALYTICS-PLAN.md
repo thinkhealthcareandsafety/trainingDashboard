@@ -1,8 +1,14 @@
 # Analytics plan — reports and interactive dashboards inside the Training Dashboard
 
 _Written 22 Oct 2026 for the owner (sshah@thinkhealth.in) and the Claude Code sessions that will build it. Read with
-HANDOFF.md and MONDAY-PLAN.md. Nothing here is built yet — every phase waits for the owner's go-ahead, and each one
-is restated with questions + recommended defaults before building (the owner's usual "yeah" = all defaults)._
+HANDOFF.md and MONDAY-PLAN.md. Every phase waits for the owner's go-ahead, and each one is restated with questions +
+recommended defaults before building (the owner's usual "yeah" = all defaults)._
+
+**Status (26 Oct):** §10 defaults accepted ("yeah", 22 Oct). **Phase 1 is live** (`5b623b7` … `b88fb24`): Sales,
+Trainings and Quotes dashboards, filters, click-to-filter, same-days comparison, table / CSV, builder, saved reports —
+data from the Zoho Analytics copy of all of Books (part of Phase 1b already: 8 tables in `za_tables`). Next: Phase 2
+(owner's go-ahead pending) and the rest of 1b (purchases, expenses, stock — HANDOFF §10 #105–#107). How it's built:
+HANDOFF.md §3 "Reports + Zoho Analytics".
 
 ---
 
