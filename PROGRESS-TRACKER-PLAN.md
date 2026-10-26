@@ -46,6 +46,19 @@ Items open their card on its board: `/follow-up?open=` now also opens Fulfillmen
 - **(i)** next to the page title (`Info.tsx`) explains the three views, who sees what, and what is (not) tracked.
 - The page's tabs: **Everyone's to-do · Work done · Requests**.
 
+**Tagging (owner, 26 Oct: "if they are mentioned, a red 1 on the tracker until they go and reply or resolve
+their issue in the ticket"):**
+- Tagged means the request waits on you (since it was made, reopened or last pinged), or someone typed @YourName in
+  its thread. Replies get @ suggestions and the tag shows highlighted.
+- The sidebar's Progress tracker count is now **only** these unanswered tags, always red.
+- It clears when you reply in that thread or resolve / withdraw / reopen the request; opening it isn't enough.
+- On the page:
+  - a red 1 on each such request, and a "Mentioned you" list under Waiting on you;
+  - a red strip inside the request;
+  - "Reply needed" / "Mentioned you" in the to-do column.
+- Rules in `model.ts` (`mentionsIn`, `needsReply`); `ptComments.mentions` holds the tagged member ids; notice kind
+  `mention`.
+
 Not built: P3 digest, P4+ webhooks. Code is in `src/lib/progress/` (`model.ts` pure, `server.ts`),
 `src/app/api/progress/*`, `src/components/progress/*` and `src/app/reports/progress-tracker/page.tsx`; the heartbeat
 (`useProgressPulse`, every 30 s while the tab is visible) is in AppShell. **Changed from the plan while building:**

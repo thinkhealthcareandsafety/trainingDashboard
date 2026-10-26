@@ -63,9 +63,37 @@ export interface Presence {
   focus?: { text: string; at: string }; // set by the member [S21]
 }
 
-export interface Comment { id: string; parent: string; by: string; byId: string; text: string; at: string; deletedAt?: string }
+export interface Comment { id: string; parent: string; by: string; byId: string; text: string; at: string; deletedAt?: string; mentions?: string[] /* member ids tagged with @Name */ }
 
-export type NoticeKind = "request" | "ping" | "resolved" | "reopened" | "comment";
+export type NoticeKind = "request" | "ping" | "resolved" | "reopened" | "comment" | "mention";
+
+/* ---------------- Tagged: who owes a reply (owner, 26 Oct) ---------------- */
+
+/** @Shikha / @Sumit / @Admin in a reply → those members' ids (by first name; never the writer). */
+export function mentionsIn(text: string, team: Who[], writerId: string): string[] {
+  const words = new Set([...text.matchAll(/@([A-Za-z][\w.-]*)/g)].map((m) => m[1].toLowerCase()));
+  return team.filter((m) => m.id !== writerId && words.has(m.name.trim().split(/\s+/)[0].toLowerCase())).map((m) => m.id);
+}
+
+/**
+ * Tagged and not answered yet (owner: "a red 1 on the tracker until they go and reply or resolve their issue in the
+ * ticket"). Tagged = the request is waiting on them (since it was made, reopened or last pinged), or someone @mentioned
+ * them in its thread. Answered = they replied in that thread, or resolved / withdrew / reopened it, after that.
+ * Opening it doesn't count.
+ */
+export function needsReply(meId: string, meName: string, r: PtRequest, comments: Comment[]): boolean {
+  const live = comments.filter((c) => c.parent === `request:${r.id}` && !c.deletedAt);
+  const tags: string[] = [];
+  if (r.waitingOnId === meId && r.status === "open") tags.push(r.reopenedAt ?? r.createdAt, ...(r.pings.at(-1) ? [r.pings.at(-1)!.at] : []));
+  for (const c of live) if (c.byId !== meId && c.mentions?.includes(meId)) tags.push(c.at);
+  if (!tags.length) return false;
+  const taggedAt = tags.sort().at(-1)!;
+  const answers = [
+    ...live.filter((c) => c.byId === meId).map((c) => c.at),
+    ...r.log.filter((l) => l.by === meName && (l.action === "resolved" || l.action === "withdrawn" || l.action === "reopened")).map((l) => l.at),
+  ];
+  return !answers.some((a) => a > taggedAt);
+}
 export interface Notice { id: string; to: string; kind: NoticeKind; requestId?: string; text: string; at: string; urgent?: boolean; readAt?: string }
 
 export type Who = { id: string; name: string };

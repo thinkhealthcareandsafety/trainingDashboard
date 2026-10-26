@@ -14,10 +14,10 @@ import { PROGRESS_CHANGED } from "./useProgress";
 
 const BEAT_MS = 30_000;
 const SHOW_MS = 12_000;
-type Pulse = { incoming: number; severe: boolean; notices: Notice[] };
+type Pulse = { incoming: number; severe: boolean; needs: number; notices: Notice[] };
 
 export function useProgressPulse(active: boolean) {
-  const [pulse, setPulse] = useState<Pulse>({ incoming: 0, severe: false, notices: [] });
+  const [pulse, setPulse] = useState<Pulse>({ incoming: 0, severe: false, needs: 0, notices: [] });
   const inFlight = useRef(false);
   const beat = useCallback(async () => {
     if (inFlight.current || document.visibilityState !== "visible") return;
@@ -45,7 +45,7 @@ export function useProgressPulse(active: boolean) {
   return { ...pulse, markRead };
 }
 
-const KIND: Record<Notice["kind"], string> = { request: "Waiting on you", ping: "Gentle reminder", resolved: "You can resume", reopened: "Reopened", comment: "New reply" };
+const KIND: Record<Notice["kind"], string> = { request: "Waiting on you", ping: "Gentle reminder", resolved: "You can resume", reopened: "Reopened", comment: "New reply", mention: "Mentioned you" };
 
 export function ProgressToasts({ notices, markRead }: { notices: Notice[]; markRead: (ids: string[]) => void }) {
   const router = useRouter();

@@ -7,6 +7,7 @@ import type { Presence, PtRequest, Who } from "@/lib/progress/model";
 export type Snapshot = {
   me: Who; now: string; today: string; team: Who[];
   presence: Presence[]; requests: PtRequest[]; replies: Record<string, number>;
+  needsMe: string[]; // requests I'm tagged in and haven't answered (reply / resolve) — red until then
 };
 
 const POLL_MS = 15_000; // like the team data: changes by others show within ~15 s [A3]

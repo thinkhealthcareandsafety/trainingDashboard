@@ -114,7 +114,7 @@ export function ProgressTracker({ initialTask, initialRequest }: { initialTask?:
       )}
 
       {open?.kind === "new" && <RequestForm me={snap.me} team={snap.team} draft={open.draft} onClose={() => setOpen(null)} />}
-      {openRequest && <RequestDetail r={openRequest} me={snap.me} now={now} onClose={() => setOpen(null)} />}
+      {openRequest && <RequestDetail r={openRequest} me={snap.me} now={now} team={snap.team} needsMe={snap.needsMe.includes(openRequest.id)} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -177,6 +177,8 @@ function DependencyBoard({ snap, now, filter, setFilter, onOpen }: { snap: Snaps
   const open = snap.requests.filter((r) => r.status === "open").sort(bySeverity(now));
   const incoming = open.filter((r) => r.waitingOnId === snap.me.id);
   const outgoing = open.filter((r) => r.requesterId === snap.me.id);
+  // @mentioned in someone else's request and not answered yet.
+  const mentioned = snap.requests.filter((r) => snap.needsMe.includes(r.id) && r.waitingOnId !== snap.me.id);
   const filtered = filter ? open.filter((r) => matches(filter, r, now)) : [];
   return (
     <section className="card flex min-h-0 shrink-0 flex-col p-0 lg:max-h-[58%]" aria-label="Dependency and hand-off board">
@@ -199,6 +201,7 @@ function DependencyBoard({ snap, now, filter, setFilter, onOpen }: { snap: Snaps
           ) : (
             <>
               <RequestList title={`Waiting on you (${incoming.length})`} list={incoming} snap={snap} now={now} onOpen={onOpen} empty="Nobody is waiting on you right now." strong />
+              {mentioned.length > 0 && <RequestList title={`Mentioned you (${mentioned.length})`} list={mentioned} snap={snap} now={now} onOpen={onOpen} empty="" strong />}
               <RequestList title={`You're waiting on (${outgoing.length})`} list={outgoing} snap={snap} now={now} onOpen={onOpen} empty="You're not waiting on anyone." />
             </>
           )}
@@ -216,14 +219,14 @@ function RequestList({ title, list, snap, now, onOpen, empty, strong }: { title:
     <div>
       <h3 className={`mb-1.5 text-[13px] font-semibold uppercase tracking-wide ${strong && list.length ? "text-ink" : "text-muted"}`}>{title}</h3>
       {!list.length ? <p className="text-[13.5px] text-muted">{empty}</p> : (
-        <ul className="space-y-1.5">{list.map((r) => <RequestRow key={r.id} r={r} me={snap.me} now={now} onOpen={() => onOpen(r.id)} />)}</ul>
+        <ul className="space-y-1.5">{list.map((r) => <RequestRow key={r.id} r={r} me={snap.me} now={now} needsMe={snap.needsMe.includes(r.id)} onOpen={() => onOpen(r.id)} />)}</ul>
       )}
     </div>
   );
 }
 
 /** One request [S12]: category, ref, task, who waits on whom, waiting time (escalated past 24 h [S18]), Ping / Resolve [S16, S17]. */
-function RequestRow({ r, me, now, onOpen }: { r: PtRequest; me: Who; now: Date; onOpen: () => void }) {
+function RequestRow({ r, me, now, onOpen, needsMe }: { r: PtRequest; me: Who; now: Date; onOpen: () => void; needsMe?: boolean }) {
   const [pinging, setPinging] = useState(false);
   const incoming = r.waitingOnId === me.id;
   const mine = r.requesterId === me.id;
@@ -242,6 +245,7 @@ function RequestRow({ r, me, now, onOpen }: { r: PtRequest; me: Who; now: Date; 
         className={`press flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 hover:brightness-[0.98] ${edgeOf(r, now)}`}>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
+            {needsMe && <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-high text-[11px] font-bold text-white" title="You're tagged — reply or resolve to clear it">1</span>}
             <CategoryChip c={r.category} short />
             {r.priority === "urgent" && <UrgentPill />}
             <span className="min-w-0 truncate text-[14.5px] font-semibold text-ink" title={r.task.title}>{r.task.title}</span>

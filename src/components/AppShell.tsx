@@ -351,9 +351,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const money = boardsFor(session.member!).includes("training");
   const nav = NAV.map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
   const onTracker = path.startsWith(TRACKER);
-  // Requests waiting on you: a count on Progress tracker, red when one is critical, urgent or over a day old [S15].
-  const trackerBadge = progress.incoming > 0 && (
-    <span className={`grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[11px] font-bold leading-none ${progress.severe ? "bg-high text-white" : "bg-ink text-surface"}`} title={`${progress.incoming} waiting on you`}>{progress.incoming}</span>
+  // Tagged and not answered yet: a red count on Progress tracker until you reply in the request or resolve it (owner, 26 Oct).
+  const trackerBadge = progress.needs > 0 && (
+    <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-high px-1 text-[11px] font-bold leading-none text-white" title={`Tagged in ${progress.needs} ${progress.needs === 1 ? "request" : "requests"} — reply or resolve to clear it`}>{progress.needs}</span>
   );
 
   return (
@@ -375,7 +375,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={`press relative grid size-9 place-items-center rounded-[10px] ${isOn(n.href) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"}`}
               >
                 <Icon>{n.icon}</Icon>
-                {n.label === "Reports" && progress.incoming > 0 && <span className={`absolute right-0.5 top-0.5 size-2.5 rounded-full ring-2 ring-surface ${progress.severe ? "bg-high" : "bg-ink"}`} aria-hidden />}
+                {n.label === "Reports" && progress.needs > 0 && <span className="absolute right-0.5 top-0.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
               </Link>
             ))}
             <button onClick={session.signOut} aria-label="Sign out" title={`Sign out (${session.member.name})`} className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
@@ -492,7 +492,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOn(n.href) ? "text-ink" : "text-muted"}`}>
             <Icon>{n.icon}</Icon>
             {n.label}
-            {n.label === "Reports" && progress.incoming > 0 && <span className={`absolute right-[calc(50%-16px)] top-1.5 size-2.5 rounded-full ring-2 ring-surface ${progress.severe ? "bg-high" : "bg-ink"}`} aria-hidden />}
+            {n.label === "Reports" && progress.needs > 0 && <span className="absolute right-[calc(50%-16px)] top-1.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
           </Link>
         ))}
       </nav>

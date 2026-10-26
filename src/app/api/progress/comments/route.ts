@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { type Comment, LIMITS, isAdminId } from "@/lib/progress/model";
-import { commentsCol, fromDoc, newId, notify, requestsCol, touch } from "@/lib/progress/server";
+import { type Comment, LIMITS, isAdminId, mentionsIn } from "@/lib/progress/model";
+import { commentsCol, fromDoc, newId, notify, requestsCol, team, touch } from "@/lib/progress/server";
 
 export const dynamic = "force-dynamic";
 
@@ -37,13 +37,19 @@ export async function POST(request: Request) {
   const c = await commentsCol();
   const now = new Date().toISOString();
   const id = newId();
-  await c.insertOne({ _id: id, parent, by: me.name, byId: me.id, text, at: now });
-  // Everyone in the thread hears about it: the request's two people (or the check-in's author) and earlier repliers.
+  // @Name tags a teammate: they get a red count on Progress tracker until they reply here or resolve it (needsReply).
+  const mentions = mentionsIn(text, await team(), me.id);
+  await c.insertOne({ _id: id, parent, by: me.name, byId: me.id, text, at: now, ...(mentions.length ? { mentions } : {}) });
+  // Everyone in the thread hears about it: the request's two people and earlier repliers; the tagged get "mentioned you".
   const earlier = await c.distinct("byId", { parent });
-  const to = [...new Set([...who.ids, ...earlier])].filter((x) => x !== me.id);
-  await notify(to.map((t) => ({ to: t, kind: "comment" as const, requestId: who.requestId, at: now, text: `${me.name} replied on ${who.label}: "${text.slice(0, 100)}${text.length > 100 ? "…" : ""}"` })));
+  const to = [...new Set([...who.ids, ...earlier])].filter((x) => x !== me.id && !mentions.includes(x));
+  const quote = `"${text.slice(0, 100)}${text.length > 100 ? "…" : ""}"`;
+  await notify([
+    ...mentions.map((t) => ({ to: t, kind: "mention" as const, requestId: who.requestId, at: now, text: `${me.name} mentioned you on ${who.label}: ${quote}` })),
+    ...to.map((t) => ({ to: t, kind: "comment" as const, requestId: who.requestId, at: now, text: `${me.name} replied on ${who.label}: ${quote}` })),
+  ]);
   await touch(me);
-  return Response.json({ ok: true, comment: { id, parent, by: me.name, byId: me.id, text, at: now } satisfies Comment });
+  return Response.json({ ok: true, comment: { id, parent, by: me.name, byId: me.id, text, at: now, ...(mentions.length ? { mentions } : {}) } satisfies Comment });
 }
 
 export async function DELETE(request: Request) {

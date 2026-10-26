@@ -2,7 +2,7 @@ import type { CardView, buildAedBoard, buildBoard, buildFulfillmentBoard } from 
 import type { buildLogisticsBoard } from "../logistics";
 import type { CalendarEntry, CardEvent } from "../types";
 import { boardsFor, inEntry } from "../roles";
-import { CATEGORIES, type PtRequest, type Who, isAdminId, isSevere } from "./model";
+import { CATEGORIES, type Comment, type PtRequest, type Who, isAdminId, isSevere, needsReply } from "./model";
 
 /*
  * Everyone's to-do (Progress tracker, owner 26 Oct: "I need to see what everyone needs to do or is going to do") —
@@ -49,7 +49,7 @@ type Boards = {
   logi: ReturnType<typeof buildLogisticsBoard>;
 };
 
-export function buildTodos(today: string, team: Who[], b: Boards, entries: CalendarEntry[], requests: PtRequest[], now: Date): Todo[] {
+export function buildTodos(today: string, team: Who[], b: Boards, entries: CalendarEntry[], requests: PtRequest[], comments: Comment[], now: Date): Todo[] {
   const out: Todo[] = [];
   const last = addDays(today, WEEK_DAYS);
   const bucketOf = (date?: string): TodoBucket | null => (!date ? "open" : date < today ? "overdue" : date === today ? "today" : date <= last ? "week" : null);
@@ -128,9 +128,20 @@ export function buildTodos(today: string, team: Who[], b: Boards, entries: Calen
     if (e.demo || e.date < today || e.date > last) continue;
     for (const m of team) if (inEntry(m, e)) add({ id: `entry:${e.id}:${m.id}`, who: m.id, tag: e.type === "meeting" ? "Meeting" : "Event", title: e.title, detail: [e.allDay ? "All day" : e.startTime, e.linkedCustomer].filter(Boolean).join(" · ") || undefined, date: e.date, tone: "info", href: `/calendar?date=${e.date}&entry=${encodeURIComponent(e.id)}` });
   }
+  // Requests: tagged and not answered yet → red "Reply needed" / "Mentioned you" (owner: until they reply or resolve);
+  // still waiting on them but already answered → the plain request.
   for (const r of requests) {
-    if (r.status !== "open") continue;
-    add({ id: `req:${r.id}`, who: r.waitingOnId, tag: `${CATEGORIES[r.category].label}${r.priority === "urgent" ? " · Urgent" : ""}`, title: r.task.title, detail: `${r.ref} · ${r.requesterName.split(" ")[0]} is waiting`, tone: isSevere(r, now) ? "bad" : "plain", requestId: r.id });
+    for (const m of team) {
+      const needs = needsReply(m.id, m.name, r, comments);
+      const waited = r.waitingOnId === m.id && r.status === "open";
+      if (!needs && !waited) continue;
+      const what = `${CATEGORIES[r.category].label}${r.priority === "urgent" ? " · Urgent" : ""}`;
+      add({
+        id: `req:${r.id}:${m.id}`, who: m.id, tag: needs ? (waited ? "Reply needed" : "Mentioned you") : what, title: r.task.title,
+        detail: `${r.ref} · ${needs ? `${what} · ` : ""}${r.requesterName.split(" ")[0]} ${r.status === "open" ? "is waiting" : "asked"}`,
+        tone: needs || isSevere(r, now) ? "bad" : "plain", requestId: r.id,
+      });
+    }
   }
 
   // Soonest first in each bucket; undated steps keep the boards' order.

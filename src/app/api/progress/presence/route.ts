@@ -1,6 +1,6 @@
 ﻿import { signedInMember, unauthorized } from "@/lib/auth";
 import { LIMITS, type Notice, type PtRequest, isSevere } from "@/lib/progress/model";
-import { fromDoc, noticesCol, presenceCol, requestsCol, touch } from "@/lib/progress/server";
+import { fromDoc, needsReplyIds, noticesCol, presenceCol, requestsCol, touch } from "@/lib/progress/server";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,8 @@ export async function POST(request: Request) {
   return Response.json({
     incoming: open.length,
     severe: open.some((r) => isSevere(r, now)),
+    // Tagged and not answered: the red count on Progress tracker until they reply or resolve (owner, 26 Oct).
+    needs: (await needsReplyIds(me)).length,
     notices: notices.map((n) => fromDoc<Notice>(n)),
   });
 }

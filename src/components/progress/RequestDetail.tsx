@@ -13,7 +13,7 @@ const LOG_WORD: Record<PtRequest["log"][number]["action"], string> = {
 };
 
 /** One request: who waits on whom and for how long, the actions this member may take (§3.5), its history and thread. */
-export function RequestDetail({ r, me, now, onClose }: { r: PtRequest; me: Who; now: Date; onClose: () => void }) {
+export function RequestDetail({ r, me, now, onClose, team, needsMe }: { r: PtRequest; me: Who; now: Date; onClose: () => void; team: Who[]; needsMe?: boolean }) {
   const [resolving, setResolving] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -67,6 +67,12 @@ export function RequestDetail({ r, me, now, onClose }: { r: PtRequest; me: Who; 
         {canDo(me, r, "resolve", now) && !resolving && <button className={btn.primary} disabled={busy} onClick={() => setResolving(true)}>{mine && r.waitingOnId !== me.id ? "Resolve — not waiting any more" : k.resolve}</button>}
       </>}>
       <div className="space-y-4">
+        {needsMe && (
+          <p className="flex items-center gap-2 rounded-xl bg-high-bg px-3 py-2 text-[13.5px] font-medium text-high">
+            <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-high text-[11px] font-bold text-white" aria-hidden>1</span>
+            You're tagged here — reply below or resolve it to clear your red count.
+          </p>
+        )}
         <div className="flex items-start gap-3">
           <PersonAvatar name={r.requesterName} size={34} />
           <div className="min-w-0 flex-1">
@@ -97,7 +103,7 @@ export function RequestDetail({ r, me, now, onClose }: { r: PtRequest; me: Who; 
           </div>
         )}
 
-        <Thread parent={`request:${r.id}`} me={me} now={now} />
+        <Thread parent={`request:${r.id}`} me={me} now={now} team={team} />
 
         <details className="text-[13px] text-muted">
           <summary className="cursor-pointer select-none font-medium hover:text-ink">History ({r.log.length})</summary>
@@ -110,10 +116,24 @@ export function RequestDetail({ r, me, now, onClose }: { r: PtRequest; me: Who; 
   );
 }
 
-/** Replies under a request or a check-in [S25] — plain text, newest last; your own (or Admin) can be removed. */
-export function Thread({ parent, me, now }: { parent: string; me: Who; now: Date }) {
+/** A reply's words with every @Name that tags a teammate shown as a red chip-like name. */
+function withMentions(text: string, team: Who[]) {
+  const firsts = new Set(team.map((m) => m.name.trim().split(/\s+/)[0].toLowerCase()));
+  return text.split(/(@[A-Za-z][\w.-]*)/g).map((part, i) =>
+    part.startsWith("@") && firsts.has(part.slice(1).toLowerCase()) ? <span key={i} className="rounded bg-high-bg px-0.5 font-semibold text-high">{part}</span> : <span key={i}>{part}</span>);
+}
+
+/**
+ * Replies under a request [S25] — plain text, newest last; your own (or Admin) can be removed. Type @ and a name to
+ * tag a teammate: they get a red count on Progress tracker until they reply here or resolve the request.
+ */
+export function Thread({ parent, me, now, team }: { parent: string; me: Who; now: Date; team: Who[] }) {
   const [list, setList] = useState<Comment[] | null>(null);
   const [text, setText] = useState("");
+  // "@Su" at the end of what's typed → suggest the matching teammates.
+  const partial = text.match(/@([A-Za-z]*)$/)?.[1];
+  const suggestions = partial === undefined ? [] : team.filter((m) => m.id !== me.id && m.name.toLowerCase().startsWith(partial.toLowerCase())).slice(0, 6);
+  const tag = (m: Who) => setText((t) => t.replace(/@([A-Za-z]*)$/, `@${m.name.trim().split(/\s+/)[0]} `));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const load = useCallback(() => {
@@ -153,14 +173,24 @@ export function Thread({ parent, me, now }: { parent: string; me: Who; now: Date
                     <span className="font-semibold text-ink-2">{c.by}</span> {teamStamp(c.at, now)}
                     {!c.deletedAt && (c.byId === me.id || isAdminId(me.id)) && <button type="button" className="ml-auto hover:text-high hover:underline" onClick={() => remove(c.id)}>Remove</button>}
                   </div>
-                  {c.deletedAt ? <p className="text-[13.5px] italic text-faint">Removed</p> : <p className="whitespace-pre-wrap text-[14px] text-ink [overflow-wrap:anywhere]">{c.text}</p>}
+                  {c.deletedAt ? <p className="text-[13.5px] italic text-faint">Removed</p> : <p className="whitespace-pre-wrap text-[14px] text-ink [overflow-wrap:anywhere]">{withMentions(c.text, team)}</p>}
                 </div>
               </li>
             ))}
           </ul>
         )}
+      {suggestions.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Tag a teammate">
+          <span className="text-[12px] text-muted">Tag:</span>
+          {suggestions.map((m) => (
+            <button key={m.id} type="button" onClick={() => tag(m)} className="inline-flex items-center gap-1 rounded-full bg-surface-2 py-0.5 pl-0.5 pr-2 text-[12.5px] font-medium text-ink-2 hover:bg-line">
+              <PersonAvatar name={m.name} size={20} />@{m.name.trim().split(/\s+/)[0]}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-2 flex items-end gap-2">
-        <textarea className={`${inputCls} h-auto min-h-10 py-2`} rows={1} maxLength={LIMITS.comment} placeholder="Write a reply…" value={text}
+        <textarea className={`${inputCls} h-auto min-h-10 py-2`} rows={1} maxLength={LIMITS.comment} placeholder="Write a reply… type @ to tag someone" value={text}
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
         <button className={btn.primary} disabled={!text.trim() || busy} onClick={send}>{busy ? "…" : "Reply"}</button>
       </div>

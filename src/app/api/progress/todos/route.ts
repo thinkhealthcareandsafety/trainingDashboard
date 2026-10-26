@@ -5,8 +5,8 @@ import { boardsNow } from "@/lib/fulfilServer";
 import { buildFulfillmentBoard } from "@/lib/pipeline";
 import { buildLogisticsBoard } from "@/lib/logistics";
 import { seesWholeCalendar } from "@/lib/roles";
-import { type PtRequest, teamDay } from "@/lib/progress/model";
-import { fromDoc, requestsCol, team } from "@/lib/progress/server";
+import { type Comment, type PtRequest, teamDay } from "@/lib/progress/model";
+import { commentsCol, fromDoc, requestsCol, team } from "@/lib/progress/server";
 import { DONE_DAYS, buildDone, buildTodos } from "@/lib/progress/todos";
 import type { CalendarEntry } from "@/lib/types";
 
@@ -35,7 +35,9 @@ export async function GET(request: Request) {
   const ful = buildFulfillmentBoard(board, events);
   const logi = buildLogisticsBoard(board, ful, aedBoard!, events);
   const reqs = requests.map((r) => fromDoc<PtRequest>(r));
-  const todos = buildTodos(today, members, { board, aedBoard: aedBoard!, ful, logi }, entries.map((e) => ({ ...e, id: e.id ?? e._id })), reqs, now);
+  // Who replied / was tagged in each request's thread (not the words) — for "Reply needed" / "Mentioned you".
+  const comments = (await (await commentsCol()).find({ parent: { $in: reqs.map((r) => `request:${r.id}`) } }, { projection: { text: 0 } }).toArray()).map((c) => fromDoc<Comment>(c));
+  const todos = buildTodos(today, members, { board, aedBoard: aedBoard!, ful, logi }, entries.map((e) => ({ ...e, id: e.id ?? e._id })), reqs, comments, now);
   // Card names for the work-done list, from every board (a Fulfillment / Logistics card has its own id).
   const names = new Map<string, string>();
   for (const cards of [board.cards, aedBoard!.cards, ful.cards, logi.cards]) for (const c of cards.values()) if (!names.has(c.id)) names.set(c.id, c.certLocation || c.name);

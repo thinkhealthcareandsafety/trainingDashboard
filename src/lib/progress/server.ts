@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "../db";
-import type { Comment, Notice, Presence, PtRequest, Who } from "./model";
+import { type Comment, type Notice, type Presence, type PtRequest, type Who, needsReply } from "./model";
 
 /*
  * Progress tracker storage (PROGRESS-TRACKER-PLAN.md §3.2). All of it is real team data — never write test documents
@@ -28,6 +28,16 @@ export async function team(): Promise<Who[]> {
   const rows = await (await db()).collection<{ _id: string; id?: string; name?: string }>("members").find({}, { projection: { _id: 1, id: 1, name: 1 } }).toArray();
   const list = rows.filter((m) => m.name).map((m) => ({ id: m.id ?? m._id, name: m.name! }));
   return [...list.sort((a, b) => a.name.localeCompare(b.name)), { id: "admin", name: "Admin" }];
+}
+
+/** Requests this member is tagged in and hasn't answered (replied / resolved) — the red count on Progress tracker. */
+export async function needsReplyIds(me: Who): Promise<string[]> {
+  const comments = await commentsCol();
+  const mentioned = (await comments.distinct("parent", { mentions: me.id, deletedAt: { $exists: false } })).filter((p) => p.startsWith("request:")).map((p) => p.slice("request:".length));
+  const reqs = (await (await requestsCol()).find({ $or: [{ waitingOnId: me.id, status: "open" }, { _id: { $in: mentioned } }] }).toArray()).map((r) => fromDoc<PtRequest>(r));
+  if (!reqs.length) return [];
+  const cs = (await comments.find({ parent: { $in: reqs.map((r) => `request:${r.id}`) } }, { projection: { text: 0 } }).toArray()).map((c) => fromDoc<Comment>(c));
+  return reqs.filter((r) => needsReply(me.id, me.name, r, cs)).map((r) => r.id);
 }
 
 /** The next readable reference: R-0001, R-0002, … (one counter for the whole team). */
