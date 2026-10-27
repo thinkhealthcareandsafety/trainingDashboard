@@ -61,7 +61,7 @@ export function compose(tile: Tile, today: string, periodKey: string, filters: R
       if (r && !tile.fixedPeriod) spec = { ...spec, from: r.from, to: r.to };
     } else if (has(pick.field)) list.push({ field: pick.field, values: [pick.value] });
   }
-  const cmp: Compare | undefined = compare === "none" ? undefined : typeof compare === "object" ? (has(compare.field) ? compare : undefined) : compare;
+  const cmp: Compare | undefined = compare === "none" || tile.noCompare ? undefined : typeof compare === "object" ? (has(compare.field) ? compare : undefined) : compare;
   return { ...spec, filters: list, compare: cmp };
 }
 
@@ -440,7 +440,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
       <div className={isKpi ? "mt-2" : "mt-4 min-h-0 flex-1"}>
         {!answer ? <div className={`animate-pulse rounded-lg bg-surface-2 ${isKpi ? "h-14" : "h-[260px]"}`} />
           : isError(answer) ? <p className="text-[13px] text-high">{answer.error}</p>
-          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} />}
+          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} />}
       </div>
     </section>
   );

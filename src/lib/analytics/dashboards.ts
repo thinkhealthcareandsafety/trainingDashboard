@@ -10,7 +10,9 @@ import type { Spec } from "./query";
 /** `section`: tiles in a row with the same section sit under one heading (owner, 27 Oct: "less congested"). */
 export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: boolean; note?: string; section?: string;
   /** Draw the monthly revenue goal across it (owner, 27 Oct: ₹50 L a month). */
-  goalLine?: boolean };
+  goalLine?: boolean;
+  /** Never compared (cohorts, seasonality, lists over all of history) — the dashboard's "Compare" leaves it alone. */
+  noCompare?: boolean };
 /** `range`: a min–max on one of the dataset's `ranges` (e.g. invoices of ₹1 L or more). */
 export type DashFilter = { field: string; label: string; range?: boolean };
 export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string };
@@ -85,6 +87,59 @@ export const DASHBOARDS: DashboardDef[] = [
     ],
   },
   {
+    id: "customers",
+    title: "Customers",
+    desc: "Who's loyal and who's slipping, how each year's new customers come back, who's due pads and batteries, who could buy more — resellers and hotel chains too.",
+    period: "fy",
+    filters: [
+      { field: "customerType", label: "Customer type" },
+      { field: "sector", label: "Sector" },
+      { field: "salesperson", label: "Sales person" },
+      { field: "segment", label: "Segment" },
+      { field: "state", label: "State" },
+    ],
+    tiles: [
+      { id: "segCount", section: "Segments", w: 6, fixedPeriod: true, noCompare: true, note: "Every customer, from their whole history", spec: { dataset: "sales", measures: ["customers"], by: ["segment"], sort: "label", chart: "bar", title: "Customers by segment" } },
+      { id: "segRevenue", section: "Segments", w: 6, spec: { dataset: "sales", measures: ["revenue"], by: ["segment"], sort: "label", chart: "bar", title: "Revenue by segment" } },
+      { id: "atRisk", section: "Segments", w: 12, fixedPeriod: true, noCompare: true, note: "Bought 2+ times, last 1–2 years ago — call them first", spec: { dataset: "sales", measures: ["revenue"], by: ["customer"], limit: 12, chart: "bar", filters: [{ field: "segment", values: ["At risk"] }], title: "At risk: biggest customers by what they've spent" } },
+      { id: "cohort", section: "Do new customers come back?", w: 12, fixedPeriod: true, noCompare: true, spec: { dataset: "sales", measures: ["customers"], by: ["cohort", "fy"], chart: "matrix", relative: "first", title: "Customers by the year they first bought" } },
+      { id: "reorder", section: "Call them", w: 12, noCompare: true, spec: { dataset: "sales", measures: ["revenue"], analysis: "reorder", chart: "table", limit: 25, title: "Due pads or batteries: AEDs bought 18+ months ago, nothing since" } },
+      { id: "noTraining", section: "Call them", w: 6, noCompare: true, spec: { dataset: "sales", measures: ["revenue"], analysis: "crosssell", variant: "training", chart: "table", limit: 15, title: "Bought AEDs, never a training" } },
+      { id: "noAed", section: "Call them", w: 6, noCompare: true, spec: { dataset: "sales", measures: ["revenue"], analysis: "crosssell", variant: "aed", chart: "table", limit: 15, title: "Took a training, never bought an AED" } },
+      kpi("resellerShare", "sales", "revenue", "Revenue from resellers", { section: "Resellers vs direct", spec: { dataset: "sales", measures: ["revenue"], chart: "kpi", compare: true, title: "Revenue from resellers", filters: [{ field: "channel", values: ["Resellers"] }] } }),
+      kpi("directShare", "sales", "revenue", "Revenue direct", { section: "Resellers vs direct", spec: { dataset: "sales", measures: ["revenue"], chart: "kpi", compare: true, title: "Revenue direct", filters: [{ field: "channel", values: ["Direct"] }] } }),
+      kpi("resellers", "sales", "customers", "Resellers billed", { section: "Resellers vs direct", spec: { dataset: "sales", measures: ["customers"], chart: "kpi", compare: true, title: "Resellers billed", filters: [{ field: "channel", values: ["Resellers"] }] } }),
+      kpi("resellerTop", "sales", "top10Share", "Top 10 resellers' share", { section: "Resellers vs direct", spec: { dataset: "sales", measures: ["top10Share"], chart: "kpi", compare: true, title: "Top 10 resellers' share", filters: [{ field: "channel", values: ["Resellers"] }] } }),
+      { id: "channelMonth", section: "Resellers vs direct", w: 6, spec: { dataset: "sales", measures: ["revenue"], by: ["date", "channel"], grain: "month", chart: "stacked", title: "Resellers and direct, by month" } },
+      { id: "topResellers", section: "Resellers vs direct", w: 6, spec: { dataset: "sales", measures: ["revenue"], by: ["customer"], limit: 10, chart: "bar", filters: [{ field: "channel", values: ["Resellers"] }], title: "Top resellers" } },
+      { id: "chainRevenue", section: "Hotel chains", w: 6, spec: { dataset: "sales", measures: ["revenue"], by: ["chain"], chart: "bar", filters: [{ field: "chain", values: ["(blank)"], exclude: true }], title: "Revenue by hotel chain" } },
+      { id: "chainProps", section: "Hotel chains", w: 6, spec: { dataset: "sales", measures: ["customers"], by: ["chain"], chart: "bar", filters: [{ field: "chain", values: ["(blank)"], exclude: true }], title: "Properties billed, by chain" } },
+    ],
+  },
+  {
+    id: "products",
+    title: "Products",
+    desc: "What sells, at what price, in which months — and whether growth came from more units, better prices or a richer mix.",
+    period: "fy",
+    filters: [
+      { field: "itemGroup", label: "Item group" },
+      { field: "item", label: "Item" },
+      { field: "customerType", label: "Customer type" },
+      { field: "sector", label: "Sector" },
+      { field: "leadSource", label: "Lead source" },
+      { field: "salesperson", label: "Sales person" },
+    ],
+    tiles: [
+      { id: "pvm", section: "Why revenue moved", w: 6, spec: { dataset: "sales", measures: ["revenue"], analysis: "pvm", chart: "waterfall", title: "Price, volume and mix" } },
+      { id: "pvmAed", section: "Why revenue moved", w: 6, note: "AEDs only", spec: { dataset: "sales", measures: ["revenue"], analysis: "pvm", chart: "waterfall", filters: [{ field: "itemGroup", values: ["All AEDs"] }], title: "Price, volume and mix — AEDs" } },
+      { id: "season", section: "Seasonality", w: 12, fixedPeriod: true, noCompare: true, goalLine: true, note: "Every financial year since Zoho Books began", spec: { dataset: "sales", measures: ["revenue"], by: ["fy", "monthName"], chart: "heatmap", title: "Revenue by month, year by year" } },
+      { id: "mix", section: "Product mix", w: 12, noCompare: true, fixedPeriod: true, note: "The last 12 months", spec: { dataset: "sales", measures: ["revenue"], by: ["date", "itemGroup"], grain: "month", period: "12m", limit: 6, chart: "stacked100", title: "Share of revenue by item group" } },
+      { id: "price", section: "Prices", w: 6, noCompare: true, note: "Filter to one item for a clean price line", spec: { dataset: "sales", measures: ["avgPrice"], by: ["date", "itemGroup"], grain: "quarter", limit: 4, chart: "line", filters: [{ field: "itemGroup", values: ["All AEDs", "AED Pads", "AED Batteries", "Training Services"] }], title: "Average selling price by quarter" } },
+      { id: "priceItems", section: "Prices", w: 6, spec: { dataset: "sales", measures: ["avgPrice"], by: ["item"], limit: 10, chart: "bar", filters: [{ field: "itemGroup", values: ["All AEDs"] }], title: "Average price per AED model" } },
+      { id: "leadTable", section: "Lead sources", w: 12, spec: { dataset: "sales", measures: ["revenue", "invoices", "customers", "newCustomers", "avgInvoice"], by: ["leadSource"], chart: "table", title: "Lead-source performance" } },
+    ],
+  },
+  {
     id: "team",
     title: "Team & pipeline",
     desc: "Each sales person's numbers, and how quotes turn into invoices.",
@@ -154,6 +209,13 @@ export const DASHBOARDS: DashboardDef[] = [
       { id: "type", section: "Breakdown", w: 6, spec: { dataset: "trainings", measures: ["people"], by: ["trainingType"], limit: 7, chart: "bar", title: "People by training type" } },
       { id: "customers", section: "Breakdown", w: 6, spec: { dataset: "trainings", measures: ["people"], by: ["customer"], limit: 10, chart: "bar", title: "Top customers (people)" } },
       { id: "sector", section: "Breakdown", w: 6, spec: { dataset: "trainings", measures: ["count"], by: ["sector"], limit: 6, chart: "donut", title: "Trainings by sector" } },
+      // Training economics (owner, 27 Oct — report #23): value from each training's PI / invoice training lines.
+      kpi("value", "trainings", "value", "Training value", { section: "Training economics" }),
+      kpi("perPerson", "trainings", "valuePerPerson", "Value per person trained", { section: "Training economics" }),
+      kpi("perTrainingValue", "trainings", "valuePerTraining", "Value per training", { section: "Training economics" }),
+      kpi("valued", "trainings", "valuedCount", "Trainings with a PI or invoice", { section: "Training economics" }),
+      { id: "ppSector", section: "Training economics", w: 6, spec: { dataset: "trainings", measures: ["valuePerPerson"], by: ["sector"], limit: 8, chart: "bar", title: "Value per person, by sector" } },
+      { id: "ppType", section: "Training economics", w: 6, spec: { dataset: "trainings", measures: ["valuePerPerson"], by: ["trainingType"], limit: 8, chart: "bar", title: "Value per person, by training type" } },
     ],
   },
   {

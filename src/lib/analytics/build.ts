@@ -25,7 +25,7 @@ export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
   payments: { name: "Customer Payments", columns: ["Payment ID", "Payment Date", "Customer ID", "Amount (BCY)", "Withholding Tax (BCY)", "Payment Mode"] },
   // PIs (27 Oct, for the ₹50 L goal's "booked" part). "Total (BCY)" exports abbreviated ("INR …K") — sub-totals only.
   salesOrders: { name: "Sales Orders", columns: ["Sales order ID", "Order Date", "Sales Order#", "Status", "Invoiced Status", "Customer ID", "Sub Total (BCY)", "Discount Amount (BCY)", "Is Discount Before Tax", "Salesperson ID", "Address ID"] },
-  salesOrderItems: { name: "Sales Order Items", columns: ["Item ID", "Sales order ID", "Quantity", "Quantity Invoiced", "Quantity Cancelled", "Sub Total (BCY)"] },
+  salesOrderItems: { name: "Sales Order Items", columns: ["Item ID", "Sales order ID", "Product ID", "Quantity", "Quantity Invoiced", "Quantity Cancelled", "Sub Total (BCY)"] },
 };
 
 /** "INR 852,000.00" / "3,250.00" / "-1,200" → number; abbreviated "INR 954.24K" → approximate (avoid those columns). */
@@ -132,6 +132,34 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     if (!cur || date < cur.date || (date === cur.date && no.localeCompare(cur.no, "en", { numeric: true }) < 0)) firstOf.set(k, { date, no, id: i["Invoice ID"] });
   }
 
+  // Each customer's history (by name): invoices, first and last purchase → segment and cohort (owner, 27 Oct: second
+  // batch of reports). Segments are plain rules over days since the last purchase and how often they've bought —
+  // B2B safety buyers come back every year or two, so the windows are long.
+  const hist = new Map<string, { invoices: Set<string>; first: string; last: string }>();
+  for (const i of t.invoices ?? []) {
+    const date = day(i["Invoice Date"]);
+    if (!date || !live(i["Invoice Status"])) continue;
+    const k = custKey(i["Customer ID"]);
+    const h = hist.get(k) ?? { invoices: new Set<string>(), first: date, last: date };
+    h.invoices.add(i["Invoice ID"]);
+    if (date < h.first) h.first = date;
+    if (date > h.last) h.last = date;
+    hist.set(k, h);
+  }
+  const segmentOf = new Map<string, string>();
+  for (const [k, h] of hist) {
+    const since = dayDiff(h.last, today);
+    const n = h.invoices.size;
+    segmentOf.set(k,
+      dayDiff(h.first, today) <= 180 ? "New"
+      : since > 730 ? "Lost"
+      : since > 365 ? (n >= 2 ? "At risk" : "Hibernating")
+      : since <= 180 && n >= 4 ? "Champions"
+      : n >= 2 ? "Loyal" : "Promising");
+  }
+  const fyName = (ymd: string) => { const y = Number(ymd.slice(0, 4)) - (Number(ymd.slice(5, 7)) < 4 ? 1 : 0); return `FY ${y}-${String(y + 1).slice(2)}`; };
+  const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
   // Sales: invoice lines; an invoice-level discount (before tax) is shared out over its lines by their share.
   const sales: Row[] = [];
   for (const li of t.invoiceItems ?? []) {
@@ -146,6 +174,11 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
       productType: list(inv["Product Type"]), businessType: text(inv["Business Type"]), leadSource: text(inv["Lead Source"]), status: text(inv["Invoice Status"]),
       repeat: firstOf.get(custKey(inv["Customer ID"]))?.id === li["Invoice ID"] ? "First invoice" : "Repeat",
+      segment: segmentOf.get(custKey(inv["Customer ID"])) ?? null,
+      cohort: hist.has(custKey(inv["Customer ID"])) ? fyName(hist.get(custKey(inv["Customer ID"]))!.first) : null,
+      channel: /reseller/i.test(ix.who(inv["Customer ID"]).type ?? "") ? "Resellers" : "Direct",
+      fy: day(inv["Invoice Date"]) ? fyName(day(inv["Invoice Date"])!) : null,
+      monthName: day(inv["Invoice Date"]) ? MONTH_NAMES[Number(day(inv["Invoice Date"])!.slice(5, 7)) - 1] : null,
       docValue: sub - disc, // the whole invoice (for "invoices of ₹1 L or more")
       amount: (money(li["Sub Total (BCY)"]) ?? 0) * factor, amountTax: money(li["Tax Inclusive Total (BCY)"]) ?? 0, qty: money(li["Quantity"]) ?? 0,
     });
@@ -204,6 +237,23 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     };
   });
 
+  // A training's value (owner, 27 Oct: "revenue per person trained"): its PI's training lines — or, on an invoice card,
+  // its invoice's — before tax. Quotes have no lines here, so they get none (and don't count in "per person").
+  const TRAINING_GROUPS = /training services/i;
+  const piNo = new Map((t.salesOrders ?? []).map((o) => [o["Sales order ID"], { no: o["Sales Order#"], o }]));
+  const trainingByPi = new Map<string, number>();
+  for (const li of t.salesOrderItems ?? []) {
+    if (!TRAINING_GROUPS.test(ix.items.get(li["Product ID"])?.group ?? "")) continue;
+    const pi = piNo.get(li["Sales order ID"]);
+    if (!pi?.no || /void|draft/i.test(pi.o["Status"] ?? "")) continue;
+    const sub = money(pi.o["Sub Total (BCY)"]) ?? 0;
+    const disc = /false|no/i.test(pi.o["Is Discount Before Tax"] ?? "") ? 0 : money(pi.o["Discount Amount (BCY)"]) ?? 0;
+    const factor = sub > 0 && disc > 0 ? (sub - disc) / sub : 1;
+    trainingByPi.set(pi.no, (trainingByPi.get(pi.no) ?? 0) + (money(li["Sub Total (BCY)"]) ?? 0) * factor);
+  }
+  const trainingByInvoice = new Map<string, number>();
+  for (const r of sales) if (TRAINING_GROUPS.test(String(r.itemGroup ?? "")) && typeof r.invoice === "string") trainingByInvoice.set(r.invoice, (trainingByInvoice.get(r.invoice) ?? 0) + (r.amount as number));
+
   // Trainings: the Training board's, one per deal; customer type / sector from Zoho by name.
   const boardRows: Row[] = trainings.filter((x) => x.board === "training" && x.status !== "tbd" && x.dates.length).map((x) => {
     const last = x.dates.at(-1)!;
@@ -213,6 +263,10 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       trainer: x.trainers.length ? x.trainers : [], trainingType: x.training || null,
       status: x.status === "completed" ? "Completed" : last < today ? "To mark completed" : x.status === "postponed" ? "Postponed" : "Scheduled",
       people: x.people,
+      ...(() => {
+        const value = x.id.startsWith("pi:") ? trainingByPi.get(x.docNumber) : x.id.startsWith("invoice:") ? trainingByInvoice.get(x.docNumber) : undefined;
+        return value === undefined ? { value: null, peopleValued: 0, valued: 0 } : { value, peopleValued: x.people, valued: 1 };
+      })(),
     };
   });
 

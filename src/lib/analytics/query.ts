@@ -7,8 +7,8 @@ import { type Dataset, type Format, type Grain, type Measure, type Row, datasetO
 
 /** matrix: two splits as a pivot table (with the comparison in each cell); waterfall: steps up and down (bridge);
  * diverging: rises right in green, falls left in red (what changed). */
-export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "donut" | "table" | "matrix" | "waterfall" | "diverging";
-export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel";
+export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "stacked100" | "donut" | "table" | "matrix" | "heatmap" | "waterfall" | "diverging";
+export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell";
 /**
  * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
  * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
@@ -38,6 +38,10 @@ export type Spec = {
   chart?: ChartKind;
   /** A ready-made analysis on top of the query (see `analyse`). */
   analysis?: Analysis;
+  /** An analysis's option — crosssell: "training" (AED buyers with no training, default) or "aed" (the other way). */
+  variant?: string;
+  /** Matrix: each cell also as a share of its row's first column (cohort retention). */
+  relative?: "first";
   title?: string;
   /** Saved reports keep a relative period ("fy", "3m"…, model.ts periods) — the browser turns it into from / to. */
   period?: string;
@@ -47,7 +51,7 @@ export type Spec = {
 /** `prev`: the same row in the comparison (one split only). */
 export type ResultRow = { keys: string[]; values: (number | null)[]; prev?: (number | null)[] };
 export type Result = {
-  by: { key: string; label: string; date: boolean }[];
+  by: { key: string; label: string; date: boolean; order?: string[] }[];
   measures: { key: string; label: string; format: Format; better?: "down" }[];
   rows: ResultRow[];
   totals: (number | null)[];
@@ -81,6 +85,7 @@ export function checkSpec(spec: Spec): Dataset {
   const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
   if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
+  if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
   const c = spec.compare;
   if (c && typeof c === "object" && !fieldOf(d, c.field)) throw new SpecError(`"${c.field}" isn't a field of ${d.label}`);
   return d;
@@ -202,9 +207,10 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
   const value = (rs: Row[]) => evaluate(d, [lead], rs)[0] ?? 0;
   const limit = spec.limit && spec.limit > 0 ? spec.limit : 0;
 
-  // Second split: keep the top series (by the lead measure), fold the rest into Others.
+  // Second split: keep the top series (by the lead measure), fold the rest into Others. Not on a heatmap / matrix —
+  // their cells are shaded, not one colour per series, and 12 months must stay 12 columns.
   let seriesKeep: Set<string> | null = null;
-  if (by.length === 2 && !isDate(by[1])) {
+  if (by.length === 2 && !isDate(by[1]) && spec.chart !== "heatmap" && spec.chart !== "matrix") {
     const bySeries = new Map<string, Row[]>();
     for (const g of groups.values()) bySeries.set(g.keys[1], [...(bySeries.get(g.keys[1]) ?? []), ...g.rows]);
     const ranked = [...bySeries.entries()].map(([k, rs]) => ({ k, v: value([...new Set(rs)]) })).sort((p, q) => q.v - p.v);
@@ -247,7 +253,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
   }
 
   const result: Result = {
-    by: by.map((k) => ({ key: k, label: fieldOf(d, k)!.label, date: isDate(k) })),
+    by: by.map((k) => ({ key: k, label: fieldOf(d, k)!.label, date: isDate(k), ...(fieldOf(d, k)!.order ? { order: fieldOf(d, k)!.order } : {}) })),
     measures: spec.measures.map((k) => { const m = measureOf(d, k)!; return { key: k, label: m.label, format: m.format, ...(m.better ? { better: m.better } : {}) }; }),
     rows: out,
     totals: evaluate(d, spec.measures, kept),
@@ -293,6 +299,12 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
     for (const row of out) {
       const rs = row.keys[0] === OTHERS ? [...new Set(prevRows.filter((r) => !keysOf(r).some((k) => shown.has(k) && k !== OTHERS)))] : prevBy.get(row.keys[0]) ?? [];
       row.prev = evaluate(d, spec.measures, rs);
+    }
+    // A field with a fixed set of values (segment, age band…): a value only in the comparison keeps its bar, at 0 now —
+    // "Revenue by segment" vs last year must show what now sits in At risk / Lost (27 Oct: ₹93 L was missing).
+    if (order && !isDate(field)) {
+      for (const [k, rs] of prevBy) if (!shown.has(k) && k !== BLANK) out.push({ keys: [k], values: evaluate(d, spec.measures, []), prev: evaluate(d, spec.measures, rs) });
+      if (sortByLabel) out.sort((p, q) => (p.keys[0] === OTHERS ? 1 : q.keys[0] === OTHERS ? -1 : rank(p.keys[0]) - rank(q.keys[0])));
     }
   }
   // Two text splits (the matrix): each cell in the comparison too — and cells that only had sales then, so row and
@@ -353,8 +365,66 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
     });
     return out(rows, [{ key: "band", label: "Customers", date: false }], { note: `${n(n80)} of ${n(per.length)} customers make 80% of it.` });
   }
+  // Lists over the whole history (filters apply, the period doesn't): who to call about pads / batteries, and who
+  // bought one thing but not the other.
+  if (spec.analysis === "reorder" || spec.analysis === "crosssell") {
+    const rows = keep(d, all, { filters: spec.filters });
+    const per = new Map<string, { aed?: string; aedValue: number; aedUnits: number; consumable?: string; training?: string; trainingValue: number; info: Row }>();
+    for (const r of rows) for (const k of asList(r.customer)) {
+      if (k === BLANK) continue;
+      const g = String(r.itemGroup ?? "");
+      const dt = typeof r[d.dateField] === "string" ? (r[d.dateField] as string) : "";
+      const c = per.get(k) ?? { aedValue: 0, aedUnits: 0, trainingValue: 0, info: r };
+      if (g === "All AEDs") { if (dt > (c.aed ?? "")) c.aed = dt; c.aedValue += Number(r.amount) || 0; c.aedUnits += Number(r.qty) || 0; }
+      if (g === "AED Pads" || g === "AED Batteries") { if (dt > (c.consumable ?? "")) c.consumable = dt; }
+      if (/training services/i.test(g)) { if (dt > (c.training ?? "")) c.training = dt; c.trainingValue += Number(r.amount) || 0; }
+      if (dt >= String(c.info[d.dateField] ?? "")) c.info = r;
+      per.set(k, c);
+    }
+    const day = (x?: string) => (x ? grainLabel(x, "day", true) : "never");
+    const text = (v: Row[string] | undefined) => (typeof v === "string" && v ? v : "—");
+    const cols = (more: Result["by"]) => [{ key: "customer", label: "Customer", date: false }, ...more, { key: "sector", label: "Sector", date: false }, { key: "salesperson", label: "Sales person", date: false }];
+    const lim = spec.limit || 25;
+    if (spec.analysis === "reorder") {
+      // Pads last about 2 years: AEDs bought 18+ months ago with no pads / batteries bought since.
+      const cutoff = addMonths(spec.asOf ?? new Date().toISOString().slice(0, 10), -18);
+      const due = [...per].filter(([, c]) => c.aed && c.aed <= cutoff && (!c.consumable || c.consumable < c.aed)).sort((a, b) => b[1].aedUnits - a[1].aedUnits || a[1].aed!.localeCompare(b[1].aed!));
+      return out(due.slice(0, lim).map(([k, c]) => ({ keys: [k, day(c.aed), day(c.consumable), text(c.info.sector), text(c.info.salesperson)], values: [c.aedUnits] })),
+        cols([{ key: "aed", label: "Last AED bought", date: false }, { key: "pads", label: "Last pads / battery", date: false }]),
+        { measures: [{ key: "units", label: "AEDs bought", format: "count" }], totals: [due.reduce((s, [, c]) => s + c.aedUnits, 0)], note: `${n(due.length)} customers bought AEDs 18+ months ago and no pads or batteries since${due.length > lim ? ` — the ${lim} with the most AEDs shown` : ""}.` });
+    }
+    const wantTraining = spec.variant !== "aed";
+    const gap = [...per].filter(([, c]) => (wantTraining ? c.aed && !c.training : c.training && !c.aed)).sort((a, b) => (wantTraining ? b[1].aedValue - a[1].aedValue : b[1].trainingValue - a[1].trainingValue));
+    return out(gap.slice(0, lim).map(([k, c]) => ({ keys: [k, day(wantTraining ? c.aed : c.training), text(c.info.sector), text(c.info.salesperson)], values: [wantTraining ? c.aedValue : c.trainingValue] })),
+      cols([{ key: "last", label: wantTraining ? "Last AED bought" : "Last training bought", date: false }]),
+      { measures: [{ ...fmt, label: wantTraining ? "AEDs bought (₹)" : "Trainings bought (₹)" }], totals: [gap.reduce((s, [, c]) => s + (wantTraining ? c.aedValue : c.trainingValue), 0)],
+        note: `${n(gap.length)} customers ${wantTraining ? "bought AEDs but never a training" : "took a training but never bought an AED"}${gap.length > lim ? ` — the biggest ${lim} shown` : ""}.` });
+  }
   const overTime = base.prevLabel === "Last year" || base.prevLabel === "Period before";
   if (!prev || (spec.analysis !== "drivers" && !overTime)) return { ...base, rows: [], note: "Pick “vs last year” or “vs period before” to see this." };
+  // Price · volume · mix (by item): did revenue change because more units were sold, at other prices, or a different
+  // mix of items? Items sold in both periods split into price + volume + mix; the rest is new / dropped items.
+  if (spec.analysis === "pvm") {
+    const agg = (rs: Row[]) => { const g = new Map<string, { r: number; q: number }>(); for (const r of rs) { const k = String(r.item ?? BLANK); const x = g.get(k) ?? { r: 0, q: 0 }; x.r += Number(r.amount) || 0; x.q += Number(r.qty) || 0; g.set(k, x); } return g; };
+    const a = agg(cur), b = agg(prev);
+    let price = 0, volMix = 0, other = 0, q1 = 0, q0 = 0, r0both = 0;
+    for (const [k, x] of a) {
+      const y = b.get(k);
+      if (y && x.q > 0 && y.q > 0) { const p1 = x.r / x.q, p0 = y.r / y.q; price += (p1 - p0) * x.q; volMix += (x.q - y.q) * p0; q1 += x.q; q0 += y.q; r0both += y.r; }
+      else other += x.r - (y?.r ?? 0);
+    }
+    for (const [k, y] of b) if (!a.has(k)) other -= y.r;
+    const volume = q0 ? (q1 - q0) * (r0both / q0) : 0;
+    const before = [...b.values()].reduce((s, y) => s + y.r, 0), after = [...a.values()].reduce((s, x) => s + x.r, 0);
+    return out([
+      { keys: [`${base.prevLabel === "Last year" ? "Last year" : "Before"} (same days)`], values: [before] },
+      { keys: ["More / fewer units"], values: [volume] },
+      { keys: ["Higher / lower prices"], values: [price] },
+      { keys: ["Different mix"], values: [volMix - volume] },
+      { keys: ["New / dropped items"], values: [other] },
+      { keys: [base.nowLabel ?? "Now"], values: [after] },
+    ], [{ key: "step", label: "Step", date: false }], { note: "Units: what was sold more or less, at last year's average price · prices: the same items at new prices · mix: more of the dearer or cheaper items." });
+  }
   const now = byKey(cur, "customer");
   const then = byKey(prev, "customer");
   if (spec.analysis === "bridge") {
