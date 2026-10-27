@@ -1,41 +1,82 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Mon 26 Oct 2026, after session 13 (21–22 Oct) — all code pushed (`b88fb24`, live on both addresses);
+_Last updated: Tue 27 Oct 2026, after session 14 (26 Oct). All code is pushed (`b81bab6`, live on both addresses);
 this file is the only uncommitted change. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-Read this end to end before touching code. It records what the owner asked for (every prompt, all thirteen sessions — §5),
-the business rules that came out of it, how the code works **now**, what was verified, and what is still open.
-**§11 "Changing things without breaking the live site" is new — read it before the first edit.**
-Plans: `ANALYTICS-PLAN.md` (Reports — Phase 1 done, Phase 2 next), `ANALYTICS-SCHEMA.md` (every Zoho Analytics table /
-column), `MONDAY-PLAN.md` (older feature backlog — "My day" + renewals still waiting).
+Read this end to end before touching code. It records:
+- what the owner asked for (every prompt, all fourteen sessions — §5);
+- the business rules that came out of it, and how the code works **now**;
+- what was verified, and what is still open.
 
-**Start of the next session — do these first (details in §3 and §10 #101–#117):**
-1. `git status` — code is pushed (`b88fb24`). Commit this HANDOFF.md only when the owner says "push".
-2. **Tata Motors Pune AED** was moved to **Sat 31 Oct 11:00** by Priyanka (Change date, 24 Oct — a correction, so no
-   "postponed" message, by design). Its reminders: **Mon 26 Oct (5 days), Wed 28 Oct (3 days), Fri 30 Oct (day before)**,
-   email to hello@ + WhatsApp to Priyanka. Check `cardEvents` kinds `training_reminder` / `training_whatsapp` on
-   `aed:982417000020541273` and the Sync log ("Vercel cron · reminders" line ~08:30–09:30 IST). Reminders and WhatsApp
-   have been working since 20 Oct 16:01 (§10 #85 closed).
-3. **Diana Builwell W Goa (21 Oct, Performa-25-1127)** and **Sierragold Heights (22 Oct, Quotation-24-002305)** are
-   still **not marked completed** — both need the concerned person's **contact number** first (card → Change). Sierragold
-   is still a quote: its PI must be created in Zoho and merged before "Training completed" shows. K Raheja AED was
-   completed by Priyanka (22 Oct 12:08). Only 2 contact-number entries exist so far (Admin, 23 Oct, on an invoice card).
-4. **Reports (new page, §3 "Reports")** — the Zoho Analytics copy (`za_tables`) was last refreshed **23 Oct 09:39 IST**
-   (automatic when someone opens Reports and the copy is > 6 h old; Admin also has "Refresh now"). 0 saved reports.
-5. **Questions still open with the owner** (ask, don't assume):
-   (a) how often Zoho Analytics syncs from Zoho Books (workspace → data sources → Zoho Books → settings);
-   (b) which Zoho Analytics dashboards to rebuild first (default offered: Sales & Receivables, Marriot, Customers
-   Insights / churn, Inventory, Finance Overview) and the **SQL of their query tables** (API gives columns, not SQL);
-   (c) go-ahead for **Reports Phase 2** (own dashboards, drag / resize, drill-through to documents);
-   (d) the builder window is ~900 px tall at 1728×958 — offered to make it shorter with the left column scrolling; no
-   answer yet; (e) "My day" + renewals defaults (§10 #80) — still agreed, not started.
-6. **Pushing** works from Claude's shell (`git push origin master`; Vercel live ~1–3 min later). If it fails with
-   "could not read Username", don't retry — the owner pushes from Cursor. The owner says "push it to github" after
-   almost every change; follow §11's checklist every time.
-7. **Still owner-side:** `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic Citi test rows in the master sheet,
+**§11 "Changing things without breaking the live site" — read it before the first edit.**
+
+Plans:
+- `ANALYTICS-PLAN.md` — Reports. Phase 1 is done; Phase 2 is next, and the owner's new request below is mostly Phase 2
+  + 3.
+- `ANALYTICS-SCHEMA.md` — every Zoho Analytics table / column.
+- `PROGRESS-TRACKER-PLAN.md` — the Progress tracker, built in session 14 (§3 "Progress tracker").
+- `MONDAY-PLAN.md` — the older backlog; "My day" is now largely covered by the tracker's Everyone's to-do, and renewals
+  are still waiting.
+
+**Start of the next session — do these first (details in §3 and §10 #118–#126):**
+1. `git status` — the code is pushed (`b81bab6`). Commit this HANDOFF.md only when the owner says "push".
+2. **The owner's new request (session 15's main job — the owner's starter message has it word for word):**
+   - Research advanced EDA / business reports that top companies use to grow, and propose **at least 20**. Examples:
+     this year vs last year revenue **by sector and by customer type**, with **several selections at once**.
+   - Let each user **choose which reports show** on their dashboard.
+   - Add **more KPIs**.
+   - Add a **monthly goal of ₹50 lakh** as a **vertical meter on the left**.
+   - Bring **Tableau / Power BI flexibility**: custom filters, **parameters**.
+   - Make the UI **less congested**.
+
+   **Research first, then restate with questions + recommended defaults** (§8: the owner says "yeah" to accept all).
+   Map each proposed report to data that exists: `ANALYTICS-SCHEMA.md`, `src/lib/analytics/model.ts` and `build.ts`
+   fields. Questions that must be asked:
+   - (a) Where does the ₹50 L meter go — Reports' Sales dashboard, the Overview, or both?
+   - (b) Is ₹50 L before or after tax? Oct 2026 so far = ₹59.04 L **incl. tax** (49 invoices); compute the ex-tax
+     figure before asking.
+   - (c) Is "choose which reports" per person (default) or one team layout set by Admin?
+   - (d) The order to build in.
+3. **Progress tracker is live** (Reports → Progress tracker, §3).
+   - The owner calls it a **separate idea that may be removed later**: §10 #119 has the exact revert order.
+   - The first real request (R-0001, Priyanka → Arti, Review, 26 Oct 10:34) was seen in 7 min and resolved in 12.
+   - 4 members have been seen so far.
+   - Check that nothing broke: the Sync log, the `ptRequests` / `ptNotifications` counts.
+4. **Tata Motors Pune AED:** the 26 Oct 5-day reminder went at 09:01 (email + WhatsApp, recorded). At **09:14 Priyanka
+   undid the 31 Oct date and marked it "Training not required"**, so no more reminders. The owner was told; **unconfirmed
+   whether that was intended**.
+5. **Diana Builwell W Goa (21 Oct)** and **Sierragold Heights (22 Oct)** are still not completed, with no contact
+   number. They now show in **Shikha's to-do as "Mark completed or postpone" (overdue)**. Sierragold is still a quote.
+6. **Still-open older questions** (ask only if relevant):
+   - the Zoho Analytics → Books sync interval;
+   - which Zoho Analytics dashboards to rebuild first, and their query-table SQL;
+   - the Reports Phase 2 questions asked on 26 Oct (own dashboards, drag / resize, click a number → documents) got no
+     answer — the new request supersedes most of them;
+   - the builder height (~900 / 958 px).
+7. **Pushing works from the Bash tool (Git Bash)**, not from PowerShell:
+   - PowerShell fails with "could not read Username"; Git Bash uses Git Credential Manager's saved sign-in.
+   - Use `timeout 170 git push origin master` — once it took > 90 s, waiting on GCM.
+   - Commit messages go in a **file** (`git commit -F <scratch file>`): PowerShell splits inline messages at quotes.
+   - Owner's rule: if a push fails with a GitHub sign-in error, say so — the owner pushes from Cursor. But when they
+     answered "you push it tho", Git Bash worked.
+8. **Still owner-side:** `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic Citi test rows in the master sheet,
    Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41).
-8. **Screenshots of session 13's work** (for the owner / team): `D:\Projects\Training Dashboard\Screenshots 2026-10-22\`
-   (12 PNGs, real data — outside the repo on purpose).
+
+**Session 14 in one paragraph (26 Oct):**
+- **Morning checks:** Tata reminder sent, then marked not required; Diana / Sierragold still open; Reports copy from
+  23 Oct, 0 saved reports.
+- **Plan:** the owner pasted a spec for a "progress-tracker" page (team activity / dependencies / "Unblock Me") →
+  `PROGRESS-TRACKER-PLAN.md` (spec traced S1–S26, assumptions A1–A38, open decisions D1–D16). It moved under Reports;
+  defaults accepted ("build it come on").
+- **Built, then changed by the owner the same day:**
+  - requests (4 categories, ping after 4 h, red after 24 h, resolve / withdraw / reopen, threads), the
+    who-waits-on-whom matrix, header counts, team status cards, notices, "Ask a teammate" on every card header;
+  - **Everyone's to-do** (per person, read from the boards);
+  - check-ins **removed** ("don't need") and **Work done** added instead (auto record from the change log);
+  - an **(i)** explainer and a sidebar icon (aligned twice: indented looked wrong → in line with the other items);
+  - **tagging**: @mentions + "waiting on you" give a **red count until you reply or resolve**;
+  - the "Progress tracker →" link removed from the Reports tabs.
+- **Pushes:** 6 (`b63aebb` session 13 handoff, `09c4495` tracker, `f899c00`, `7448dfe`, `909f3d0` tagging, `b81bab6`).
 
 **Session 13 in one paragraph (21–22 Oct):** morning checks — WhatsApp had started on its own (5 sent 20 Oct 16:01, 4 on
 21 Oct 07:59), all 21 Oct reminders sent and recorded. Then, all pushed and live: **fixed** the "Ready for training" popup
@@ -156,8 +197,15 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit **`b88fb24`**
-  (22 Oct — Reports text size + builder portal; live on both addresses, verified in the deployed JS).
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit **`b81bab6`**
+  (26 Oct — Reports tab link removed; live on both addresses, verified in the deployed JS).
+  Session 14 (oldest first):
+  - `b63aebb` — session 13 handoff + analytics plan status;
+  - `09c4495` — **Progress tracker** (one self-contained commit);
+  - `f899c00` / `7448dfe` — sidebar item alignment;
+  - `909f3d0` — tagging (red count until reply / resolve);
+  - `b81bab6` — remove the "Progress tracker →" link from the Reports tabs.
+
   Session 13 (22 pushes, oldest first): `c1aa959` schedule popup + people check + themes v1 · `e94d50c` handoff ·
   `bfed393` light / dark themes · `8eaea44` Training box lines · `0afbfe2` step tracker · `66230d3` experimental themes,
   Appearance removed · `89a7655` calendar "+" · `c58fd75` Zoho Analytics connection + plans · `5b623b7` Reports Phase 1 ·
@@ -622,6 +670,59 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   an empty tile).
 - **Text sizes** were raised one step (owner, 22 Oct: "too small"): axes 13, bar values 13, legends 13.5, tooltips 14,
   tile titles 16.5, KPI 36, tables 14.5, filters / tabs 14.
+
+### Progress tracker (session 14) — see `PROGRESS-TRACKER-PLAN.md` (top "Status" blocks = what's built)
+- **Where:** `/reports/progress-tracker`, sidebar **Progress tracker** (in line with the other items, below Reports,
+  ticked-checklist icon).
+  - Members without the Training board (Priyanka, Arti, Shreya) now see **Reports** in the nav: it links straight to
+    the tracker, and `/reports` redirects them there (`src/app/reports/page.tsx`). The money dashboards stay hidden /
+    refused.
+  - The page has the shared `PageHeader` with the new optional `titleAside` (the **(i)** — `Info.tsx`).
+- **Three tabs** (`ProgressTracker.tsx`, remembered in localStorage `th.progress.view`):
+  1. **Everyone's to-do** (`TodoBoard.tsx`, `GET /api/progress/todos`, pure builder `src/lib/progress/todos.ts`
+     `buildTodos`):
+     - One column per person: Overdue · Today · Next 7 days · To do. Read from the boards: `boardsNow` + Fulfillment +
+       Logistics builders + calendar `entries` + requests.
+     - Trainers get their trainings. A **past training not completed** → "Mark completed or postpone" for **whoever
+       scheduled it** (else its trainers). A missing contact number goes to the same person.
+     - Priyanka gets AED contact / schedule / trainings; Shreya gets gratitude email, ★ replies, Send to Logistics;
+       Arti gets mark delivered / merge / packing / shipping / confirm.
+     - Everyone gets meetings / events and requests.
+     - **No sales items** (owner: "exclude it").
+     - Who sees: `seesWholeCalendar` (Admin / Shikha / Sumit / Ashish) see all columns, others their own.
+     - Items link `/follow-up?open=<card id>` — the board now also opens `fulfil:` / `logi:` / `logipay:` cards, and
+       AED cards on Logistics for Arti (`FollowUps.tsx` wantOpen).
+  2. **Work done** (same route, `buildDone`):
+     - Each person's change-log entries for the last 7 days (`DONE_DAYS`), mapped to short labels (`doneTag`).
+       Reverted ones and automatic sends are left out.
+     - Repeats on a card the same day show as ×n. Requests they resolved are included.
+  3. **Requests** (the "Unblock Me" part):
+     - Header counts: active members (visible tab in the last 10 min), open blockers (critical + over 24 h), hand-offs.
+     - Dependency & hand-off board: Waiting on you · **Mentioned you** · You're waiting on, plus the who-waits-on-whom
+       matrix.
+     - "Resolved this week", the "+ Request input or hand-off" button, team status cards (Away / Back, Set focus,
+       last seen, latest action).
+- **Requests** (`ptRequests`, `RequestForm.tsx`, `RequestDetail.tsx`, `/api/progress/requests`):
+  - Input Needed / Review Required / Hand-off Ready / Critical Blocker; Normal / Urgent; refs `R-0001…` (kv
+    `pt_request_seq`).
+  - Created from the button or from **"Ask a teammate"** (speech-bubble `AskLink` in every board card's `Header`:
+    `?task=<card id>&title=…&q=…`).
+  - Ping only after 4 h (since the request or the last ping); red ▲ after 24 h open.
+  - Resolve by the requester, the person waited on or Admin; withdraw / priority by the requester / Admin; reopen
+    within 7 days.
+  - Every change is a `log` line; threads in `ptComments` (`/api/progress/comments`).
+  - The server enforces all of it (`canDo` in `src/lib/progress/model.ts`, pure, tested).
+- **Tagging** (`909f3d0`):
+  - `needsReply` = the request waits on you (since made / reopened / last ping), or `@FirstName` in its thread
+    (`mentionsIn`, stored as `ptComments.mentions`), and you haven't replied or resolved / withdrawn / reopened since.
+    **Opening doesn't clear it.**
+  - The sidebar **red count** = these only (`needs` from `POST /api/progress/presence`). The page shows a red 1 on the
+    request, a red strip inside it, and "Reply needed" / "Mentioned you" in to-dos. Notice kind `mention`.
+- **Presence / notices:** AppShell `useProgressPulse` sends `POST /api/progress/presence {beat}` **every 30 s while the
+  tab is visible**. `lastSeenAt` is written at most once a minute, with no history. The answer carries the badge count +
+  unread notices → `ProgressToasts` (top right; urgent ones stay until closed; PATCH marks them read).
+- **Check-ins were built and then removed** at the owner's request (form, `/api/progress/standups`, feed). Any old
+  `ptStandups` collection is empty.
 
 ### Calendar "+" (session 13) — `src/components/Calendar.tsx`
 - `DayAgenda`: an empty day is a **"+ Add a training, meeting or event"** tile (Calendar side panel and the Overview's
@@ -1310,6 +1411,22 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 281 | "new report should pop up in the middle of the screen" | Measured on the live site: centred at 1366×768 / 1728×958 / 1920×1080, scrolled or not — owner's tab was likely old (Ctrl + Shift + R); offered a shorter window. |
 | 282 | "write a handoff for a new session, tips for suggestions without breaking the current software, and a message to pass" | This update (+ §11) and the starter message for the next session. |
 
+### Session 14 (26 Oct 2026) — Progress tracker
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 283 | Brief: read HANDOFF; rules; read-only checks (git, Tata reminders, Diana / Sierragold, Reports); then Reports Phase 2, ZA dashboards, My day — one at a time | Checks done (Tata 26 Oct reminder went 09:01, Priyanka marked it not required 09:14; Diana / Sierragold not completed; ZA copy 23 Oct; 0 saved reports). Phase 2 restated with 6 questions — never answered. |
+| 284 | "another page called progress-tracker" + a pasted spec asking for an implementation-ready architecture document | `PROGRESS-TRACKER-PLAN.md` (requirements S1–S26, assumptions, open decisions D1–D16, build order). |
+| 285 | "it goes under report, section" | Plan: `/reports/progress-tracker`, sidebar sub-item, everyone gets Reports (others see only the tracker). |
+| 286–287 | "run locally, let me see" · "build it come on" | Dev server; then built requests, matrix, counts, status cards, check-ins, threads, notices, "Ask a teammate". |
+| 288 | "I need to see what everyone needs to do or is going to do" → answers "1 yes · 2 yes + mark complete or pushed if past date · 3 exclude sales · 4 don't care · 5 no renewals" | **Everyone's to-do**. |
+| 289 | "I don't need post today's check-ins" · "(i) icon; an auto record of all the work the user completed, not just to-do — instead of check-ins" | Check-ins removed; **Work done** tab; (i) explainer. |
+| 290 | Screenshot: "give it a logo" | Ticked-checklist icon on the sidebar item. |
+| 291 | "keep this as a separate idea, we might remove it later, but push it" → PowerShell push failed → "you push it tho" | `b63aebb` docs + `09c4495` tracker; pushed from Git Bash. |
+| 292 | "align it properly" (screenshot) · push · "why is it still not aligned" · "push it" | Indented under Reports (`f899c00`) → in line with the other items (`7448dfe`). |
+| 293 | "the user tagged should see where they are tagged" → "if mentioned, a red 1 on the tracker until they reply or resolve in the ticket" | Tagging (`909f3d0`). |
+| 294 | Screenshot of "Progress tracker →" in Reports: "remove this, why is it there, push" | It was the plan's second entry point; removed (`b81bab6`). |
+| 295 | "write a handoff + message; research 20+ advanced EDA reports, user picks which reports show, more KPIs, ₹50 L monthly goal as a vertical meter on the left, Tableau / Power BI flexibility (custom filters, parameters), less congested UI" | This update; the work itself is for session 15 (starter message). |
+
 ---
 
 ## 6. Zoho facts learned the hard way
@@ -1363,6 +1480,20 @@ quotes, payments; `rows` = only the listed columns as Zoho formats them, `count`
 to rebuild** (Admin → Reports → Refresh now), kv **`za_state`** (`refreshedAt`, `refreshedBy`, `error`, `tables` counts),
 kv **`za_refresh_lock`** (lease, 5 min), collection **`reports`** (saved reports: `_id` uuid, `spec`, `by`, `byId`, `at`,
 `updatedAt` — **real team data**; 0 on 26 Oct).
+Session 14 (Progress tracker — **all real team data**, never write test documents):
+- **`ptRequests`** — `_id`, ref, category, priority, requester / waitingOn id + name, task {kind board/free, title,
+  cardId?, search?}, note, status open / resolved / withdrawn, createdAt / reopenedAt / seenAt, pings[],
+  resolvedAt / By / resolution, withdrawnAt / By, `log[]`, updatedAt.
+- **`ptComments`** — parent `request:<id>`, by / byId, text (emptied when removed), at, deletedAt, `mentions[]`.
+- **`ptPresence`** — `_id` member id, name, lastSeenAt (one timestamp, overwritten), away {at, until?},
+  focus {text, at}.
+- **`ptNotifications`** — to, kind request / ping / resolved / reopened / comment / mention, requestId, text, at,
+  urgent, readAt, `expiresAt` (**TTL 30 days**).
+- kv **`pt_request_seq`** (counter).
+
+`ptStandups` was used only by the removed check-ins (empty). On 27 Oct: 1 request (R-0001, resolved), 2 notices,
+4 presence docs.
+
 Legacy: `leads` (4,105 docs, unused since session 1) — drop only with the owner's OK. History: `cardEvents` was cleared by
 request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Everything by mistake on 3 Oct and 10 Oct**
 (both restored in session 6). Archive keeps copies of every clear.
@@ -1428,6 +1559,17 @@ request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Ev
   Recommend building, not licensing (Power BI / Tableau licence + no direct Zoho Analytics connector).
 - "yeah" = all defaults of the last numbered list (again in session 13, for the whole ANALYTICS-PLAN §10).
 - They like a folder of screenshots and a pasteable Zoho Sprints status after a day's work (reference memory).
+- Session 14:
+  - They **paste long generic specs** (written for any company — GitHub / Jira / Figma webhooks, standups). Build the
+    parts that fit this team, and say which parts don't.
+  - They then trim what they don't want ("I don't need check-ins") and ask for automatic data instead of typing
+    ("an auto record of the work"). **Prefer reading from the boards over asking people to type.**
+  - Ambiguous one-liners ("align it properly", "where they are tagged"): when it isn't obvious, ask one short question
+    with a recommended default. A wrong guess (indented vs in line) cost a round trip.
+  - They want new features kept as a **separate idea that can be removed** — own commits, nothing tangled with
+    existing code.
+  - They notice redundant entry points ("why is it there") — don't add a second way into a page unless asked.
+  - "push it to github" in the same message as a new request = push the finished request when done.
 
 ---
 
@@ -1515,6 +1657,31 @@ No test suite. Pattern used throughout:
     - **Palette check:** dataviz skill's `scripts/validate_palette.js "<hex,…>" --mode light --surface "#ffffff"` (and
       `--mode dark --surface "#1c1c1e"`).
     - Inline `node -e '…'` breaks on any apostrophe in the code (bash quoting) — write a `.cjs` file instead.
+16. **Session 14 patterns (scratchpad scripts — rebuild from this):**
+    - **Route handlers end to end with no database:** esbuild the route modules with a plugin that maps `…/db` to an
+      in-memory fake (`find/sort/limit/toArray`, `findOne`, `insertOne` with a duplicate-key 11000 error, `updateOne`
+      with `$set/$unset/$push/$inc` + upsert, `findOneAndUpdate`, `distinct`, a small `aggregate`, array-field
+      matching like Mongo), and `@/lib/auth` to a fake that reads the member from an `x-test-member` header. Then call
+      the exported `GET` / `POST` / `PATCH` with `new Request(…)`.
+      Used for the request lifecycle, permissions, notices, tagging (15 + 36 checks).
+    - **Pure rules:** esbuild `src/lib/progress/model.ts` + a test file with made-up members / requests (28 checks).
+    - **Live boards, read-only:** bundle an entry that imports `getSnapshot`, `boardsNow`, `buildFulfillmentBoard`,
+      `buildLogisticsBoard`, `buildTodos` / `buildDone` (aliases `server-only`, `next/server`, `next/headers` → stubs,
+      `--external:mongodb`, `NODE_PATH` = repo node_modules, `.env.local` loaded by a small runner) and print each
+      person's list.
+    - **Browser:** the earlier pattern + `/api/progress*` answered with made-up JSON (snapshot, presence pulse,
+      comments), `/api/progress/todos` passed through (real, read-only GET). Measure the page and the dialog scroll at
+      1728×958 / 1366×768 / 390.
+    - **Secret scan before every push:** a node script that reads `.env.local` and checks the added lines of every
+      changed / new file for those values (PINs as whole numbers), `1000.<hex>` tokens, connection strings. It prints
+      variable names only.
+    - **Live check:** poll both addresses' served JS for a string unique to the release (or its absence after a
+      removal) — usually live in 45–70 s.
+    - **PowerShell 5.1 traps:** `Get-Content -Raw` + `Set-Content` **mangles UTF-8** (— → â€”) and adds a BOM; never
+      edit source files with them (use the Edit / Write tools, or node `fs` with "utf8"). Inline `git commit -m` with
+      quotes splits into pathspecs; use `-F file`.
+    - The auto-mode classifier sometimes answers "no verdict" several times in a row; after ~6, stop and report. Ten
+      in a row ends the turn.
 
 ---
 
@@ -1821,6 +1988,40 @@ No test suite. Pattern used throughout:
 116. `zohoAnalytics.ts` `?export=<id>` returns the first 5 rows of any table to Admin (a look only) — keep it Admin-only.
 117. "My day" + certificate renewals (§10 #80) — still agreed, not started; the Reports engine can feed a Renewals
      dashboard once certificate expiry data is in (Phase 1b + the 2024–25 invoices back-fill in #80).
+
+**Session 14 — open items:**
+
+118. **Next job: advanced Reports** (owner, 26 Oct — see "Start of the next session" #2). It overlaps ANALYTICS-PLAN
+     Phase 2 (choose tiles per user, drag / resize, drill-through) and Phase 3 (comparisons, targets, parameters).
+     **Data limits to check first:**
+     - Sector / type / chain / state / city come from Zoho customer fields (`model.ts`). Many customers have blanks —
+       measure the share before promising sector reports.
+     - Margin / profit needs Bills / Purchase tables (Phase 1b, not loaded yet; `build.ts` `TABLES`).
+     - The money columns' export format must be exact (no "K").
+     - The ₹50 L goal needs: incl. or ex tax? Revenue = invoices (`sales` dataset, ex-tax `amount`).
+119. **Progress tracker is a "separate idea, may be removed later"** (owner). To remove it, revert **newest first**:
+     `git revert b81bab6 909f3d0 7448dfe f899c00 09c4495`. Reverting `09c4495` alone conflicts with the later commits.
+     Its collections (§7) would stay, unused. It also changed shared files (AppShell nav / badge / heartbeat,
+     `PageHeader` `titleAside`, card `Header` `ask`, FollowUps link-open for Fulfillment / Logistics cards,
+     `/reports` redirect for single-board members) — all of that goes with the reverts.
+120. **Not built from the tracker plan:** P3 evening digest (6 PM; Vercel Hobby = within the hour), P4+ tool webhooks
+     (GitHub / Vercel / Jira… — this team barely uses them), check-ins (dropped by the owner).
+121. **Load added by the tracker:**
+     - Every signed-in visible tab posts the heartbeat every 30 s; each beat runs `needsReplyIds` (2–3 small Mongo
+       queries).
+     - The to-do / work-done route rebuilds all boards per call (every 60 s per open tracker tab, ~100–300 ms).
+     - Fine for 7 people. Watch Vercel function usage if the team grows; the beat could go to 60 s.
+122. **Tagging edge cases:**
+     - @ matches **first names** (two members with the same first name would both be tagged).
+     - A @mention on a closed request still tags until replied.
+     - A ping re-tags the person waited on even if they replied before.
+123. **Tata Motors Pune AED** — Priyanka marked it "Training not required" at 09:14 on 26 Oct, 13 min after the 5-day
+     reminder. Unconfirmed whether intended (the owner was told).
+124. **Arti's to-do** lists 5–6 "Mark AED delivered" items, some old (Synopsys 2026-01-385, SP Nexus 2026-01-364). She
+     may want to hide them (Logistics → hide) or they're genuinely undelivered — ask.
+125. **Shikha's to-do:** Diana (21 Oct) and Sierragold (22 Oct) "Mark completed or postpone", overdue. Contact numbers
+     are still missing on every training.
+126. `git status` clean except this file. `npm audit` / Next 16.3 upgrade still pending (#113).
 
 ---
 

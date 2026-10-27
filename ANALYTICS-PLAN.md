@@ -10,6 +10,11 @@ data from the Zoho Analytics copy of all of Books (part of Phase 1b already: 8 t
 (owner's go-ahead pending) and the rest of 1b (purchases, expenses, stock — HANDOFF §10 #105–#107). How it's built:
 HANDOFF.md §3 "Reports + Zoho Analytics".
 
+**Session 15 (27 Oct) — advanced Reports, all defaults accepted ("yessir"):** see §11 for the 27 report ideas and the
+build order. Built locally, not pushed yet: (a) ₹50 L goal meter, (b) less congested layout, (c) more KPIs,
+(d) compare / filters / views / "Change this chart" / what-if, (e) first batch of reports (Growth, Team & pipeline,
+Collections tabs). Left: the rest of the ✅ reports, then (f) "My dashboard".
+
 ---
 
 ## 0. In one page
@@ -499,3 +504,64 @@ Chips above the grid show every active filter; Esc / Clear removes them.
    projects): which does the business actually use? — *Default: include credit notes; skip the rest until asked.*
 10. **Margin / profit numbers** are sensitive: who sees cost, margin and profit? — *Default: Admin only (the owner),
     until the owner widens it.*
+
+---
+
+## 11. Advanced Reports (owner, 26–27 Oct — defaults accepted 27 Oct)
+
+**The ask:** 20+ advanced reports that growing businesses use; each user picks which reports they see; more KPIs; a
+**₹50 L monthly goal** as a vertical meter on the left; Tableau / Power BI flexibility (custom filters, parameters);
+a less congested UI.
+
+**Decisions (defaults accepted):**
+1. Goal meter on the **left of every Reports tab** (a strip on top on narrow screens) — not on the Overview, whose
+   revenue tile is training-only.
+2. Goal = **every Zoho Books invoice, before tax** (Sales dataset "Revenue").
+3. **Admin** changes the goal, and can set a different goal for single months (kv `reports_goal`).
+4. The meter is seen by whoever sees the Sales dashboard (Training-board members).
+5. "Choose your reports" is **per person**; Admin sets the starting layout for new people.
+6. First batch of reports: #1, 2, 4, 6, 8, 10, 13, 14, 17, 24 below; then the other ✅ ones; then ⚠.
+7. Copy **Sales Orders + Sales Order Items** (done 27 Oct) and later **Quote Items**; margin tables later, Admin only.
+8. "Less congested" covers **Reports only**.
+9. Order: (a) goal meter → (b) less congested Reports layout → (c) more KPIs → (d) parameters + custom filters →
+   (e) new reports in 2–3 batches → (f) "My dashboard" chooser. Each local first, own commit, pushed on the owner's word.
+
+**Report ideas** — ✅ data we have · ⚠ in Zoho Analytics, not copied yet · ❌ missing
+
+| # | Report | Data |
+|---|---|---|
+| 1 | This year vs last year by sector × customer type, several selections at once, ₹ and % change, same days | ✅ Sales |
+| 2 | Revenue bridge (waterfall): last year → this year = new customers + growth − shrink − lost | ✅ |
+| 3 | Price · volume · mix by item group | ✅ qty + amount |
+| 4 | ₹50 L goal tracker (so far, % of goal, ₹ needed per working day, month-end estimate, booked PIs) | ✅ (Sales Orders added) |
+| 5 | Seasonality heatmap: month × FY since 2021 | ✅ |
+| 6 | Customer concentration (80/20; share of the top 10) | ✅ |
+| 7 | RFM segments (Champions / Loyal / At risk / Lost) | ✅ |
+| 8 | Win-back list: bought last FY, nothing this FY | ✅ |
+| 9 | Cohort retention by first-purchase FY | ✅ |
+| 10 | New vs repeat revenue, from invoice history (not the hand-typed New / Old tag) | ✅ |
+| 11 | Consumables reorder list: AEDs bought 18–30 months ago, no pads / batteries since | ✅ item group |
+| 12 | Cross-sell gaps: AED buyers with no training, and the other way round | ✅ |
+| 13 | Sales-person scorecard | ✅ |
+| 14 | Quote funnel: quotes → won → invoiced, days to invoice | ✅ (quotes have no lead source ❌) |
+| 15 | Open quotes by age (valid 15 days / expired) | ✅ |
+| 16 | Lead-source performance | ✅ invoices; win rate per channel ❌ |
+| 17 | Collections: ageing, overdue %, days-to-pay trend, slow payers | ✅ |
+| 18 | Geography: state / city, change vs last year, India map | ✅ (+ a free India outline file) |
+| 19 | Product mix trend (share per quarter) | ✅ |
+| 20 | Average selling price per item over time | ✅; line discounts ⚠ |
+| 21 | Resellers vs direct | ✅ |
+| 22 | Hotel chains | ✅ (chain is tagged on few customers) |
+| 23 | Training economics: revenue per training / per person | ✅ board + Sales |
+| 24 | "What changed?" breakdown (decomposition tree) | ✅ |
+| 25 | Gross margin by product / customer (Admin only) | ⚠ Bills, Bill Items, FIFO |
+| 26 | Freight cost as % of revenue | ⚠ column copied, format to check |
+| 27 | Stock on hand, days of cover | ⚠ stock tables |
+
+**Parameters and filters (d):** compare to previous period / same period last year / none; measure switch and "split
+by" switch on a chart; top N; month / quarter / FY; a what-if growth % with the goal as an editable number; filters on
+any field with include **or exclude**, "contains", amount ranges and saved filter sets; two selections side by side.
+
+**Data checks done 27 Oct:** sector and customer type are blank on ~1% of revenue since Apr 2025 (safe to report on);
+hotel chain is set on few customers; Zoho Analytics' Quotes table has no lead source / product type (only invoices do);
+Sales Orders' "Total (BCY)" exports abbreviated — use "Sub Total (BCY)".
