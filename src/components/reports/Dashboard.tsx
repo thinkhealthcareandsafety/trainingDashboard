@@ -67,7 +67,8 @@ export function compose(tile: Tile, today: string, periodKey: string, filters: R
 
 const readTweaks = (id: string): Record<string, Tweak> => { try { return JSON.parse(localStorage.getItem(`th.reports.tweaks.${id}`) || "{}"); } catch { return {}; } };
 
-export function DashboardView({ def, today }: { def: DashboardDef; today: string }) {
+/** `tools`: extra buttons at the right end of the toolbar (My dashboard: Customise). */
+export function DashboardView({ def, today, tools }: { def: DashboardDef; today: string; tools?: React.ReactNode }) {
   const [period, setPeriod] = useState(def.period);
   const [filters, setFilters] = useState<Record<string, FState>>({});
   const [compare, setCompare] = useState<CompareMode>("lastYear");
@@ -152,6 +153,7 @@ export function DashboardView({ def, today }: { def: DashboardDef; today: string
         )}
         {chosen.length + (pick ? 1 : 0) > 1 && <button type="button" className="h-9 rounded-full px-3 text-[13.5px] font-semibold text-brand hover:bg-brand-soft" onClick={() => { setFilters({}); setPick(null); }}>Clear all</button>}
         {loading && <span className="text-[13.5px] text-muted" aria-live="polite">Updating…</span>}
+        {tools && <div className="ml-auto flex items-center gap-2">{tools}</div>}
       </div>
 
       {groups.map((g, gi) => (

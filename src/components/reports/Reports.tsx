@@ -9,6 +9,7 @@ import { btn } from "../ui";
 import { Builder } from "./Builder";
 import { DashboardView, TileCard } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
+import { MyDashboard } from "./MyDashboard";
 import { type Answer, type Meta, runSpecs, stamp, withPeriod } from "./shared";
 
 /*
@@ -18,12 +19,13 @@ import { type Answer, type Meta, runSpecs, stamp, withPeriod } from "./shared";
  */
 
 type Saved = { id: string; spec: Spec; by: string; updatedAt: string; mine: boolean };
-type TabKey = string; // a dashboard id or "saved"
+type TabKey = string; // "mine", a dashboard id or "saved"
 
 export function Reports() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<TabKey>(() => { try { return localStorage.getItem("th.reports.tab") || "sales"; } catch { return "sales"; } });
+  // Opens on My dashboard the first time (owner, 27 Oct), then on the tab last used.
+  const [tab, setTab] = useState<TabKey>(() => { try { return (localStorage.getItem("th.reports.mine") && localStorage.getItem("th.reports.tab")) || "mine"; } catch { return "mine"; } });
   const [saved, setSaved] = useState<{ canBuild: boolean; reports: Saved[] } | null>(null);
   const [builder, setBuilder] = useState<{ spec?: Spec; id?: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -31,7 +33,7 @@ export function Reports() {
   const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => setMeta(j)).catch(() => setError("Couldn't reach the server")), []);
   const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json()).then(setSaved).catch(() => {}), []);
   useEffect(() => { loadMeta(); loadSaved(); }, [loadMeta, loadSaved]);
-  useEffect(() => { try { localStorage.setItem("th.reports.tab", tab); } catch {} }, [tab]);
+  useEffect(() => { try { localStorage.setItem("th.reports.tab", tab); localStorage.setItem("th.reports.mine", "1"); } catch {} }, [tab]);
 
   const dashboards = useMemo(() => DASHBOARDS.filter((d) => meta && d.tiles.every((t) => meta.datasets.includes(t.spec.dataset))), [meta]);
   const current = dashboards.find((d) => d.id === tab);
@@ -60,7 +62,7 @@ export function Reports() {
           bottom of the page — owner, 27 Oct: "too congested"). */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="inline-flex flex-wrap rounded-full bg-surface-2 p-0.5" role="tablist" aria-label="Dashboards">
-          {[...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }].map((t) => (
+          {[{ id: "mine", label: "My dashboard", desc: "Your own choice of reports from every tab" }, ...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }].map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} title={t.desc}
               className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
@@ -68,7 +70,8 @@ export function Reports() {
         <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})}>+ New report</button>
       </div>
       <div className="mt-4">
-        {current ? <DashboardView def={current} today={meta.today} />
+        {tab === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={dashboards} saved={saved ? saved.reports : null} />
+          : current ? <DashboardView def={current} today={meta.today} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}
       </div>
       <p className="mt-8 text-[13px] text-faint" title={st.error ? `Last refresh: ${st.error}` : undefined}>
