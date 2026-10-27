@@ -12,7 +12,9 @@ export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: bo
   /** Draw the monthly revenue goal across it (owner, 27 Oct: ₹50 L a month). */
   goalLine?: boolean;
   /** Never compared (cohorts, seasonality, lists over all of history) — the dashboard's "Compare" leaves it alone. */
-  noCompare?: boolean };
+  noCompare?: boolean;
+  /** A taller chart (the India map, and the bars beside it). */
+  tall?: boolean };
 /** `range`: a min–max on one of the dataset's `ranges` (e.g. invoices of ₹1 L or more). */
 export type DashFilter = { field: string; label: string; range?: boolean };
 export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string };
@@ -102,6 +104,10 @@ export const DASHBOARDS: DashboardDef[] = [
       { id: "segCount", section: "Segments", w: 6, fixedPeriod: true, noCompare: true, note: "Every customer, from their whole history", spec: { dataset: "sales", measures: ["customers"], by: ["segment"], sort: "label", chart: "bar", title: "Customers by segment" } },
       { id: "segRevenue", section: "Segments", w: 6, spec: { dataset: "sales", measures: ["revenue"], by: ["segment"], sort: "label", chart: "bar", title: "Revenue by segment" } },
       { id: "atRisk", section: "Segments", w: 12, fixedPeriod: true, noCompare: true, note: "Bought 2+ times, last 1–2 years ago — call them first", spec: { dataset: "sales", measures: ["revenue"], by: ["customer"], limit: 12, chart: "bar", filters: [{ field: "segment", values: ["At risk"] }], title: "At risk: biggest customers by what they've spent" } },
+      // Report #18 (owner, 27 Oct): the map for the shape of it, the bars for exact amounts — Delhi and Goa are big for us
+      // but tiny on a map.
+      { id: "stateMap", section: "Where they are", w: 6, tall: true, note: "Darker = more · hover for last year · click a state to filter", spec: { dataset: "sales", measures: ["revenue"], by: ["state"], chart: "map", title: "Revenue across India" } },
+      { id: "stateBars", section: "Where they are", w: 6, tall: true, spec: { dataset: "sales", measures: ["revenue"], by: ["state"], limit: 15, chart: "bar", title: "Revenue by state" } },
       { id: "cohort", section: "Do new customers come back?", w: 12, fixedPeriod: true, noCompare: true, spec: { dataset: "sales", measures: ["customers"], by: ["cohort", "fy"], chart: "matrix", relative: "first", title: "Customers by the year they first bought" } },
       { id: "reorder", section: "Call them", w: 12, noCompare: true, spec: { dataset: "sales", measures: ["revenue"], analysis: "reorder", chart: "table", limit: 25, title: "Due pads or batteries: AEDs bought 18+ months ago, nothing since" } },
       { id: "noTraining", section: "Call them", w: 6, noCompare: true, spec: { dataset: "sales", measures: ["revenue"], analysis: "crosssell", variant: "training", chart: "table", limit: 15, title: "Bought AEDs, never a training" } },

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Format, type Grain, formatValue, grainLabel } from "@/lib/analytics/model";
 import { BLANK, type ChartKind, OTHERS, type Result, type ResultRow } from "@/lib/analytics/query";
+import { geoName, loadIndia } from "./indiaMap";
 
 /*
  * One report drawn with Apache ECharts (loaded only on the Reports page). Dataviz rules: a colour belongs to the name,
@@ -162,7 +163,8 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
     }
     let disposed = false;
     let ro: ResizeObserver | null = null;
-    loadEcharts().then((ec) => {
+    loadEcharts().then(async (ec) => {
+      if (k === "map") await loadIndia(ec);
       if (disposed || !el.current) return;
       // Back from the table: a new box — draw into it, not into the one that was removed.
       if (chart.current && chart.current.getDom() !== el.current) {
@@ -179,7 +181,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       });
       ro = new ResizeObserver(() => c.resize());
       ro.observe(el.current);
-    });
+    }).catch(() => {});
     return () => { disposed = true; ro?.disconnect(); };
   }, [model, k, tick, picked, accent, target]);
   useEffect(() => () => { chart.current?.dispose(); chart.current = null; }, []);
@@ -189,6 +191,8 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
   if (k === "matrix") return <Matrix result={result} relative={relative} />;
   if (k === "heatmap") return <Heatmap result={result} target={target} />;
   if (!result.rows.length) return <><Empty height={height} />{result.note && <Note text={result.note} />}</>;
+  // The map: what has no place on it (Out of India, blank…) is listed underneath, so the totals still add up.
+  const offMap = k === "map" ? model.x.map((key, i) => ({ key, v: model.series.find((s) => s.key !== PREV)?.values[i] ?? null })).filter((x) => !geoName(x.key) && x.v) : [];
   return (
     <>
       <div ref={el} style={{ height: model.others ? height - 20 : height }} className="w-full" role="img" aria-label={model.summary} />
@@ -198,6 +202,8 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
           {model.twin && model.othersPrev !== undefined && <> ({model.twin === "time" ? model.prevLabel?.toLowerCase() : model.prevLabel}: {formatValue(model.othersPrev ?? null, model.format)})</>} · the table shows it all
         </p>
       ) : null}
+      {offMap.length > 0 && <Note text={`Not on the map: ${offMap.map((x) => `${labelOf(x.key, false, grain)} ${formatValue(x.v, model.format)}`).join(" · ")}`} />}
+      {k === "map" && <p className="mt-1 text-[12px] text-faint">Map: <a className="hover:underline" href="https://github.com/datameet/maps" target="_blank" rel="noreferrer">DataMeet India</a>, CC BY 4.0</p>}
       {result.note && <Note text={result.note} />}
     </>
   );
@@ -235,7 +241,8 @@ function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Mod
   const othersRow = k === "bar" && r.by.length === 1 ? r.rows.find((row) => row.keys[0] === OTHERS) : undefined;
   if (othersRow) r = { ...r, rows: r.rows.filter((row) => row !== othersRow) };
   const x = [...new Set(r.rows.map((row) => row.keys[0] ?? ""))];
-  const xLabels = x.map((key) => labelOf(key, date0, grain));
+  // A map's areas go by the outline's names (a click comes back with that name).
+  const xLabels = x.map((key) => (k === "map" && geoName(key)) || labelOf(key, date0, grain));
   const keyByLabel = new Map(x.map((key, i) => [xLabels[i], key]));
   let format = r.measures[0]?.format ?? "count";
   let series: Model["series"];
@@ -314,6 +321,7 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
   }
 
   if (k === "waterfall") return waterfall(m, t, own, base, fmt, axisText);
+  if (k === "map") return indiaMap(m, t, own, base, fmt, picked);
   const horizontal = k === "bar" || k === "diverging";
   const catAxis = { type: "category", data: m.xLabels, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { ...axisText, ...(horizontal ? { width: 180, overflow: "truncate" } : { hideOverlap: true }) }, inverse: horizontal };
   const valAxis = { type: "value", splitLine: { lineStyle: { color: t.line, width: 1 } }, axisLabel: { ...axisText, hideOverlap: true, formatter: (v: number) => fmt(v) } };
@@ -386,6 +394,50 @@ export function Kpi({ result, compact = false }: { result: Result; compact?: boo
 
 /** The table view of any report (also the accessible version of every chart). */
 /** Revenue bridge: first and last bars whole, the steps between floating up (green) or down (red). */
+/** "#45cf9c" at 15% — the light end of a map's scale, over whatever card colour the theme has. */
+const faint = (hex: string, a: number) => {
+  const h = /^#([0-9a-f]{6})$/i.exec(hex)?.[1];
+  return h ? `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4), 16)},${a})` : hex;
+};
+
+/** India by state (report #18): darker = more, in the chart's own colour; hover = the value and the comparison. */
+function indiaMap(m: Model, t: Theme, own: string, base: { tooltip: object }, fmt: (v: number | null) => string, picked: string | null) {
+  const now = m.series.find((s) => s.key !== PREV) ?? m.series[0];
+  const prev = m.series.find((s) => s.key === PREV);
+  // Shaded by the square root: one state (Maharashtra, ~35%) would otherwise leave every other one nearly blank.
+  const data = m.x.flatMap((key, i) => {
+    const v = Math.max(0, now.values[i] ?? 0);
+    return geoName(key) ? [{
+      name: m.xLabels[i], value: [v, Math.sqrt(v)], prev: prev?.values[i] ?? null,
+      ...(picked && key !== picked ? { itemStyle: { opacity: 0.35 } } : {}),
+    }] : [];
+  });
+  const max = Math.max(0, ...data.map((d) => d.value[0]));
+  const change = (v: number, p: number | null) => (p ? ` · ${v >= p ? "▲" : "▼"} ${Math.abs(Math.round(((v - p) / p) * 100))}%` : "");
+  return {
+    animationDuration: 250,
+    textStyle: { fontFamily: "inherit", color: t.ink2 },
+    tooltip: {
+      ...base.tooltip, trigger: "item",
+      formatter: (p: { name: string; data?: { value: number[]; prev: number | null } }) => !p.data ? `${p.name}<br/>—`
+        : `<b>${p.name}</b><br/>${fmt(p.data.value[0])}${prev ? `<br/><span style="color:${t.muted}">${m.prevLabel ?? "Before"}: ${fmt(p.data.prev)}${change(p.data.value[0], p.data.prev)}</span>` : ""}`,
+    },
+    // The scale sits in the Arabian Sea (bottom left), where the map has nothing.
+    visualMap: {
+      type: "continuous", dimension: 1, min: 0, max: Math.sqrt(max) || 1, left: 0, bottom: 4, itemWidth: 10, itemHeight: 90, calculable: false,
+      text: [fmt(max), fmt(0)], textGap: 6, formatter: (v: number) => fmt(v * v), textStyle: { color: t.muted, fontSize: 12 },
+      inRange: { color: [faint(own, 0.14), own] },
+    },
+    series: [{
+      type: "map", map: "india", nameProperty: "ST_NM", roam: false, selectedMode: false,
+      layoutCenter: ["55%", "50%"], layoutSize: "98%",
+      itemStyle: { areaColor: t.line, borderColor: t.surface, borderWidth: 0.7 },
+      emphasis: { label: { show: false }, itemStyle: { areaColor: own, borderColor: t.ink, borderWidth: 1 } },
+      data,
+    }],
+  };
+}
+
 function waterfall(m: Model, t: Theme, own: string, base: object, fmt: (v: number | null) => string, axisText: object) {
   const vals = m.series[0]?.values.map((v) => v ?? 0) ?? [];
   let run = 0;
