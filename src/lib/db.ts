@@ -15,7 +15,15 @@ export function mongoConfigured(): boolean {
 
 export async function db(): Promise<Db> {
   if (!globalForMongo._thMongo) {
-    globalForMongo._thMongo = new MongoClient(process.env.MONGODB_URI!, { serverSelectionTimeoutMS: 8000 }).connect();
+    // A failed connect is forgotten, so the next request tries again — a kept failure broke a server for good
+    // ("Server selection timed out", 27 Oct). The slowed free cluster makes each new connection wait (Atlas adds a
+    // pause per connection when over its transfer limit): 20 s to find it, and at most 10 connections per server.
+    globalForMongo._thMongo = new MongoClient(process.env.MONGODB_URI!, { serverSelectionTimeoutMS: 20_000, maxPoolSize: 10 })
+      .connect()
+      .catch((e) => {
+        globalForMongo._thMongo = undefined;
+        throw e;
+      });
   }
   const client = await globalForMongo._thMongo;
   return client.db(process.env.MONGODB_DB ?? "thinkhealth_dashboard");
