@@ -36,7 +36,22 @@ const THEME_PALETTES: Record<string, string[]> = {
   "dark-plum": ["#d77fc8", "#b78af0", "#c25fae", "#e6a6dc", "#9a6ad8", "#e090c0", "#a855a0"],
   "dark-ember": ["#f0844f", "#f5b05a", "#e2604a", "#f6c47a", "#d9773a", "#ef9a80", "#c8502f"],
   "dark-xplum": ["#e29ad6", "#b78af0", "#d06fbe", "#f0b8e6", "#9a6ad8", "#e888b8", "#b062a8"],
+  "dark-xocean": ["#5cc8e6", "#7fa8ff", "#3fb0c9", "#9fe0f0", "#4a86d8", "#6fd6c4", "#8fc0ff"],
+  "dark-xespresso": ["#e6a65c", "#d98a6a", "#c9b07a", "#f0c890", "#b8784a", "#e8b4a0", "#a8905a"],
+  "dark-xemerald": ["#5fd4a0", "#8fd46f", "#3fb8a0", "#a8e6c4", "#4fae7f", "#c4d47a", "#6fc8c0"],
+  xsakura: ["#b83d68", "#d9708f", "#9a4fa8", "#e89a6a", "#c45a8a", "#7a6ad0", "#d4a04a"],
+  xsand: ["#a8552f", "#c98a3a", "#6f8a4a", "#d06a50", "#8a6a4a", "#b89a5a", "#5f7f8a"],
+  xnordic: ["#3f56a6", "#5a8ac8", "#6a6aa8", "#4aa0a8", "#8a7ab8", "#7a9ab8", "#a8708a"],
 };
+
+/** The colour a one-colour chart on this theme gets (slot 0) — also the goal meter's fill (owner, 27 Oct: "the color
+ * should change with the theme"). Re-reads when the theme changes. */
+export function useThemeColour(slot = 0): string {
+  const tick = useThemeTick();
+  const [c, setC] = useState("var(--brand)");
+  useEffect(() => { const t = readTheme(); setC(t.mono ?? t.palette[slot % t.palette.length]); }, [tick, slot]);
+  return c;
+}
 const OTHERS_LIGHT = "#a1a1a6";
 const OTHERS_DARK = "#636366";
 

@@ -6,6 +6,7 @@ import { BOOKED_DAYS, DEFAULT_GOAL, type Goal, goalFor, monthEnd, pace } from "@
 import { grainLabel, inrShort } from "@/lib/analytics/model";
 import { confettiPop } from "@/lib/confetti";
 import { Field, Modal, btn, inputCls } from "../ui";
+import { useThemeColour } from "./Chart";
 import { isError, runSpecs } from "./shared";
 
 /*
@@ -17,7 +18,9 @@ import { isError, runSpecs } from "./shared";
 
 type Data = { goal: Goal; months: { key: string; revenue: number }[]; booked: number };
 
-const FILL = { on: "var(--brand)", slip: "var(--medium)", behind: "var(--high)" };
+/** On pace = the theme's own colour (as its charts — owner, 27 Oct); behind = the status colours. */
+type Fill = { on: string; slip: string; behind: string };
+const fillOf = (on: string): Fill => ({ on, slip: "var(--medium)", behind: "var(--high)" });
 const STRIPES = (c: string) => `repeating-linear-gradient(-45deg, color-mix(in srgb, ${c} 45%, transparent) 0 5px, color-mix(in srgb, ${c} 18%, transparent) 5px 10px)`;
 const addDays = (ymd: string, n: number) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const monthsBack = (month: string, n: number) => { const d = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 - n, 1)); return d.toISOString().slice(0, 7); };
@@ -28,6 +31,7 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const fill = fillOf(useThemeColour());
 
   const load = () => {
     const first = monthsBack(month, 6);
@@ -75,11 +79,11 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
   const estimateHint = p.estimate === null ? "" : `If the rest of ${monthName} goes like its working days so far: about ${inrShort(p.estimate)} by month end.`;
   const custom = data.goal.months[month] !== undefined;
 
-  const props = { goal, invoiced, booked: data.booked, expected: p.expected, estimate: p.estimate, tone, tickHint, bookedHint, estimateHint } as const;
+  const props = { fill, goal, invoiced, booked: data.booked, expected: p.expected, estimate: p.estimate, tone, tickHint, bookedHint, estimateHint } as const;
   const lines = (
     <dl className="grid gap-1.5 text-[13px]">
-      <Line dot={FILL[tone]} label="Invoiced" value={inrShort(invoiced)} />
-      <Line dot={FILL[tone]} striped label="Booked" value={inrShort(data.booked)} title={bookedHint} />
+      <Line dot={fill[tone]} label="Invoiced" value={inrShort(invoiced)} />
+      <Line dot={fill[tone]} striped label="Booked" value={inrShort(data.booked)} title={bookedHint} />
       {reached ? null : <Line label={`Needed / day · ${p.daysLeft} left`} value={inrShort(p.perDay)} title="₹ still needed ÷ working days left (Mon–Sat, today included)" />}
       {p.estimate !== null && <Line label="Month end" value={`≈ ${inrShort(p.estimate)}`} title={estimateHint} />}
     </dl>
@@ -99,7 +103,7 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
       <div className="mt-2 flex items-baseline gap-2 xl:block">
         <span className="text-[34px] font-semibold leading-none tracking-tight text-ink">{pct}%</span>
         <span className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-2 xl:flex">
-          <span aria-hidden className="text-[9px]" style={{ color: FILL[tone] }}>{reached || tone === "on" ? "●" : "▲"}</span>
+          <span aria-hidden className="text-[9px]" style={{ color: fill[tone] }}>{reached || tone === "on" ? "●" : "▲"}</span>
           {status}
         </span>
       </div>
@@ -115,8 +119,8 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
         {lines}
       </div>
 
-      {p.estimate !== null && p.daysLeft > 0 && <WhatIf goal={goal} invoiced={invoiced} estimate={p.estimate} />}
-      <History months={data.months} goalOf={(k) => goalFor(data.goal, k)} current={month} />
+      {p.estimate !== null && p.daysLeft > 0 && <WhatIf goal={goal} invoiced={invoiced} estimate={p.estimate} colour={fill.on} />}
+      <History months={data.months} goalOf={(k) => goalFor(data.goal, k)} current={month} colour={fill.on} />
       <p className="mt-3 text-[12px] leading-snug text-faint">Every Zoho Books invoice, before tax.</p>
 
       {editing && createPortal(<GoalEditor goal={data.goal} month={month} monthName={monthName} onClose={() => setEditing(false)} onSaved={(g) => { setData((d) => (d ? { ...d, goal: g } : d)); setEditing(false); }} />, document.body)}
@@ -125,7 +129,7 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
 }
 
 /** What-if (owner, 27 Oct: "parameters"): the rest of the month a bit faster or slower than so far → month end. */
-function WhatIf({ goal, invoiced, estimate }: { goal: number; invoiced: number; estimate: number }) {
+function WhatIf({ goal, invoiced, estimate, colour }: { goal: number; invoiced: number; estimate: number; colour: string }) {
   const [pct, setPct] = useState(0);
   const end = invoiced + (estimate - invoiced) * (1 + pct / 100);
   const gap = end - goal;
@@ -134,7 +138,7 @@ function WhatIf({ goal, invoiced, estimate }: { goal: number; invoiced: number; 
       <summary className="cursor-pointer list-none font-medium text-ink-2 marker:hidden">What if…<span className="float-right text-muted group-open:hidden">▾</span></summary>
       <label className="mt-2 block text-muted">
         The rest of the month goes <b className="font-semibold text-ink">{pct === 0 ? "as so far" : `${Math.abs(pct)}% ${pct > 0 ? "faster" : "slower"}`}</b>
-        <input type="range" min={-50} max={100} step={5} value={pct} onChange={(e) => setPct(Number(e.target.value))} className="mt-1.5 w-full accent-[var(--brand)]" aria-label="How much faster or slower, in %" />
+        <input type="range" min={-50} max={100} step={5} value={pct} onChange={(e) => setPct(Number(e.target.value))} className="mt-1.5 w-full" style={{ accentColor: colour }} aria-label="How much faster or slower, in %" />
       </label>
       <p className="mt-1 text-ink-2">Month end ≈ <b className="font-semibold text-ink">{inrShort(end)}</b> · {gap >= 0 ? <span className="text-low">goal reached (+{inrShort(gap)})</span> : <span className="text-high">{inrShort(-gap)} short</span>}</p>
     </details>
@@ -153,7 +157,7 @@ function Line({ label, value, dot, striped, title }: { label: string; value: str
   );
 }
 
-type BarProps = { goal: number; invoiced: number; booked: number; expected: number; estimate: number | null; tone: keyof typeof FILL; tickHint: string; bookedHint: string; estimateHint: string };
+type BarProps = { goal: number; invoiced: number; booked: number; expected: number; estimate: number | null; tone: keyof Fill; fill: Fill; tickHint: string; bookedHint: string; estimateHint: string };
 
 /** The scale: the goal, or more once invoiced + booked / the estimate pass it (then the goal is a line inside). */
 const scaleOf = (b: BarProps) => Math.max(b.goal, (b.invoiced + b.booked) * 1.06, (b.estimate ?? 0) * 1.06);
@@ -165,8 +169,8 @@ function VerticalBar(b: BarProps) {
   return (
     <div className="relative mx-auto mt-5 flex h-[300px] w-full justify-center">
       <div className="relative h-full w-14 overflow-hidden rounded-2xl bg-surface-2" role="meter" aria-valuemin={0} aria-valuemax={b.goal} aria-valuenow={Math.round(b.invoiced)} aria-label="Invoiced this month against the goal">
-        <div className="absolute inset-x-0 bottom-0 transition-[height] duration-700 ease-out" style={{ height: at(b.invoiced), background: FILL[b.tone] }} />
-        {b.booked > 0 && <div className="absolute inset-x-0" style={{ bottom: at(b.invoiced), height: `calc(${at(b.invoiced + b.booked)} - ${at(b.invoiced)})`, background: STRIPES(FILL[b.tone]) }} title={b.bookedHint} />}
+        <div className="absolute inset-x-0 bottom-0 transition-[height] duration-700 ease-out" style={{ height: at(b.invoiced), background: b.fill[b.tone] }} />
+        {b.booked > 0 && <div className="absolute inset-x-0" style={{ bottom: at(b.invoiced), height: `calc(${at(b.invoiced + b.booked)} - ${at(b.invoiced)})`, background: STRIPES(b.fill[b.tone]) }} title={b.bookedHint} />}
       </div>
       {/* Marks beside the bar: goal (when the scale goes past it), today's pace, the month-end estimate. */}
       {over && <Mark at={at(b.goal)} label="Goal" strong />}
@@ -195,8 +199,8 @@ function HorizontalBar(b: BarProps) {
   return (
     <div className="relative pt-4">
       <div className="relative h-3 overflow-hidden rounded-full bg-surface-2" role="meter" aria-valuemin={0} aria-valuemax={b.goal} aria-valuenow={Math.round(b.invoiced)} aria-label="Invoiced this month against the goal">
-        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: at(b.invoiced), background: FILL[b.tone] }} />
-        {b.booked > 0 && <div className="absolute inset-y-0" style={{ left: at(b.invoiced), width: `calc(${at(b.invoiced + b.booked)} - ${at(b.invoiced)})`, background: STRIPES(FILL[b.tone]) }} />}
+        <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: at(b.invoiced), background: b.fill[b.tone] }} />
+        {b.booked > 0 && <div className="absolute inset-y-0" style={{ left: at(b.invoiced), width: `calc(${at(b.invoiced + b.booked)} - ${at(b.invoiced)})`, background: STRIPES(b.fill[b.tone]) }} />}
       </div>
       <span className="absolute top-0 -translate-x-1/2 text-[10.5px] leading-none text-faint" style={{ left: at(b.expected) }} title={b.tickHint}>today</span>
       <span className="absolute top-3 h-5 w-0.5 -translate-x-1/2 rounded-full bg-ink/70" style={{ left: at(b.expected) }} />
@@ -206,7 +210,7 @@ function HorizontalBar(b: BarProps) {
 }
 
 /** The last six months, small: reached = filled, missed = grey, height = share of that month's goal. */
-function History({ months, goalOf, current }: { months: { key: string; revenue: number }[]; goalOf: (month: string) => number; current: string }) {
+function History({ months, goalOf, current, colour }: { months: { key: string; revenue: number }[]; goalOf: (month: string) => number; current: string; colour: string }) {
   const past = months.filter((m) => m.key !== current);
   const hit = past.filter((m) => m.revenue >= goalOf(m.key)).length;
   return (
@@ -222,7 +226,7 @@ function History({ months, goalOf, current }: { months: { key: string; revenue: 
           return (
             <div key={m.key} className="flex min-w-0 flex-1 flex-col items-center gap-1" title={`${grainLabel(m.key, "month", true)}: ${inrShort(m.revenue)} of ${inrShort(g)}`}>
               <div className="flex h-8 w-full items-end rounded-[4px] bg-surface-2">
-                <div className="w-full rounded-[4px]" style={{ height: `${Math.max(6, Math.min(100, (m.revenue / g) * 100))}%`, background: ok ? "var(--brand)" : "var(--line-strong)" }} />
+                <div className="w-full rounded-[4px]" style={{ height: `${Math.max(6, Math.min(100, (m.revenue / g) * 100))}%`, background: ok ? colour : "var(--line-strong)" }} />
               </div>
               <span className="text-[10.5px] leading-none text-faint">{grainLabel(m.key, "month").slice(0, 1)}</span>
             </div>

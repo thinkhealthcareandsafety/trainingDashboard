@@ -52,6 +52,13 @@ const THEMES: Theme[] = [
   { mode: "dark", id: "dark-ember", label: "Ember" },
   { mode: "dark", id: "dark-xplum", label: "Plum", experimental: true, card: "#22152a", accent: "#e29ad6" },
   { mode: "light", id: "xcoastal", label: "Smoky coastal", experimental: true, card: "#f2f7f7", accent: "#1f6f8b" },
+  // 27 Oct (owner: "add more experimental themes, i like them").
+  { mode: "dark", id: "dark-xocean", label: "Deep sea", experimental: true, card: "#0f1f2e", accent: "#5cc8e6" },
+  { mode: "dark", id: "dark-xespresso", label: "Espresso", experimental: true, card: "#211812", accent: "#e6a65c" },
+  { mode: "dark", id: "dark-xemerald", label: "Emerald night", experimental: true, card: "#102019", accent: "#5fd4a0" },
+  { mode: "light", id: "xsakura", label: "Sakura", experimental: true, card: "#fff8fa", accent: "#b83d68" },
+  { mode: "light", id: "xsand", label: "Sand dune", experimental: true, card: "#fcf8f1", accent: "#a8552f" },
+  { mode: "light", id: "xnordic", label: "Nordic", experimental: true, card: "#f7f8fb", accent: "#3f56a6" },
 ];
 const GROUPS = [
   { key: "light", label: "Light", themes: THEMES.filter((t) => t.mode === "light" && !t.experimental) },
