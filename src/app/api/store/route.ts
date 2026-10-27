@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
+import { readAll } from "@/lib/cachedRead";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
 import { SERVER_KINDS, canRevert, canSeeEntry, canWriteEvent, isAdmin, missingCertFields } from "@/lib/roles";
 import { cascadeOf } from "@/lib/cascade";
@@ -19,13 +20,19 @@ export async function GET(request: Request) {
   try {
     const me = await signedInMember(request);
     if (!me) return unauthorized();
-    const d = await db();
+    // Each collection is downloaded from Mongo only when it changed (cachedRead.ts — the free cluster's 10 GB a week),
+    // and `?v=` = the version the browser already has: nothing new → a one-line answer instead of everything (27 Oct).
     const out: Record<string, unknown> = { enabled: true };
+    const fps: string[] = [];
     for (const c of COLLECTIONS) {
-      const docs = await d.collection(c).find({}, { projection: { _id: 0 } }).toArray();
+      const { docs, fp } = await readAll<Record<string, unknown>>(c);
+      fps.push(fp);
       out[c] = c === "removedTriggers" ? docs.map((x) => x.id) : c === "entries" ? docs.filter((e) => canSeeEntry(me, e as unknown as CalendarEntry)) : docs;
     }
-    return Response.json(out);
+    // Calendar entries differ per member, so the version carries who it's for.
+    const v = fps.every(Boolean) ? `${me.id}|${fps.join("|")}` : "";
+    if (v && new URL(request.url).searchParams.get("v") === v) return Response.json({ enabled: true, same: true, v });
+    return Response.json({ ...out, v });
   } catch (e) {
     return Response.json({ enabled: true, error: e instanceof Error ? e.message : "Database error" }, { status: 502 });
   }

@@ -199,14 +199,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!verified) setRemote(false); // signed out: stop syncing team data
   }, [verified]);
 
+  // The version of the team data this tab last took in full: the server answers "same" while nothing changed (27 Oct —
+  // the free database's weekly transfer limit). Cleared on every save, so a change the server refused still disappears
+  // at the next pull.
+  const version = useRef("");
   useEffect(() => {
     if (!hydrated || !verified) return;
     let stop = false;
     const pull = async (first: boolean) => {
       try {
-        const res = await fetch("/api/store", { cache: "no-store" });
+        const res = await fetch(`/api/store${version.current ? `?v=${encodeURIComponent(version.current)}` : ""}`, { cache: "no-store" });
         const json = await res.json();
-        if (stop || !json.enabled || json.error) return;
+        if (stop || !json.enabled || json.error || json.same) return;
         // Never overwrite edits that haven't reached the server yet.
         if (!first && (inflight.current > 0 || Date.now() - lastLocalChange.current < 5000)) return;
         const hasData = SHARED.some((c) => ((json[c] as unknown[]) ?? []).length > 0);
@@ -214,12 +218,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (first && !hasData) setRemote(true);
         else {
           applyServer(json);
+          version.current = typeof json.v === "string" ? json.v : "";
           setRemote(true);
         }
       } catch {}
     };
     pull(true);
-    const t = setInterval(() => pull(false), PULL_MS);
+    // A hidden tab waits: it pulls again the moment it's shown (below).
+    const t = setInterval(() => { if (document.visibilityState === "visible") pull(false); }, PULL_MS);
     const onShow = () => { if (document.visibilityState === "visible") pull(false); };
     document.addEventListener("visibilitychange", onShow);
     window.addEventListener("focus", onShow);
@@ -240,6 +246,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!upserts.length && !deletes.length) return;
     inflight.current++;
     lastLocalChange.current = Date.now();
+    version.current = "";
     fetch("/api/store", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ collection: c, upserts, deletes }) })
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));

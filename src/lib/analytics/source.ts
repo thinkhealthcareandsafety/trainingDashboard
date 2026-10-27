@@ -71,11 +71,15 @@ export async function refreshAnalyticsData(by: string): Promise<boolean> {
     await (await kv()).updateOne({ _id: STATE_KEY }, { $set: { refreshedAt: new Date().toISOString(), refreshedBy: by, error, tables: counts } }, { upsert: true });
     await (await kv()).updateOne({ _id: LOCK, owner }, { $set: { until: 0 } });
     memo = null;
+    copy = null;
   }
   return true;
 }
 
 let memo: { key: string; at: number; rows: Record<string, Row[]> } | null = null;
+// The copy itself (~6 MB) changes only when it's refreshed (every 6 h): read it once per refresh, not per minute — on
+// the free Atlas cluster a minute-by-minute re-read helped use up the weekly 10 GB, and then took ~70 s (27 Oct).
+let copy: { refreshedAt: string; tables: RawTables } | null = null;
 
 /** Every dataset's rows (Zoho Analytics copy + the board's trainings), rebuilt when either changes (trainings: 60 s). */
 export async function datasetRows(today: string): Promise<{ rows: Record<string, Row[]>; state: DataState }> {
@@ -83,8 +87,11 @@ export async function datasetRows(today: string): Promise<{ rows: Record<string,
   const snap = await getSnapshot();
   const key = `${state.refreshedAt ?? ""}|${snap?.version ?? 0}|${today}`;
   if (memo && memo.key === key && Date.now() - memo.at < 60_000) return { rows: memo.rows, state };
-  const docs = await (await db()).collection<TableDoc>(COL).find({}).toArray();
-  const tables: RawTables = Object.fromEntries(docs.map((d) => [d._id, d.rows]));
+  if (!copy || copy.refreshedAt !== (state.refreshedAt ?? "")) {
+    const docs = await (await db()).collection<TableDoc>(COL).find({}).toArray();
+    copy = { refreshedAt: state.refreshedAt ?? "", tables: Object.fromEntries(docs.map((d) => [d._id, d.rows])) };
+  }
+  const tables = copy.tables;
   const trainings = snap ? (await boardTrainings(snap)).board : [];
   const rows = buildRows(tables, trainings, today);
   memo = { key, at: Date.now(), rows };

@@ -3,6 +3,7 @@ import { after } from "next/server";
 import type { AedInvoice, PipelineDoc, Training, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { fiscalYearStart, syncWindowStart, ymd } from "./dates";
 import { db, mongoConfigured } from "./db";
+import { readAll } from "./cachedRead";
 import { checkGratitudeReplies } from "./gratitudeReplies";
 import { checkAedReplies } from "./aedReplies";
 import {
@@ -422,7 +423,8 @@ async function readSnapshot(): Promise<Snapshot | null> {
   // Only reload when the copy changed (one small read otherwise).
   G.__thSnapLoading ??= (async () => {
     const [customers, docs, pays, items, users] = await Promise.all([
-      (await col<ZohoLead & { _id: string }>("zohoCustomers")).find({}, { projection: { _id: 0 } }).toArray(),
+      // Customers rarely change between syncs: download them only when they did (cachedRead.ts, 27 Oct).
+      readAll<ZohoLead>("zohoCustomers").then((r) => r.docs),
       (await col<StoredDoc>("zohoDocs")).find({}).toArray(),
       (await col<StoredPayments>("zohoPayments")).find({}).toArray(),
       (await kv()).findOne({ _id: "zoho_items" }),

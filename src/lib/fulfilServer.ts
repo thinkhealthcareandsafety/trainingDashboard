@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
+import { readAll } from "./cachedRead";
 import { signedInMember, unauthorized } from "./auth";
 import { boardsFor } from "./roles";
 import { buildAedBoard, buildBoard, buildFulfillmentBoard, cardCustomers, customerAliases, customerContacts, customerNameKeys, isCustomerCard, peopleOf, type CardView } from "./pipeline";
@@ -28,7 +29,8 @@ type Snap = NonNullable<Awaited<ReturnType<typeof getSnapshot>>>;
 export async function boardsNow(snap: Snap, withAed = false) {
   const d = pipelineData(snap);
   const aed = aedData(snap).invoices;
-  const events = (await (await eventsCol()).find({}, { projection: { _id: 0 } }).toArray()) as CardEvent[];
+  // Read from Mongo only when the change log moved (cachedRead.ts — the free cluster's weekly transfer limit).
+  const events = [...(await readAll<CardEvent>("cardEvents")).docs];
   const customerOf = cardCustomers(d.leads, d.quotes, d.pis, d.invoices, d.payments, aed, events);
   const nameOf = customerNameKeys(d.leads, d.quotes, d.pis, d.invoices, d.payments, aed);
   const aliases = customerAliases(events, customerOf, nameOf);
