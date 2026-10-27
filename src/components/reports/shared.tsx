@@ -63,8 +63,18 @@ export function useFieldValues(dataset: string | undefined, field: string, enabl
   return values;
 }
 
-/** "Sector: All ▾" → a searchable checkbox list. */
-export function MultiSelect({ label, values, selected, onChange, loading }: { label: string; values: string[]; selected: string[]; onChange: (v: string[]) => void; loading?: boolean }) {
+/** How a filter matches (Filters panel, owner 27 Oct: "custom filters"): is / is not the ticked values, or contains text. */
+export type Rule = { exclude?: boolean; contains?: string };
+export const ruleSummary = (selected: string[], rule: Rule = {}) =>
+  rule.contains?.trim() ? `${rule.exclude ? "doesn't contain" : "contains"} “${rule.contains.trim()}”`
+  : !selected.length ? "All" : `${rule.exclude ? "not " : ""}${selected.length === 1 ? selected[0] : `${selected.length} chosen`}`;
+
+/** "Sector: All ▾" → a searchable checkbox list (with `rule`: Is / Is not, and "everything containing …"). */
+export function MultiSelect({ label, values, selected, onChange, loading, wide, rule, onRule }: {
+  label: string; values: string[]; selected: string[]; onChange: (v: string[]) => void; loading?: boolean;
+  /** Fill its cell (the Filters panel). */ wide?: boolean;
+  rule?: Rule; onRule?: (r: Rule) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const box = useRef<HTMLDivElement>(null);
@@ -77,24 +87,40 @@ export function MultiSelect({ label, values, selected, onChange, loading }: { la
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [open]);
   const shown = useMemo(() => values.filter((v) => v.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 200), [values, q]);
-  const summary = selected.length === 0 ? "All" : selected.length === 1 ? selected[0] : `${selected.length} chosen`;
-  const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+  const contains = rule?.contains?.trim();
+  const on = selected.length > 0 || Boolean(contains);
+  const toggle = (v: string) => { if (contains) onRule?.({ ...rule, contains: undefined }); onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]); };
   return (
     <div ref={box} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className={`inline-flex h-10 max-w-[260px] items-center gap-1.5 rounded-full border px-4 text-[14px] transition ${selected.length ? "border-brand/50 bg-brand-soft text-ink" : "border-line bg-surface text-ink-2 hover:border-line-strong"}`}
+        className={`inline-flex h-10 items-center gap-1.5 rounded-full border px-4 text-[14px] transition ${wide ? "w-full" : "max-w-[260px]"} ${on ? "border-brand/50 bg-brand-soft text-ink" : "border-line bg-surface text-ink-2 hover:border-line-strong"}`}
       >
-        <span className="text-muted">{label}:</span>
-        <span className="truncate font-medium">{summary}</span>
+        <span className="shrink-0 text-muted">{label}:</span>
+        <span className={`truncate font-medium ${wide ? "flex-1 text-left" : ""}`}>{ruleSummary(selected, rule)}</span>
         <svg viewBox="0 0 20 20" className="size-3.5 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-40 mt-1.5 w-[280px] rounded-xl border border-line bg-surface p-2 shadow-pop">
+        <div className={`absolute left-0 top-full z-40 mt-1.5 rounded-xl border border-line bg-surface p-2 shadow-pop ${wide ? "w-full min-w-[240px]" : "w-[280px]"}`}>
+          {onRule && (
+            <div className="mb-2 inline-flex rounded-full bg-surface-2 p-0.5 text-[13px]" role="radiogroup" aria-label="Match">
+              {[{ ex: false, label: "Is" }, { ex: true, label: "Is not" }].map((o) => (
+                <button key={o.label} type="button" role="radio" aria-checked={Boolean(rule?.exclude) === o.ex} onClick={() => onRule({ ...rule, exclude: o.ex })}
+                  className={`rounded-full px-3 py-1 font-medium ${Boolean(rule?.exclude) === o.ex ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{o.label}</button>
+              ))}
+            </div>
+          )}
           <input autoFocus className="h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[14px] text-ink placeholder:text-faint focus:border-brand focus:outline-none" placeholder={`Search ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="no-scrollbar mt-1.5 max-h-[260px] overflow-y-auto">
+            {/* Text instead of ticks: every value containing it, now and as new ones appear. */}
+            {onRule && q.trim() && (
+              <button type="button" className={`mb-1 block w-full rounded-md px-2 py-1.5 text-left text-[14px] hover:bg-surface-2 ${contains === q.trim() ? "font-semibold text-brand" : "text-ink-2"}`}
+                onClick={() => { onChange([]); onRule({ ...rule, contains: q.trim() }); }}>
+                {rule?.exclude ? "Everything not containing" : "Everything containing"} “{q.trim()}”
+              </button>
+            )}
             {loading && !values.length && <p className="px-2 py-2 text-[13.5px] text-muted">Loading…</p>}
             {!loading && !shown.length && <p className="px-2 py-2 text-[13.5px] text-muted">Nothing matches.</p>}
             {shown.map((v) => (
@@ -104,7 +130,7 @@ export function MultiSelect({ label, values, selected, onChange, loading }: { la
               </label>
             ))}
           </div>
-          {selected.length > 0 && <button type="button" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-[13.5px] font-semibold text-brand hover:bg-surface-2" onClick={() => onChange([])}>Clear</button>}
+          {on && <button type="button" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-[13.5px] font-semibold text-brand hover:bg-surface-2" onClick={() => { onChange([]); if (contains) onRule?.({ ...rule, contains: undefined }); }}>Clear</button>}
         </div>
       )}
     </div>

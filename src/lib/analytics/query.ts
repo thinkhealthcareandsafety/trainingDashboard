@@ -1,12 +1,24 @@
-import { type Dataset, type Format, type Grain, type Measure, type Row, datasetOf, fieldOf, grainKey, measureOf } from "./model";
+import { type Dataset, type Format, type Grain, type Measure, type Row, datasetOf, fieldOf, grainKey, grainLabel, measureOf } from "./model";
 
 /*
  * Runs a report spec over a dataset's rows (pure — the server calls it; scripts test it). A spec names only fields and
  * measures from model.ts; anything unknown is refused, so a report can't invent a number.
  */
 
-export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "donut" | "table";
-export type Filter = { field: string; values: string[] };
+/** matrix: two splits as a pivot table (with the comparison in each cell); waterfall: steps up and down (bridge);
+ * diverging: rises right in green, falls left in red (what changed). */
+export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "donut" | "table" | "matrix" | "waterfall" | "diverging";
+export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel";
+/**
+ * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
+ * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
+ */
+export type Filter = { field: string; values: string[]; exclude?: boolean; contains?: string; min?: number; max?: number };
+/**
+ * What a report is compared with: the period before (true, the old setting), the same dates a year earlier, or
+ * another group in the same dates (`field` in `b` against `field` in `a` — e.g. Aviation vs IT).
+ */
+export type Compare = boolean | "previous" | "lastYear" | { field: string; a: string[]; b: string[] };
 export type Spec = {
   dataset: string;
   measures: string[];
@@ -21,19 +33,22 @@ export type Spec = {
   sort?: "value" | "label";
   /** Top N rows (and series) — the rest folds into "Others". */
   limit?: number;
-  /** Also compute the totals of the period before (same length) — KPI tiles. */
-  compare?: boolean;
+  /** Also compute the totals to compare with (KPIs), and with one split the value of each bar / month (charts). */
+  compare?: Compare;
   chart?: ChartKind;
+  /** A ready-made analysis on top of the query (see `analyse`). */
+  analysis?: Analysis;
   title?: string;
   /** Saved reports keep a relative period ("fy", "3m"…, model.ts periods) — the browser turns it into from / to. */
   period?: string;
   /** Today (set by the server): a period still running is compared like for like — up to the same day of the one before. */
   asOf?: string;
 };
-export type ResultRow = { keys: string[]; values: (number | null)[] };
+/** `prev`: the same row in the comparison (one split only). */
+export type ResultRow = { keys: string[]; values: (number | null)[]; prev?: (number | null)[] };
 export type Result = {
   by: { key: string; label: string; date: boolean }[];
-  measures: { key: string; label: string; format: Format }[];
+  measures: { key: string; label: string; format: Format; better?: "down" }[];
   rows: ResultRow[];
   totals: (number | null)[];
   previous?: (number | null)[];
@@ -41,6 +56,11 @@ export type Result = {
   prevTo?: string;
   /** A period still running: totals up to today, to set against `previous` (the same days of the period before). */
   toDate?: (number | null)[];
+  /** Names for the two sides on charts / tables: "This period" vs "Last year", or the two groups. */
+  /** A sentence under the chart (analyses: "52 of 225 customers make 80% of it"). */
+  note?: string;
+  nowLabel?: string;
+  prevLabel?: string;
   /** Number of source rows that matched the filters. */
   matched: number;
 };
@@ -58,15 +78,31 @@ export function checkSpec(spec: Spec): Dataset {
   for (const m of spec.measures) if (!measureOf(d, m)) throw new SpecError(`"${m}" isn't a measure of ${d.label}`);
   if ((spec.by ?? []).length > 2) throw new SpecError("At most two “split by”");
   for (const b of spec.by ?? []) if (!fieldOf(d, b)) throw new SpecError(`"${b}" isn't a field of ${d.label}`);
-  for (const f of spec.filters ?? []) if (!fieldOf(d, f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
+  const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
+  for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
+  if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
+  const c = spec.compare;
+  if (c && typeof c === "object" && !fieldOf(d, c.field)) throw new SpecError(`"${c.field}" isn't a field of ${d.label}`);
   return d;
 }
 
 const asList = (v: Row[string]): string[] => (Array.isArray(v) ? (v.length ? v : [BLANK]) : v === null || v === undefined || v === "" ? [BLANK] : [String(v)]);
 
+const active = (f: Filter) => f.values.length > 0 || Boolean(f.contains?.trim()) || f.min !== undefined || f.max !== undefined;
+function passes(f: Filter, r: Row): boolean {
+  if (f.min !== undefined || f.max !== undefined) {
+    const n = r[f.field];
+    return typeof n === "number" && (f.min === undefined || n >= f.min) && (f.max === undefined || n <= f.max);
+  }
+  const vals = asList(r[f.field]);
+  const q = f.contains?.trim().toLowerCase();
+  const hit = q ? vals.some((v) => v !== BLANK && v.toLowerCase().includes(q)) : vals.some((v) => f.values.includes(v));
+  return f.exclude ? !hit : hit;
+}
+
 /** The rows a spec's date range and filters keep. */
 function keep(d: Dataset, rows: Row[], spec: Pick<Spec, "from" | "to" | "filters">): Row[] {
-  const filters = (spec.filters ?? []).filter((f) => f.values.length);
+  const filters = (spec.filters ?? []).filter(active);
   return rows.filter((r) => {
     const date = r[d.dateField];
     if (spec.from || spec.to) {
@@ -74,26 +110,32 @@ function keep(d: Dataset, rows: Row[], spec: Pick<Spec, "from" | "to" | "filters
       if (spec.from && date < spec.from) return false;
       if (spec.to && date > spec.to) return false;
     }
-    return filters.every((f) => {
-      const vals = asList(r[f.field]);
-      return vals.some((v) => f.values.includes(v));
-    });
+    return filters.every((f) => passes(f, r));
   });
 }
 
 /** Per-measure accumulator over a set of rows. */
 function evaluate(d: Dataset, keys: string[], rows: Row[]): (number | null)[] {
   const cache = new Map<string, number | null>();
+  const num = (r: Row, f: string) => (typeof r[f] === "number" ? (r[f] as number) : 0);
   const one = (m: Measure): number | null => {
     if (cache.has(m.key)) return cache.get(m.key)!;
     let v: number | null = null;
-    if (m.agg === "count") v = rows.length;
-    else if (m.agg === "sum") v = rows.reduce((s, r) => s + (typeof r[m.field] === "number" ? (r[m.field] as number) : 0), 0);
+    const w = "where" in m ? m.where : undefined;
+    const rs = w ? rows.filter((r) => asList(r[w.field]).some((x) => w.values.includes(x))) : rows;
+    if (m.agg === "count") v = rs.length;
+    else if (m.agg === "sum") v = rs.reduce((s, r) => s + num(r, m.field), 0);
     else if (m.agg === "avg") {
-      const xs = rows.map((r) => r[m.field]).filter((x): x is number => typeof x === "number");
+      const xs = rs.map((r) => r[m.field]).filter((x): x is number => typeof x === "number");
       v = xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
-    } else if (m.agg === "distinct") v = new Set(rows.flatMap((r) => asList(r[m.field])).filter((x) => x !== BLANK)).size;
-    else if (m.agg === "ratio") {
+    } else if (m.agg === "distinct") v = new Set(rs.flatMap((r) => asList(r[m.field])).filter((x) => x !== BLANK)).size;
+    else if (m.agg === "topShare") {
+      const by = new Map<string, number>();
+      for (const r of rs) for (const k of asList(r[m.field])) if (k !== BLANK) by.set(k, (by.get(k) ?? 0) + num(r, m.sum));
+      const all = rs.reduce((s, r) => s + num(r, m.sum), 0);
+      const top = [...by.values()].sort((a, b) => b - a).slice(0, m.n).reduce((s, x) => s + x, 0);
+      v = all > 0 ? (top / all) * 100 : null;
+    } else if (m.agg === "ratio") {
       const num = one(measureOf(d, m.num)!);
       const den = one(measureOf(d, m.den)!);
       v = num !== null && den ? (num / den) * (m.scale ?? 1) : null;
@@ -131,7 +173,11 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
   const d = checkSpec(spec);
   const grain: Grain = spec.grain ?? "month";
   const by = spec.by ?? [];
-  const kept = keep(d, rows, spec);
+  const mode = spec.compare === true ? "previous" : spec.compare || null;
+  const group = mode && typeof mode === "object" ? mode : null;
+  // Comparing two groups: the report itself is group A.
+  const withGroup = (values: string[]) => ({ ...spec, filters: [...(spec.filters ?? []), { field: group!.field, values }] });
+  const kept = keep(d, rows, group ? withGroup(group.a) : spec);
   const keyOf = (r: Row, field: string): string[] => {
     if (field === d.dateField) { const v = r[field]; return typeof v === "string" && v ? [grainKey(v, grain)] : [BLANK]; }
     return asList(r[field]);
@@ -202,21 +248,178 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
 
   const result: Result = {
     by: by.map((k) => ({ key: k, label: fieldOf(d, k)!.label, date: isDate(k) })),
-    measures: spec.measures.map((k) => { const m = measureOf(d, k)!; return { key: k, label: m.label, format: m.format }; }),
+    measures: spec.measures.map((k) => { const m = measureOf(d, k)!; return { key: k, label: m.label, format: m.format, ...(m.better ? { better: m.better } : {}) }; }),
     rows: out,
     totals: evaluate(d, spec.measures, kept),
     matched: kept.length,
   };
-  if (spec.compare && spec.from && spec.to) {
-    const p = previousPeriod(spec.from, spec.to);
+  // The comparison: its rows, and how to move their dates onto this period's axis (a year on, or a period on).
+  let prevRows: Row[] | null = null;
+  let curRows: Row[] = kept; // this period up to today when it's still running (like for like with prevRows)
+  let shift: ((ymd: string) => string) | null = null;
+  if (group) {
+    prevRows = keep(d, rows, withGroup(group.b));
+    result.previous = evaluate(d, spec.measures, prevRows);
+    result.nowLabel = groupName(group.a);
+    result.prevLabel = groupName(group.b);
+  } else if (mode && spec.from && spec.to) {
+    const p = mode === "lastYear" ? { from: addMonths(spec.from, -12), to: addMonths(spec.to, -12) } : previousPeriod(spec.from, spec.to);
     // Still running (e.g. this FY): today's position against the same number of days into the period before — never
     // a part period against a whole one (the Overview's rule too).
     const running = spec.asOf && spec.asOf >= spec.from && spec.asOf < spec.to;
     const prevTo = running ? addDays(p.from, daysBetween(spec.from, spec.asOf!)) : p.to;
-    if (running) result.toDate = evaluate(d, spec.measures, keep(d, rows, { ...spec, to: spec.asOf }));
-    result.previous = evaluate(d, spec.measures, keep(d, rows, { ...spec, from: p.from, to: prevTo }));
+    if (running) { curRows = keep(d, rows, { ...spec, to: spec.asOf }); result.toDate = evaluate(d, spec.measures, curRows); }
+    prevRows = keep(d, rows, { ...spec, from: p.from, to: prevTo });
+    result.previous = evaluate(d, spec.measures, prevRows);
     result.prevFrom = p.from;
     result.prevTo = prevTo;
+    const months = monthsBetween(p.from, spec.from);
+    shift = months !== null ? (x) => addMonths(x, months) : (x) => addDays(x, daysBetween(p.from, spec.from!));
+    result.nowLabel = mode === "lastYear" ? "This year" : "This period";
+    result.prevLabel = mode === "lastYear" ? "Last year" : "Period before";
   }
+
+  // One split: each bar / month's value in the comparison too (charts draw it beside, tables add a column).
+  if (prevRows && by.length === 1) {
+    const field = by[0];
+    const keysOf = (r: Row): string[] => {
+      if (!isDate(field) || !shift) return keyOf(r, field);
+      const v = r[field];
+      return typeof v === "string" && v ? [grainKey(shift(v), grain)] : [BLANK];
+    };
+    const prevBy = new Map<string, Row[]>();
+    for (const r of prevRows) for (const k of keysOf(r)) prevBy.set(k, [...(prevBy.get(k) ?? []), r]);
+    const shown = new Set(out.map((r) => r.keys[0]));
+    for (const row of out) {
+      const rs = row.keys[0] === OTHERS ? [...new Set(prevRows.filter((r) => !keysOf(r).some((k) => shown.has(k) && k !== OTHERS)))] : prevBy.get(row.keys[0]) ?? [];
+      row.prev = evaluate(d, spec.measures, rs);
+    }
+  }
+  // Two text splits (the matrix): each cell in the comparison too — and cells that only had sales then, so row and
+  // column totals add up.
+  if (prevRows && by.length === 2 && !isDate(by[0]) && !isDate(by[1])) {
+    const id = (a: string, b: string) => `${a}\u0000${b}`;
+    const prevBy = new Map<string, { keys: string[]; rows: Row[] }>();
+    for (const r of prevRows) for (const x of keyOf(r, by[0])) for (const y0 of keyOf(r, by[1])) {
+      const y = seriesKeep && !seriesKeep.has(y0) ? OTHERS : y0;
+      const g = prevBy.get(id(x, y)) ?? { keys: [x, y], rows: [] };
+      g.rows.push(r);
+      prevBy.set(id(x, y), g);
+    }
+    const have = new Set(result.rows.map((r) => id(r.keys[0], r.keys[1])));
+    for (const row of result.rows) row.prev = evaluate(d, spec.measures, prevBy.get(id(row.keys[0], row.keys[1]))?.rows ?? []);
+    for (const [k, g] of prevBy) if (!have.has(k)) result.rows.push({ keys: g.keys, values: evaluate(d, spec.measures, []), prev: evaluate(d, spec.measures, g.rows) });
+  }
+  if (spec.analysis) return analyse(d, spec, rows, curRows, prevRows, result);
   return result;
+}
+
+/*
+ * Ready-made analyses (owner, 27 Oct: "advanced reports top businesses use") — each reshapes one measure into rows a
+ * chart or table can show. They work on the first measure, which must add up (revenue, units…).
+ * - bridge:   last year → this year by customer: new, bought more, bought less, didn't buy again (needs a time compare)
+ * - pareto:   how revenue is spread over customers: top 10, 11–20, 21–50, 51–100, the rest
+ * - winback:  customers who bought in the comparison period and not in this one, biggest first (needs a time compare)
+ * - drivers:  what changed: each value of the split's change against the comparison, biggest rises and falls
+ * - funnel:   each measure as a step (quotes → won → invoiced), with its share of the first
+ */
+function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
+  const m = spec.measures[0];
+  const sum = (rs: Row[]) => evaluate(d, [m], rs)[0] ?? 0;
+  const fmt = base.measures[0];
+  // blanks: "what changed" keeps rows with no value as "(not set)", so its rises and falls add up to the change.
+  const byKey = (rs: Row[], field: string, blanks = false) => {
+    const g = new Map<string, Row[]>();
+    for (const r of rs) for (const k of asList(r[field])) if (blanks || k !== BLANK) g.set(k, [...(g.get(k) ?? []), r]);
+    return g;
+  };
+  const out = (rows: ResultRow[], by: Result["by"], extra: Partial<Result> = {}): Result => ({ ...base, by, rows, measures: [fmt], ...extra });
+  const n = (x: number) => x.toLocaleString("en-IN");
+
+  if (spec.analysis === "funnel") {
+    const vals = base.toDate ?? base.totals;
+    const first = vals[0] ?? 0;
+    return out(base.measures.map((mm, i) => ({ keys: [i && first ? `${mm.label} · ${Math.round(((vals[i] ?? 0) / first) * 100)}%` : mm.label], values: [vals[i]] })), [{ key: "step", label: "Step", date: false }], { totals: [first] });
+  }
+  if (spec.analysis === "pareto") {
+    const per = [...byKey(cur, "customer").values()].map(sum).sort((a, b) => b - a);
+    const total = per.reduce((s, x) => s + x, 0);
+    let acc = 0, n80 = 0;
+    for (const v of per) { if (acc >= total * 0.8) break; acc += v; n80++; }
+    const bands: [string, number, number][] = [["Top 10", 0, 10], ["11–20", 10, 20], ["21–50", 20, 50], ["51–100", 50, 100], ["The rest", 100, Infinity]];
+    const rows = bands.filter(([, a]) => a < per.length).map(([label, a, b]) => {
+      const v = per.slice(a, b).reduce((s, x) => s + x, 0);
+      return { keys: [`${label} · ${total ? Math.round((v / total) * 100) : 0}%`], values: [v] as (number | null)[] };
+    });
+    return out(rows, [{ key: "band", label: "Customers", date: false }], { note: `${n(n80)} of ${n(per.length)} customers make 80% of it.` });
+  }
+  const overTime = base.prevLabel === "Last year" || base.prevLabel === "Period before";
+  if (!prev || (spec.analysis !== "drivers" && !overTime)) return { ...base, rows: [], note: "Pick “vs last year” or “vs period before” to see this." };
+  const now = byKey(cur, "customer");
+  const then = byKey(prev, "customer");
+  if (spec.analysis === "bridge") {
+    let fresh = 0, more = 0, less = 0, lost = 0;
+    const c = { fresh: 0, more: 0, less: 0, lost: 0 };
+    for (const [k, rs] of now) {
+      const a = sum(rs);
+      const b = then.has(k) ? sum(then.get(k)!) : 0;
+      if (!b) { fresh += a; c.fresh++; } else if (a >= b) { more += a - b; c.more++; } else { less += a - b; c.less++; }
+    }
+    for (const [k, rs] of then) if (!now.has(k)) { lost -= sum(rs); c.lost++; }
+    const before = sum(prev);
+    const label = base.prevLabel === "Last year" ? "Last year" : base.prevLabel ?? "Before";
+    return out([
+      { keys: [`${label} (same days)`], values: [before] },
+      { keys: [`New customers (${n(c.fresh)})`], values: [fresh] },
+      { keys: [`Bought more (${n(c.more)})`], values: [more] },
+      { keys: [`Bought less (${n(c.less)})`], values: [less] },
+      { keys: [`Didn't buy again (${n(c.lost)})`], values: [lost] },
+      { keys: [base.nowLabel ?? "Now"], values: [sum(cur)] },
+    ], [{ key: "step", label: "Step", date: false }]);
+  }
+  if (spec.analysis === "winback") {
+    const last = new Map<string, string>();
+    const info = new Map<string, Row>();
+    for (const r of all) for (const k of asList(r.customer)) {
+      const dt = r[d.dateField];
+      if (typeof dt === "string" && dt > (last.get(k) ?? "")) { last.set(k, dt); info.set(k, r); }
+    }
+    const rows = [...then].filter(([k]) => !now.has(k)).map(([k, rs]) => ({ k, v: sum(rs) })).sort((a, b) => b.v - a.v);
+    const total = rows.reduce((s, x) => s + x.v, 0);
+    const shown = rows.slice(0, spec.limit || 25);
+    const text = (v: Row[string] | undefined) => (typeof v === "string" && v ? v : "—");
+    return out(shown.map(({ k, v }) => ({ keys: [k, last.has(k) ? grainLabel(last.get(k)!, "day", true) : "—", text(info.get(k)?.sector), text(info.get(k)?.salesperson)], values: [v] })), [
+      { key: "customer", label: "Customer", date: false }, { key: "last", label: "Last bought", date: false }, { key: "sector", label: "Sector", date: false }, { key: "salesperson", label: "Sales person", date: false },
+    ], { measures: [{ ...fmt, label: `${fmt.label} then` }], totals: [total], note: `${n(rows.length)} customers bought in the comparison period and not since${rows.length > shown.length ? ` — the biggest ${shown.length} shown` : ""}.` });
+  }
+  if (spec.analysis === "drivers") {
+    const field = spec.by?.[0] ?? "customer";
+    const a = byKey(cur, field, true);
+    const b = byKey(prev, field, true);
+    const keys = new Set([...a.keys(), ...b.keys()]);
+    const all2 = [...keys].map((k) => { const x = a.has(k) ? sum(a.get(k)!) : 0; const y = b.has(k) ? sum(b.get(k)!) : 0; return { k, delta: x - y, x, y }; }).filter((r) => Math.abs(r.delta) >= 0.5);
+    const lim = spec.limit || 6;
+    const up = all2.filter((r) => r.delta > 0).sort((p, q) => q.delta - p.delta).slice(0, lim);
+    const down = all2.filter((r) => r.delta < 0).sort((p, q) => p.delta - q.delta).slice(0, lim).reverse();
+    const change = sum(cur) - sum(prev);
+    return out([...up, ...down].map((r) => ({ keys: [r.k], values: [r.delta], prev: [r.y] })), [{ key: field, label: fieldOf(d, field)?.label ?? field, date: false }], {
+      measures: [{ ...fmt, label: "Change" }], totals: [change], note: `In all: ${change >= 0 ? "up" : "down"} by ${fmt.format === "inr" ? `₹${Math.round(Math.abs(change)).toLocaleString("en-IN")}` : n(Math.round(Math.abs(change)))} — the biggest rises and falls.`,
+    });
+  }
+  return base;
+}
+
+const groupName = (values: string[]) => (values.length <= 2 ? values.join(" + ") : `${values[0]} + ${values.length - 1} more`);
+
+/** Same day n months on (or back), kept inside the month: 31 Mar − 1 month → 28 / 29 Feb. */
+function addMonths(ymd: string, n: number): string {
+  const y = Number(ymd.slice(0, 4));
+  const m = Number(ymd.slice(5, 7)) - 1 + n;
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(Number(ymd.slice(8, 10)), last))).toISOString().slice(0, 10);
+}
+/** Whole months from a to b when both are the 1st of a month (else null). */
+function monthsBetween(a: string, b: string): number | null {
+  if (a.slice(8, 10) !== "01" || b.slice(8, 10) !== "01") return null;
+  return (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7));
 }

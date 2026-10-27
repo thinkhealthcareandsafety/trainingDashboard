@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Format, type Grain, formatValue, grainLabel } from "@/lib/analytics/model";
-import { BLANK, type ChartKind, OTHERS, type Result } from "@/lib/analytics/query";
+import { BLANK, type ChartKind, OTHERS, type Result, type ResultRow } from "@/lib/analytics/query";
 
 /*
  * One report drawn with Apache ECharts (loaded only on the Reports page). Dataviz rules: a colour belongs to the name,
@@ -43,7 +43,7 @@ const OTHERS_DARK = "#636366";
 export const labelOf = (key: string, date: boolean, grain: Grain, long = false) => (key === BLANK ? "(not set)" : date ? grainLabel(key, grain, long) : key);
 
 /** `mono`: Plain and Black (owner, 22 Oct) — every bar and line in mint; only donuts / stacks / several series get the mixed set. */
-type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string; palette: string[]; mono?: string };
+type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string; low: string; high: string; palette: string[]; mono?: string };
 function readTheme(): Theme {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
@@ -55,7 +55,7 @@ function readTheme(): Theme {
   const own = showing ? THEME_PALETTES[bg] : undefined;
   const palette = own ?? (dark ? PLAIN_DARK : PLAIN_LIGHT);
   const mono = own ? undefined : dark ? MINT_DARK : MINT_LIGHT;
-  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand"), palette, mono };
+  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand"), low: v("--low"), high: v("--high"), palette, mono };
 }
 
 /** Re-renders when the theme or the background theme changes (Change theme, OS setting). */
@@ -78,7 +78,7 @@ function loadEcharts(): Promise<Echarts> {
   return (loading ??= (async () => {
     const core = await import("echarts/core");
     const [charts, components, renderers] = await Promise.all([import("echarts/charts"), import("echarts/components"), import("echarts/renderers")]);
-    core.use([charts.BarChart, charts.LineChart, charts.PieChart, components.GridComponent, components.TooltipComponent, components.LegendComponent, renderers.CanvasRenderer]);
+    core.use([charts.BarChart, charts.LineChart, charts.PieChart, components.GridComponent, components.TooltipComponent, components.LegendComponent, components.MarkLineComponent, renderers.CanvasRenderer]);
     return core;
   })());
 }
@@ -117,8 +117,10 @@ function colourMap(names: string[], dark: boolean, pal: string[]): Map<string, s
   return m;
 }
 
-export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0 }: {
+export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0, target }: {
   result: Result; kind: ChartKind | undefined; grain?: Grain; height?: number;
+  /** A goal line across a column / line chart (₹50 L a month — owner, 27 Oct). */
+  target?: number;
   /** Palette slot for a one-colour chart — each chart on a page takes its own hue. */
   accent?: number;
   /** The value clicked on this chart's first field (others fade). */
@@ -136,7 +138,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
 
   useEffect(() => {
     // No chart box (table view, a number, no data): let the old drawing go — its box is gone.
-    if (k === "kpi" || k === "table" || !el.current) {
+    if (k === "kpi" || k === "table" || k === "matrix" || !el.current) {
       chart.current?.dispose();
       chart.current = null;
       return;
@@ -152,7 +154,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       }
       const c = chart.current ?? ec.init(el.current, undefined, { renderer: "canvas" });
       chart.current = c;
-      c.setOption(option(model, k, readTheme(), picked ?? null, accent), { notMerge: true });
+      c.setOption(option(model, k as Drawn, readTheme(), picked ?? null, accent, target), { notMerge: true });
       c.off("click");
       c.on("click", (p: { dataIndex?: number; name?: string }) => {
         const key = model.keyByLabel.get(String(p.name ?? "")) ?? (p.dataIndex !== undefined ? model.x[p.dataIndex] : undefined);
@@ -162,23 +164,28 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       ro.observe(el.current);
     });
     return () => { disposed = true; ro?.disconnect(); };
-  }, [model, k, tick, picked, accent]);
+  }, [model, k, tick, picked, accent, target]);
   useEffect(() => () => { chart.current?.dispose(); chart.current = null; }, []);
 
   if (k === "kpi") return <Kpi result={result} />;
-  if (k === "table") return <ResultTable result={result} grain={grain} />;
-  if (!result.rows.length) return <Empty height={height} />;
+  if (k === "table") return <><ResultTable result={result} grain={grain} />{result.note && <Note text={result.note} />}</>;
+  if (k === "matrix") return <Matrix result={result} />;
+  if (!result.rows.length) return <><Empty height={height} />{result.note && <Note text={result.note} />}</>;
   return (
     <>
       <div ref={el} style={{ height: model.others ? height - 20 : height }} className="w-full" role="img" aria-label={model.summary} />
-      {model.others && (
+      {model.others ? (
         <p className="mt-1 text-[13.5px] text-muted">
-          Everything else together: <span className="num font-medium text-ink-2">{formatValue(model.others, model.format)}</span> · the table shows it all
+          Everything else together: <span className="num font-medium text-ink-2">{formatValue(model.others, model.format)}</span>
+          {model.twin && model.othersPrev !== undefined && <> ({model.twin === "time" ? model.prevLabel?.toLowerCase() : model.prevLabel}: {formatValue(model.othersPrev ?? null, model.format)})</>} · the table shows it all
         </p>
-      )}
+      ) : null}
+      {result.note && <Note text={result.note} />}
     </>
   );
 }
+
+const Note = ({ text }: { text: string }) => <p className="mt-1 text-[13.5px] text-muted">{text}</p>;
 
 function Empty({ height }: { height: number }) {
   return <div style={{ height }} className="grid place-items-center text-[14px] text-muted">No data for these filters.</div>;
@@ -197,7 +204,13 @@ type Model = {
   dateX: boolean;
   /** Bars: "Others" is a line under the chart, not a bar — it would dwarf the top N it summarises. */
   others?: number | null;
+  othersPrev?: number | null;
+  /** A comparison series (key PREV) beside the bars: last year / the period before (grey), or a second group (a colour). */
+  twin?: "time" | "group";
+  prevLabel?: string;
 };
+const PREV = "__prev";
+const twinOf = (r: Result): Model["twin"] => (!r.prevLabel ? undefined : r.prevLabel === "Last year" || r.prevLabel === "Period before" ? "time" : "group");
 
 function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Model {
   const date0 = Boolean(r.by[0]?.date);
@@ -216,17 +229,30 @@ function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Mod
     const same = r.measures.filter((m) => m.format === format);
     series = same.map((m) => { const i = r.measures.indexOf(m); return { name: m.label, key: m.key, values: x.map((xk) => r.rows.find((row) => row.keys[0] === xk)?.values[i] ?? null) }; });
   }
+  // Compared with something: the first measure and its comparison side by side (time: comparison first, in grey).
+  const twin = r.by.length === 1 && !["donut", "stacked", "waterfall", "diverging"].includes(k) && r.rows.some((row) => row.prev) ? twinOf(r) : undefined;
+  if (twin) {
+    const now = { ...series[0], name: r.nowLabel ?? series[0].name };
+    const prev = { name: r.prevLabel ?? "Before", key: PREV, values: x.map((xk) => r.rows.find((row) => row.keys[0] === xk)?.prev?.[0] ?? null) };
+    series = twin === "time" ? [prev, now] : [now, prev];
+  }
   const top = r.rows[0];
   const summary = `${r.measures[0]?.label ?? ""}${r.by[0] ? ` by ${r.by[0].label.toLowerCase()}` : ""}: ${top ? `largest ${labelOf(top.keys[0] ?? "", date0, grain, true)} ${formatValue(top.values[0], format)}` : "no data"} (table view available)`;
-  return { x, xLabels, keyByLabel, series, format, measureLabel: r.measures[0]?.label ?? "", summary, dateX: date0, stackedBy: k === "stacked" ? r.by[1]?.label : undefined, others: othersRow ? othersRow.values[0] : undefined };
+  return {
+    x, xLabels, keyByLabel, series, format, measureLabel: r.measures[0]?.label ?? "", summary, dateX: date0, stackedBy: k === "stacked" ? r.by[1]?.label : undefined,
+    others: othersRow ? othersRow.values[0] : undefined, othersPrev: othersRow?.prev?.[0], twin, prevLabel: r.prevLabel,
+  };
 }
 
-function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Theme, picked: string | null, accent: number) {
+type Drawn = Exclude<ChartKind, "auto" | "kpi" | "table" | "matrix">;
+function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: number, target?: number) {
   const pal = t.palette;
   const colours = colourMap(m.series.map((s) => s.key), t.dark, pal);
   const single = m.series.length === 1;
   const own = t.mono ?? pal[((accent % pal.length) + pal.length) % pal.length];
-  const colourOf = (key: string) => (single ? own : colours.get(key) ?? own);
+  // The comparison: grey for last year / the period before; another hue for a second group (blue next to mint).
+  const twinColour = m.twin === "group" ? (t.mono ? (t.dark ? PLAIN_DARK : PLAIN_LIGHT)[0] : pal[(((accent + 3) % pal.length) + pal.length) % pal.length]) : t.dark ? OTHERS_DARK : OTHERS_LIGHT;
+  const colourOf = (key: string) => (key === PREV ? twinColour : single || m.twin ? own : colours.get(key) ?? own);
   // One series of up to 8 named categories (sectors, lead sources…): a colour per bar, from its name (colourMap).
   // More than 8, or months: the chart's own colour — a 9th hue would repeat.
   const named = m.x.filter((x) => x !== OTHERS && x !== BLANK);
@@ -262,19 +288,31 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
     };
   }
 
-  const horizontal = k === "bar";
+  if (k === "waterfall") return waterfall(m, t, own, base, fmt, axisText);
+  const horizontal = k === "bar" || k === "diverging";
   const catAxis = { type: "category", data: m.xLabels, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { ...axisText, ...(horizontal ? { width: 180, overflow: "truncate" } : { hideOverlap: true }) }, inverse: horizontal };
   const valAxis = { type: "value", splitLine: { lineStyle: { color: t.line, width: 1 } }, axisLabel: { ...axisText, formatter: (v: number) => fmt(v) } };
   const radius = horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0];
   const series = m.series.map((s, si) => {
     const colour = colourOf(s.key);
+    // The goal across the first series (column / line over months).
+    const goal = target && si === m.series.length - 1 && m.dateX && !horizontal ? { markLine: { silent: true, symbol: "none", data: [{ yAxis: target }], lineStyle: { type: "dashed", color: t.ink2, width: 1.5 }, label: { formatter: `Goal ${fmt(target)}`, color: t.ink2, fontSize: 12.5, position: "insideEndTop" } } } : {};
     if (k === "line" || k === "area") {
-      return { type: "line", name: s.name, data: s.values, color: colour, showSymbol: false, symbolSize: 8, lineStyle: { width: 2, color: colour }, itemStyle: { color: colour }, areaStyle: k === "area" ? { color: colour, opacity: 0.12 } : undefined };
+      const dashed = s.key === PREV && m.twin === "time"; // last year as a dashed line, no fill
+      return { ...goal, type: "line", name: s.name, data: s.values, color: colour, showSymbol: false, symbolSize: 8, lineStyle: { width: 2, color: colour, type: dashed ? "dashed" : "solid" }, itemStyle: { color: colour }, areaStyle: k === "area" && !dashed ? { color: colour, opacity: 0.12 } : undefined };
     }
     const last = si === m.series.length - 1;
+    // What changed: rises in green to the right, falls in red to the left, each with its signed amount.
+    if (k === "diverging") {
+      return {
+        type: "bar", name: s.name, barMaxWidth: 18,
+        data: s.values.map((v, i) => ({ value: v, itemStyle: { color: (v ?? 0) >= 0 ? t.low : t.high, opacity: fade(m.x[i]), borderRadius: (v ?? 0) >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] }, label: { show: true, position: "right", color: t.ink2, // falls too: just right of zero, clear of the names
+           fontSize: 13, formatter: () => `${(v ?? 0) >= 0 ? "+" : "−"}${fmt(Math.abs(v ?? 0))}` } })),
+      };
+    }
     return {
       // Series colour too, so the legend matches the bars.
-      type: "bar", name: s.name, color: colour, itemStyle: { color: colour }, stack: k === "stacked" ? "total" : undefined,
+      ...goal, type: "bar", name: s.name, color: colour, itemStyle: { color: colour }, stack: k === "stacked" ? "total" : undefined,
       barMaxWidth: horizontal ? 18 : 36, barGap: "20%",
       // Stacks: only the top segment is rounded; segments are parted by a 2 px surface gap.
       data: s.values.map((v, i) => ({ value: v, itemStyle: { color: barColours?.get(m.x[i]) ?? colour, opacity: fade(m.x[i]), borderRadius: k === "stacked" && !last ? 0 : radius, borderColor: k === "stacked" ? t.surface : undefined, borderWidth: k === "stacked" ? 1 : 0 } })),
@@ -291,22 +329,29 @@ function option(m: Model, k: Exclude<ChartKind, "auto" | "kpi" | "table">, t: Th
   };
 }
 
-function Kpi({ result }: { result: Result }) {
+/** `compact`: the KPI band says "compared with …" once for all its numbers, so each one drops it (kept in the tooltip). */
+export function Kpi({ result, compact = false }: { result: Result; compact?: boolean }) {
   const v = result.totals[0];
   // A running period compares today's position with the same days of the period before (query.ts), never part vs whole.
   const now = result.toDate?.[0] ?? v;
   const p = result.previous?.[0];
   const f = result.measures[0]?.format ?? "count";
-  const change = p && now !== null && p !== null && p !== 0 ? ((now - p) / Math.abs(p)) * 100 : null;
-  const when = result.toDate ? "at this point last period" : "the period before";
+  // A share (%) changes in points — "▼ 13 pts vs 73%", not "▼ 17%" (a change of a change). Others in % of before.
+  const pts = f === "pct";
+  const change = now === null || p === null || p === undefined ? null : pts ? now - p : p !== 0 ? ((now - p) / Math.abs(p)) * 100 : null;
+  const good = change !== null && (result.measures[0]?.better === "down" ? change <= 0 : change >= 0);
+  const ly = result.prevLabel === "Last year";
+  const groups = Boolean(result.prevLabel) && !ly && result.prevLabel !== "Period before";
+  const when = groups ? `(${result.prevLabel})` : result.toDate ? `at this point ${ly ? "last year" : "last period"}` : ly ? "last year" : "the period before";
   const range = result.prevFrom && result.prevTo ? `${result.prevFrom} → ${result.prevTo}` : undefined;
+  const tail = compact ? "" : ` ${when}`;
   return (
     <div>
-      <div className="num text-[36px] font-semibold leading-tight tracking-tight text-ink">{formatValue(v, f)}</div>
+      <div className={`num font-semibold leading-tight tracking-tight text-ink ${compact ? "text-[32px]" : "text-[36px]"}`}>{formatValue(v, f)}</div>
       {result.previous && (
-        <div className="mt-1 text-[14px] text-muted" title={range ? `Compared with ${range}${result.toDate && now !== v ? ` (this period so far: ${formatValue(now, f)})` : ""}` : undefined}>
-          {change === null ? <>vs {formatValue(p ?? null, f)} {when}</> : (
-            <><span className={`font-semibold ${change >= 0 ? "text-low" : "text-high"}`}>{change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(Math.abs(change) < 10 ? 1 : 0)}%</span> vs {formatValue(p ?? null, f)} {when}</>
+        <div className={`mt-1 text-[14px] text-muted ${compact ? "truncate" : ""}`} title={range ? `Compared with ${range}${compact ? ` (${when})` : ""}${result.toDate && now !== v ? ` — this period so far: ${formatValue(now, f)}` : ""}` : undefined}>
+          {change === null ? <>vs {formatValue(p ?? null, f)}{tail}</> : (
+            <><span className={`font-semibold ${groups ? "text-ink-2" : good ? "text-low" : "text-high"}`}>{change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(Math.abs(change) < 10 ? 1 : 0)}{pts ? " pts" : "%"}</span> vs {formatValue(p ?? null, f)}{tail}</>
           )}
         </div>
       )}
@@ -315,8 +360,108 @@ function Kpi({ result }: { result: Result }) {
 }
 
 /** The table view of any report (also the accessible version of every chart). */
+/** Revenue bridge: first and last bars whole, the steps between floating up (green) or down (red). */
+function waterfall(m: Model, t: Theme, own: string, base: object, fmt: (v: number | null) => string, axisText: object) {
+  const vals = m.series[0]?.values.map((v) => v ?? 0) ?? [];
+  let run = 0;
+  const lift: number[] = [];
+  const size: number[] = [];
+  vals.forEach((v, i) => {
+    if (i === 0 || i === vals.length - 1) { lift.push(0); size.push(v); run = v; return; }
+    lift.push(v >= 0 ? run : run + v);
+    size.push(Math.abs(v));
+    run += v;
+  });
+  const colourAt = (i: number) => (i === 0 || i === vals.length - 1 ? own : vals[i] >= 0 ? t.low : t.high);
+  return {
+    ...base,
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 14 },
+      formatter: (ps: { dataIndex: number }[]) => { const i = ps[0]?.dataIndex ?? 0; return `${m.xLabels[i]}<br/><b>${i && i < vals.length - 1 && vals[i] >= 0 ? "+" : ""}${fmt(vals[i])}</b>`; } },
+    legend: undefined,
+    grid: { left: 8, right: 12, top: 28, bottom: 8, containLabel: true },
+    xAxis: { type: "category", data: m.xLabels, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { ...axisText, interval: 0, width: 110, overflow: "break" } },
+    yAxis: { type: "value", splitLine: { lineStyle: { color: t.line } }, axisLabel: { ...axisText, formatter: (v: number) => fmt(v) } },
+    series: [
+      { type: "bar", stack: "w", silent: true, itemStyle: { color: "transparent" }, data: lift, tooltip: { show: false } },
+      { type: "bar", stack: "w", barMaxWidth: 56, data: size.map((v, i) => ({ value: v, itemStyle: { color: colourAt(i), borderRadius: 4 } })),
+        label: { show: true, position: "top", color: t.ink2, fontSize: 13, formatter: (p: { dataIndex: number }) => { const i = p.dataIndex; const v = vals[i]; return i && i < vals.length - 1 ? `${v >= 0 ? "+" : "−"}${fmt(Math.abs(v))}` : fmt(v); } } },
+    ],
+  };
+}
+
+/** Two splits as a pivot (this year vs last year by sector × customer type): each cell its value and change. */
+function Matrix({ result }: { result: Result }) {
+  if (!result.rows.length) return <Empty height={160} />;
+  const f = result.measures[0]?.format ?? "inr";
+  const group = Boolean(result.prevLabel) && result.prevLabel !== "Last year" && result.prevLabel !== "Period before";
+  const total = (rs: ResultRow[], prev = false) => rs.reduce((s, r) => s + ((prev ? r.prev?.[0] : r.values[0]) ?? 0), 0);
+  const cols = [...new Set(result.rows.map((r) => r.keys[1]))].sort((a, b) => (a === OTHERS || a === BLANK ? 1 : b === OTHERS || b === BLANK ? -1 : total(result.rows.filter((r) => r.keys[1] === b)) - total(result.rows.filter((r) => r.keys[1] === a))));
+  const rowsK = [...new Set(result.rows.map((r) => r.keys[0]))].sort((a, b) => total(result.rows.filter((r) => r.keys[0] === b)) - total(result.rows.filter((r) => r.keys[0] === a)));
+  const has = result.rows.some((r) => r.prev);
+  const Cell = ({ rs, strong }: { rs: ResultRow[]; strong?: boolean }) => {
+    const now = total(rs);
+    const then = total(rs, true);
+    const ch = changeText(now, has ? then : undefined, f);
+    const up = now >= then;
+    return (
+      <td className={`num py-1.5 pl-3 text-right align-top ${strong ? "font-semibold text-ink" : "text-ink"}`} title={has ? `${result.prevLabel}: ${formatValue(then, f, false)}` : undefined}>
+        <div>{rs.length && now ? formatValue(now, f) : "—"}</div>
+        {has && (now || then) ? <div className={`text-[12px] ${group ? "text-muted" : up ? "text-low" : "text-high"}`}>{ch === "—" ? (then ? "−100%" : "new") : ch}</div> : null}
+      </td>
+    );
+  };
+  return (
+    <div>
+      <div className="no-scrollbar max-h-[520px] overflow-auto">
+        <table className="w-full text-[14px]">
+          <thead className="sticky top-0 z-10 bg-surface">
+            <tr className="border-b border-line text-left text-[13px] text-muted">
+              <th className="py-1.5 pr-3 font-medium">{result.by[0]?.label} / {result.by[1]?.label}</th>
+              {cols.map((c) => <th key={c} className="py-1.5 pl-3 text-right font-medium">{labelOf(c, false, "month")}</th>)}
+              <th className="py-1.5 pl-3 text-right font-semibold text-ink-2">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rowsK.map((rk) => {
+              const rs = result.rows.filter((r) => r.keys[0] === rk);
+              return (
+                <tr key={rk} className="border-b border-line/60 last:border-0">
+                  <td className="max-w-[220px] truncate py-1.5 pr-3 align-top text-ink-2">{labelOf(rk, false, "month")}</td>
+                  {cols.map((c) => <Cell key={c} rs={rs.filter((r) => r.keys[1] === c)} />)}
+                  <Cell rs={rs} strong />
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-line">
+              <td className="py-1.5 pr-3 font-semibold text-ink">Total</td>
+              {cols.map((c) => <Cell key={c} rs={result.rows.filter((r) => r.keys[1] === c)} strong />)}
+              <Cell rs={result.rows} strong />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {has && <Note text={`Small figures: change against ${result.prevLabel === "Last year" ? "the same days last year" : result.prevLabel === "Period before" ? "the same days of the period before" : result.prevLabel}. Hover a cell for the figure.`} />}
+    </div>
+  );
+}
+
+/** "+12%" from b to a (points for shares); "—" when there's nothing to compare with. */
+function changeText(a: number | null, b: number | null | undefined, f: Format): string {
+  if (a === null || b === null || b === undefined) return "—";
+  if (f === "pct") { const d = a - b; return `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(1)} pts`; }
+  if (!b) return "—";
+  const d = ((a - b) / Math.abs(b)) * 100;
+  return `${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(Math.abs(d) < 10 ? 1 : 0)}%`;
+}
+
+/** The table view of any report (also the accessible version of every chart). Compared: + that column and the change. */
 export function ResultTable({ result, grain = "month", max = 200 }: { result: Result; grain?: Grain; max?: number }) {
   if (!result.rows.length) return <Empty height={120} />;
+  const prev = result.rows.some((r) => r.prev);
+  const m0 = result.measures[0];
+  const totalNow = result.toDate?.[0] ?? result.totals[0];
   return (
     <div className="no-scrollbar max-h-[340px] overflow-auto">
       <table className="w-full text-[14.5px]">
@@ -324,6 +469,7 @@ export function ResultTable({ result, grain = "month", max = 200 }: { result: Re
           <tr className="border-b border-line text-left text-[13px] text-muted">
             {result.by.map((b) => <th key={b.key} className="py-1.5 pr-3 font-medium">{b.label}</th>)}
             {result.measures.map((m) => <th key={m.key} className="py-1.5 pl-3 text-right font-medium">{m.label}</th>)}
+            {prev && <><th className="py-1.5 pl-3 text-right font-medium">{result.prevLabel}</th><th className="py-1.5 pl-3 text-right font-medium">Change</th></>}
           </tr>
         </thead>
         <tbody>
@@ -331,6 +477,10 @@ export function ResultTable({ result, grain = "month", max = 200 }: { result: Re
             <tr key={i} className="border-b border-line/60 last:border-0">
               {row.keys.map((key, j) => <td key={j} className="max-w-[260px] truncate py-1.5 pr-3 text-ink-2">{labelOf(key, Boolean(result.by[j]?.date), grain, true)}</td>)}
               {row.values.map((v, j) => <td key={j} className="num py-1.5 pl-3 text-right text-ink">{formatValue(v, result.measures[j].format, false)}</td>)}
+              {prev && <>
+                <td className="num py-1.5 pl-3 text-right text-ink-2">{formatValue(row.prev?.[0] ?? null, m0.format, false)}</td>
+                <td className="num py-1.5 pl-3 text-right text-muted">{changeText(row.values[0], row.prev?.[0], m0.format)}</td>
+              </>}
             </tr>
           ))}
         </tbody>
@@ -339,6 +489,10 @@ export function ResultTable({ result, grain = "month", max = 200 }: { result: Re
             <tr className="border-t border-line font-semibold">
               <td colSpan={result.by.length} className="py-1.5 pr-3 text-ink">Total</td>
               {result.totals.map((v, j) => <td key={j} className="num py-1.5 pl-3 text-right text-ink">{formatValue(v, result.measures[j].format, false)}</td>)}
+              {prev && <>
+                <td className="num py-1.5 pl-3 text-right text-ink-2">{formatValue(result.previous?.[0] ?? null, m0.format, false)}</td>
+                <td className="num py-1.5 pl-3 text-right text-muted" title={result.toDate ? "This period so far against the same days of the comparison" : undefined}>{changeText(totalNow, result.previous?.[0], m0.format)}</td>
+              </>}
             </tr>
           </tfoot>
         )}
@@ -350,8 +504,10 @@ export function ResultTable({ result, grain = "month", max = 200 }: { result: Re
 /** CSV of a report's rows (opens in Excel). */
 export function downloadCsv(result: Result, title: string, grain: Grain = "month") {
   const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const head = [...result.by.map((b) => b.label), ...result.measures.map((m) => m.label)];
-  const lines = [head, ...result.rows.map((r) => [...r.keys.map((k, j) => labelOf(k, Boolean(result.by[j]?.date), grain, true)), ...r.values.map((v) => (v === null ? "" : String(Math.round(v * 100) / 100)))])];
+  const prev = result.rows.some((r) => r.prev);
+  const num = (v: number | null | undefined) => (v === null || v === undefined ? "" : String(Math.round(v * 100) / 100));
+  const head = [...result.by.map((b) => b.label), ...result.measures.map((m) => m.label), ...(prev ? [`${result.measures[0].label} (${result.prevLabel})`] : [])];
+  const lines = [head, ...result.rows.map((r) => [...r.keys.map((k, j) => labelOf(k, Boolean(result.by[j]?.date), grain, true)), ...r.values.map(num), ...(prev ? [num(r.prev?.[0])] : [])])];
   const blob = new Blob(["﻿" + lines.map((l) => l.map(esc).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

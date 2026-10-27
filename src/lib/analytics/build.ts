@@ -1,4 +1,5 @@
 import type { BoardTraining } from "../types";
+import { QUOTE_VALID_DAYS } from "../forecast";
 import type { Row } from "./model";
 
 /*
@@ -10,7 +11,7 @@ import type { Row } from "./model";
 
 export type Raw = Record<string, string>;
 export type RawTables = Partial<Record<TableKey, Raw[]>>;
-export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments";
+export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments" | "salesOrders" | "salesOrderItems";
 
 /** The Zoho Analytics tables used, with the columns kept (the rest is never stored). */
 export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
@@ -22,6 +23,9 @@ export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
   items: { name: "Items", columns: ["Item ID", "Item Name", "Item Identifier", "Product Category", "Brand"] },
   quotes: { name: "Quotes", columns: ["Quote ID", "Quote Number", "Quote Date", "Status", "Customer ID", "Sub Total (BCY)", "Salesperson ID", "Address ID"] },
   payments: { name: "Customer Payments", columns: ["Payment ID", "Payment Date", "Customer ID", "Amount (BCY)", "Withholding Tax (BCY)", "Payment Mode"] },
+  // PIs (27 Oct, for the ₹50 L goal's "booked" part). "Total (BCY)" exports abbreviated ("INR …K") — sub-totals only.
+  salesOrders: { name: "Sales Orders", columns: ["Sales order ID", "Order Date", "Sales Order#", "Status", "Invoiced Status", "Customer ID", "Sub Total (BCY)", "Discount Amount (BCY)", "Is Discount Before Tax", "Salesperson ID", "Address ID"] },
+  salesOrderItems: { name: "Sales Order Items", columns: ["Item ID", "Sales order ID", "Quantity", "Quantity Invoiced", "Quantity Cancelled", "Sub Total (BCY)"] },
 };
 
 /** "INR 852,000.00" / "3,250.00" / "-1,200" → number; abbreviated "INR 954.24K" → approximate (avoid those columns). */
@@ -110,9 +114,22 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       salesperson: ix.people.get(i["Salesperson ID"]) ?? null, status: text(i["Invoice Status"]),
       ageBand: balance <= 0 ? "Paid" : !late ? "Not due" : late <= 30 ? "1–30 days" : late <= 60 ? "31–60 days" : late <= 90 ? "61–90 days" : "90+ days",
       productType: list(i["Product Type"]), businessType: text(i["Business Type"]), leadSource: text(i["Lead Source"]),
-      amount: sub - disc, balance, overdue: late ? balance : 0,
+      amount: sub - disc, docValue: sub - disc, balance, overdue: late ? balance : 0,
       daysToPay: balance <= 0 && paidOn && date ? Math.max(0, dayDiff(date, paidOn)) : null,
     });
+  }
+
+  // Each customer's first-ever live invoice (earliest date, then the lowest number) — "New customers" / "Repeat". By
+  // name, like every customer count here: a name that's in Zoho twice (two contacts) is one customer.
+  const firstOf = new Map<string, { date: string; no: string; id: string }>();
+  const custKey = (customerId: string) => nameKey(ix.who(customerId).name);
+  for (const i of t.invoices ?? []) {
+    const date = day(i["Invoice Date"]);
+    if (!date || !live(i["Invoice Status"])) continue;
+    const k = custKey(i["Customer ID"]);
+    const cur = firstOf.get(k);
+    const no = i["Invoice Number"] ?? "";
+    if (!cur || date < cur.date || (date === cur.date && no.localeCompare(cur.no, "en", { numeric: true }) < 0)) firstOf.set(k, { date, no, id: i["Invoice ID"] });
   }
 
   // Sales: invoice lines; an invoice-level discount (before tax) is shared out over its lines by their share.
@@ -128,18 +145,33 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       date: day(inv["Invoice Date"]), invoice: text(inv["Invoice Number"]), ...customerFields(inv["Customer ID"], inv["Address ID"]),
       salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
       productType: list(inv["Product Type"]), businessType: text(inv["Business Type"]), leadSource: text(inv["Lead Source"]), status: text(inv["Invoice Status"]),
+      repeat: firstOf.get(custKey(inv["Customer ID"]))?.id === li["Invoice ID"] ? "First invoice" : "Repeat",
+      docValue: sub - disc, // the whole invoice (for "invoices of ₹1 L or more")
       amount: (money(li["Sub Total (BCY)"]) ?? 0) * factor, amountTax: money(li["Tax Inclusive Total (BCY)"]) ?? 0, qty: money(li["Quantity"]) ?? 0,
     });
   }
 
+  // A quote's first live invoice (invoices carry the quote they came from) — "days from quote to invoice".
+  const invoicedOn = new Map<string, string>();
+  for (const i of t.invoices ?? []) {
+    const q = i["Quote ID"]; const dt = day(i["Invoice Date"]);
+    if (q && dt && live(i["Invoice Status"]) && dt < (invoicedOn.get(q) ?? "9999")) invoicedOn.set(q, dt);
+  }
   const quotes: Row[] = (t.quotes ?? []).filter((q) => !/draft/i.test(q["Status"] ?? "")).map((q) => {
     const s = (q["Status"] ?? "").toLowerCase();
     const won = /accepted|invoiced/.test(s);
+    const date = day(q["Quote Date"]);
+    const outcome = won ? "Won" : /declined|rejected/.test(s) ? "Lost" : /expired/.test(s) ? "Expired" : "Open";
+    const age = date ? Math.max(0, dayDiff(date, today)) : null;
     return {
-      date: day(q["Quote Date"]), quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
-      salesperson: ix.people.get(q["Salesperson ID"]) ?? null, status: text(q["Status"]),
-      outcome: won ? "Won" : /declined|rejected/.test(s) ? "Lost" : /expired/.test(s) ? "Expired" : "Open",
-      amount: money(q["Sub Total (BCY)"]) ?? 0, won: won ? 1 : 0,
+      date, quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
+      salesperson: ix.people.get(q["Salesperson ID"]) ?? null, status: text(q["Status"]), outcome,
+      age: age === null ? null : age <= 15 ? "0–15 days" : age <= 30 ? "16–30 days" : age <= 90 ? "31–90 days" : "Over 90 days",
+      // Owner: a quote is valid for 15 days, then they make a new one.
+      valid: outcome === "Open" && age !== null && age <= QUOTE_VALID_DAYS ? "yes" : "no",
+      amount: money(q["Sub Total (BCY)"]) ?? 0, docValue: money(q["Sub Total (BCY)"]) ?? 0, won: won ? 1 : 0,
+      invoiced: invoicedOn.has(q["Quote ID"]) || /invoiced/.test(s) ? "yes" : "no",
+      daysToInvoice: date && invoicedOn.has(q["Quote ID"]) ? Math.max(0, dayDiff(date, invoicedOn.get(q["Quote ID"])!)) : null,
     };
   });
 
@@ -147,6 +179,30 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     date: day(p["Payment Date"]), ...customerFields(p["Customer ID"]), mode: text(p["Payment Mode"]),
     amount: money(p["Amount (BCY)"]) ?? 0, tds: money(p["Withholding Tax (BCY)"]) ?? 0,
   }));
+
+  // PIs: what's still to invoice = each line's share not invoiced (or cancelled) yet, after the PI's discount.
+  const openByOrder = new Map<string, number>();
+  for (const li of t.salesOrderItems ?? []) {
+    const qty = money(li["Quantity"]) ?? 0;
+    const done = (money(li["Quantity Invoiced"]) ?? 0) + (money(li["Quantity Cancelled"]) ?? 0);
+    const share = qty > 0 ? Math.max(0, qty - done) / qty : 0;
+    openByOrder.set(li["Sales order ID"], (openByOrder.get(li["Sales order ID"]) ?? 0) + (money(li["Sub Total (BCY)"]) ?? 0) * share);
+  }
+  const orders: Row[] = (t.salesOrders ?? []).filter((o) => !/void|draft/i.test(o["Status"] ?? "")).map((o) => {
+    const sub = money(o["Sub Total (BCY)"]) ?? 0;
+    const disc = /false|no/i.test(o["Is Discount Before Tax"] ?? "") ? 0 : money(o["Discount Amount (BCY)"]) ?? 0;
+    const factor = sub > 0 && disc > 0 ? (sub - disc) / sub : 1;
+    // A PI closed by hand in Zoho won't be invoiced: nothing left to invoice.
+    const closed = /closed/i.test(o["Status"] ?? "");
+    const open = closed ? 0 : (openByOrder.get(o["Sales order ID"]) ?? 0) * factor;
+    const inv = (o["Invoiced Status"] ?? "").toLowerCase();
+    return {
+      date: day(o["Order Date"]), pi: text(o["Sales Order#"]), ...customerFields(o["Customer ID"], o["Address ID"]),
+      salesperson: ix.people.get(o["Salesperson ID"]) ?? null, status: text(o["Status"]),
+      invoiced: closed ? "Closed" : /partial/.test(inv) ? "Part invoiced" : /^invoiced$/.test(inv) || open < 1 ? "Invoiced" : "Not invoiced",
+      amount: sub - disc, docValue: sub - disc, open: open >= 1 ? open : 0,
+    };
+  });
 
   // Trainings: the Training board's, one per deal; customer type / sector from Zoho by name.
   const boardRows: Row[] = trainings.filter((x) => x.board === "training" && x.status !== "tbd" && x.dates.length).map((x) => {
@@ -160,5 +216,5 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     };
   });
 
-  return { sales, invoices, quotes, payments, trainings: boardRows };
+  return { sales, invoices, quotes, payments, orders, trainings: boardRows };
 }

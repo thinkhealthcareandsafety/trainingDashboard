@@ -4,6 +4,7 @@ import { boardsFor, isAdmin } from "@/lib/roles";
 import { DATASETS, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, runQuery } from "@/lib/analytics/query";
 import { STALE_MS, dataState, datasetRows, refreshAnalyticsData } from "@/lib/analytics/source";
+import { TABLES, type TableKey } from "@/lib/analytics/build";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -32,8 +33,11 @@ export async function POST(request: Request) {
   const boards = boardsFor(me);
   const today = istToday();
   const { rows, state } = await datasetRows(today);
-  // A stale copy refreshes itself after this answer (whoever opens Reports), never twice at once (lock).
-  if (!state.running && (!state.refreshedAt || Date.now() - Date.parse(state.refreshedAt) > STALE_MS)) {
+  // A stale copy refreshes itself after this answer (whoever opens Reports), never twice at once (lock). So does a copy
+  // missing a table added since (e.g. Sales Orders, 27 Oct) — at most every 10 minutes, in case Zoho keeps refusing it.
+  const age = state.refreshedAt ? Date.now() - Date.parse(state.refreshedAt) : Infinity;
+  const missing = Object.keys(TABLES).some((k) => state.tables?.[k as TableKey] === undefined);
+  if (!state.running && (age > STALE_MS || (missing && age > 10 * 60_000))) {
     after(() => refreshAnalyticsData("Reports (automatic)").then(() => undefined, () => undefined));
   }
   const results = specs.map((spec) => {

@@ -8,6 +8,7 @@ import type { Spec } from "@/lib/analytics/query";
 import { btn } from "../ui";
 import { Builder } from "./Builder";
 import { DashboardView, TileCard } from "./Dashboard";
+import { GoalMeter } from "./GoalMeter";
 import { type Answer, type Meta, runSpecs, stamp, withPeriod } from "./shared";
 
 /*
@@ -49,26 +50,32 @@ export function Reports() {
   if (!meta.datasets.length) return <p className="text-[14px] text-muted">Reports cover the Training board's data — your boards don't include it.</p>;
 
   const st = meta.state;
+  const goal = meta.datasets.includes("sales");
   return (
-    <div>
+    // The monthly goal sits on the left of every tab (owner, 27 Oct); on narrower screens it's a strip on top.
+    <div className={goal ? "grid gap-4 xl:grid-cols-[14rem_minmax(0,1fr)] xl:gap-5" : ""}>
+      {goal && <aside className="xl:sticky xl:top-4 xl:self-start"><GoalMeter today={meta.today} admin={meta.admin} /></aside>}
+    <div className="min-w-0">
+      {/* One row: the tabs and + New report (the dashboard's description is the tab's tooltip; data freshness is at the
+          bottom of the page — owner, 27 Oct: "too congested"). */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="inline-flex flex-wrap rounded-full bg-surface-2 p-0.5" role="tablist" aria-label="Dashboards">
-          {[...dashboards.map((d) => ({ id: d.id, label: d.title })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}` }].map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+          {[...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }].map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} title={t.desc}
               className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>
-        <button className={btn.primary} onClick={() => setBuilder({})}>+ New report</button>
-        <span className="ml-auto text-[13.5px] text-muted" title={st.error ? `Last refresh: ${st.error}` : undefined}>
-          Zoho data copied {stamp(st.refreshedAt)}{st.running || refreshing ? " · refreshing…" : ""}{st.error ? " · last refresh had a problem" : ""}
-          {meta.admin && !st.running && !refreshing && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={refresh}>Refresh now</button></>}
-        </span>
+        <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})}>+ New report</button>
       </div>
-      {current && <p className="mt-2 text-[14px] text-muted">{current.desc}</p>}
       <div className="mt-4">
         {current ? <DashboardView def={current} today={meta.today} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}
       </div>
+      <p className="mt-8 text-[13px] text-faint" title={st.error ? `Last refresh: ${st.error}` : undefined}>
+        {current ? `${current.desc} · ` : ""}Zoho data copied {stamp(st.refreshedAt)}{st.running || refreshing ? " · refreshing…" : ""}{st.error ? " · last refresh had a problem" : ""}
+        {meta.admin && !st.running && !refreshing && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={refresh}>Refresh now</button></>}
+      </p>
+    </div>
       {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
       {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={() => { loadSaved(); setTab("saved"); }} />, document.body)}
     </div>
@@ -94,16 +101,13 @@ function SavedReports({ list, today, canBuild, onEdit, onChanged, onNew }: { lis
     onChanged();
   };
   return (
-    <div className="grid grid-cols-12 gap-3">
+    <div className="grid grid-cols-12 gap-4">
       {list.map((r, i) => {
         const tile: Tile = { id: r.id, spec: r.spec, w: !r.spec.by?.length ? 3 : 6 };
         return (
           <TileCard key={r.id} tile={tile} spec={specs[i]} answer={answers[i]} accent={i}
-            actions={<>
-              <span className="mr-1 hidden text-[12.5px] text-faint sm:inline" title={`Saved by ${r.by}, ${stamp(r.updatedAt)}`}>{r.by.split(" ")[0]} · {datasetOf(r.spec.dataset)?.label}</span>
-              {r.mine && <button type="button" className="rounded-md px-2 py-1 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => onEdit(r)}>Edit</button>}
-              {r.mine && <button type="button" className="rounded-md px-2 py-1 text-[13px] font-medium text-muted hover:bg-high-bg hover:text-high" onClick={() => remove(r.id)}>Delete</button>}
-            </>} />
+            meta={`${r.by.split(" ")[0]} · ${datasetOf(r.spec.dataset)?.label} · ${stamp(r.updatedAt)}`}
+            menu={r.mine ? [{ label: "Edit", onClick: () => onEdit(r) }, { label: "Delete", onClick: () => remove(r.id), danger: true }] : []} />
         );
       })}
     </div>

@@ -16,7 +16,7 @@ export default function ReportsPage() {
   if (!money) return null;
   return (
     <>
-      <PageHeader title="Reports" sub="Dashboards and reports on all of Zoho Books and the boards — filter anything, click a bar to drill in, or build your own." />
+      <PageHeader title="Reports" sub="All of Zoho Books and the boards — click any bar to drill in, or build your own report." />
       <Reports />
     </>
   );

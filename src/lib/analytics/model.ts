@@ -11,12 +11,17 @@ export type FieldKind = "text" | "date";
 /** `order`: the values' natural order (age bands, stages) — used instead of A–Z when sorting by label. */
 export type Field = { key: string; label: string; kind: FieldKind; multi?: boolean; hint?: string; order?: string[] };
 export type Format = "inr" | "count" | "pct" | "days";
+/** Only the rows whose `field` is one of `values` (e.g. revenue from repeat invoices only). */
+export type Where = { field: string; values: string[] };
 type Agg =
-  | { agg: "count" }
-  | { agg: "sum" | "avg"; field: string }
-  | { agg: "distinct"; field: string }
-  | { agg: "ratio"; num: string; den: string; scale?: number };
-export type Measure = { key: string; label: string; format: Format; def: string } & Agg;
+  | { agg: "count"; where?: Where }
+  | { agg: "sum" | "avg"; field: string; where?: Where }
+  | { agg: "distinct"; field: string; where?: Where }
+  | { agg: "ratio"; num: string; den: string; scale?: number }
+  /** Share (%) of `sum` that the top `n` values of `field` make up — "top 10 customers' share". */
+  | { agg: "topShare"; field: string; sum: string; n: number };
+/** `better: "down"` — a fall is good news (overdue, days to pay, dependence on a few customers): KPIs colour it green. */
+export type Measure = { key: string; label: string; format: Format; def: string; better?: "down" } & Agg;
 export type BoardNeed = "training" | "aed";
 export type Dataset = {
   key: string;
@@ -27,6 +32,8 @@ export type Dataset = {
   /** The field the date range and "by month / FY …" use. */
   dateField: string;
   fields: Field[];
+  /** Numbers a filter can take a range of (owner, 27 Oct: "custom filters") — e.g. invoices of ₹1 L or more. */
+  ranges?: { key: string; label: string }[];
   measures: Measure[];
   /** Who may read it: members whose boards include this one (money lives on the Training board). */
   board: BoardNeed;
@@ -61,7 +68,9 @@ export const DATASETS: Dataset[] = [
       { key: "businessType", label: "Business type", kind: "text", hint: "Products / Services / Training" },
       { key: "leadSource", label: "Lead source", kind: "text" },
       { key: "status", label: "Invoice status", kind: "text" },
+      { key: "repeat", label: "First or repeat", kind: "text", hint: "Is this invoice the customer's first ever in Zoho Books (since Jul 2021), or a repeat?", order: ["First invoice", "Repeat"] },
     ],
+    ranges: [{ key: "docValue", label: "Invoice value" }],
     measures: [
       { key: "revenue", label: "Revenue", format: "inr", agg: "sum", field: "amount", def: "Invoice line totals before tax (after discounts), void and draft invoices left out." },
       { key: "revenueTax", label: "Revenue incl. tax", format: "inr", agg: "sum", field: "amountTax", def: "Invoice line totals including GST." },
@@ -69,6 +78,10 @@ export const DATASETS: Dataset[] = [
       { key: "invoices", label: "Invoices", format: "count", agg: "distinct", field: "invoice", def: "Number of different invoices." },
       { key: "customers", label: "Customers billed", format: "count", agg: "distinct", field: "customer", def: "Number of different customers invoiced." },
       { key: "avgInvoice", label: "Average invoice", format: "inr", agg: "ratio", num: "revenue", den: "invoices", def: "Revenue ÷ invoices." },
+      { key: "newCustomers", label: "New customers", format: "count", agg: "distinct", field: "customer", where: { field: "repeat", values: ["First invoice"] }, def: "Customers whose first-ever invoice (Zoho Books has them from Jul 2021) falls in the period." },
+      { key: "repeatRevenue", label: "Repeat revenue", format: "inr", agg: "sum", field: "amount", where: { field: "repeat", values: ["Repeat"] }, def: "Revenue from customers' second and later invoices." },
+      { key: "repeatShare", label: "Repeat revenue share", format: "pct", agg: "ratio", num: "repeatRevenue", den: "revenue", scale: 100, def: "Repeat revenue ÷ revenue: how much comes from customers who bought before." },
+      { key: "top10Share", label: "Top 10 customers' share", better: "down", format: "pct", agg: "topShare", field: "customer", sum: "amount", n: 10, def: "The 10 biggest customers' revenue ÷ all revenue — how much rides on a few customers." },
     ],
   },
   {
@@ -89,12 +102,14 @@ export const DATASETS: Dataset[] = [
       { key: "businessType", label: "Business type", kind: "text" },
       { key: "leadSource", label: "Lead source", kind: "text" },
     ],
+    ranges: [{ key: "docValue", label: "Invoice value" }],
     measures: [
       { key: "count", label: "Invoices", format: "count", agg: "count", def: "Number of invoices (void and draft left out)." },
       { key: "billed", label: "Billed", format: "inr", agg: "sum", field: "amount", def: "Invoice sub-totals before tax, less invoice-level discounts." },
       { key: "outstanding", label: "Outstanding", format: "inr", agg: "sum", field: "balance", def: "What customers still owe on these invoices (Zoho's balance, incl. tax)." },
-      { key: "overdue", label: "Overdue", format: "inr", agg: "sum", field: "overdue", def: "Outstanding on invoices past their due date." },
-      { key: "daysToPay", label: "Days to pay", format: "days", agg: "avg", field: "daysToPay", def: "Average days from invoice date to the last payment, on paid invoices." },
+      { key: "overdue", label: "Overdue", better: "down", format: "inr", agg: "sum", field: "overdue", def: "Outstanding on invoices past their due date." },
+      { key: "overduePct", label: "Overdue %", better: "down", format: "pct", agg: "ratio", num: "overdue", den: "outstanding", scale: 100, def: "Overdue ÷ outstanding: how much of what's owed is late." },
+      { key: "daysToPay", label: "Days to pay", better: "down", format: "days", agg: "avg", field: "daysToPay", def: "Average days from invoice date to the last payment, on paid invoices." },
     ],
   },
   {
@@ -111,12 +126,39 @@ export const DATASETS: Dataset[] = [
       { key: "salesperson", label: "Sales person", kind: "text" },
       { key: "status", label: "Status", kind: "text" },
       { key: "outcome", label: "Outcome", kind: "text", hint: "Won (accepted / invoiced), Lost (declined), Expired, Open" },
+      { key: "age", label: "Age", kind: "text", hint: "Days since the quote was made — a quote is valid for 15 days, then a new one is made", order: ["0–15 days", "16–30 days", "31–90 days", "Over 90 days"] },
     ],
+    ranges: [{ key: "docValue", label: "Quote value" }],
     measures: [
       { key: "count", label: "Quotes", format: "count", agg: "count", def: "Number of quotations (drafts left out)." },
       { key: "value", label: "Quote value", format: "inr", agg: "sum", field: "amount", def: "Quotation sub-totals before tax." },
+      { key: "validOpen", label: "Open & still valid", format: "inr", agg: "sum", field: "amount", where: { field: "valid", values: ["yes"] }, def: "Value of open quotes at most 15 days old (a quote is valid for 15 days)." },
+      { key: "validOpenCount", label: "Open quotes still valid", format: "count", agg: "count", where: { field: "valid", values: ["yes"] }, def: "Open quotes at most 15 days old." },
       { key: "won", label: "Quotes won", format: "count", agg: "sum", field: "won", def: "Quotations accepted or invoiced." },
+      { key: "invoicedCount", label: "Quotes invoiced", format: "count", agg: "count", where: { field: "invoiced", values: ["yes"] }, def: "Quotations that became an invoice (Zoho status Invoiced, or an invoice made from them)." },
+      { key: "daysToInvoice", label: "Days to invoice", better: "down", format: "days", agg: "avg", field: "daysToInvoice", def: "Average days from the quote to its first invoice, on quotes that were invoiced." },
       { key: "winRate", label: "Win rate", format: "pct", agg: "ratio", num: "won", den: "count", scale: 100, def: "Quotes won ÷ quotes." },
+    ],
+  },
+  {
+    key: "orders",
+    label: "PIs (proforma invoices)",
+    desc: "One row per PI — what's been ordered and what's still to invoice.",
+    source: "Zoho Analytics (synced from Zoho Books): Sales Orders + Sales Order Items + Customers",
+    dateField: "date",
+    board: "training",
+    fields: [
+      { ...DATE, label: "PI date" },
+      { key: "pi", label: "PI", kind: "text" },
+      ...CUSTOMER,
+      { key: "salesperson", label: "Sales person", kind: "text" },
+      { key: "invoiced", label: "Invoiced?", kind: "text", hint: "Not invoiced / Part invoiced / Invoiced / Closed (closed by hand in Zoho)", order: ["Not invoiced", "Part invoiced", "Invoiced", "Closed"] },
+    ],
+    ranges: [{ key: "docValue", label: "PI value" }],
+    measures: [
+      { key: "count", label: "PIs", format: "count", agg: "count", def: "Number of PIs (void and draft left out)." },
+      { key: "value", label: "PI value", format: "inr", agg: "sum", field: "amount", def: "PI sub-totals before tax, less PI-level discounts." },
+      { key: "toInvoice", label: "Still to invoice", format: "inr", agg: "sum", field: "open", def: "The part of each PI not invoiced yet (lines' quantity not invoiced or cancelled), before tax. Closed PIs count 0." },
     ],
   },
   {
