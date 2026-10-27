@@ -67,6 +67,35 @@ export function compose(tile: Tile, today: string, periodKey: string, filters: R
 
 const readTweaks = (id: string): Record<string, Tweak> => { try { return JSON.parse(localStorage.getItem(`th.reports.tweaks.${id}`) || "{}"); } catch { return {}; } };
 
+/**
+ * Pages (owner, 27 Oct: "add pagination in the reports, only fetch data when clicked"): one per section, in order of
+ * first appearance (tiles before the first section: "Key numbers"). A dashboard without sections (My dashboard) is cut
+ * into pages of about six charts — a band of numbers counts as one.
+ */
+type Page = { name: string; tiles: Tile[] };
+function pagesOf(tiles: Tile[]): Page[] {
+  if (tiles.some((t) => t.section)) {
+    const pages: Page[] = [];
+    for (const t of tiles) {
+      const name = t.section ?? pages.at(-1)?.name ?? "Key numbers";
+      const p = pages.find((x) => x.name === name);
+      if (p) p.tiles.push(t);
+      else pages.push({ name, tiles: [t] });
+    }
+    return pages;
+  }
+  const pages: Page[] = [];
+  let room = 0;
+  for (const t of tiles) {
+    const weight = t.spec.chart === "kpi" ? 0.25 : 1;
+    if (!pages.length || room < weight) { pages.push({ name: `Page ${pages.length + 1}`, tiles: [] }); room = 6; }
+    pages.at(-1)!.tiles.push(t);
+    room -= weight;
+  }
+  return pages;
+}
+const readPage = (id: string) => { try { return Number(localStorage.getItem(`th.reports.page.${id}`)) || 0; } catch { return 0; } };
+
 /** `tools`: extra buttons at the right end of the toolbar (My dashboard: Customise). */
 export function DashboardView({ def, today, tools }: { def: DashboardDef; today: string; tools?: React.ReactNode }) {
   const [period, setPeriod] = useState(def.period);
@@ -74,24 +103,47 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const [compare, setCompare] = useState<CompareMode>("lastYear");
   const [pick, setPick] = useState<Pick | null>(null);
   const [tweaks, setTweaks] = useState<Record<string, Tweak>>(() => readTweaks(def.id));
-  const [answers, setAnswers] = useState<Record<string, Answer>>({});
-  const [loading, setLoading] = useState(true);
+  // Each tile's last answer and the exact query it answers — kept when you change page, so going back costs nothing.
+  const [got, setGot] = useState<Record<string, { key: string; a: Answer }>>({});
+  const asking = useRef(new Set<string>());
+  const [busy, setBusy] = useState(0);
+  const pages = useMemo(() => pagesOf(def.tiles), [def]);
+  const [page, setPageRaw] = useState(() => readPage(def.id));
+  const at = Math.min(page, pages.length - 1);
+  const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
   const [goal, setGoal] = useState<number | undefined>();
   useEffect(() => { if (def.tiles.some((t) => t.goalLine)) fetch("/api/analytics/goal").then((r) => r.json()).then((g) => setGoal(typeof g.monthly === "number" ? g.monthly : undefined)).catch(() => {}); }, [def]);
-  useEffect(() => { setPeriod(def.period); setFilters({}); setCompare("lastYear"); setPick(null); setAnswers({}); setTweaks(readTweaks(def.id)); }, [def]);
+  useEffect(() => { setPeriod(def.period); setFilters({}); setCompare("lastYear"); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
 
   const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, compare, tweaks[t.id])), [def, today, period, filters, pick, compare, tweaks]);
+  const keys = useMemo(() => specs.map((s) => JSON.stringify(s)), [specs]);
+  // Only the open page asks the server, and only for tiles whose query changed (period, filters, a picked bar…).
   useEffect(() => {
-    let live = true;
-    setLoading(true);
-    runSpecs(specs).then((j) => {
-      if (!live) return;
-      setAnswers(Object.fromEntries(def.tiles.map((t, i) => [t.id, j.results[i]])));
-      setLoading(false);
+    const want = (pages[at]?.tiles ?? []).map((t) => ({ t, i: def.tiles.indexOf(t) }))
+      .filter(({ t, i }) => got[t.id]?.key !== keys[i] && !asking.current.has(`${t.id}|${keys[i]}`));
+    if (!want.length) return;
+    for (const { t, i } of want) asking.current.add(`${t.id}|${keys[i]}`);
+    setBusy((b) => b + 1);
+    runSpecs(want.map(({ i }) => specs[i])).then((j) => {
+      setGot((g) => ({ ...g, ...Object.fromEntries(want.map(({ t, i }, n) => [t.id, { key: keys[i], a: j.results[n] }])) }));
+    }).finally(() => {
+      for (const { t, i } of want) asking.current.delete(`${t.id}|${keys[i]}`);
+      setBusy((b) => b - 1);
     });
-    return () => { live = false; };
-  }, [specs, def]);
+  }, [pages, at, def, specs, keys, got]);
+  const loading = busy > 0;
+  const pageTop = useRef<HTMLDivElement>(null);
+  // Opening a page asks for its tiles; clicking it again retries any that failed. From the bottom buttons, back to its top.
+  const goTo = (i: number, scroll = false) => {
+    const failed = (pages[i]?.tiles ?? []).filter((t) => isError(got[t.id]?.a)).map((t) => t.id);
+    if (failed.length) setGot((g) => Object.fromEntries(Object.entries(g).filter(([id]) => !failed.includes(id))));
+    setPage(i);
+    setPick(null);
+    if (scroll) requestAnimationFrame(() => pageTop.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  // A tile shows its last answer while a new one is on its way ("Updating…").
+  const answers: Record<string, Answer> = Object.fromEntries(Object.entries(got).map(([id, v]) => [id, v.a]));
   useEffect(() => {
     if (!pick) return;
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("[role=dialog]")) setPick(null); };
@@ -104,10 +156,10 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const specOf = (t: Tile) => specs[def.tiles.indexOf(t)];
   const setF = (field: string, patch: Partial<FState>) => setFilters((s) => ({ ...s, [field]: { ...(s[field] ?? { values: [] }), ...patch } }));
 
-  // Tiles go in runs of the same section, each under its heading; inside a section, KPIs next to each other share one
-  // band and the charts go in the grid.
+  // The open page's tiles, in runs: KPIs next to each other share one band and the charts go in the grid. (The page
+  // pill names the section, so no heading above it.)
   const groups: { section?: string; runs: { kpi: boolean; tiles: Tile[] }[] }[] = [];
-  for (const t of def.tiles) {
+  for (const t of pages[at]?.tiles ?? []) {
     const kpi = t.spec.chart === "kpi";
     let g = groups.at(-1);
     if (!g || g.section !== t.section) groups.push((g = { section: t.section, runs: [] }));
@@ -156,19 +208,28 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
         {tools && <div className="ml-auto flex items-center gap-2">{tools}</div>}
       </div>
 
+      {pages.length > 1 && (
+        <nav className="mt-4 flex flex-wrap items-center gap-1" aria-label="Pages of this dashboard">
+          {pages.map((p, i) => (
+            <button key={p.name} type="button" aria-current={i === at ? "page" : undefined} onClick={() => goTo(i)}
+              className={`rounded-full px-3.5 py-1.5 text-[13.5px] font-medium transition ${i === at ? "bg-brand-soft text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>{p.name}</button>
+          ))}
+        </nav>
+      )}
+
+      <div ref={pageTop} className="scroll-mt-4">
       {groups.map((g, gi) => (
         <Fragment key={`${g.section ?? ""}-${gi}`}>
-          {g.section && <h2 className="mb-3 mt-8 text-[15px] font-semibold tracking-tight text-ink-2">{g.section}</h2>}
           {g.runs.map((run, ri) => {
-            const top = !g.section && ri === 0;
+            const top = gi === 0 && ri === 0;
             if (run.kpi) return (
               <Fragment key={ri}>
-                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} className={top ? "mt-5" : ri ? "mt-4" : ""} />
+                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} className={top ? "mt-5" : "mt-4"} />
                 {gi === 0 && ri === 0 && footnote && <p className="mt-2 text-[12.5px] text-faint">{footnote}</p>}
               </Fragment>
             );
             return (
-              <div key={ri} className={`grid grid-cols-12 gap-4 ${top ? "mt-5" : ri ? "mt-4" : ""}`}>
+              <div key={ri} className={`grid grid-cols-12 gap-4 ${top ? "mt-5" : "mt-4"}`}>
                 {run.tiles.map((t) => (
                   <TileCard key={t.id} tile={t} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                     picked={pick?.tileId === t.id ? pick.value : null} onPick={pickFrom(t)}
@@ -180,6 +241,15 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
           })}
         </Fragment>
       ))}
+      </div>
+
+      {pages.length > 1 && (
+        <div className="mt-6 flex items-center justify-between gap-3">
+          {at > 0 ? <button type="button" className="rounded-full px-4 py-2 text-[14px] font-medium text-ink-2 hover:bg-surface-2" onClick={() => goTo(at - 1, true)}>← {pages[at - 1].name}</button> : <span />}
+          <span className="text-[13px] text-faint">Page {at + 1} of {pages.length}</span>
+          {at < pages.length - 1 ? <button type="button" className="rounded-full bg-surface px-4 py-2 text-[14px] font-semibold text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)] hover:bg-surface-2" onClick={() => goTo(at + 1, true)}>{pages[at + 1].name} →</button> : <span />}
+        </div>
+      )}
     </div>
   );
 }
@@ -358,9 +428,14 @@ function Chip({ children, onClear, title }: { children: React.ReactNode; onClear
   );
 }
 
-/** "Filters" → a panel with every filter of this dashboard. Kept mounted, so each list loads once. */
+/**
+ * "Filters" → a panel with every filter of this dashboard. Its lists load the first time it's opened (owner, 27 Oct:
+ * "only fetch data when clicked"), then stay mounted, so each list loads once.
+ */
 function FiltersButton({ count, children }: { count: number; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [opened, setOpened] = useState(false);
+  useEffect(() => { if (open) setOpened(true); }, [open]);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -381,7 +456,7 @@ function FiltersButton({ count, children }: { count: number; children: React.Rea
         {count > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-brand px-1.5 text-[12px] font-semibold text-brand-ink">{count}</span>}
       </button>
       <div className={`absolute left-0 top-full z-40 mt-2 w-full max-w-[620px] rounded-2xl border border-line bg-surface p-4 shadow-pop ${open ? "" : "hidden"}`} role="group" aria-label="Filters">
-        <div className="grid gap-2.5 sm:grid-cols-2">{children}</div>
+        <div className="grid gap-2.5 sm:grid-cols-2">{opened && children}</div>
         <p className="mt-3 text-[12.5px] text-faint">Pick several values at once — each filter reaches every chart that has that field.</p>
       </div>
     </div>
