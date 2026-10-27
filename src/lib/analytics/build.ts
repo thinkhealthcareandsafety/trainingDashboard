@@ -237,8 +237,9 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     };
   });
 
-  // A training's value (owner, 27 Oct: "revenue per person trained"): its PI's training lines — or, on an invoice card,
-  // its invoice's — before tax. Quotes have no lines here, so they get none (and don't count in "per person").
+  // A training's value (owner, 27 Oct: "revenue per person trained"): its invoice's training lines — what was billed —
+  // else its PI's, before tax. The board gives each training the PI / invoice behind it, also when it sits on a payment
+  // card. Quotes have no lines here, so they get none (and don't count in "per person").
   const TRAINING_GROUPS = /training services/i;
   const piNo = new Map((t.salesOrders ?? []).map((o) => [o["Sales order ID"], { no: o["Sales Order#"], o }]));
   const trainingByPi = new Map<string, number>();
@@ -264,7 +265,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       status: x.status === "completed" ? "Completed" : last < today ? "To mark completed" : x.status === "postponed" ? "Postponed" : "Scheduled",
       people: x.people,
       ...(() => {
-        const value = x.id.startsWith("pi:") ? trainingByPi.get(x.docNumber) : x.id.startsWith("invoice:") ? trainingByInvoice.get(x.docNumber) : undefined;
+        const value = (x.invoiceNumber ? trainingByInvoice.get(x.invoiceNumber) : undefined) ?? (x.piNumber ? trainingByPi.get(x.piNumber) : undefined);
         return value === undefined ? { value: null, peopleValued: 0, valued: 0 } : { value, peopleValued: x.people, valued: 1 };
       })(),
     };

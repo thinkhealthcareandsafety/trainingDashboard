@@ -46,14 +46,31 @@ export async function fulfilCard(id: string): Promise<CardView | undefined> {
   return buildFulfillmentBoard(board, events).cards.get(id);
 }
 
+/**
+ * The PI and invoice numbers behind a card: its own, or those of any card merged into it. Most trainings end up on a
+ * payment card (merged through to Payment received), whose own number is the payment's — Reports needs the PI /
+ * invoice to find the training's value (27 Oct).
+ */
+function docsBehind(c: CardView, cards: Map<string, CardView>) {
+  let piNumber = c.pi?.number ?? c.linkedPI?.number;
+  let invoiceNumber = c.invoice?.number ?? c.linkedInvoice?.number;
+  for (const id of c.historyIds) {
+    const h = cards.get(id);
+    piNumber ??= h?.pi?.number ?? h?.linkedPI?.number;
+    invoiceNumber ??= h?.invoice?.number ?? h?.linkedInvoice?.number;
+  }
+  return { piNumber, invoiceNumber };
+}
+
 /** One training per deal (its latest card), with every training day — for the Overview, the calendar and the ticker. */
-function boardTraining(c: CardView, board: BoardTraining["board"]): BoardTraining | null {
+function boardTraining(c: CardView, board: BoardTraining["board"], cards?: Map<string, CardView>): BoardTraining | null {
   const s = c.schedule;
   if (!s) return null;
   return {
     id: c.id,
     board,
     docNumber: c.docNumber ?? "",
+    ...(cards ? docsBehind(c, cards) : {}),
     customerName: c.name,
     alias: c.certLocation || undefined,
     training: c.training.map((t) => t.name).join(", "),
@@ -69,7 +86,7 @@ function boardTraining(c: CardView, board: BoardTraining["board"]): BoardTrainin
 export async function boardTrainings(snap: Snap): Promise<{ board: BoardTraining[]; aedBoard: BoardTraining[]; aedWaiting: number }> {
   const { board, aedBoard } = await boardsNow(snap, true);
   const live = (c: CardView) => !c.mergedInto && !c.deleted && !c.lost && !isCustomerCard(c.kind);
-  const list = [...board.cards.values()].filter(live).map((c) => boardTraining(c, "training")).filter((t): t is BoardTraining => t !== null);
+  const list = [...board.cards.values()].filter(live).map((c) => boardTraining(c, "training", board.cards)).filter((t): t is BoardTraining => t !== null);
   const aed = aedBoard ? [...aedBoard.cards.values()].filter((c) => !c.notRequired).map((c) => boardTraining(c, "aed")).filter((t): t is BoardTraining => t !== null) : [];
   return { board: list, aedBoard: aed, aedWaiting: (aedBoard?.invoiceCards.length ?? 0) + (aedBoard?.contactedCards.length ?? 0) };
 }

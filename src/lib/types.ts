@@ -48,6 +48,9 @@ export interface BoardTraining {
   id: string; // the card on its board (pi:/quote:/invoice:/aed:)
   board: "training" | "aed";
   docNumber: string;
+  /** The PI / invoice behind the training — on its card or merged into it (a payment card's invoice, an invoice's PI). */
+  piNumber?: string;
+  invoiceNumber?: string;
   customerName: string;
   alias?: string; // alias for certificates
   training: string; // training name(s)
