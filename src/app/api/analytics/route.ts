@@ -32,7 +32,16 @@ export async function POST(request: Request) {
   const specs = (body.specs ?? []).slice(0, 40);
   const boards = boardsFor(me);
   const today = istToday();
-  const { rows, state } = await datasetRows(today);
+  // The board is read only when a report needs the trainings (27 Oct: a new server loading everything took > 2 min
+  // on the slowed free database). A failure says what failed, instead of a bare 500.
+  let data: Awaited<ReturnType<typeof datasetRows>>;
+  try {
+    data = await datasetRows(today, specs.some((s) => s.dataset === "trainings"));
+  } catch (e) {
+    console.error("[analytics] data failed:", e);
+    return Response.json({ error: `Couldn't load the report data (${e instanceof Error ? e.message : String(e)}) — try again in a minute` }, { status: 503 });
+  }
+  const { rows, state } = data;
   // A stale copy refreshes itself after this answer (whoever opens Reports), never twice at once (lock). So does a copy
   // missing a table added since (e.g. Sales Orders, 27 Oct) — at most every 10 minutes, in case Zoho keeps refusing it.
   const age = state.refreshedAt ? Date.now() - Date.parse(state.refreshedAt) : Infinity;

@@ -1,4 +1,6 @@
 import "server-only";
+import { gunzipSync, gzipSync } from "node:zlib";
+import { Binary } from "mongodb";
 import { db } from "../db";
 import { exportTable, workspaceViews } from "../zohoAnalytics";
 import { getSnapshot } from "../zohoSync";
@@ -19,7 +21,10 @@ const LOCK = "za_refresh_lock";
 export const STALE_MS = 6 * 3600_000;
 const PACE_MS = 2500; // Zoho Analytics refuses bursts ("exceeded the allowed limits")
 
-type TableDoc = { _id: TableKey; rows: Raw[]; count: number; at: string };
+// `gz` (27 Oct): the rows as gzipped JSON — 6.2 MB → 0.55 MB for all tables, so a new server reads the copy in seconds
+// even when the free Atlas cluster is slowed to ~90 KB/s. Copies made before that still have plain `rows`.
+type TableDoc = { _id: TableKey; rows?: Raw[]; gz?: Binary; count: number; at: string };
+const unpack = (d: TableDoc): Raw[] => (d.gz ? JSON.parse(gunzipSync(d.gz.buffer).toString("utf8")) : d.rows ?? []);
 export type DataState = { _id?: string; refreshedAt?: string; refreshedBy?: string; error?: string; tables?: Partial<Record<TableKey, number>>; running?: boolean };
 
 const kv = async () => (await db()).collection<DataState & { _id: string; until?: number; owner?: string }>("kv");
@@ -61,7 +66,7 @@ export async function refreshAnalyticsData(by: string): Promise<boolean> {
       if (!view) { error = `No “${def.name}” table in the workspace`; continue; }
       await new Promise((r) => setTimeout(r, PACE_MS));
       const rows = (await exportTable(view.id)).map((r) => Object.fromEntries(def.columns.map((c) => [c, r[c] ?? ""])));
-      await col.replaceOne({ _id: key }, { rows, count: rows.length, at: new Date().toISOString() }, { upsert: true });
+      await col.replaceOne({ _id: key }, { gz: new Binary(gzipSync(Buffer.from(JSON.stringify(rows)))), count: rows.length, at: new Date().toISOString() }, { upsert: true });
       counts[key] = rows.length;
     }
   } catch (e) {
@@ -81,15 +86,19 @@ let memo: { key: string; at: number; rows: Record<string, Row[]> } | null = null
 // the free Atlas cluster a minute-by-minute re-read helped use up the weekly 10 GB, and then took ~70 s (27 Oct).
 let copy: { refreshedAt: string; tables: RawTables } | null = null;
 
-/** Every dataset's rows (Zoho Analytics copy + the board's trainings), rebuilt when either changes (trainings: 60 s). */
-export async function datasetRows(today: string): Promise<{ rows: Record<string, Row[]>; state: DataState }> {
+/**
+ * Every dataset's rows (Zoho Analytics copy + the board's trainings), rebuilt when either changes (trainings: 60 s).
+ * `withTrainings` false: no board needed (Sales, Growth, Collections… — the goal meter too), so a new server doesn't
+ * load the whole Zoho copy (3.3 MB) just to answer them.
+ */
+export async function datasetRows(today: string, withTrainings = true): Promise<{ rows: Record<string, Row[]>; state: DataState }> {
   const state = await dataState();
-  const snap = await getSnapshot();
-  const key = `${state.refreshedAt ?? ""}|${snap?.version ?? 0}|${today}`;
+  const snap = withTrainings ? await getSnapshot() : null;
+  const key = `${state.refreshedAt ?? ""}|${withTrainings ? snap?.version ?? 0 : "-"}|${today}`;
   if (memo && memo.key === key && Date.now() - memo.at < 60_000) return { rows: memo.rows, state };
   if (!copy || copy.refreshedAt !== (state.refreshedAt ?? "")) {
     const docs = await (await db()).collection<TableDoc>(COL).find({}).toArray();
-    copy = { refreshedAt: state.refreshedAt ?? "", tables: Object.fromEntries(docs.map((d) => [d._id, d.rows])) };
+    copy = { refreshedAt: state.refreshedAt ?? "", tables: Object.fromEntries(docs.map((d) => [d._id, unpack(d)])) };
   }
   const tables = copy.tables;
   const trainings = snap ? (await boardTrainings(snap)).board : [];

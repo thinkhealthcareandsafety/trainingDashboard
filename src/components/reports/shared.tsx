@@ -14,7 +14,11 @@ export const isError = (a: Answer | undefined): a is { error: string } => Boolea
 export async function runSpecs(specs: Spec[]): Promise<{ results: Answer[]; state?: DataState }> {
   if (!specs.length) return { results: [] };
   const r = await fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ specs }) }).catch(() => null);
-  if (!r?.ok) return { results: specs.map(() => ({ error: "Couldn't reach the server" })) };
+  if (!r) return { results: specs.map(() => ({ error: "Couldn't reach the server" })) };
+  if (!r.ok) {
+    const j = (await r.json().catch(() => ({}))) as { error?: string };
+    return { results: specs.map(() => ({ error: j.error ?? (r.status === 504 ? "The server took too long — try again in a minute" : "Couldn't reach the server") })) };
+  }
   return r.json();
 }
 
