@@ -142,15 +142,15 @@ export function Quotations() {
 
       <div className="flex flex-wrap items-center gap-2">
         <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-72 text-[15px]`} placeholder="Search a customer, email or phone…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" autoFocus />
-        <select className={`${inputCls} !h-10 !w-auto text-[14px]`} value={sector} onChange={(e) => setSector(e.target.value)} aria-label="Sector">
+        <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={sector} onChange={(e) => setSector(e.target.value)} aria-label="Sector">
           <option value="">Every sector</option>
           {res?.sectors.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <select className={`${inputCls} !h-10 !w-auto text-[14px]`} value={type} onChange={(e) => setType(e.target.value)} aria-label="Customer type">
+        <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={type} onChange={(e) => setType(e.target.value)} aria-label="Customer type">
           <option value="">Every customer type</option>
           {res?.types.map((s) => <option key={s}>{s}</option>)}
         </select>
-        <select className={`${inputCls} !h-10 !w-auto text-[14px]`} value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Order">
+        <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Order">
           <option value="recent">Latest quote or purchase first</option>
           <option value="name">A–Z</option>
         </select>
@@ -264,7 +264,7 @@ function Field({ name, required, wide, children }: { name: string; required?: bo
 /** One of Zoho's dropdowns (its exact values, shown trimmed). */
 function Choice({ value, options, onChange, blank, aria }: { value: string; options: string[]; onChange: (v: string) => void; blank?: string; aria: string }) {
   return (
-    <select className={`${inputCls} !h-9 text-[14px]`} value={value} onChange={(e) => onChange(e.target.value)} aria-label={aria}>
+    <select className={`select-chevron ${inputCls} !h-9 text-[14px]`} value={value} onChange={(e) => onChange(e.target.value)} aria-label={aria}>
       {blank !== undefined && <option value="">{blank}</option>}
       {options.map((o) => <option key={o} value={o}>{o.trim()}</option>)}
     </select>
@@ -510,7 +510,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
                     <span className="text-ink-2">Discount</span>
                     <span className="flex items-center gap-1.5">
                       <input className={`${inputCls} !h-8 !w-16 text-right text-[13.5px] num sm:!w-20`} type="number" min={0} value={f.discount} placeholder="0" onChange={(e) => upd({ discount: e.target.value })} aria-label="Discount" />
-                      <select className={`${inputCls} !h-8 !w-14 px-1 text-[13.5px]`} value={f.discountPct ? "%" : "₹"} onChange={(e) => upd({ discountPct: e.target.value === "%" })} aria-label="Discount in % or ₹"><option>%</option><option>₹</option></select>
+                      <select className={`select-chevron ${inputCls} !h-8 !w-[4.5rem] !pl-2.5 text-[13.5px]`} value={f.discountPct ? "%" : "₹"} onChange={(e) => upd({ discountPct: e.target.value === "%" })} aria-label="Discount in % or ₹"><option>%</option><option>₹</option></select>
                       <span className="num w-20 text-right text-ink sm:w-24">{t.discount ? `−${inr2(t.discount)}` : "0"}</span>
                     </span>
                   </div>
@@ -562,7 +562,7 @@ function Catalogue({ items, lines, onAdd, onClose }: { items: Item[]; lines: Lin
       <div role="dialog" aria-label="Items" className="modal-in flex h-[92vh] w-full min-w-0 max-w-[96rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
           <h3 className="text-[19px] font-bold tracking-tight text-ink">Items</h3>
-          <select className={`${btn.ghost} max-w-[16rem] cursor-pointer !pr-3`} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
+          <select className={`select-chevron ${btn.ghost} max-w-[16rem] cursor-pointer`} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
             <option value="">All groups</option>
             {groups.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
@@ -668,7 +668,7 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
               {field("email", "Email *", { type: "email", maxLength: 200 })}
               {field("phone", "Mobile", { type: "tel", maxLength: 30 })}
               <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">State * <span className="normal-case tracking-normal">(decides the GST)</span></span>
-                <select className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={n.state} onChange={(e) => setN((x) => ({ ...x, state: e.target.value }))}>{res.states.map(([c, name]) => <option key={c} value={c}>{name}</option>)}</select></label>
+                <select className={`select-chevron ${inputCls} mt-1 !h-10 text-[14.5px]`} value={n.state} onChange={(e) => setN((x) => ({ ...x, state: e.target.value }))}>{res.states.map(([c, name]) => <option key={c} value={c}>{name}</option>)}</select></label>
               {field("city", "City", { maxLength: 100 })}
               <div className="sm:col-span-2">{field("gstin", "GSTIN (if registered)", { maxLength: 15, placeholder: "27ABCDE1234F1Z5" })}</div>
               <p className="text-[13px] text-muted sm:col-span-2">The customer is created in Zoho Books with this contact as primary, then the quotation opens.{res.connected && !res.connected.newCustomers && <b className="text-medium"> Zoho Books needs one more permission for this — Admin: Reconnect on this page first.</b>}</p>
