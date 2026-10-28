@@ -12,9 +12,9 @@ import type { Row } from "./model";
 
 export type Raw = Record<string, string>;
 export type RawTables = Partial<Record<TableKey, Raw[]>>;
-export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments" | "salesOrders" | "salesOrderItems" | "stockIn" | "stockOut" | "warehouses";
-/** Read only when a report needs them (stock), so the other Reports pages don't download them. */
-export const STOCK_TABLES: TableKey[] = ["stockIn", "stockOut", "warehouses"];
+export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments" | "salesOrders" | "salesOrderItems" | "stockIn" | "stockOut" | "warehouses" | "fifo" | "bills" | "billItems";
+/** Read only when a report needs them (stock, margin), so the other Reports pages don't download them. */
+export const STOCK_TABLES: TableKey[] = ["stockIn", "stockOut", "warehouses", "fifo", "bills", "billItems"];
 
 /** The Zoho Analytics tables used, with the columns kept (the rest is never stored). */
 export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
@@ -34,6 +34,11 @@ export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
   stockIn: { name: "Stock In Flow Table", columns: ["Stock In Flow ID", "Product ID", "Transaction Date", "EntityType", "Quantity In", "Quantity Available", "Price (BCY)", "Warehouse ID"] },
   stockOut: { name: "Stock Out Flow Table", columns: ["Stock Out Flow ID", "Product ID", "Transaction Date", "Invoice ID", "EntityType", "Quantity Out", "Warehouse ID"] },
   warehouses: { name: "Warehouses", columns: ["Warehouse ID", "Warehouse Name", "Status"] },
+  // Margin (owner, 28 Oct: §11 #25): what each stock-out cost — Zoho's FIFO, purchase by purchase.
+  fifo: { name: "FIFO Mapping Table", columns: ["Stock In Flow ID", "Stock Out Flow ID", "Product ID", "Quantity Taken", "Total (BCY)"] },
+  // Goods Zoho doesn't keep stock of have no FIFO cost: their average purchase price from the bills instead.
+  bills: { name: "Bills", columns: ["Bill ID", "Bill Date", "Bill Status"] },
+  billItems: { name: "Bill Item", columns: ["Bill ID", "Product ID", "Quantity", "Sub Total (BCY)"] },
 };
 
 /** "INR 852,000.00" / "3,250.00" / "-1,200" → number; abbreviated "INR 954.24K" → approximate (avoid those columns). */
@@ -301,7 +306,71 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     };
   });
 
-  return { sales, invoices, quotes, payments, orders, trainings: boardRows, freight, ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today) } : {}) };
+  // Margin (owner, 28 Oct: §11 #25, Admin only): goods lines — trainings have no cost in Zoho. Cost = what Zoho's FIFO
+  // took out of stock for that invoice and item (shared over its lines by quantity); goods Zoho keeps no stock of =
+  // their average purchase price on bills in the 12 months before the sale (else any earlier bill); else none — kits /
+  // bundles with no bill of their own (₹72 L this FY on 28 Oct), shown as "No cost in Zoho", never guessed.
+  let margin: Row[] | undefined;
+  if (t.fifo && t.stockOut && t.billItems && t.bills) {
+    const outKey = new Map((t.stockOut ?? []).filter((r) => r["Invoice ID"]).map((r) => [r["Stock Out Flow ID"], `${r["Invoice ID"]}|${r["Product ID"]}`]));
+    const fifoCost = new Map<string, number>();
+    for (const f of t.fifo) { const k = outKey.get(f["Stock Out Flow ID"]); if (k) fifoCost.set(k, (fifoCost.get(k) ?? 0) + (money(f["Total (BCY)"]) ?? 0)); }
+    const qtyOf = new Map<string, number>(); // the invoice's units of that item, over all its lines
+    for (const li of t.invoiceItems ?? []) { const k = `${li["Invoice ID"]}|${li["Product ID"]}`; qtyOf.set(k, (qtyOf.get(k) ?? 0) + (money(li["Quantity"]) ?? 0)); }
+    const billDay = new Map(t.bills.filter((b) => !/void|draft/i.test(b["Bill Status"] ?? "")).map((b) => [b["Bill ID"], day(b["Bill Date"])]));
+    const buys = new Map<string, { d: string; q: number; v: number }[]>();
+    for (const b of t.billItems) {
+      const d = billDay.get(b["Bill ID"]);
+      const q = money(b["Quantity"]) ?? 0;
+      if (d && b["Product ID"] && q > 0) (buys.get(b["Product ID"]) ?? buys.set(b["Product ID"], []).get(b["Product ID"])!).push({ d, q, v: money(b["Sub Total (BCY)"]) ?? 0 });
+    }
+    const avgPrice = (product: string, on: string) => {
+      const earlier = (buys.get(product) ?? []).filter((b) => b.d <= on);
+      const from = new Date(Date.parse(on) - 365 * 86_400_000).toISOString().slice(0, 10);
+      const use = earlier.some((b) => b.d >= from) ? earlier.filter((b) => b.d >= from) : earlier;
+      const q = use.reduce((s, b) => s + b.q, 0);
+      return q > 0 ? use.reduce((s, b) => s + b.v, 0) / q : null;
+    };
+    margin = [];
+    for (const li of t.invoiceItems ?? []) {
+      const inv = invoiceById.get(li["Invoice ID"]);
+      const item = ix.items.get(li["Product ID"]);
+      if (!inv || !live(inv["Invoice Status"]) || TRAINING_GROUPS.test(item?.group ?? "")) continue;
+      const date = day(inv["Invoice Date"]);
+      const sub = money(inv["Sub Total (BCY)"]) ?? 0;
+      const disc = /false|no/i.test(inv["Is Discount Before Tax"] ?? "") ? 0 : money(inv["Discount Amount (BCY)"]) ?? 0;
+      const amount = (money(li["Sub Total (BCY)"]) ?? 0) * (sub > 0 && disc > 0 ? (sub - disc) / sub : 1);
+      const qty = money(li["Quantity"]) ?? 0;
+      const k = `${li["Invoice ID"]}|${li["Product ID"]}`;
+      const avg = fifoCost.has(k) || !date ? null : avgPrice(li["Product ID"], date);
+      const cost = fifoCost.has(k) ? fifoCost.get(k)! * (qtyOf.get(k) ? qty / qtyOf.get(k)! : 1) : avg !== null ? avg * qty : null;
+      margin.push({
+        date, invoice: text(inv["Invoice Number"]), ...customerFields(inv["Customer ID"], inv["Address ID"]),
+        salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
+        costSource: fifoCost.has(k) ? "Zoho FIFO" : avg !== null ? "Average purchase price" : "No cost in Zoho",
+        amount, qty, cost, costedAmount: cost === null ? 0 : amount, profit: cost === null ? null : amount - cost,
+      });
+    }
+    // A kit sold as one priced line, with its parts listed at ₹0 to take them out of stock (e.g. "FRx AED with Child
+    // Key" + the FRx units and keys at ₹0 — ₹32 L of cost on one invoice, 28 Oct): the parts' cost belongs to the kit.
+    // Shared over the invoice's no-cost lines by value. ₹0 lines on an invoice with no such kit stay a cost (giveaways).
+    const byInvoice = new Map<string, Row[]>();
+    for (const r of margin) byInvoice.set(String(r.invoice), [...(byInvoice.get(String(r.invoice)) ?? []), r]);
+    for (const rows of byInvoice.values()) {
+      const parts = rows.filter((r) => r.amount === 0 && typeof r.cost === "number" && r.cost > 0);
+      const kits = rows.filter((r) => r.costSource === "No cost in Zoho" && (r.amount as number) > 0);
+      if (!parts.length || !kits.length) continue;
+      const partsCost = parts.reduce((s, r) => s + (r.cost as number), 0);
+      const kitValue = kits.reduce((s, r) => s + (r.amount as number), 0);
+      for (const r of parts) Object.assign(r, { cost: 0, profit: 0, costSource: "Kit part (cost on the kit)" });
+      for (const r of kits) {
+        const c = partsCost * ((r.amount as number) / kitValue);
+        Object.assign(r, { cost: c, costedAmount: r.amount, profit: (r.amount as number) - c, costSource: "Kit (parts' FIFO cost)" });
+      }
+    }
+  }
+
+  return { sales, invoices, quotes, payments, orders, trainings: boardRows, freight, ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today) } : {}), ...(margin ? { margin } : {}) };
 }
 
 const SOLD_DAYS = 90;

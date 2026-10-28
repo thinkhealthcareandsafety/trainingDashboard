@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   // on the slowed free database). A failure says what failed, instead of a bare 500.
   let data: Awaited<ReturnType<typeof datasetRows>>;
   try {
-    data = await datasetRows(today, specs.some((s) => s.dataset === "trainings"), specs.some((s) => s.dataset === "stock"));
+    data = await datasetRows(today, specs.some((s) => s.dataset === "trainings"), specs.some((s) => s.dataset === "stock" || s.dataset === "margin"));
   } catch (e) {
     console.error("[analytics] data failed:", e);
     return Response.json({ error: `Couldn't load the report data (${e instanceof Error ? e.message : String(e)}) — try again in a minute` }, { status: 503 });

@@ -214,6 +214,34 @@ export const DATASETS: Dataset[] = [
     ],
   },
   {
+    // Owner, 28 Oct (ANALYTICS-PLAN §11 #25): gross margin on goods. Admin only.
+    key: "margin",
+    label: "Margin (goods)",
+    desc: "Every invoice line for goods (trainings left out — Zoho has no cost for them) with what it cost us: Zoho's FIFO cost, else the average purchase price on bills.",
+    source: "Zoho Analytics (synced from Zoho Books / Inventory): Invoice Items + FIFO Mapping + Stock Out Flow + Bills + Bill Item",
+    dateField: "date",
+    board: "training",
+    admin: true,
+    fields: [
+      { ...DATE, label: "Invoice date" },
+      { key: "invoice", label: "Invoice", kind: "text" },
+      ...CUSTOMER,
+      { key: "salesperson", label: "Sales person", kind: "text" },
+      { key: "item", label: "Item", kind: "text" },
+      { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
+      { key: "costSource", label: "Cost from", kind: "text", hint: "Zoho FIFO (stock items: the purchases the units came from) · Kit (a kit sold as one line, its parts listed at ₹0 on the same invoice: their FIFO cost) · Average purchase price (bills in the 12 months before the sale) · No cost in Zoho (kits / bundles with no bill of their own)", order: ["Zoho FIFO", "Kit (parts' FIFO cost)", "Average purchase price", "Kit part (cost on the kit)", "No cost in Zoho"] },
+    ],
+    measures: [
+      { key: "revenue", label: "Revenue (goods)", format: "inr", agg: "sum", field: "amount", def: "Goods invoice lines before tax, after discounts (trainings left out)." },
+      { key: "costedRevenue", label: "Revenue with a cost", format: "inr", agg: "sum", field: "costedAmount", def: "Goods revenue on lines whose cost Zoho has." },
+      { key: "cost", label: "Cost of goods sold", format: "inr", agg: "sum", field: "cost", def: "What the goods sold cost us, before tax: Zoho's FIFO cost, else the average purchase price on bills." },
+      { key: "profit", label: "Gross margin", format: "inr", agg: "sum", field: "profit", def: "Revenue − cost, on lines whose cost Zoho has." },
+      { key: "marginPct", label: "Gross margin %", format: "pct", agg: "ratio", num: "profit", den: "costedRevenue", scale: 100, def: "Gross margin ÷ revenue with a cost." },
+      { key: "noCost", label: "Revenue with no cost", format: "inr", agg: "sum", field: "amount", where: { field: "costSource", values: ["No cost in Zoho"] }, better: "down", def: "Goods revenue Zoho has no cost for (kits / bundles with no bill of their own) — left out of the margin." },
+      { key: "units", label: "Units", format: "count", agg: "sum", field: "qty", def: "Quantity on the invoice lines." },
+    ],
+  },
+  {
     // Owner, 28 Oct (ANALYTICS-PLAN §11 #26): what shipping costs us. Admin only, like margins.
     key: "freight",
     label: "Freight",
