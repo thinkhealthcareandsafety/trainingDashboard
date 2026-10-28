@@ -9,6 +9,7 @@ import {
   type BoardBreakdownKey, type BoardPeriod,
 } from "@/lib/kpi";
 import { CardHeader, Segmented, useCountUp } from "./ui";
+import { useChartColors } from "./reports/Chart";
 
 /*
  * Overview tiles and trend. Trainings and people come from the boards (one training per deal, counted on its last
@@ -29,7 +30,7 @@ function pace(done: number, expected: number): Pace {
   return { tone: expected > 0 && done / expected >= 0.7 ? "slip" : "behind", label: `Behind by ${n}` };
 }
 
-const PACE_FILL = { on: "var(--brand)", slip: "var(--medium)", behind: "var(--high)" };
+const PACE_FILL = { on: "var(--chart-1, var(--brand))", slip: "var(--medium)", behind: "var(--high)" };
 const PACE_ICON = { on: "●", slip: "▲", behind: "▲" };
 
 function Meter({ value, target, expected, tone, hint, thin = false }: { value: number; target: number; expected: number; tone: Pace["tone"]; hint: string; thin?: boolean }) {
@@ -37,7 +38,7 @@ function Meter({ value, target, expected, tone, hint, thin = false }: { value: n
   const exp = Math.min(1, expected / target);
   return (
     <div className={`relative w-full rounded-full bg-surface-2 ${thin ? "mt-5 h-1" : "mt-6 h-1.5"}`} role="meter" aria-valuemin={0} aria-valuemax={target} aria-valuenow={value}>
-      <div className="h-full rounded-full transition-[width] duration-700 ease-out" style={{ width: `${pct * 100}%`, background: PACE_FILL[tone] }} />
+      <div className="h-full rounded-full transition-[width] duration-700 ease-out" style={{ width: `${pct * 100}%`, background: "var(--chart-1, var(--brand))" }} />
       {/* Expected-by-today tick, labelled "today"; hover, focus or tap explains it (owner: the bare tick didn't say what it was). */}
       <span tabIndex={0} aria-label={hint} className="group absolute -top-4 -bottom-1.5 w-6 -translate-x-1/2 cursor-help outline-none" style={{ left: `${exp * 100}%` }}>
         <span className={`absolute left-1/2 w-0.5 -translate-x-1/2 rounded-full bg-ink/70 ${thin ? "top-[13px] h-2.5" : "top-3 h-3.5"}`} />
@@ -120,7 +121,7 @@ function Sparkline({ values }: { values: number[] }) {
   return (
     <svg width={w} height={h} className="overflow-visible" aria-hidden>
       <polyline points={pts.map((p) => p.join(",")).join(" ")} fill="none" stroke="var(--faint)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-      {last && <circle cx={last[0]} cy={last[1]} r="3" fill="var(--brand)" stroke="var(--surface)" strokeWidth="2" />}
+      {last && <circle cx={last[0]} cy={last[1]} r="3" fill="var(--chart-1, var(--brand))" stroke="var(--surface)" strokeWidth="2" />}
     </svg>
   );
 }
@@ -241,6 +242,7 @@ function useForecast(trainings: Training[], board: BoardTraining[], now: Date, {
 }
 
 export function KpiStrip({ trainings, board, now, mode, aedWaiting = 0, ...forecast }: { trainings: Training[]; board: BoardTraining[]; now: Date; mode: OverviewMode; aedWaiting?: number } & ForecastInputs) {
+  useChartColors(); // the bars in the Reports colours of the theme (owner, 28 Oct)
   const team = mode === "team";
   const targets = team ? TEAM_TARGETS : AED_TARGETS;
   const m = useMemo(() => boardMonth(board, now, targets), [board, now, targets]);
@@ -318,9 +320,9 @@ function TrendChart({ series, target, selected, onSelect }: { series: ChartPoint
                   aria-pressed={sel}
                 >
                   <div className={`flex w-[62%] max-w-6 flex-col items-stretch gap-[2px] transition-opacity duration-200 ${dim ? "opacity-35" : ""}`}>
-                    {p.scheduled > 0 && <div className="rounded-t-[4px]" style={{ height: Math.max(2, y(p.scheduled) - 2), background: "var(--brand-2)" }} />}
+                    {p.scheduled > 0 && <div className="rounded-t-[4px]" style={{ height: Math.max(2, y(p.scheduled) - 2), background: "var(--chart-2, var(--brand-2))" }} />}
                     {p.actual > 0 && (
-                      <div className={`${p.scheduled ? "" : "rounded-t-[4px]"} transition-[height] duration-700 ease-out`} style={{ height: y(p.actual), background: "var(--brand)" }} />
+                      <div className={`${p.scheduled ? "" : "rounded-t-[4px]"} transition-[height] duration-700 ease-out`} style={{ height: y(p.actual), background: "var(--chart-1, var(--brand))" }} />
                     )}
                   </div>
                 </button>
@@ -336,8 +338,8 @@ function TrendChart({ series, target, selected, onSelect }: { series: ChartPoint
               }}
             >
               <div className="mb-1.5 font-semibold text-ink">{series[hover].label} {series[hover].year}</div>
-              <Row k="Completed" v={series[hover].actual} dot="var(--brand)" />
-              {series[hover].scheduled > 0 && <Row k="Scheduled" v={series[hover].scheduled} dot="var(--brand-2)" />}
+              <Row k="Completed" v={series[hover].actual} dot="var(--chart-1, var(--brand))" />
+              {series[hover].scheduled > 0 && <Row k="Scheduled" v={series[hover].scheduled} dot="var(--chart-2, var(--brand-2))" />}
               {series[hover].people > 0 && <Row k="People trained" v={series[hover].people.toLocaleString("en-IN")} />}
               {series[hover].revenue !== undefined && <Row k="Revenue" v={fmtINR(series[hover].revenue!, true)} />}
             </div>
@@ -429,7 +431,7 @@ function RevenueChart({ f }: { f: RevenueForecast }) {
 
   // Direct labels at the right edge, nudged apart when the two year ends sit close.
   const ends = [
-    { key: "p", v: f.fyEnd, text: `~${fmtINR(Math.round(f.fyEnd), true)}`, sub: "projected", color: "var(--brand)" },
+    { key: "p", v: f.fyEnd, text: `~${fmtINR(Math.round(f.fyEnd), true)}`, sub: "projected", color: "var(--chart-1, var(--brand))" },
     { key: "l", v: f.lastFyTotal, text: fmtINR(Math.round(f.lastFyTotal), true), sub: "last year", color: "var(--muted)" },
   ].sort((a, b) => b.v - a.v);
   const labelY = ends.map((e) => H - (e.v / max) * H);
@@ -457,12 +459,12 @@ function RevenueChart({ f }: { f: RevenueForecast }) {
           {h && <div className="pointer-events-none absolute inset-y-0 w-px bg-ink/25" style={{ left: `${((hover! + 1) / 12) * 100}%` }} />}
           <svg className="absolute inset-0 h-full w-full overflow-visible" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
             <path d={path(last)} fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-            <path d={path(ahead)} fill="none" stroke="var(--brand)" strokeWidth="2" strokeDasharray="5 5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-            <path d={path(done)} fill="none" stroke="var(--brand)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            <path d={path(ahead)} fill="none" stroke="var(--chart-1, var(--brand))" strokeWidth="2" strokeDasharray="5 5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            <path d={path(done)} fill="none" stroke="var(--chart-1, var(--brand))" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
           </svg>
           {dot(12, f.lastFyTotal, "var(--muted)")}
-          {dot(12, f.fyEnd, "var(--brand)", true)}
-          {dot(f.todayX, f.soFar, "var(--brand)")}
+          {dot(12, f.fyEnd, "var(--chart-1, var(--brand))", true)}
+          {dot(f.todayX, f.soFar, "var(--chart-1, var(--brand))")}
           <span
             className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap rounded bg-surface px-1 text-[11px] font-medium text-ink-2 num"
             style={{ left: `${(f.todayX / 12) * 100}%`, bottom: (f.soFar / max) * H + 10 }}
@@ -489,8 +491,8 @@ function RevenueChart({ f }: { f: RevenueForecast }) {
               style={{ left: `clamp(104px, ${((hover! + 1) / 12) * 100}%, calc(100% - 104px))`, bottom: Math.min(H - 110, (Math.max(h.cumLast, h.cumProjected ?? h.cumThis ?? 0) / max) * H + 12) }}
             >
               <div className="mb-1.5 font-semibold text-ink">{h.label} {h.year}</div>
-              {h.thisYear !== undefined && <Row k={h.isCurrent ? "So far" : "This year"} v={fmtINR(Math.round(h.thisYear), true)} dot="var(--brand)" />}
-              {h.projected !== undefined && <Row k={h.isCurrent ? "By month end" : "Projected"} v={`~${fmtINR(Math.round(h.projected), true)}`} dot="var(--brand)" />}
+              {h.thisYear !== undefined && <Row k={h.isCurrent ? "So far" : "This year"} v={fmtINR(Math.round(h.thisYear), true)} dot="var(--chart-1, var(--brand))" />}
+              {h.projected !== undefined && <Row k={h.isCurrent ? "By month end" : "Projected"} v={`~${fmtINR(Math.round(h.projected), true)}`} dot="var(--chart-1, var(--brand))" />}
               <Row k="Last year" v={fmtINR(Math.round(h.lastYear), true)} dot="var(--muted)" />
               <div className="mt-1.5 border-t border-line pt-1.5">
                 <Row k="Total from Apr" v={`${h.isFuture || h.isCurrent ? "~" : ""}${fmtINR(Math.round(h.cumProjected ?? h.cumThis ?? 0), true)}`} />
@@ -635,7 +637,7 @@ function Breakdown({ list, title, team }: { list: BoardTraining[]; title: string
             >
               <span className="truncate text-[13px] text-ink-2" title={r.name}>{r.name}</span>
               <span className="h-1.5 rounded-full bg-surface-2">
-                <span className="block h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${(r.count / max) * 100}%` }} />
+                <span className="block h-full rounded-full bg-[var(--chart-1,var(--brand))] transition-[width] duration-700" style={{ width: `${(r.count / max) * 100}%` }} />
               </span>
               <span className="text-right text-[13px] num">
                 <span className="font-medium text-ink">{r.count}</span>
@@ -665,6 +667,7 @@ function Breakdown({ list, title, team }: { list: BoardTraining[]; title: string
 }
 
 export function TrendCard({ trainings, board, now, mode, ...forecast }: { trainings: Training[]; board: BoardTraining[]; now: Date; mode: OverviewMode } & ForecastInputs) {
+  useChartColors();
   const team = mode === "team";
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<"chart" | "table">("chart");
@@ -723,8 +726,8 @@ export function TrendCard({ trainings, board, now, mode, ...forecast }: { traini
       ) : view === "chart" ? (
         <>
           <div className="mt-4 flex items-center gap-4 text-xs text-muted">
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-brand" /> Completed</span>
-            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-brand-2" /> Scheduled</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-[var(--chart-1,var(--brand))]" /> Completed</span>
+            <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-[var(--chart-2,var(--brand-2))]" /> Scheduled</span>
             {target && <span className="inline-flex items-center gap-1.5"><span className="w-3 border-t border-dashed border-ink/50" /> Target</span>}
           </div>
           <TrendChart series={series} target={target} selected={selected} onSelect={setSelected} />

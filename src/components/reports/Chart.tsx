@@ -90,6 +90,20 @@ export function useThemeTick(): number {
   return tick;
 }
 
+/**
+ * The Reports chart colours as CSS variables (--chart-1 main series, --chart-2 second) for the Overview's own bars and
+ * lines (owner, 28 Oct: the first page's charts didn't have the Reports colours). Follows Change theme.
+ */
+export function useChartColors(): void {
+  const tick = useThemeTick();
+  useEffect(() => {
+    const t = readTheme();
+    const root = document.documentElement.style;
+    root.setProperty("--chart-1", t.mono ?? t.palette[0]);
+    root.setProperty("--chart-2", t.mono ? t.palette[1] : t.palette[1] ?? t.palette[0]);
+  }, [tick]);
+}
+
 type Echarts = typeof import("echarts/core");
 let loading: Promise<Echarts> | null = null;
 function loadEcharts(): Promise<Echarts> {
