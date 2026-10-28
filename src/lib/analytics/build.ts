@@ -383,6 +383,17 @@ const SOLD_DAYS = 90;
  * from the last BOOKED_DAYS days (older open PIs are mostly stale — 5,100 units on PIs over 6 months old on 28 Oct).
  * Days of cover = available ÷ what sold in the last 90 days.
  */
+/** On hand per item (the same sum as `stockRows`) — the quotation popup's stock column. */
+export function onHandByItem(t: RawTables): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of t.stockIn ?? []) {
+    const left = money(r["Quantity Available"]) ?? 0;
+    if (left > 0) m.set(r["Product ID"], (m.get(r["Product ID"]) ?? 0) + left);
+  }
+  for (const [k, v] of m) if (v <= 0.001) m.delete(k);
+  return m;
+}
+
 function stockRows(t: RawTables, today: string): Row[] {
   const items = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
   const s = new Map<string, { left: number; value: number; short: number; sold: number; lastSold: string | null; committed: number }>();

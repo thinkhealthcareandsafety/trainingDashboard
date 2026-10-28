@@ -8,8 +8,9 @@ import { clientOf, tokenRequest } from "./zohoOAuth";
  * stays read-only. Admin connects it once with a one-time code from the Zoho API console (Self Client, scopes
  * QUOTE_SCOPES); the refresh token lives only in MongoDB kv `zoho_books:quotes`, never in a browser.
  *
- * Zoho Books API v3 (India): POST /estimates?send=true|false {customer_id, contact_persons, line_items, salesperson_name}
- * — `send=true` emails it with the org's standard quotation email + PDF to the contact persons on it.
+ * Zoho Books API v3 (India): POST /estimates?send=true|false {customer_id, contact_persons, line_items, salesperson_name,
+ * custom_fields, discount, shipping_charge, adjustment, notes, terms} — `send=true` emails it with the org's standard
+ * quotation email + PDF to the contact persons on it. GST: Zoho applies each item's own tax (in-state or IGST).
  */
 
 const API = process.env.ZOHO_API_BASE ?? "https://www.zohoapis.in/books/v3";
@@ -66,18 +67,52 @@ export async function connectQuotes(input: { code: string; clientId?: string; cl
   return { connectedAt: c.connectedAt, connectedBy: by };
 }
 
+/*
+ * The quote's own fields in Zoho Books (Settings → Quotes → Field Customization, read 28 Oct). "Send to CRM" and
+ * "Reminder Frequency" are mandatory — a quote without them is refused. Options keep Zoho's exact spelling (some end
+ * in a space); the popup shows them trimmed. If someone changes them in Zoho, change them here too.
+ */
+export const QUOTE_FIELDS = {
+  sendToCrm: { id: "982417000013838167", label: "Send to CRM", options: ["Yes", "No"] },
+  reminderDate: { id: "982417000017799233", label: "Reminder Date" },
+  productType: { id: "982417000018678045", label: "Product Type", options: ["AED", "Battery", "pads", "Training ", "AED( Battery + Pads)", " AED Cabinet", "AED Accessories ", "Trauma Kit", "First Aid Training ", " CPR Training", "AED Maintenance", " 5SU", "SAFETY Supplies", " Ambulance Service", "Training Products", "Fire Safety", " Fire Blanket", " Evacuation ", "Sales", "Other"] },
+  dealName: { id: "982417000020249005", label: "Deal Name" },
+  leadSource: { id: "982417000020925237", label: "Lead Source", options: ["Indiamart", "BuyAEDINDIA ", "Direct ", "Social Media", "Events ", "Reference ", "Amazon"] },
+  reminderFrequency: { id: "982417000021649418", label: "Reminder Frequency", options: ["None", "15 days", "interval of 2 days", " on each Wednesday", "on each Monday"] },
+} as const;
+
 export type QuoteLine = { itemId: string; qty: number; rate: number; description?: string };
+export type QuoteDetails = {
+  salesperson?: string; sendToCrm: string; reminderFrequency: string; productType?: string; leadSource?: string; dealName?: string;
+  reference?: string; expiry?: string; reminderDate: string;
+  discount?: { value: number; percent: boolean }; shipping?: number; adjustment?: number; notes?: string; terms?: string;
+};
 export type MadeQuote = { estimateId: string; number: string; total: number; status: string };
 
 /** Creates the quotation in Zoho Books; `send` = Zoho emails it (standard email + PDF) to the contact persons on it. */
-export async function createQuote(q: { customerId: string; contactPersonIds: string[]; lines: QuoteLine[]; salesperson?: string; send: boolean }): Promise<MadeQuote> {
+export async function createQuote(q: { customerId: string; contactPersonIds: string[]; lines: QuoteLine[]; details: QuoteDetails; send: boolean }): Promise<MadeQuote> {
   const c = await (await kv()).findOne({ _id: KEY });
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const d = q.details;
+  const F = QUOTE_FIELDS;
+  const custom: [string, string | undefined][] = [
+    [F.sendToCrm.id, d.sendToCrm], [F.reminderFrequency.id, d.reminderFrequency], [F.reminderDate.id, d.reminderDate],
+    [F.productType.id, d.productType], [F.leadSource.id, d.leadSource], [F.dealName.id, d.dealName],
+  ];
   const body = {
     customer_id: q.customerId,
     contact_persons: q.contactPersonIds,
-    ...(q.salesperson ? { salesperson_name: q.salesperson } : {}),
+    ...(d.salesperson ? { salesperson_name: d.salesperson } : {}),
+    ...(d.reference ? { reference_number: d.reference } : {}),
+    ...(d.expiry ? { expiry_date: d.expiry } : {}),
+    custom_fields: custom.filter(([, v]) => v).map(([customfield_id, value]) => ({ customfield_id, value })),
     line_items: q.lines.map((l) => ({ item_id: l.itemId, quantity: l.qty, rate: l.rate, ...(l.description ? { description: l.description } : {}) })),
+    // Like the team's quotes: a discount on the whole quote, before tax; shipping and adjustment only when used.
+    ...(d.discount?.value ? { discount: d.discount.percent ? `${d.discount.value}%` : d.discount.value, is_discount_before_tax: true, discount_type: "entity_level" } : {}),
+    ...(d.shipping ? { shipping_charge: d.shipping } : {}),
+    ...(d.adjustment ? { adjustment: d.adjustment, adjustment_description: "Adjustment" } : {}),
+    ...(d.notes !== undefined ? { notes: d.notes } : {}),
+    ...(d.terms !== undefined ? { terms: d.terms } : {}),
   };
   const j = await books(c, "POST", "/estimates", { send: String(q.send) }, body);
   const e = (j.estimate ?? {}) as Record<string, unknown>;

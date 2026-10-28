@@ -226,13 +226,29 @@ export function isoTime(v: unknown, fallback = ""): string {
 
 /* ---------------- Items: which documents are tracked ---------------- */
 
-/** `rate` / `active` (28 Oct): for the Quotations page's item picker — the selling price, and inactive items left out. */
-export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean };
+/**
+ * `rate` / `active` (28 Oct): for the Quotations page's item picker — the selling price, and inactive items left out.
+ * `gst` / `unit` / `stock` / `service` (28 Oct, the quotation popup like Zoho's form): GST % (the in-state rate — the
+ * IGST one is the same %), unit, Zoho's "Stock Status" field, services (no stock). Descriptions are long, so they're
+ * read from Zoho only when an item is picked.
+ */
+export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean };
 
 /** Every Zoho item with its Item Identifier (a few list calls; the sync keeps the result in MongoDB). */
 export async function fetchItems(): Promise<ZItem[]> {
   const rows = await paged("/items", "items", { filter_by: "Status.All" });
-  return rows.map((i) => ({ id: String(i.item_id), name: String(i.name), identifier: cf(i, ITEM_IDENTIFIER_FIELD), rate: Number(i.rate) || 0, active: i.status !== "inactive" }));
+  return rows.map((i) => ({
+    id: String(i.item_id), name: String(i.name), identifier: cf(i, ITEM_IDENTIFIER_FIELD), rate: Number(i.rate) || 0, active: i.status !== "inactive",
+    gst: itemGst(i), unit: (i.unit as string) || undefined, stock: cf(i, "cf_stock_status"), service: i.product_type === "service" || undefined,
+  }));
+}
+
+/** An item's GST %: its in-state tax preference (or the out-of-state one, or its own tax); undefined when it has none. */
+export function itemGst(i: Record<string, unknown>): number | undefined {
+  const prefs = (i.item_tax_preferences as { tax_specification?: string; tax_percentage?: number }[] | undefined) ?? [];
+  const p = prefs.find((x) => x.tax_specification === "intra") ?? prefs[0];
+  const v = p?.tax_percentage ?? (Number(i.tax_percentage) || undefined);
+  return v === undefined ? undefined : Number(v);
 }
 
 /** A read-only Zoho Books GET with the sync's token (retries, token refresh) — for the Quotations page's look-ups. */
