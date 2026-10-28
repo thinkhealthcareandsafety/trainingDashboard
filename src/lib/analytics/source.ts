@@ -105,6 +105,21 @@ let memo: { key: string; at: number; rows: Record<string, Row[]> } | null = null
 // the free Atlas cluster a minute-by-minute re-read helped use up the weekly 10 GB, and then took ~70 s (27 Oct).
 let copy: { refreshedAt: string; tables: RawTables } | null = null;
 
+/** The copy's tables, read once per refresh (shared by Reports and the Quotations page); stock ones only when asked. */
+export async function copyTables(state?: DataState, withStock = false): Promise<RawTables> {
+  const s = state ?? await dataState();
+  const col = (await db()).collection<TableDoc>(COL);
+  if (!copy || copy.refreshedAt !== (s.refreshedAt ?? "")) {
+    const docs = await col.find({ _id: { $nin: STOCK_TABLES } }).toArray();
+    copy = { refreshedAt: s.refreshedAt ?? "", tables: Object.fromEntries(docs.map((d) => [d._id, unpack(d)])) };
+  }
+  // Once read, they stay with the copy (until the next refresh), so stock and other reports share one set of rows.
+  if (withStock && STOCK_TABLES.some((k) => !copy!.tables[k])) {
+    for (const d of await col.find({ _id: { $in: STOCK_TABLES } }).toArray()) copy.tables[d._id] = unpack(d);
+  }
+  return copy.tables;
+}
+
 /**
  * Every dataset's rows (Zoho Analytics copy + the board's trainings), rebuilt when either changes (trainings: 60 s).
  * `withTrainings` false: no board needed (Sales, Growth, Collections… — the goal meter too), so a new server doesn't
@@ -114,16 +129,7 @@ let copy: { refreshedAt: string; tables: RawTables } | null = null;
 export async function datasetRows(today: string, withTrainings = true, withStock = false): Promise<{ rows: Record<string, Row[]>; state: DataState }> {
   const state = await dataState();
   const snap = withTrainings ? await getSnapshot() : null;
-  const col = (await db()).collection<TableDoc>(COL);
-  if (!copy || copy.refreshedAt !== (state.refreshedAt ?? "")) {
-    const docs = await col.find({ _id: { $nin: STOCK_TABLES } }).toArray();
-    copy = { refreshedAt: state.refreshedAt ?? "", tables: Object.fromEntries(docs.map((d) => [d._id, unpack(d)])) };
-  }
-  // Once read, they stay with the copy (until the next refresh), so stock and other reports share one set of rows.
-  if (withStock && STOCK_TABLES.some((k) => !copy!.tables[k])) {
-    for (const d of await col.find({ _id: { $in: STOCK_TABLES } }).toArray()) copy.tables[d._id] = unpack(d);
-  }
-  const tables = copy.tables;
+  const tables = await copyTables(state, withStock);
   const hasStock = STOCK_TABLES.every((k) => tables[k]);
   const key = `${state.refreshedAt ?? ""}|${withTrainings ? snap?.version ?? 0 : "-"}|${hasStock ? "stock" : "-"}|${today}`;
   if (memo && memo.key === key && Date.now() - memo.at < 60_000) return { rows: memo.rows, state };

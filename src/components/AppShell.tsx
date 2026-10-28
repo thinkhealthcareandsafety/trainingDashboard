@@ -14,10 +14,12 @@ import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
 import { AnalyticsConnect } from "./AnalyticsConnect";
 import { ProgressToasts, useProgressPulse } from "./progress/ProgressPulse";
-import { boardsFor, isAdmin } from "@/lib/roles";
+import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
+  // Quotations (owner, 28 Oct: "under Overview"): every Zoho customer, one click to send a quotation — the four who sell.
+  { href: "/quotations", label: "Quotations", full: true, icon: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" /> },
   { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
   // Reports (ANALYTICS-PLAN.md): its dashboards are Books money — Training-board members only. Since 26 Oct it also
@@ -356,7 +358,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
   const money = boardsFor(session.member!).includes("training");
-  const nav = NAV.map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
+  const nav = NAV.filter((n) => !("full" in n) || hasFullAccess(session.member!)).map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
   const onTracker = path.startsWith(TRACKER);
   // Tagged and not answered yet: a red count on Progress tracker until you reply in the request or resolve it (owner, 26 Oct).
   const trackerBadge = progress.needs > 0 && (
@@ -496,7 +498,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Bottom tabs (mobile / tablet) */}
-      <nav className={`glass fixed inset-x-0 bottom-0 z-30 grid ${nav.length === 4 ? "grid-cols-4" : "grid-cols-3"} border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden`}>
+      <nav className={`glass fixed inset-x-0 bottom-0 z-30 grid ${nav.length === 5 ? "grid-cols-5" : nav.length === 4 ? "grid-cols-4" : "grid-cols-3"} border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden`}>
         {nav.map((n) => (
           <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOn(n.href) ? "text-ink" : "text-muted"}`}>
             <Icon>{n.icon}</Icon>

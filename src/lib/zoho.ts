@@ -226,13 +226,17 @@ export function isoTime(v: unknown, fallback = ""): string {
 
 /* ---------------- Items: which documents are tracked ---------------- */
 
-export type ZItem = { id: string; name: string; identifier?: string };
+/** `rate` / `active` (28 Oct): for the Quotations page's item picker — the selling price, and inactive items left out. */
+export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean };
 
 /** Every Zoho item with its Item Identifier (a few list calls; the sync keeps the result in MongoDB). */
 export async function fetchItems(): Promise<ZItem[]> {
   const rows = await paged("/items", "items", { filter_by: "Status.All" });
-  return rows.map((i) => ({ id: String(i.item_id), name: String(i.name), identifier: cf(i, ITEM_IDENTIFIER_FIELD) }));
+  return rows.map((i) => ({ id: String(i.item_id), name: String(i.name), identifier: cf(i, ITEM_IDENTIFIER_FIELD), rate: Number(i.rate) || 0, active: i.status !== "inactive" }));
 }
+
+/** A read-only Zoho Books GET with the sync's token (retries, token refresh) — for the Quotations page's look-ups. */
+export const zohoGet = <T = Record<string, unknown>>(path: string, params: Record<string, string | number> = {}) => zget<T>(path, params);
 
 /** Quotations are picked up when they contain one of these items (all have Item Identifier "Training Services"). */
 export const QUOTE_TRAINING_ITEMS = [
