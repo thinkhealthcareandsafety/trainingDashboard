@@ -111,7 +111,7 @@ export function Quotations() {
   const [page, setPage] = useState(0);
   const [res, setRes] = useState<ListRes | null>(null);
   const [loading, setLoading] = useState(false);
-  const [quoting, setQuoting] = useState<Customer | null>(null);
+  const [quoting, setQuoting] = useState<{ c: Customer; fresh: boolean } | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [tick, setTick] = useState(0);
@@ -185,7 +185,7 @@ export function Quotations() {
                 </td>
                 <td className="hidden px-4 py-2.5 text-ink-2 xl:table-cell">{c.lastInvoice ? <>{fmtDay(c.lastInvoice)}<div className="text-[13px] text-muted">{ago(c.lastInvoice)}</div></> : <span className="text-faint">never</span>}</td>
                 <td className="px-4 py-2.5 text-right">
-                  <button className={btn.primary} onClick={() => setQuoting(c)} disabled={!res.connected} title={res.connected ? `Make a quotation for ${c.name}` : "Zoho Books isn't connected for quotations yet"}>Quote</button>
+                  <button className={btn.primary} onClick={() => setQuoting({ c, fresh: false })} disabled={!res.connected} title={res.connected ? `Make a quotation for ${c.name}` : "Zoho Books isn't connected for quotations yet"}>Quote</button>
                 </td>
               </tr>
             ))}
@@ -206,8 +206,8 @@ export function Quotations() {
           )}
         </div>
       )}
-      {quoting && res && createPortal(<QuotePopup customer={quoting} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
-      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting(c); }} onClose={() => setStarting(false)} />, document.body)}
+      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
+      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true }); }} onClose={() => setStarting(false)} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
     </div>
   );
@@ -287,7 +287,8 @@ function StockCell({ item }: { item: Item | undefined }) {
 // Wide: one row per item like Zoho. Phone: the item on its own row, then quantity, rate, amount (no stock / GST).
 const GRID = "grid grid-cols-[4.5rem_minmax(0,1fr)_6.5rem_2rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_5rem_7.5rem_4.5rem_7.5rem_2rem]";
 
-function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boolean; onClose: (sent: boolean) => void }) {
+/** `fresh` ("New quotation"): from scratch — no lines or fields from their last quote (it can still be copied in). */
+function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Customer; fresh?: boolean; live: boolean; onClose: (sent: boolean) => void }) {
   useNoPageScroll();
   const { toast } = useStore();
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -317,9 +318,9 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
       const withMail = j.contacts.filter((c) => c.email);
       const first = withMail.find((c) => c.primary) ?? withMail[0];
       setTo(first ? [first.id] : []);
-      setLines(j.last?.lines.length ? j.last.lines.map((l) => row(l)) : [blank()]);
+      setLines(!fresh && j.last?.lines.length ? j.last.lines.map((l) => row(l)) : [blank()]);
       // The quote's fields: Send to CRM Yes (owner, 28 Oct); the rest from their last quotation where it had them.
-      const was = (k: keyof Opts, fallback: string) => { const v = j.last?.fields[k] ?? ""; return j.options[k].includes(v) ? v : fallback; };
+      const was = (k: keyof Opts, fallback: string) => { const v = (!fresh && j.last?.fields[k]) || ""; return j.options[k].includes(v) ? v : fallback; };
       setF({
         salesperson: j.salesperson ?? "", sendToCrm: "Yes", reminderFrequency: was("reminderFrequency", "15 days"), productType: was("productType", ""), ptTyped: false, leadSource: was("leadSource", "Direct "),
         dealName: "", dealTyped: false, reference: "", expiry: "", discount: "", discountPct: true, shipping: "", adjustment: "", notes: j.notes, terms: j.terms,
@@ -454,7 +455,8 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
                   <p className={label}>Items</p>
                   <button className={`${btn.primary} !h-8`} onClick={() => setBrowsing(true)}>▦ Browse items</button>
                 </div>
-                {detail.last && <p className="text-[13px] text-muted">Started from {detail.last.number} ({fmtDay(detail.last.date)}) · <button className="font-semibold text-brand hover:underline" onClick={() => setLines([blank()])}>start empty</button></p>}
+                {detail.last && fresh && <p className="text-[13px] text-muted">From scratch · <button className="font-semibold text-brand hover:underline" onClick={() => setLines(detail.last!.lines.map((l) => row(l)))}>copy {detail.last.number}</button></p>}
+                {detail.last && !fresh && <p className="text-[13px] text-muted">Started from {detail.last.number} ({fmtDay(detail.last.date)}) · <button className="font-semibold text-brand hover:underline" onClick={() => setLines([blank()])}>start empty</button></p>}
               </div>
               <div>
                 <div>
