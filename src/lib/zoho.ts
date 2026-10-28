@@ -232,7 +232,7 @@ export function isoTime(v: unknown, fallback = ""): string {
  * IGST one is the same %), unit, Zoho's "Stock Status" field, services (no stock). Descriptions are long, so they're
  * read from Zoho only when an item is picked.
  */
-export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean };
+export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean; category?: string; image?: boolean };
 
 /** Every Zoho item with its Item Identifier (a few list calls; the sync keeps the result in MongoDB). */
 export async function fetchItems(): Promise<ZItem[]> {
@@ -240,6 +240,7 @@ export async function fetchItems(): Promise<ZItem[]> {
   return rows.map((i) => ({
     id: String(i.item_id), name: String(i.name), identifier: cf(i, ITEM_IDENTIFIER_FIELD), rate: Number(i.rate) || 0, active: i.status !== "inactive",
     gst: itemGst(i), unit: (i.unit as string) || undefined, stock: cf(i, "cf_stock_status"), service: i.product_type === "service" || undefined,
+    category: (i.category_name as string) || undefined, image: Boolean(i.image_name) || undefined,
   }));
 }
 
@@ -253,6 +254,17 @@ export function itemGst(i: Record<string, unknown>): number | undefined {
 
 /** A read-only Zoho Books GET with the sync's token (retries, token refresh) — for the Quotations page's look-ups. */
 export const zohoGet = <T = Record<string, unknown>>(path: string, params: Record<string, string | number> = {}) => zget<T>(path, params);
+
+/** An item's picture from Zoho Books (the quotation item catalogue, 28 Oct); null when it has none. */
+export async function itemImage(id: string): Promise<{ bytes: ArrayBuffer; type: string } | null> {
+  const url = new URL(`${API}/items/${id}/image`);
+  url.searchParams.set("organization_id", ORG);
+  G.calls = (G.calls ?? 0) + 1;
+  const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` }, cache: "no-store" });
+  const type = res.headers.get("content-type") ?? "";
+  if (!res.ok || !type.startsWith("image/")) return null;
+  return { bytes: await res.arrayBuffer(), type };
+}
 
 /** Quotations are picked up when they contain one of these items (all have Item Identifier "Training Services"). */
 export const QUOTE_TRAINING_ITEMS = [

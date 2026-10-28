@@ -4,8 +4,8 @@ import { hasFullAccess, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, money, nameKey, onHandByItem } from "@/lib/analytics/build";
-import { type ZItem, itemGst, zohoGet } from "@/lib/zoho";
-import { QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createQuote, quotesInfo } from "@/lib/quotations";
+import { type ZItem, itemGst, itemImage, zohoGet } from "@/lib/zoho";
+import { INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, quotesInfo } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -106,6 +106,7 @@ async function defaultNotesTerms(): Promise<{ notes: string; terms: string }> {
   return notesTerms;
 }
 
+const images = new Map<string, { bytes: ArrayBuffer; type: string } | null>();
 const ORG_STATE = "MH"; // Think Health's place of supply (Maharashtra): customers here pay CGST + SGST, others IGST
 const options = Object.fromEntries(Object.entries(QUOTE_FIELDS).filter(([, f]) => "options" in f).map(([k, f]) => [k, (f as { options: readonly string[] }).options]));
 type CF = { api_name?: string; value?: unknown };
@@ -124,8 +125,19 @@ export async function GET(request: Request) {
       const items = (doc?.items ?? []).filter((i) => i.active !== false).map((i) => ({
         id: i.id, name: i.name, group: i.identifier ?? null, rate: i.rate ?? null, gst: i.gst ?? null, unit: i.unit ?? null,
         stock: i.stock ?? null, service: Boolean(i.service), onHand: i.service ? null : Math.round(stock.get(i.id) ?? 0),
+        category: i.category ?? null, image: i.image ?? null,
       }));
       return Response.json({ items });
+    }
+
+    // An item's picture (the catalogue): kept in memory here and a week in the browser — one Zoho call per picture.
+    const imageId = q.get("image");
+    if (imageId) {
+      if (!/^\d+$/.test(imageId)) return new Response(null, { status: 400 });
+      const img = images.get(imageId) ?? (await itemImage(imageId).catch(() => null));
+      if (!images.has(imageId)) { images.set(imageId, img); if (images.size > 400) images.delete(images.keys().next().value!); }
+      if (!img) return new Response(null, { status: 404, headers: { "Cache-Control": "private, max-age=86400" } });
+      return new Response(img.bytes, { headers: { "Content-Type": img.type, "Cache-Control": "private, max-age=604800" } });
     }
 
     const itemId = q.get("item");
@@ -195,7 +207,7 @@ export async function GET(request: Request) {
     const page = Math.max(0, Number(q.get("page")) || 0);
     const count = (k: "sector" | "type") => [...docs.reduce((m, c) => (c[k] ? m.set(c[k]!, (m.get(c[k]!) ?? 0) + 1) : m), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([v]) => v);
     return Response.json({
-      connected: info, scopes: QUOTE_SCOPES, admin: isAdmin(me), live: process.env.VERCEL_ENV === "production",
+      connected: info, scopes: QUOTE_SCOPES, admin: isAdmin(me), live: process.env.VERCEL_ENV === "production", states: INDIA_STATES,
       total: withLast.length, page, pageSize: PAGE, sectors: count("sector"), types: count("type"),
       customers: withLast.slice(page * PAGE, page * PAGE + PAGE).map(({ c, quote, invoice }) => ({
         id: c.contactId, name: c.name, email: c.email ?? null, phone: c.mobile ?? c.phone ?? null, sector: c.sector ?? null, type: c.type ?? null,
@@ -213,7 +225,8 @@ export async function POST(request: Request) {
   if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha and Sumit send quotations" }, { status: 403 });
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer> };
+  if (body.newCustomer) return newCustomer(body.newCustomer);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
   const lines = (body.lines ?? []).filter((l) => l && /^\d+$/.test(String(l.itemId)));
@@ -226,8 +239,10 @@ export async function POST(request: Request) {
   if (typeof details === "string") return Response.json({ error: details }, { status: 400 });
   try {
     const { docs } = await readAll<ZohoLead>("zohoCustomers");
-    const customer = docs.find((c) => c.contactId === customerId);
-    if (!customer) return Response.json({ error: "That customer isn't in the Zoho copy" }, { status: 404 });
+    // A customer made a minute ago ("New quotation") isn't in the copy until the next sync: ask Zoho.
+    const customer = docs.find((c) => c.contactId === customerId)
+      ?? await zohoGet<{ contact?: { contact_name?: string } }>(`/contacts/${customerId}`).then((r) => (r.contact?.contact_name ? { name: r.contact.contact_name } : null)).catch(() => null);
+    if (!customer) return Response.json({ error: "That customer isn't in Zoho Books" }, { status: 404 });
     // No double clicks / two people at once: a second quotation for the same customer within 2 minutes is refused.
     const twoMin = new Date(Date.now() - 120_000).toISOString();
     const just = await (await sentCol()).findOne({ customerId, at: { $gte: twoMin } });
@@ -240,6 +255,27 @@ export async function POST(request: Request) {
   } catch (e) {
     console.error("[quotations] create failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't create the quotation" }, { status: 502 });
+  }
+}
+
+/** "New quotation" → a new customer in Zoho Books (checked here; one already in Zoho by that name is refused). */
+async function newCustomer(n: Partial<NewCustomer>): Promise<Response> {
+  const s = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const company = s(n.company, 200), firstName = s(n.firstName, 100), email = s(n.email, 200).toLowerCase(), gstin = s(n.gstin, 15).toUpperCase();
+  const state = INDIA_STATES.find(([code]) => code === n.state);
+  if (company.length < 2) return Response.json({ error: "Type the company's name" }, { status: 400 });
+  if (!firstName) return Response.json({ error: "Type the contact person's name" }, { status: 400 });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "That email doesn't look right" }, { status: 400 });
+  if (!state) return Response.json({ error: "Pick the state (it decides the GST)" }, { status: 400 });
+  if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/.test(gstin)) return Response.json({ error: "That GSTIN doesn't look right (15 characters)" }, { status: 400 });
+  try {
+    const { docs } = await readAll<ZohoLead>("zohoCustomers");
+    const same = docs.find((c) => nameKey(c.name) === nameKey(company));
+    if (same) return Response.json({ error: `${same.name} is already in Zoho Books — pick it from the list`, existing: same.contactId }, { status: 409 });
+    const made = await createCustomer({ company, firstName, lastName: s(n.lastName, 100), email, phone: s(n.phone, 30), state: state[0], stateName: state[1], city: s(n.city, 100), gstin: gstin || undefined });
+    return Response.json({ ok: true, customer: made });
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't create the customer" }, { status: 502 });
   }
 }
 
