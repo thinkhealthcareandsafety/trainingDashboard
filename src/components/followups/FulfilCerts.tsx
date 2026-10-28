@@ -334,15 +334,22 @@ function ConnectSheet({ member, onClose }: { member: Member; onClose: () => void
   const [clientSecret, setClientSecret] = useState("");
   const [scopes, setScopes] = useState("ZohoSheet.dataAPI.READ,ZohoSheet.dataAPI.UPDATE");
   const [state, setState] = useState<{ busy?: boolean; error?: string; done?: string; register?: Register; worksheet?: string }>({});
+  const [worksheet, setWorksheet] = useState("");
   useEffect(() => {
-    fetch("/api/sheet?check=1").then((r) => r.json()).then((j: { scopes?: string; sheet?: { connectedBy: string; connectedAt: string; worksheet: string } | null; register?: Register }) => {
+    fetch("/api/sheet?check=1").then((r) => r.json()).then((j: { scopes?: string; sheet?: { resourceId: string; connectedBy: string; connectedAt: string; worksheet: string } | null; register?: Register; error?: string }) => {
       if (j.scopes) setScopes(j.scopes);
-      if (j.sheet) setState({ done: `Connected by ${j.sheet.connectedBy} on ${fmtStamp(j.sheet.connectedAt)}.`, register: j.register, worksheet: j.sheet.worksheet });
+      if (!j.sheet) return;
+      // Reconnecting: same sheet and worksheet — only a new code is needed.
+      setLink(`https://sheet.zoho.in/sheet/open/${j.sheet.resourceId}`);
+      setWorksheet(j.sheet.worksheet);
+      setState(j.error
+        ? { error: `${j.error} — generate a new code below and connect again.` }
+        : { done: `Connected by ${j.sheet.connectedBy} on ${fmtStamp(j.sheet.connectedAt)}.`, register: j.register, worksheet: j.sheet.worksheet });
     }).catch(() => {});
   }, []);
   const connect = async () => {
     setState({ busy: true });
-    const r = await fetch("/api/sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link, code, clientId, clientSecret }) }).catch(() => null);
+    const r = await fetch("/api/sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link, code, clientId, clientSecret, worksheet: worksheet || undefined }) }).catch(() => null);
     const j = r ? ((await r.json()) as { ok?: boolean; error?: string; register?: Register; info?: { worksheet: string } }) : { error: "Couldn't reach the server" };
     setState(j.ok ? { done: "Connected — check the columns below.", register: j.register, worksheet: j.info?.worksheet } : { error: j.error ?? "Couldn't connect" });
     if (j.ok) setCode("");
@@ -544,8 +551,11 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
               <fieldset className="space-y-2">
                 <legend className="mb-1.5 flex w-full items-baseline justify-between gap-2 text-[13.5px] font-semibold text-ink">
                   Certificate design
-                  {isAdmin(member) && designs && designs.every((d) => d.uploaded) && (
-                    <button className="text-[12.5px] font-medium text-muted underline hover:text-ink" onClick={() => setSetup("designs")}>Replace designs</button>
+                  {isAdmin(member) && (
+                    <span className="flex gap-3">
+                      {sheet && <button className="text-[12.5px] font-medium text-muted underline hover:text-ink" onClick={() => setSetup("sheet")}>Reconnect sheet</button>}
+                      {designs && designs.every((d) => d.uploaded) && <button className="text-[12.5px] font-medium text-muted underline hover:text-ink" onClick={() => setSetup("designs")}>Replace designs</button>}
+                    </span>
                   )}
                 </legend>
                 {(designs ?? DESIGNS.map((d) => ({ ...d, uploaded: null }))).map((d) => (
@@ -603,7 +613,15 @@ function GeneratePopup({ card, member, onClose }: { card: CardView; member: Memb
         )}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
-        {error && <span className="mr-auto max-w-[60%] text-[13px] font-medium text-high">{error}</span>}
+        {error && (
+          <span className="mr-auto max-w-[60%] text-[13px] font-medium text-high">
+            {error}
+            {/* 28 Oct: Zoho stopped taking the sheet's sign-in — the Connect popup was only reachable before the first connect. */}
+            {/sheet sign-in failed/i.test(error) && (isAdmin(member)
+              ? <> <button className="font-semibold text-brand underline" onClick={() => { setError(""); setSetup("sheet"); }}>Reconnect the sheet</button></>
+              : " Ask Admin to reconnect it.")}
+          </span>
+        )}
         {phase === "names" && (
           <>
             <button className={btn.ghost} onClick={onClose}>Cancel</button>

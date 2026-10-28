@@ -15,7 +15,10 @@ export async function GET(request: Request) {
     if (!new URL(request.url).searchParams.get("check") || !info) return Response.json({ sheet: info, scopes: SHEET_SCOPES });
     const me = await signedInMember(request);
     if (!me || !boardsFor(me).includes("fulfil")) return Response.json({ error: "Only the Fulfillment board reads the sheet" }, { status: 403 });
-    return Response.json({ sheet: info, scopes: SHEET_SCOPES, register: await readRegister() });
+    // A failed read still returns the connection, so the Reconnect popup can keep its link and worksheet (28 Oct).
+    const register = await readRegister().catch((e: Error) => e);
+    if (register instanceof Error) return Response.json({ sheet: info, scopes: SHEET_SCOPES, error: register.message });
+    return Response.json({ sheet: info, scopes: SHEET_SCOPES, register });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't read the sheet" }, { status: 502 });
   }
