@@ -72,7 +72,7 @@ const readTweaks = (id: string): Record<string, Tweak> => { try { return JSON.pa
  * first appearance (tiles before the first section: "Key numbers"). A dashboard without sections (My dashboard) is cut
  * into pages of about six charts — a band of numbers counts as one.
  */
-type Page = { name: string; tiles: Tile[] };
+type Page = { name: string; tiles: Tile[]; half?: Set<string> };
 function pagesOf(tiles: Tile[]): Page[] {
   if (tiles.some((t) => t.section)) {
     const pages: Page[] = [];
@@ -81,6 +81,14 @@ function pagesOf(tiles: Tile[]): Page[] {
       const p = pages.find((x) => x.name === name);
       if (p) p.tiles.push(t);
       else pages.push({ name, tiles: [t] });
+    }
+    // Owner, 28 Oct: "some reports should be shown along with the kpis". A numbers-only first page also shows the next
+    // sections' first two charts, half width side by side (they stay on their own page too; one answer serves both).
+    const [first, ...rest] = pages;
+    if (first && rest.length && first.tiles.every((t) => t.spec.chart === "kpi")) {
+      const two = rest.flatMap((p) => p.tiles).filter((t) => t.spec.chart !== "kpi").slice(0, 2);
+      first.tiles.push(...two);
+      first.half = new Set(two.map((t) => t.id));
     }
     return pages;
   }
@@ -162,7 +170,8 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   for (const t of pages[at]?.tiles ?? []) {
     const kpi = t.spec.chart === "kpi";
     let g = groups.at(-1);
-    if (!g || g.section !== t.section) groups.push((g = { section: t.section, runs: [] }));
+    const section = pages[at]?.half?.has(t.id) ? "with the numbers" : t.section; // the two charts on Key numbers share a row
+    if (!g || g.section !== section) groups.push((g = { section, runs: [] }));
     const run = g.runs.at(-1);
     if (run && run.kpi === kpi) run.tiles.push(t);
     else g.runs.push({ kpi, tiles: [t] });
@@ -232,7 +241,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
             return (
               <div key={ri} className={`grid grid-cols-12 gap-4 ${top ? "mt-5" : "mt-4"}`}>
                 {run.tiles.map((t) => (
-                  <TileCard key={t.id} tile={t} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
+                  <TileCard key={t.id} tile={pages[at]?.half?.has(t.id) ? { ...t, w: 6, tall: false } : t} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                     picked={pick?.tileId === t.id ? pick.value : null} onPick={pickFrom(t)}
                     target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
                     tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />
