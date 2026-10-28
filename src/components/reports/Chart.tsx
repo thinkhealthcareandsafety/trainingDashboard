@@ -59,7 +59,7 @@ const OTHERS_DARK = "#636366";
 export const labelOf = (key: string, date: boolean, grain: Grain, long = false) => (key === BLANK ? "(not set)" : date ? grainLabel(key, grain, long) : key);
 
 /** `mono`: Plain and Black (owner, 22 Oct) — every bar and line in mint; only donuts / stacks / several series get the mixed set. */
-type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string; low: string; high: string; palette: string[]; mono?: string };
+type Theme = { dark: boolean; ink: string; ink2: string; muted: string; line: string; surface: string; brand: string; low: string; high: string; palette: string[]; mono?: string; font: string };
 function readTheme(): Theme {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
@@ -71,7 +71,9 @@ function readTheme(): Theme {
   const own = showing ? THEME_PALETTES[bg] : undefined;
   const palette = own ?? (dark ? PLAIN_DARK : PLAIN_LIGHT);
   const mono = own ? undefined : dark ? MINT_DARK : MINT_LIGHT;
-  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand"), low: v("--low"), high: v("--high"), palette, mono };
+  // The page's own font, by name: a canvas can't "inherit" (28 Oct: with "inherit" every chart label fell back to
+  // the canvas default, 10 px sans-serif — whatever fontSize said).
+  return { dark, ink: v("--ink"), ink2: v("--ink-2"), muted: v("--muted"), line: v("--line"), surface: v("--surface"), brand: v("--brand"), low: v("--low"), high: v("--high"), palette, mono, font: getComputedStyle(document.body).fontFamily };
 }
 
 /** Re-renders when the theme or the background theme changes (Change theme, OS setting). */
@@ -197,22 +199,22 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
     <>
       <div ref={el} style={{ height: model.others ? height - 20 : height }} className="w-full" role="img" aria-label={model.summary} />
       {model.others ? (
-        <p className="mt-1 text-[13.5px] text-muted">
+        <p className="mt-1 text-[15.5px] text-muted">
           Everything else together: <span className="num font-medium text-ink-2">{formatValue(model.others, model.format)}</span>
           {model.twin && model.othersPrev !== undefined && <> ({model.twin === "time" ? model.prevLabel?.toLowerCase() : model.prevLabel}: {formatValue(model.othersPrev ?? null, model.format)})</>} · the table shows it all
         </p>
       ) : null}
       {offMap.length > 0 && <Note text={`Not on the map: ${offMap.map((x) => `${labelOf(x.key, false, grain)} ${formatValue(x.v, model.format)}`).join(" · ")}`} />}
-      {k === "map" && <p className="mt-1 text-[12px] text-faint">Map: <a className="hover:underline" href="https://github.com/datameet/maps" target="_blank" rel="noreferrer">DataMeet India</a>, CC BY 4.0</p>}
+      {k === "map" && <p className="mt-1 text-[14px] text-faint">Map: <a className="hover:underline" href="https://github.com/datameet/maps" target="_blank" rel="noreferrer">DataMeet India</a>, CC BY 4.0</p>}
       {result.note && <Note text={result.note} />}
     </>
   );
 }
 
-const Note = ({ text }: { text: string }) => <p className="mt-1 text-[13.5px] text-muted">{text}</p>;
+const Note = ({ text }: { text: string }) => <p className="mt-1 text-[15.5px] text-muted">{text}</p>;
 
 function Empty({ height }: { height: number }) {
-  return <div style={{ height }} className="grid place-items-center text-[14px] text-muted">No data for these filters.</div>;
+  return <div style={{ height }} className="grid place-items-center text-[16px] text-muted">No data for these filters.</div>;
 }
 
 type Model = {
@@ -291,18 +293,18 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
   const barColours = perBar ? colourMap(m.x, t.dark, pal) : null;
   const fade = (xKey: string) => (picked && xKey !== picked ? 0.3 : 1);
   const fmt = (v: number | null) => formatValue(v, m.format);
-  const axisText = { color: t.muted, fontSize: 13 };
+  const axisText = { color: t.muted, fontSize: 15 };
   const base = {
     animationDuration: 250,
-    textStyle: { fontFamily: "inherit", color: t.ink2 },
+    textStyle: { fontFamily: t.font, color: t.ink2 },
     tooltip: {
       trigger: k === "bar" || k === "donut" ? "item" : "axis",
       axisPointer: { type: k === "line" || k === "area" ? "line" : "shadow", lineStyle: { color: t.line }, shadowStyle: { color: t.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" } },
-      backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 14 },
+      backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 16 },
       valueFormatter: (v: unknown) => fmt(typeof v === "number" ? v : null),
     },
     // One line, with ◀ ▶ when it doesn't fit (phones: a wrapped legend sat on top of the bars).
-    legend: m.series.length > 1 ? { type: "scroll", top: 0, left: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 13.5 } } : undefined,
+    legend: m.series.length > 1 ? { type: "scroll", top: 0, left: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 15 } } : undefined,
   };
 
   if (k === "donut") {
@@ -310,7 +312,7 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
     const pieColours = colourMap(m.x, t.dark, pal);
     return {
       ...base,
-      legend: { orient: "vertical", right: 0, top: "middle", icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 13.5 } },
+      legend: { orient: "vertical", right: 0, top: "middle", icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 15 } },
       series: [{
         type: "pie", radius: ["52%", "76%"], center: ["32%", "50%"], avoidLabelOverlap: true,
         itemStyle: { borderColor: t.surface, borderWidth: 2, borderRadius: 4 },
@@ -324,12 +326,12 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
   if (k === "map") return indiaMap(m, t, own, base, fmt, picked);
   const horizontal = k === "bar" || k === "diverging";
   const catAxis = { type: "category", data: m.xLabels, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { ...axisText, ...(horizontal ? { width: 180, overflow: "truncate" } : { hideOverlap: true }) }, inverse: horizontal };
-  const valAxis = { type: "value", splitLine: { lineStyle: { color: t.line, width: 1 } }, axisLabel: { ...axisText, hideOverlap: true, formatter: (v: number) => fmt(v) } };
+  const valAxis = { type: "value", splitNumber: 4, splitLine: { lineStyle: { color: t.line, width: 1 } }, axisLabel: { ...axisText, hideOverlap: true, formatter: (v: number) => fmt(v) } };
   const radius = horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0];
   const series = m.series.map((s, si) => {
     const colour = colourOf(s.key);
     // The goal across the first series (column / line over months).
-    const goal = target && si === m.series.length - 1 && m.dateX && !horizontal ? { markLine: { silent: true, symbol: "none", data: [{ yAxis: target }], lineStyle: { type: "dashed", color: t.ink2, width: 1.5 }, label: { formatter: `Goal ${fmt(target)}`, color: t.ink2, fontSize: 12.5, position: "insideEndTop" } } } : {};
+    const goal = target && si === m.series.length - 1 && m.dateX && !horizontal ? { markLine: { silent: true, symbol: "none", data: [{ yAxis: target }], lineStyle: { type: "dashed", color: t.ink2, width: 1.5 }, label: { formatter: `Goal ${fmt(target)}`, color: t.ink2, fontSize: 14, position: "insideEndTop" } } } : {};
     if (k === "line" || k === "area") {
       const dashed = s.key === PREV && m.twin === "time"; // last year as a dashed line, no fill
       return { ...goal, type: "line", name: s.name, data: s.values, color: colour, showSymbol: false, symbolSize: 8, lineStyle: { width: 2, color: colour, type: dashed ? "dashed" : "solid" }, itemStyle: { color: colour }, areaStyle: k === "area" && !dashed ? { color: colour, opacity: 0.12 } : undefined };
@@ -340,7 +342,7 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
       return {
         type: "bar", name: s.name, barMaxWidth: 18,
         data: s.values.map((v, i) => ({ value: v, itemStyle: { color: (v ?? 0) >= 0 ? t.low : t.high, opacity: fade(m.x[i]), borderRadius: (v ?? 0) >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] }, label: { show: true, position: "right", color: t.ink2, // falls too: just right of zero, clear of the names
-           fontSize: 13, formatter: () => `${(v ?? 0) >= 0 ? "+" : "−"}${fmt(Math.abs(v ?? 0))}` } })),
+           fontSize: 15, formatter: () => `${(v ?? 0) >= 0 ? "+" : "−"}${fmt(Math.abs(v ?? 0))}` } })),
       };
     }
     return {
@@ -349,7 +351,7 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
       barMaxWidth: horizontal ? 18 : 36, barGap: "20%",
       // Stacks: only the top segment is rounded; segments are parted by a 2 px surface gap.
       data: s.values.map((v, i) => ({ value: v, itemStyle: { color: barColours?.get(m.x[i]) ?? colour, opacity: fade(m.x[i]), borderRadius: k === "stacked" && !last ? 0 : radius, borderColor: k === "stacked" ? t.surface : undefined, borderWidth: k === "stacked" ? 1 : 0 } })),
-      label: horizontal && single ? { show: true, position: "right", color: t.ink2, fontSize: 13, formatter: (p: { value: number }) => fmt(p.value) } : undefined,
+      label: horizontal && single ? { show: true, position: "right", color: t.ink2, fontSize: 15, formatter: (p: { value: number }) => fmt(p.value) } : undefined,
       emphasis: { focus: k === "stacked" ? "series" : "none" },
     };
   });
@@ -382,7 +384,7 @@ export function Kpi({ result, compact = false }: { result: Result; compact?: boo
     <div>
       <div className={`num font-semibold leading-tight tracking-tight text-ink ${compact ? "text-[32px]" : "text-[36px]"}`}>{formatValue(v, f)}</div>
       {result.previous && (
-        <div className={`mt-1 text-[14px] text-muted ${compact ? "truncate" : ""}`} title={range ? `Compared with ${range}${compact ? ` (${when})` : ""}${result.toDate && now !== v ? ` — this period so far: ${formatValue(now, f)}` : ""}` : undefined}>
+        <div className={`mt-1 text-[16px] text-muted ${compact ? "truncate" : ""}`} title={range ? `Compared with ${range}${compact ? ` (${when})` : ""}${result.toDate && now !== v ? ` — this period so far: ${formatValue(now, f)}` : ""}` : undefined}>
           {change === null ? <>vs {formatValue(p ?? null, f)}{tail}</> : (
             <><span className={`font-semibold ${groups ? "text-ink-2" : good ? "text-low" : "text-high"}`}>{change >= 0 ? "▲" : "▼"} {Math.abs(change).toFixed(Math.abs(change) < 10 ? 1 : 0)}{pts ? " pts" : "%"}</span> vs {formatValue(p ?? null, f)}{tail}</>
           )}
@@ -416,7 +418,7 @@ function indiaMap(m: Model, t: Theme, own: string, base: { tooltip: object }, fm
   const change = (v: number, p: number | null) => (p ? ` · ${v >= p ? "▲" : "▼"} ${Math.abs(Math.round(((v - p) / p) * 100))}%` : "");
   return {
     animationDuration: 250,
-    textStyle: { fontFamily: "inherit", color: t.ink2 },
+    textStyle: { fontFamily: t.font, color: t.ink2 },
     tooltip: {
       ...base.tooltip, trigger: "item",
       formatter: (p: { name: string; data?: { value: number[]; prev: number | null } }) => !p.data ? `${p.name}<br/>—`
@@ -425,7 +427,7 @@ function indiaMap(m: Model, t: Theme, own: string, base: { tooltip: object }, fm
     // The scale sits in the Arabian Sea (bottom left), where the map has nothing.
     visualMap: {
       type: "continuous", dimension: 1, min: 0, max: Math.sqrt(max) || 1, left: 0, bottom: 4, itemWidth: 10, itemHeight: 90, calculable: false,
-      text: [fmt(max), fmt(0)], textGap: 6, formatter: (v: number) => fmt(v * v), textStyle: { color: t.muted, fontSize: 12 },
+      text: [fmt(max), fmt(0)], textGap: 6, formatter: (v: number) => fmt(v * v), textStyle: { color: t.muted, fontSize: 14 },
       inRange: { color: [faint(own, 0.14), own] },
     },
     series: [{
@@ -452,7 +454,7 @@ function waterfall(m: Model, t: Theme, own: string, base: object, fmt: (v: numbe
   const colourAt = (i: number) => (i === 0 || i === vals.length - 1 ? own : vals[i] >= 0 ? t.low : t.high);
   return {
     ...base,
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 14 },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 16 },
       formatter: (ps: { dataIndex: number }[]) => { const i = ps[0]?.dataIndex ?? 0; return `${m.xLabels[i]}<br/><b>${i && i < vals.length - 1 && vals[i] >= 0 ? "+" : ""}${fmt(vals[i])}</b>`; } },
     legend: undefined,
     grid: { left: 8, right: 12, top: 28, bottom: 8, containLabel: true },
@@ -461,7 +463,7 @@ function waterfall(m: Model, t: Theme, own: string, base: object, fmt: (v: numbe
     series: [
       { type: "bar", stack: "w", silent: true, itemStyle: { color: "transparent" }, data: lift, tooltip: { show: false } },
       { type: "bar", stack: "w", barMaxWidth: 56, data: size.map((v, i) => ({ value: v, itemStyle: { color: colourAt(i), borderRadius: 4 } })),
-        label: { show: true, position: "top", color: t.ink2, fontSize: 13, formatter: (p: { dataIndex: number }) => { const i = p.dataIndex; const v = vals[i]; return i && i < vals.length - 1 ? `${v >= 0 ? "+" : "−"}${fmt(Math.abs(v))}` : fmt(v); } } },
+        label: { show: true, position: "top", color: t.ink2, fontSize: 15, formatter: (p: { dataIndex: number }) => { const i = p.dataIndex; const v = vals[i]; return i && i < vals.length - 1 ? `${v >= 0 ? "+" : "−"}${fmt(Math.abs(v))}` : fmt(v); } } },
     ],
   };
 }
@@ -480,7 +482,7 @@ function Heatmap({ result, target }: { result: Result; target?: number }) {
   return (
     <div>
       <div className="no-scrollbar overflow-x-auto">
-        <table className="w-full border-separate border-spacing-1 text-[13px]">
+        <table className="w-full border-separate border-spacing-1 text-[15px]">
           <thead>
             <tr className="text-muted">
               <th className="pr-2 text-left font-medium" />
@@ -532,17 +534,17 @@ function Matrix({ result, relative = false }: { result: Result; relative?: boole
     return (
       <td className={`num py-1.5 pl-3 text-right align-top ${strong ? "font-semibold text-ink" : "text-ink"}`} title={has ? `${result.prevLabel}: ${formatValue(then, f, false)}` : undefined}>
         <div>{rs.length && now ? formatValue(now, f) : "—"}</div>
-        {has && (now || then) ? <div className={`text-[12px] ${group ? "text-muted" : up ? "text-low" : "text-high"}`}>{ch === "—" ? (then ? "−100%" : "new") : ch}</div> : null}
-        {relative && base && now ? <div className="text-[12px] text-muted">{Math.round((now / base) * 100)}%</div> : null}
+        {has && (now || then) ? <div className={`text-[14px] ${group ? "text-muted" : up ? "text-low" : "text-high"}`}>{ch === "—" ? (then ? "−100%" : "new") : ch}</div> : null}
+        {relative && base && now ? <div className="text-[14px] text-muted">{Math.round((now / base) * 100)}%</div> : null}
       </td>
     );
   };
   if (relative) return (
     <div>
       <div className="no-scrollbar max-h-[520px] overflow-auto">
-        <table className="w-full text-[14px]">
+        <table className="w-full text-[16px]">
           <thead className="sticky top-0 z-10 bg-surface">
-            <tr className="border-b border-line text-left text-[13px] text-muted">
+            <tr className="border-b border-line text-left text-[15px] text-muted">
               <th className="py-1.5 pr-3 font-medium">{result.by[0]?.label} / {result.by[1]?.label}</th>
               {cols.map((c) => <th key={c} className="py-1.5 pl-3 text-right font-medium">{labelOf(c, false, "month")}</th>)}
             </tr>
@@ -563,9 +565,9 @@ function Matrix({ result, relative = false }: { result: Result; relative?: boole
   return (
     <div>
       <div className="no-scrollbar max-h-[520px] overflow-auto">
-        <table className="w-full text-[14px]">
+        <table className="w-full text-[16px]">
           <thead className="sticky top-0 z-10 bg-surface">
-            <tr className="border-b border-line text-left text-[13px] text-muted">
+            <tr className="border-b border-line text-left text-[15px] text-muted">
               <th className="py-1.5 pr-3 font-medium">{result.by[0]?.label} / {result.by[1]?.label}</th>
               {cols.map((c) => <th key={c} className="py-1.5 pl-3 text-right font-medium">{labelOf(c, false, "month")}</th>)}
               <th className="py-1.5 pl-3 text-right font-semibold text-ink-2">Total</th>
@@ -614,9 +616,9 @@ export function ResultTable({ result, grain = "month", max = 200 }: { result: Re
   const totalNow = result.toDate?.[0] ?? result.totals[0];
   return (
     <div className="no-scrollbar max-h-[340px] overflow-auto">
-      <table className="w-full text-[14.5px]">
+      <table className="w-full text-[16.5px]">
         <thead className="sticky top-0 bg-surface">
-          <tr className="border-b border-line text-left text-[13px] text-muted">
+          <tr className="border-b border-line text-left text-[15px] text-muted">
             {result.by.map((b) => <th key={b.key} className="py-1.5 pr-3 font-medium">{b.label}</th>)}
             {result.measures.map((m) => <th key={m.key} className="py-1.5 pl-3 text-right font-medium">{m.label}</th>)}
             {prev && <><th className="py-1.5 pl-3 text-right font-medium">{result.prevLabel}</th><th className="py-1.5 pl-3 text-right font-medium">Change</th></>}

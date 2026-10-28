@@ -79,19 +79,19 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
 
   const field = (label: string, children: React.ReactNode, hint?: string) => (
     <div>
-      <div className="text-[13px] font-semibold uppercase tracking-wide text-muted">{label}</div>
+      <div className="text-[15px] font-semibold uppercase tracking-wide text-muted">{label}</div>
       <div className="mt-1.5">{children}</div>
-      {hint && <p className="mt-1 text-[13px] leading-snug text-muted">{hint}</p>}
+      {hint && <p className="mt-1 text-[15px] leading-snug text-muted">{hint}</p>}
     </div>
   );
-  const selectCls = "h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[14px] text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
+  const selectCls = "h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[16px] text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
   const kind = answer && !isError(answer) ? resolveKind(spec.chart, answer) : undefined;
 
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3 sm:p-4" onMouseDown={onClose}>
       <div role="dialog" aria-label="Report builder" className="modal-in flex max-h-[94vh] w-full max-w-[1180px] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
-          <h2 className="text-[17px] font-bold tracking-tight text-ink">{savedId ? "Edit report" : "New report"}</h2>
+          <h2 className="text-[19px] font-bold tracking-tight text-ink">{savedId ? "Edit report" : "New report"}</h2>
           <button onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
             <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
           </button>
@@ -108,7 +108,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               <div className="flex flex-wrap gap-1.5">
                 {d.measures.map((m) => (
                   <button key={m.key} type="button" title={m.def} aria-pressed={spec.measures.includes(m.key)} onClick={() => toggleMeasure(m.key)}
-                    className={`rounded-full border px-3 py-1 text-[13.5px] font-medium transition ${spec.measures.includes(m.key) ? "border-brand bg-brand text-brand-ink" : "border-line text-ink-2 hover:border-line-strong"}`}>
+                    className={`rounded-full border px-3 py-1 text-[15.5px] font-medium transition ${spec.measures.includes(m.key) ? "border-brand bg-brand text-brand-ink" : "border-line text-ink-2 hover:border-line-strong"}`}>
                     {m.label}
                   </button>
                 ))}
@@ -130,7 +130,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   <div className="flex flex-wrap gap-1">
                     {GRAINS.map((g) => (
                       <button key={g.value} type="button" aria-pressed={(spec.grain ?? "month") === g.value} onClick={() => set({ grain: g.value })}
-                        className={`rounded-full px-2.5 py-1 text-[13px] font-medium ${(spec.grain ?? "month") === g.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{g.label}</button>
+                        className={`rounded-full px-2.5 py-1 text-[15px] font-medium ${(spec.grain ?? "month") === g.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{g.label}</button>
                     ))}
                   </div>
                 )}
@@ -140,7 +140,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               <div className="flex flex-wrap gap-1">
                 {CHARTS.map((c) => (
                   <button key={c.value} type="button" aria-pressed={(spec.chart ?? "auto") === c.value} onClick={() => set({ chart: c.value })}
-                    className={`rounded-full px-2.5 py-1 text-[13px] font-medium ${(spec.chart ?? "auto") === c.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{c.label}</button>
+                    className={`rounded-full px-2.5 py-1 text-[15px] font-medium ${(spec.chart ?? "auto") === c.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{c.label}</button>
                 ))}
               </div>
             ))}
@@ -161,19 +161,19 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
           {/* The preview */}
           <div className="flex min-h-[360px] min-w-0 flex-col p-5">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="min-w-0 truncate text-[16.5px] font-semibold text-ink">{title || autoTitle(spec)}</h3>
-              {answer && !isError(answer) && <span className="shrink-0 text-[13px] text-muted">{answer.matched.toLocaleString("en-IN")} rows</span>}
+              <h3 className="min-w-0 truncate text-[18.5px] font-semibold text-ink">{title || autoTitle(spec)}</h3>
+              {answer && !isError(answer) && <span className="shrink-0 text-[15px] text-muted">{answer.matched.toLocaleString("en-IN")} rows</span>}
             </div>
             <div className="mt-3 min-h-0 flex-1">
               {!answer ? <div className="h-[520px] animate-pulse rounded-lg bg-surface-2" />
-                : isError(answer) ? <p className="text-[14px] text-high">{answer.error}</p>
+                : isError(answer) ? <p className="text-[16px] text-high">{answer.error}</p>
                 : <Chart result={answer} kind={spec.chart} grain={spec.grain} height={kind === "kpi" ? 120 : 520} />}
             </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3.5">
-          {saving.error && <span className="mr-auto text-[14px] font-medium text-high">{saving.error}</span>}
-          {!canSave && <span className="mr-auto text-[13.5px] text-muted">Admin, Ashish, Shikha and Sumit can save reports for the team.</span>}
+          {saving.error && <span className="mr-auto text-[16px] font-medium text-high">{saving.error}</span>}
+          {!canSave && <span className="mr-auto text-[15.5px] text-muted">Admin, Ashish, Shikha and Sumit can save reports for the team.</span>}
           <button className={btn.ghost} onClick={onClose}>Close</button>
           {canSave && <button className={btn.primary} disabled={saving.busy || !answer || isError(answer)} onClick={save}>{saving.busy ? "Saving…" : savedId ? "Save changes" : "Save report"}</button>}
         </div>
@@ -195,7 +195,7 @@ function Filters({ dataset, filters, onChange }: { dataset: string; filters: Fil
         </div>
       ))}
       {free.length > 0 && (
-        <select className="h-8 w-full rounded-lg border border-dashed border-line bg-surface px-2.5 text-[13.5px] text-muted focus:border-brand focus:outline-none" value={adding}
+        <select className="h-8 w-full rounded-lg border border-dashed border-line bg-surface px-2.5 text-[15.5px] text-muted focus:border-brand focus:outline-none" value={adding}
           onChange={(e) => { if (e.target.value) onChange([...filters, { field: e.target.value, values: [] }]); setAdding(""); }}>
           <option value="">+ Add a filter…</option>
           {free.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}

@@ -47,15 +47,15 @@ export function Reports() {
     await loadMeta();
   };
 
-  if (error && !meta) return <p className="text-[14px] text-high">{error}</p>;
+  if (error && !meta) return <p className="text-[16px] text-high">{error}</p>;
   if (!meta) return <div className="h-40 animate-pulse rounded-2xl bg-surface-2" />;
-  if (!meta.datasets.length) return <p className="text-[14px] text-muted">Reports cover the Training board's data — your boards don't include it.</p>;
+  if (!meta.datasets.length) return <p className="text-[16px] text-muted">Reports cover the Training board's data — your boards don't include it.</p>;
 
   const st = meta.state;
   const goal = meta.datasets.includes("sales");
   return (
     // The monthly goal sits on the left of every tab (owner, 27 Oct); on narrower screens it's a strip on top.
-    <div className={goal ? "grid gap-4 xl:grid-cols-[14rem_minmax(0,1fr)] xl:gap-5" : ""}>
+    <div className={goal ? "grid gap-4 xl:grid-cols-[15rem_minmax(0,1fr)] xl:gap-5" : ""}>
       {goal && <aside className="xl:sticky xl:top-4 xl:self-start"><GoalMeter today={meta.today} admin={meta.admin} /></aside>}
     <div className="min-w-0">
       {/* One row: the tabs and + New report (the dashboard's description is the tab's tooltip; data freshness is at the
@@ -64,17 +64,17 @@ export function Reports() {
         <div className="inline-flex flex-wrap rounded-full bg-surface-2 p-0.5" role="tablist" aria-label="Dashboards">
           {[{ id: "mine", label: "My dashboard", desc: "Your own choice of reports from every tab" }, ...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }].map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} title={t.desc}
-              className={`rounded-full px-3.5 py-1.5 text-[14px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
+              className={`rounded-full px-3 py-1.5 text-[15px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>
-        <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})}>+ New report</button>
+        <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})} title="New report">+ New</button>
       </div>
       <div className="mt-4">
         {tab === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={dashboards} saved={saved ? saved.reports : null} />
           : current ? <DashboardView def={current} today={meta.today} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}
       </div>
-      <p className="mt-8 text-[13px] text-faint" title={st.error ? `Last refresh: ${st.error}` : undefined}>
+      <p className="mt-8 text-[15px] text-faint" title={st.error ? `Last refresh: ${st.error}` : undefined}>
         {current ? `${current.desc} · ` : ""}Zoho data copied {stamp(st.refreshedAt)}{st.running || refreshing ? " · refreshing…" : ""}{st.error ? " · last refresh had a problem" : ""}
         {meta.admin && !st.running && !refreshing && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={refresh}>Refresh now</button></>}
       </p>
@@ -92,8 +92,8 @@ function SavedReports({ list, today, canBuild, onEdit, onChanged, onNew }: { lis
   if (!list.length) {
     return (
       <div className="card grid place-items-center gap-2 p-10 text-center">
-        <p className="text-[14px] text-ink-2">No saved reports yet.</p>
-        <p className="max-w-md text-[13px] text-muted">{canBuild ? "Make one with + New report — pick the data, what to measure and how to split it, then save it for the team." : "Admin, Ashish, Shikha and Sumit save reports here for everyone."}</p>
+        <p className="text-[16px] text-ink-2">No saved reports yet.</p>
+        <p className="max-w-md text-[15px] text-muted">{canBuild ? "Make one with + New report — pick the data, what to measure and how to split it, then save it for the team." : "Admin, Ashish, Shikha and Sumit save reports here for everyone."}</p>
         {canBuild && <button className={`${btn.primary} mt-2`} onClick={onNew}>+ New report</button>}
       </div>
     );

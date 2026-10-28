@@ -81,10 +81,10 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
 
   const props = { fill, goal, invoiced, booked: data.booked, expected: p.expected, estimate: p.estimate, tone, tickHint, bookedHint, estimateHint } as const;
   const lines = (
-    <dl className="grid gap-1.5 text-[13px]">
+    <dl className="grid gap-1.5 text-[15px]">
       <Line dot={fill[tone]} label="Invoiced" value={inrShort(invoiced)} />
       <Line dot={fill[tone]} striped label="Booked" value={inrShort(data.booked)} title={bookedHint} />
-      {reached ? null : <Line label={`Needed / day · ${p.daysLeft} left`} value={inrShort(p.perDay)} title="₹ still needed ÷ working days left (Mon–Sat, today included)" />}
+      {reached ? null : <Line label={`Per day · ${p.daysLeft} left`} value={inrShort(p.perDay)} title="₹ still needed ÷ working days left (Mon–Sat, today included)" />}
       {p.estimate !== null && <Line label="Month end" value={`≈ ${inrShort(p.estimate)}`} title={estimateHint} />}
     </dl>
   );
@@ -93,17 +93,17 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
     <section ref={box} className="card p-4" aria-label={`${monthName} revenue goal`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-medium text-muted">{monthName} goal{custom ? " (this month)" : ""}</h2>
+          <h2 className="text-[15px] font-medium text-muted">{monthName} goal{custom ? " (this month)" : ""}</h2>
           <div className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{inrShort(goal)}</div>
         </div>
         {admin && (
-          <button type="button" className="-mr-1 rounded-md px-1.5 py-1 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => setEditing(true)} title="Change the goal (Admin)" aria-label="Change the goal">✎</button>
+          <button type="button" className="-mr-1 rounded-md px-1.5 py-1 text-[15px] font-medium text-muted hover:bg-surface-2 hover:text-ink" onClick={() => setEditing(true)} title="Change the goal (Admin)" aria-label="Change the goal">✎</button>
         )}
       </div>
       <div className="mt-2 flex items-baseline gap-2 xl:block">
         <span className="text-[34px] font-semibold leading-none tracking-tight text-ink">{pct}%</span>
-        <span className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-2 xl:flex">
-          <span aria-hidden className="text-[9px]" style={{ color: fill[tone] }}>{reached || tone === "on" ? "●" : "▲"}</span>
+        <span className="mt-1 inline-flex items-center gap-1.5 text-[15px] font-medium text-ink-2 xl:flex">
+          <span aria-hidden className="text-[11px]" style={{ color: fill[tone] }}>{reached || tone === "on" ? "●" : "▲"}</span>
           {status}
         </span>
       </div>
@@ -121,7 +121,7 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
 
       {p.estimate !== null && p.daysLeft > 0 && <WhatIf goal={goal} invoiced={invoiced} estimate={p.estimate} colour={fill.on} />}
       <History months={data.months} goalOf={(k) => goalFor(data.goal, k)} current={month} colour={fill.on} />
-      <p className="mt-3 text-[12px] leading-snug text-faint">Every Zoho Books invoice, before tax.</p>
+      <p className="mt-3 text-[14px] leading-snug text-faint">Every Zoho Books invoice, before tax.</p>
 
       {editing && createPortal(<GoalEditor goal={data.goal} month={month} monthName={monthName} onClose={() => setEditing(false)} onSaved={(g) => { setData((d) => (d ? { ...d, goal: g } : d)); setEditing(false); }} />, document.body)}
     </section>
@@ -134,7 +134,7 @@ function WhatIf({ goal, invoiced, estimate, colour }: { goal: number; invoiced: 
   const end = invoiced + (estimate - invoiced) * (1 + pct / 100);
   const gap = end - goal;
   return (
-    <details className="group mt-3 rounded-xl bg-surface-2/70 px-3 py-2 text-[13px]">
+    <details className="group mt-3 rounded-xl bg-surface-2/70 px-3 py-2 text-[15px]">
       <summary className="cursor-pointer list-none font-medium text-ink-2 marker:hidden">What if…<span className="float-right text-muted group-open:hidden">▾</span></summary>
       <label className="mt-2 block text-muted">
         The rest of the month goes <b className="font-semibold text-ink">{pct === 0 ? "as so far" : `${Math.abs(pct)}% ${pct > 0 ? "faster" : "slower"}`}</b>
@@ -185,9 +185,9 @@ function Mark({ at, label, hint, side = "right", strong, dashed }: { at: string;
   return (
     <span tabIndex={hint ? 0 : undefined} aria-label={hint ?? label} className="group absolute left-1/2 w-[5.5rem] -translate-x-1/2 translate-y-1/2 outline-none" style={{ bottom: at }}>
       <span className={`absolute left-1/2 top-0 w-[4.5rem] -translate-x-1/2 rounded-full ${line}`} />
-      <span className={`absolute top-0 -translate-y-1/2 whitespace-nowrap text-[11.5px] leading-none ${strong ? "font-semibold text-ink" : "text-muted"} ${hint ? "cursor-help group-hover:text-ink group-focus:text-ink" : ""} ${side === "left" ? "right-full mr-1 text-right" : "left-full ml-1"}`}>{label}</span>
+      <span className={`absolute top-0 -translate-y-1/2 whitespace-nowrap text-[13px] leading-none ${strong ? "font-semibold text-ink" : "text-muted"} ${hint ? "cursor-help group-hover:text-ink group-focus:text-ink" : ""} ${side === "left" ? "right-full mr-1 text-right" : "left-full ml-1"}`}>{label}</span>
       {hint && (
-        <span role="tooltip" className={`pointer-events-none invisible absolute bottom-full z-20 mb-2 w-56 rounded-lg border border-line bg-surface p-2.5 text-[12px] leading-snug text-ink-2 opacity-0 shadow-pop transition-opacity group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100 ${side === "left" ? "left-0" : "right-0"}`}>{hint}</span>
+        <span role="tooltip" className={`pointer-events-none invisible absolute bottom-full z-20 mb-2 w-56 rounded-lg border border-line bg-surface p-2.5 text-[14px] leading-snug text-ink-2 opacity-0 shadow-pop transition-opacity group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100 ${side === "left" ? "left-0" : "right-0"}`}>{hint}</span>
       )}
     </span>
   );
@@ -202,7 +202,7 @@ function HorizontalBar(b: BarProps) {
         <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: at(b.invoiced), background: b.fill[b.tone] }} />
         {b.booked > 0 && <div className="absolute inset-y-0" style={{ left: at(b.invoiced), width: `calc(${at(b.invoiced + b.booked)} - ${at(b.invoiced)})`, background: STRIPES(b.fill[b.tone]) }} />}
       </div>
-      <span className="absolute top-0 -translate-x-1/2 text-[10.5px] leading-none text-faint" style={{ left: at(b.expected) }} title={b.tickHint}>today</span>
+      <span className="absolute top-0 -translate-x-1/2 text-[12px] leading-none text-faint" style={{ left: at(b.expected) }} title={b.tickHint}>today</span>
       <span className="absolute top-3 h-5 w-0.5 -translate-x-1/2 rounded-full bg-ink/70" style={{ left: at(b.expected) }} />
       {max > b.goal && <span className="absolute top-3 h-5 w-0.5 -translate-x-1/2 bg-ink" style={{ left: at(b.goal) }} title={`Goal ${inrShort(b.goal)}`} />}
     </div>
@@ -215,7 +215,7 @@ function History({ months, goalOf, current, colour }: { months: { key: string; r
   const hit = past.filter((m) => m.revenue >= goalOf(m.key)).length;
   return (
     <div className="mt-4 border-t border-line pt-3">
-      <div className="flex items-baseline justify-between text-[12.5px]">
+      <div className="flex items-baseline justify-between text-[14.5px]">
         <span className="text-muted">Last 6 months</span>
         <span className="font-medium text-ink-2">{hit} of {past.length} reached</span>
       </div>
@@ -228,7 +228,7 @@ function History({ months, goalOf, current, colour }: { months: { key: string; r
               <div className="flex h-8 w-full items-end rounded-[4px] bg-surface-2">
                 <div className="w-full rounded-[4px]" style={{ height: `${Math.max(6, Math.min(100, (m.revenue / g) * 100))}%`, background: ok ? colour : "var(--line-strong)" }} />
               </div>
-              <span className="text-[10.5px] leading-none text-faint">{grainLabel(m.key, "month").slice(0, 1)}</span>
+              <span className="text-[12px] leading-none text-faint">{grainLabel(m.key, "month").slice(0, 1)}</span>
             </div>
           );
         })}
@@ -263,8 +263,8 @@ function GoalEditor({ goal, month, monthName, onClose, onSaved }: { goal: Goal; 
         <Field label={`Only for ${monthName} (₹ lakh)`} hint="Leave empty to use the usual goal.">
           <input className={inputCls} inputMode="decimal" value={only} onChange={(e) => setOnly(e.target.value)} placeholder={usual} />
         </Field>
-        {error && <p className="text-[13px] text-high">{error}</p>}
-        {goal.updatedBy && <p className="text-[12px] text-faint">Last changed by {goal.updatedBy}{goal.updatedAt ? `, ${new Date(goal.updatedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : ""}</p>}
+        {error && <p className="text-[15px] text-high">{error}</p>}
+        {goal.updatedBy && <p className="text-[14px] text-faint">Last changed by {goal.updatedBy}{goal.updatedAt ? `, ${new Date(goal.updatedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : ""}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className={btn.ghost} onClick={onClose}>Cancel</button>
           <button type="button" className={btn.primary} onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>

@@ -75,7 +75,7 @@ export function MyDashboard({ today, admin, dashboards, saved }: { today: string
 
   const customise = (
     <button type="button" onClick={() => setCustomising(true)}
-      className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[14px] font-medium text-ink-2 transition hover:border-line-strong">
+      className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[16px] font-medium text-ink-2 transition hover:border-line-strong">
       <svg viewBox="0 0 20 20" className="size-4 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 6h7M15 6h1M4 14h1M9 14h7" /><circle cx="13" cy="6" r="2" /><circle cx="7" cy="14" r="2" /></svg>
       Customise
     </button>
@@ -84,8 +84,8 @@ export function MyDashboard({ today, admin, dashboards, saved }: { today: string
     <>
       {placed.length ? <DashboardView def={def} today={today} tools={customise} /> : (
         <div className="card grid place-items-center gap-2 p-10 text-center">
-          <p className="text-[14px] text-ink-2">Nothing on your dashboard yet.</p>
-          <p className="max-w-md text-[13px] text-muted">Pick the reports you look at most — from any tab, or the team&apos;s saved reports.</p>
+          <p className="text-[16px] text-ink-2">Nothing on your dashboard yet.</p>
+          <p className="max-w-md text-[15px] text-muted">Pick the reports you look at most — from any tab, or the team&apos;s saved reports.</p>
           <div className="mt-2">{customise}</div>
         </div>
       )}
@@ -157,14 +157,14 @@ function Customise({ placed, own, starting, startingBy, admin, sources, onClose,
   };
 
   const source = sources.find((s) => s.dash === tab);
-  const sizeBtn = (on: boolean) => `h-7 w-8 rounded-full text-[12.5px] font-semibold transition ${on ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.15)]" : "text-muted hover:text-ink"}`;
+  const sizeBtn = (on: boolean) => `h-7 w-8 rounded-full text-[14.5px] font-semibold transition ${on ? "bg-surface text-ink shadow-[0_1px_2px_rgb(0_0_0/0.15)]" : "text-muted hover:text-ink"}`;
   const iconBtn = "grid size-8 shrink-0 place-items-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent";
 
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3 sm:p-4" onMouseDown={onClose}>
       <div role="dialog" aria-label="Customise my dashboard" className="modal-in flex max-h-[94vh] w-full max-w-[1180px] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
-          <h2 className="text-[17px] font-bold tracking-tight text-ink">Customise my dashboard</h2>
+          <h2 className="text-[19px] font-bold tracking-tight text-ink">Customise my dashboard</h2>
           <button onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
             <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
           </button>
@@ -172,13 +172,13 @@ function Customise({ placed, own, starting, startingBy, admin, sources, onClose,
         <div className="no-scrollbar grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-y-auto lg:grid-cols-[minmax(0,1fr)_440px] lg:overflow-hidden">
           {/* The library: every tile, one tab at a time. */}
           <div className="no-scrollbar border-b border-line p-5 lg:overflow-y-auto lg:border-b-0 lg:border-r">
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">Add reports</p>
+            <p className="text-[15px] font-semibold uppercase tracking-wide text-muted">Add reports</p>
             <div className="mt-2 flex flex-wrap gap-1" role="tablist" aria-label="Reports by tab">
               {sources.map((s) => {
                 const n = draft.filter((e) => e.dash === s.dash).length;
                 return (
                   <button key={s.dash} type="button" role="tab" aria-selected={tab === s.dash} onClick={() => setTab(s.dash)}
-                    className={`rounded-full px-3.5 py-1.5 text-[13.5px] font-medium transition ${tab === s.dash ? "bg-brand-soft text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>
+                    className={`rounded-full px-3.5 py-1.5 text-[15.5px] font-medium transition ${tab === s.dash ? "bg-brand-soft text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>
                     {s.label}{n ? <span className="ml-1 text-brand">· {n}</span> : null}
                   </button>
                 );
@@ -190,30 +190,30 @@ function Customise({ placed, own, starting, startingBy, admin, sources, onClose,
                 return (
                   <label key={t.id} className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-surface-2">
                     <input type="checkbox" className="size-4 shrink-0 accent-[var(--brand)]" checked={on} onChange={() => toggle(source.dash, t.id)} />
-                    <span className="min-w-0 truncate text-[14px] text-ink" title={t.spec.title}>{t.spec.title}</span>
-                    {isKpi(t) && <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11.5px] font-medium text-muted">Number</span>}
+                    <span className="min-w-0 truncate text-[16px] text-ink" title={t.spec.title}>{t.spec.title}</span>
+                    {isKpi(t) && <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[13px] font-medium text-muted">Number</span>}
                   </label>
                 );
               })}
             </div>
-            <p className="mt-3 text-[12.5px] text-faint">The period, comparison and filters at the top reach every report; a saved report keeps its own period.</p>
+            <p className="mt-3 text-[14.5px] text-faint">The period, comparison and filters at the top reach every report; a saved report keeps its own period.</p>
           </div>
 
           {/* What's on the page, in order. */}
           <div className="no-scrollbar p-5 lg:overflow-y-auto">
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">On your dashboard · {rows.length}</p>
-            {!rows.length && <p className="mt-3 text-[13.5px] text-faint">Nothing yet — tick reports on the left.</p>}
+            <p className="text-[15px] font-semibold uppercase tracking-wide text-muted">On your dashboard · {rows.length}</p>
+            {!rows.length && <p className="mt-3 text-[15.5px] text-faint">Nothing yet — tick reports on the left.</p>}
             <ol className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-1">
               {rows.map((p, i) => {
                 const size = p.entry.size ?? sizeOfW(p.tile.w);
                 return (
                   <li key={entryKey(p.entry)} className="flex items-center gap-1.5 rounded-xl border border-line px-2.5 py-1.5">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[14px] text-ink" title={p.tile.spec.title}>{p.tile.spec.title}</p>
-                      <p className="truncate text-[12px] text-muted">{p.source}</p>
+                      <p className="truncate text-[16px] text-ink" title={p.tile.spec.title}>{p.tile.spec.title}</p>
+                      <p className="truncate text-[14px] text-muted">{p.source}</p>
                     </div>
                     {isKpi(p.tile)
-                      ? <span className="hidden shrink-0 px-2 text-[12px] text-faint sm:inline" title="Numbers sit side by side in one band">Number</span>
+                      ? <span className="hidden shrink-0 px-2 text-[14px] text-faint sm:inline" title="Numbers sit side by side in one band">Number</span>
                       : (
                         <div className="inline-flex shrink-0 rounded-full bg-surface-2 p-0.5" role="group" aria-label="Size">
                           {(["s", "m", "l"] as Size[]).map((s) => (
@@ -239,7 +239,7 @@ function Customise({ placed, own, starting, startingBy, admin, sources, onClose,
           <button type="button" className={btn.quiet} disabled={state.busy} onClick={() => { setDraft(place(starting, sources).map((p) => p.entry)); setFollows(true); }}
             title={startingBy ? `Set by ${startingBy}` : undefined}>Reset to starting layout</button>
           {admin && <button type="button" className={btn.quiet} disabled={state.busy || !rows.length} onClick={makeStarting}>Make this the starting layout</button>}
-          {state.error && <span className="text-[13px] text-high">{state.error}</span>}
+          {state.error && <span className="text-[15px] text-high">{state.error}</span>}
           <div className="ml-auto flex gap-2">
             <button type="button" className={btn.ghost} onClick={onClose}>Cancel</button>
             <button type="button" className={btn.primary} disabled={state.busy} onClick={save}>{state.busy ? "Saving…" : "Save"}</button>

@@ -203,8 +203,8 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
             <span className="text-muted">Showing</span> <b className="font-semibold">{pick.label}</b>
           </Chip>
         )}
-        {chosen.length + (pick ? 1 : 0) > 1 && <button type="button" className="h-9 rounded-full px-3 text-[13.5px] font-semibold text-brand hover:bg-brand-soft" onClick={() => { setFilters({}); setPick(null); }}>Clear all</button>}
-        {loading && <span className="text-[13.5px] text-muted" aria-live="polite">Updating…</span>}
+        {chosen.length + (pick ? 1 : 0) > 1 && <button type="button" className="h-9 rounded-full px-3 text-[15.5px] font-semibold text-brand hover:bg-brand-soft" onClick={() => { setFilters({}); setPick(null); }}>Clear all</button>}
+        {loading && <span className="text-[15.5px] text-muted" aria-live="polite">Updating…</span>}
         {tools && <div className="ml-auto flex items-center gap-2">{tools}</div>}
       </div>
 
@@ -212,7 +212,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
         <nav className="mt-4 flex flex-wrap items-center gap-1" aria-label="Pages of this dashboard">
           {pages.map((p, i) => (
             <button key={p.name} type="button" aria-current={i === at ? "page" : undefined} onClick={() => goTo(i)}
-              className={`rounded-full px-3.5 py-1.5 text-[13.5px] font-medium transition ${i === at ? "bg-brand-soft text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>{p.name}</button>
+              className={`rounded-full px-3.5 py-1.5 text-[15.5px] font-medium transition ${i === at ? "bg-brand-soft text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>{p.name}</button>
           ))}
         </nav>
       )}
@@ -226,7 +226,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
               <Fragment key={ri}>
                 <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} className={top ? "mt-5" : "mt-4"} />
                 {/* Not under numbers that are never compared (stock: today's). */}
-                {gi === 0 && ri === 0 && footnote && run.tiles.some((t) => !t.noCompare) && <p className="mt-2 text-[12.5px] text-faint">{footnote}</p>}
+                {gi === 0 && ri === 0 && footnote && run.tiles.some((t) => !t.noCompare) && <p className="mt-2 text-[14.5px] text-faint">{footnote}</p>}
               </Fragment>
             );
             return (
@@ -246,9 +246,9 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
 
       {pages.length > 1 && (
         <div className="mt-6 flex items-center justify-between gap-3">
-          {at > 0 ? <button type="button" className="rounded-full px-4 py-2 text-[14px] font-medium text-ink-2 hover:bg-surface-2" onClick={() => goTo(at - 1, true)}>← {pages[at - 1].name}</button> : <span />}
-          <span className="text-[13px] text-faint">Page {at + 1} of {pages.length}</span>
-          {at < pages.length - 1 ? <button type="button" className="rounded-full bg-surface px-4 py-2 text-[14px] font-semibold text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)] hover:bg-surface-2" onClick={() => goTo(at + 1, true)}>{pages[at + 1].name} →</button> : <span />}
+          {at > 0 ? <button type="button" className="rounded-full px-4 py-2 text-[16px] font-medium text-ink-2 hover:bg-surface-2" onClick={() => goTo(at - 1, true)}>← {pages[at - 1].name}</button> : <span />}
+          <span className="text-[15px] text-faint">Page {at + 1} of {pages.length}</span>
+          {at < pages.length - 1 ? <button type="button" className="rounded-full bg-surface px-4 py-2 text-[16px] font-semibold text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)] hover:bg-surface-2" onClick={() => goTo(at + 1, true)}>{pages[at + 1].name} →</button> : <span />}
         </div>
       )}
     </div>
@@ -280,7 +280,7 @@ function CompareControl({ def, value, onChange, datasetOf: dsOf }: { def: Dashbo
     <div ref={box}>
       <label className="relative inline-flex items-center">
         <span className="sr-only">Compare with</span>
-        <select className="h-10 appearance-none rounded-full border border-line bg-surface pl-5 pr-10 text-[14px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15"
+        <select className="h-10 appearance-none rounded-full border border-line bg-surface pl-5 pr-10 text-[16px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15"
           value={sel} onChange={(e) => { const v = e.target.value; if (v === "groups") setOpen(true); else { setOpen(false); onChange(v as CompareMode); } }}>
           <option value="lastYear">vs last year</option>
           <option value="previous">vs period before</option>
@@ -289,14 +289,14 @@ function CompareControl({ def, value, onChange, datasetOf: dsOf }: { def: Dashbo
         </select>
         <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-4 size-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
       </label>
-      {typeof value === "object" && !open && <button type="button" className="ml-1 text-[13.5px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>Change</button>}
+      {typeof value === "object" && !open && <button type="button" className="ml-1 text-[15.5px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>Change</button>}
       {open && (
         <div className="absolute left-0 top-full z-40 mt-2 w-full max-w-[620px] rounded-2xl border border-line bg-surface p-4 shadow-pop" role="group" aria-label="Compare two groups">
-          <p className="text-[14px] font-semibold text-ink">Compare two groups</p>
+          <p className="text-[16px] font-semibold text-ink">Compare two groups</p>
           <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
             <label className="relative inline-flex items-center">
               <span className="sr-only">Field</span>
-              <select className="h-10 w-full appearance-none rounded-full border border-line bg-surface pl-4 pr-9 text-[14px] text-ink focus:border-brand focus:outline-none" value={draft.field} onChange={(e) => setDraft({ field: e.target.value, a: [], b: [] })}>
+              <select className="h-10 w-full appearance-none rounded-full border border-line bg-surface pl-4 pr-9 text-[16px] text-ink focus:border-brand focus:outline-none" value={draft.field} onChange={(e) => setDraft({ field: e.target.value, a: [], b: [] })}>
                 {fields.map((f) => <option key={f.field} value={f.field}>{f.label}</option>)}
               </select>
               <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-3.5 size-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
@@ -305,8 +305,8 @@ function CompareControl({ def, value, onChange, datasetOf: dsOf }: { def: Dashbo
             <MultiSelect wide label="B" values={a} loading={!a.length} selected={draft.b} onChange={(v) => setDraft((d) => ({ ...d, b: v }))} />
           </div>
           <div className="mt-3 flex items-center justify-end gap-2">
-            <button type="button" className="h-9 rounded-full px-4 text-[13.5px] font-medium text-muted hover:bg-surface-2" onClick={() => setOpen(false)}>Cancel</button>
-            <button type="button" disabled={!draft.a.length || !draft.b.length} className="h-9 rounded-full bg-brand px-4 text-[13.5px] font-semibold text-brand-ink disabled:opacity-40"
+            <button type="button" className="h-9 rounded-full px-4 text-[15.5px] font-medium text-muted hover:bg-surface-2" onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" disabled={!draft.a.length || !draft.b.length} className="h-9 rounded-full bg-brand px-4 text-[15.5px] font-semibold text-brand-ink disabled:opacity-40"
               onClick={() => { onChange({ ...draft }); setOpen(false); }}>Compare</button>
           </div>
         </div>
@@ -325,10 +325,10 @@ function RangeControl({ label, value, onChange }: { label: string; value?: FStat
     const n = (s: string) => (s.trim() === "" || !Number.isFinite(Number(s)) || Number(s) < 0 ? undefined : Number(s) * 1e5);
     onChange(n(l), n(h));
   };
-  const box = "h-10 w-full min-w-0 rounded-full border border-line bg-surface px-3.5 text-[14px] text-ink placeholder:text-faint focus:border-brand focus:outline-none";
+  const box = "h-10 w-full min-w-0 rounded-full border border-line bg-surface px-3.5 text-[16px] text-ink placeholder:text-faint focus:border-brand focus:outline-none";
   return (
     <div className="flex items-center gap-2 sm:col-span-2">
-      <span className="shrink-0 pl-1 text-[14px] text-muted">{label} (₹ lakh):</span>
+      <span className="shrink-0 pl-1 text-[16px] text-muted">{label} (₹ lakh):</span>
       <input className={box} inputMode="decimal" placeholder="from" aria-label={`${label} from, in lakh`} value={lo} onChange={(e) => setLo(e.target.value)} onBlur={() => commit(lo, hi)} onKeyDown={(e) => e.key === "Enter" && commit(lo, hi)} />
       <span className="text-muted">–</span>
       <input className={box} inputMode="decimal" placeholder="to" aria-label={`${label} to, in lakh`} value={hi} onChange={(e) => setHi(e.target.value)} onBlur={() => commit(lo, hi)} onKeyDown={(e) => e.key === "Enter" && commit(lo, hi)} />
@@ -366,27 +366,27 @@ function ViewsButton({ dash, current, onApply }: { dash: string; current: ViewSt
   return (
     <div ref={box}>
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
-        className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[14px] font-medium text-ink-2 transition hover:border-line-strong">
+        className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[16px] font-medium text-ink-2 transition hover:border-line-strong">
         <svg viewBox="0 0 20 20" className="size-4 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M5.5 3.5h9v13l-4.5-3-4.5 3z" strokeLinejoin="round" /></svg>
         Views{views?.length ? <span className="text-muted">· {views.length}</span> : null}
       </button>
       {open && (
         <div className="absolute left-0 top-full z-40 mt-2 w-full max-w-[400px] rounded-2xl border border-line bg-surface p-3 shadow-pop" role="group" aria-label="Saved views">
-          <p className="px-1 text-[13px] text-muted">Your saved views of this dashboard — only you see them.</p>
+          <p className="px-1 text-[15px] text-muted">Your saved views of this dashboard — only you see them.</p>
           <div className="mt-2 grid gap-0.5">
-            {!views?.length && <p className="px-1 py-1.5 text-[13.5px] text-faint">None yet.</p>}
+            {!views?.length && <p className="px-1 py-1.5 text-[15.5px] text-faint">None yet.</p>}
             {views?.map((v) => (
               <div key={v.name} className="flex items-center gap-1 rounded-lg hover:bg-surface-2">
-                <button type="button" className="min-w-0 flex-1 truncate px-2.5 py-2 text-left text-[14px] text-ink" onClick={() => { onApply(v.state); setOpen(false); }}>{v.name}</button>
+                <button type="button" className="min-w-0 flex-1 truncate px-2.5 py-2 text-left text-[16px] text-ink" onClick={() => { onApply(v.state); setOpen(false); }}>{v.name}</button>
                 <button type="button" aria-label={`Delete ${v.name}`} className="grid size-7 shrink-0 place-items-center rounded-full text-muted hover:bg-surface hover:text-high" onClick={() => save(views.filter((x) => x.name !== v.name))}>×</button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2 border-t border-line pt-3">
-            <input className="h-9 min-w-0 flex-1 rounded-full border border-line bg-surface px-3.5 text-[14px] text-ink placeholder:text-faint focus:border-brand focus:outline-none" placeholder="Name this view, e.g. Hotels vs last year" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-            <button type="button" disabled={!name.trim()} className="h-9 shrink-0 rounded-full bg-brand px-4 text-[13.5px] font-semibold text-brand-ink disabled:opacity-40" onClick={add}>Save</button>
+            <input className="h-9 min-w-0 flex-1 rounded-full border border-line bg-surface px-3.5 text-[16px] text-ink placeholder:text-faint focus:border-brand focus:outline-none" placeholder="Name this view, e.g. Hotels vs last year" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+            <button type="button" disabled={!name.trim()} className="h-9 shrink-0 rounded-full bg-brand px-4 text-[15.5px] font-semibold text-brand-ink disabled:opacity-40" onClick={add}>Save</button>
           </div>
-          {error && <p className="mt-2 px-1 text-[13px] text-high">{error}</p>}
+          {error && <p className="mt-2 px-1 text-[15px] text-high">{error}</p>}
         </div>
       )}
     </div>
@@ -406,10 +406,10 @@ function KpiBand({ tiles, specOf, answers, className = "" }: { tiles: Tile[]; sp
           const def = measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def;
           return (
             <div key={t.id} className="min-w-0 bg-surface px-5 py-4">
-              <h3 className="truncate text-[14px] font-medium text-ink-2" title={def ? `${specOf(t).title} — ${def}` : specOf(t).title}>{specOf(t).title}</h3>
+              <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${specOf(t).title} — ${def}` : specOf(t).title}>{specOf(t).title}</h3>
               <div className="mt-1.5">
                 {!a ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
-                  : isError(a) ? <p className="text-[13px] text-high">{a.error}</p>
+                  : isError(a) ? <p className="text-[15px] text-high">{a.error}</p>
                   : <Kpi result={a} compact />}
               </div>
             </div>
@@ -422,7 +422,7 @@ function KpiBand({ tiles, specOf, answers, className = "" }: { tiles: Tile[]; sp
 
 function Chip({ children, onClear, title }: { children: React.ReactNode; onClear: () => void; title?: string }) {
   return (
-    <span className="inline-flex h-9 max-w-[280px] items-center gap-1 rounded-full bg-brand-soft pl-3.5 pr-1.5 text-[13.5px] text-ink" title={title}>
+    <span className="inline-flex h-9 max-w-[280px] items-center gap-1 rounded-full bg-brand-soft pl-3.5 pr-1.5 text-[15.5px] text-ink" title={title}>
       <span className="truncate">{children}</span>
       <button type="button" aria-label="Remove" className="grid size-6 shrink-0 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink" onClick={onClear}>×</button>
     </span>
@@ -451,14 +451,14 @@ function FiltersButton({ count, children }: { count: number; children: React.Rea
     // The panel hangs from the toolbar row, not the button: anchored to the button it ran off narrow screens.
     <div ref={box}>
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
-        className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-[14px] font-medium transition ${count ? "border-brand/50 bg-brand-soft text-ink" : "border-line bg-surface text-ink-2 hover:border-line-strong"}`}>
+        className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-[16px] font-medium transition ${count ? "border-brand/50 bg-brand-soft text-ink" : "border-line bg-surface text-ink-2 hover:border-line-strong"}`}>
         <svg viewBox="0 0 20 20" className="size-4 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M3 5h14M6 10h8M8.5 15h3" strokeLinecap="round" /></svg>
         Filters
-        {count > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-brand px-1.5 text-[12px] font-semibold text-brand-ink">{count}</span>}
+        {count > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-brand px-1.5 text-[14px] font-semibold text-brand-ink">{count}</span>}
       </button>
       <div className={`absolute left-0 top-full z-40 mt-2 w-full max-w-[620px] rounded-2xl border border-line bg-surface p-4 shadow-pop ${open ? "" : "hidden"}`} role="group" aria-label="Filters">
         <div className="grid gap-2.5 sm:grid-cols-2">{opened && children}</div>
-        <p className="mt-3 text-[12.5px] text-faint">Pick several values at once — each filter reaches every chart that has that field.</p>
+        <p className="mt-3 text-[14.5px] text-faint">Pick several values at once — each filter reaches every chart that has that field.</p>
       </div>
     </div>
   );
@@ -509,15 +509,15 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
     <section className={`card flex min-w-0 flex-col p-5 ${SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[14.5px] text-ink-2" : "text-[16.5px]"}`} title={title}>{title}</h3>
-          {sub && <p className="truncate text-[13px] text-muted">{sub}{tweak && onTweak && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={() => onTweak(null)}>Reset</button></>}</p>}
+          <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[16.5px] text-ink-2" : "text-[18.5px]"}`} title={title}>{title}</h3>
+          {sub && <p className="truncate text-[15px] text-muted">{sub}{tweak && onTweak && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={() => onTweak(null)}>Reset</button></>}</p>}
         </div>
         {items.length > 0 && <TileMenu items={items} label={`${title || "Report"} options`} />}
       </div>
       {editing && canTweak && <TileSettings tile={tile} spec={spec} tweak={tweak} onChange={(t) => onTweak!(t)} onClose={() => setEditing(false)} />}
       <div className={isKpi ? "mt-2" : "mt-4 min-h-0 flex-1"}>
         {!answer ? <div className={`animate-pulse rounded-lg bg-surface-2 ${isKpi ? "h-14" : "h-[260px]"}`} />
-          : isError(answer) ? <p className="text-[13px] text-high">{answer.error}</p>
+          : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
           : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} />}
       </div>
     </section>
@@ -545,7 +545,7 @@ function TileMenu({ items, label }: { items: MenuItem[]; label: string }) {
         <div role="menu" className="absolute right-0 top-full z-30 mt-1 min-w-[200px] rounded-xl border border-line bg-surface p-1 shadow-pop">
           {items.map((it) => (
             <button key={it.label} type="button" role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}
-              className={`block w-full rounded-lg px-3 py-2 text-left text-[14px] ${it.danger ? "text-high hover:bg-high-bg" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>{it.label}</button>
+              className={`block w-full rounded-lg px-3 py-2 text-left text-[16px] ${it.danger ? "text-high hover:bg-high-bg" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>{it.label}</button>
           ))}
         </div>
       )}
@@ -566,9 +566,9 @@ function autoTitle(spec: Spec): string {
 function SettingSelect({ label, value, onPick, options }: { label: string; value: string; onPick: (v: string) => void; options: { value: string; label: string }[] }) {
   return (
     <label className="grid gap-1">
-      <span className="text-[12.5px] font-medium text-muted">{label}</span>
+      <span className="text-[14.5px] font-medium text-muted">{label}</span>
       <span className="relative inline-flex items-center">
-        <select className="h-9 w-full appearance-none rounded-full border border-line bg-surface pl-3.5 pr-8 text-[14px] text-ink focus:border-brand focus:outline-none" value={value} onChange={(e) => onPick(e.target.value)}>
+        <select className="h-9 w-full appearance-none rounded-full border border-line bg-surface pl-3.5 pr-8 text-[16px] text-ink focus:border-brand focus:outline-none" value={value} onChange={(e) => onPick(e.target.value)}>
           {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-3 size-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
@@ -592,11 +592,11 @@ function TileSettings({ tile, spec, tweak, onChange, onClose }: { tile: Tile; sp
           ? <SettingSelect label="Group by" value={spec.grain ?? "month"} onPick={(v) => set({ grain: v as Grain })} options={[{ value: "week", label: "Week" }, { value: "month", label: "Month" }, { value: "quarter", label: "Quarter" }, { value: "fy", label: "Financial year" }]} />
           : <SettingSelect label="Show" value={String(spec.limit ?? 0)} onPick={(v) => set({ limit: Number(v) })} options={[{ value: "5", label: "Top 5" }, { value: "7", label: "Top 7" }, { value: "10", label: "Top 10" }, { value: "20", label: "Top 20" }, { value: "0", label: "All" }]} />}
         <div className="flex items-end justify-end gap-1">
-          {tweak && <button type="button" className="h-9 rounded-full px-3 text-[13.5px] font-medium text-muted hover:bg-surface hover:text-ink" onClick={() => onChange(null)}>Reset</button>}
-          <button type="button" className="h-9 rounded-full bg-surface px-4 text-[13.5px] font-semibold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] hover:bg-line" onClick={onClose}>Done</button>
+          {tweak && <button type="button" className="h-9 rounded-full px-3 text-[15.5px] font-medium text-muted hover:bg-surface hover:text-ink" onClick={() => onChange(null)}>Reset</button>}
+          <button type="button" className="h-9 rounded-full bg-surface px-4 text-[15.5px] font-semibold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] hover:bg-line" onClick={onClose}>Done</button>
         </div>
       </div>
-      <p className="mt-2 text-[12px] text-faint">Only this chart, only for you (kept in this browser). Reset brings back “{tile.spec.title}”.</p>
+      <p className="mt-2 text-[14px] text-faint">Only this chart, only for you (kept in this browser). Reset brings back “{tile.spec.title}”.</p>
     </div>
   );
 }
