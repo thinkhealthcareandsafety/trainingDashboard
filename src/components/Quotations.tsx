@@ -17,8 +17,8 @@ import { btn, inputCls } from "./ui";
 
 type Last = { date: string; number: string; amount: number; status: string };
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
-type ListRes = { connected: { connectedAt: string; connectedBy: string } | null; scopes: string; admin: boolean; live: boolean; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
-type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null };
+type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
+type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null };
 type Contact = { id: string; name: string | null; email: string | null; phone: string | null; primary: boolean };
 type Line = { key: number; itemId: string; name: string; qty: number; rate: number; gst: number | null; description?: string; open?: boolean };
 type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: string[]; leadSource: string[] };
@@ -31,7 +31,7 @@ type Detail = {
 };
 /** The quote's own fields, as in Zoho's form. Send to CRM and Reminder Frequency are mandatory in Zoho. */
 type Form = {
-  salesperson: string; sendToCrm: string; reminderFrequency: string; productType: string; leadSource: string; dealName: string; dealTyped: boolean;
+  salesperson: string; sendToCrm: string; reminderFrequency: string; productType: string; ptTyped: boolean; leadSource: string; dealName: string; dealTyped: boolean;
   reference: string; expiry: string; discount: string; discountPct: boolean; shipping: string; adjustment: string; notes: string; terms: string;
 };
 
@@ -59,10 +59,32 @@ function totals(lines: Line[], f: Form, tax: Detail["customer"]["tax"]) {
   return { sub, discount: round2(discount), taxes, shipping, adjustment, total, noGst: tax !== "none" && filled.some((l) => l.gst === null) };
 }
 
+/**
+ * Product Type from what an item is (owner, 28 Oct: "by default they should take whatever they come under"): its name,
+ * Zoho group (Item Identifier) and category, matched to Zoho's Product Type options. Most specific first.
+ */
+const PT_RULES: [RegExp, string][] = [
+  [/cabinet/, " AED Cabinet"], [/fire blanket/, " Fire Blanket"], [/evacuat/, " Evacuation "], [/ambulance/, " Ambulance Service"],
+  [/trauma/, "Trauma Kit"], [/\b5 ?su\b/, " 5SU"], [/maintenance|\bamc\b/, "AED Maintenance"], [/fire/, "Fire Safety"],
+  [/(cpr|bls)[^|]*training|training[^|]*(cpr|bls)/, " CPR Training"], [/first aid[^|]*training|training[^|]*first aid/, "First Aid Training "],
+  [/manikin|trainer|training product/, "Training Products"], [/training/, "Training "],
+  [/pad|electrode/, "pads"], [/batter/, "Battery"], [/sign|case|bag|bracket|accessor|wall mount/, "AED Accessories "],
+  [/\baed\b|defibrillator|powerheart|zoll|philips|heartsine/, "AED"], [/first aid|safety|kit|ppe|mask|glove/, "SAFETY Supplies"],
+];
+const NOT_MAIN = /packing|shipping|freight|courier|forwarding|transport/i;
+function productTypeFor(lines: Line[], byId: Map<string, Item>, options: string[]) {
+  const main = lines.filter((l) => l.itemId && !NOT_MAIN.test(l.name)).sort((a, b) => b.qty * b.rate - a.qty * a.rate)[0];
+  if (!main) return "";
+  const i = byId.get(main.itemId);
+  const text = [main.name, i?.group, i?.category].filter(Boolean).join(" | ").toLowerCase();
+  const hit = PT_RULES.find(([re]) => re.test(text))?.[1] ?? "Other";
+  return options.includes(hit) ? hit : "";
+}
+
 /** Deal Name the way the team writes it: product type, quantity of the main item, city ("pads 2 Bengaluru Urban"). */
 function dealName(productType: string, lines: Line[], city: string | null) {
   if (!productType.trim()) return "";
-  const main = lines.filter((l) => l.itemId).sort((a, b) => b.qty * b.rate - a.qty * a.rate)[0];
+  const main = lines.filter((l) => l.itemId && !NOT_MAIN.test(l.name)).sort((a, b) => b.qty * b.rate - a.qty * a.rate)[0];
   return [productType.trim(), main ? String(main.qty) : "", city ?? ""].filter(Boolean).join(" ");
 }
 const fmtDay = (ymd: string) => new Date(`${ymd}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -81,6 +103,7 @@ export function Quotations() {
   const [loading, setLoading] = useState(false);
   const [quoting, setQuoting] = useState<Customer | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [tick, setTick] = useState(0);
 
   useEffect(() => { setPage(0); }, [q, sector, type, sort]);
@@ -122,6 +145,7 @@ export function Quotations() {
           <option value="name">A–Z</option>
         </select>
         {connectedLine(res, () => setConnecting(true))}
+        <button className={btn.primary} onClick={() => setStarting(true)} disabled={!res?.connected}>+ New quotation</button>
       </div>
 
       <div className="card mt-4 overflow-hidden">
@@ -173,6 +197,7 @@ export function Quotations() {
         </div>
       )}
       {quoting && res && createPortal(<QuotePopup customer={quoting} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
+      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting(c); }} onClose={() => setStarting(false)} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
     </div>
   );
@@ -261,6 +286,7 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
   const [f, setF] = useState<Form | null>(null);
   const [more, setMore] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const [busy, setBusy] = useState<"" | "send" | "draft">("");
   const [error, setError] = useState("");
   const [done, setDone] = useState<{ number: string; total: number; url: string; sent: boolean; ours: number } | null>(null);
@@ -284,7 +310,7 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
       // The quote's fields: Send to CRM Yes (owner, 28 Oct); the rest from their last quotation where it had them.
       const was = (k: keyof Opts, fallback: string) => { const v = j.last?.fields[k] ?? ""; return j.options[k].includes(v) ? v : fallback; };
       setF({
-        salesperson: j.salesperson ?? "", sendToCrm: "Yes", reminderFrequency: was("reminderFrequency", "15 days"), productType: was("productType", ""), leadSource: was("leadSource", ""),
+        salesperson: j.salesperson ?? "", sendToCrm: "Yes", reminderFrequency: was("reminderFrequency", "15 days"), productType: was("productType", ""), ptTyped: false, leadSource: was("leadSource", "Direct "),
         dealName: "", dealTyped: false, reference: "", expiry: "", discount: "", discountPct: true, shipping: "", adjustment: "", notes: j.notes, terms: j.terms,
       });
     }).catch(() => current && setDetail({ error: "Couldn't reach the server" } as Detail));
@@ -299,11 +325,22 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
       setLines((ls) => ls.map((l) => (l.key === k && l.itemId === i.id ? { ...l, description: l.description ?? j.description ?? "", gst: l.gst ?? j.gst ?? null } : l)));
     }).catch(() => {});
   };
+  /** From the catalogue: one more if it's already on the quote, else into the first empty line (or a new one). */
+  const addItem = (i: Item) => {
+    const have = lines.find((l) => l.itemId === i.id);
+    if (have) return set(have.key, { qty: have.qty + 1 });
+    const empty = lines.find((l) => !l.itemId);
+    const k = empty?.key ?? ++key.current;
+    if (!empty) setLines((ls) => [...ls, { key: k, itemId: "", name: "", qty: 1, rate: 0, gst: null }]);
+    pick(k, i);
+  };
   const upd = (patch: Partial<Form>) => setF((x) => (x ? { ...x, ...patch } : x));
 
   const filled = lines.filter((l) => l.itemId);
   const t = f && detail?.customer ? totals(lines, f, detail.customer.tax) : null;
-  const deal = f ? (f.dealTyped ? f.dealName : dealName(f.productType, lines, detail?.customer?.city ?? null)) : "";
+  // Product type follows the main item until someone picks one; then the deal name follows the product type.
+  const pt = !f ? "" : f.ptTyped ? f.productType : productTypeFor(lines, byId, detail?.options?.productType ?? []) || f.productType;
+  const deal = f ? (f.dealTyped ? f.dealName : dealName(pt, lines, detail?.customer?.city ?? null)) : "";
   const why = !live ? "Only the live site creates quotations" : !filled.length ? "Add at least one item" : filled.some((l) => !(l.qty > 0)) ? "Every item needs a quantity"
     : !f?.sendToCrm || !f.reminderFrequency ? "Fill in Send to CRM and Reminder frequency" : t && t.discount > t.sub ? "The discount is more than the items" : "";
   const whySend = why || (!to.length ? "Pick who it goes to" : "");
@@ -316,7 +353,7 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
     setError("");
     try {
       const details = {
-        salesperson: f.salesperson || undefined, sendToCrm: f.sendToCrm, reminderFrequency: f.reminderFrequency, productType: f.productType || undefined, leadSource: f.leadSource || undefined,
+        salesperson: f.salesperson || undefined, sendToCrm: f.sendToCrm, reminderFrequency: f.reminderFrequency, productType: pt || undefined, leadSource: f.leadSource || undefined,
         dealName: deal || undefined, reference: f.reference || undefined, expiry: f.expiry || undefined,
         discount: Number(f.discount) > 0 ? { value: Number(f.discount), percent: f.discountPct } : undefined, shipping: Number(f.shipping) || undefined, adjustment: Number(f.adjustment) || undefined,
         notes: f.notes, terms: f.terms,
@@ -338,7 +375,7 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
   const gstLine = c && (c.tax === "none" ? "Outside India · no GST" : [c.gstin && `GSTIN ${c.gstin}`, c.state, c.tax === "intra" ? "CGST + SGST" : "IGST (outside Maharashtra)"].filter(Boolean).join(" · "));
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={busy ? undefined : () => onClose(Boolean(done))}>
-      <div role="dialog" aria-label={`Quotation for ${customer.name}`} className="modal-in flex max-h-[96vh] w-full min-w-0 max-w-6xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label={`Quotation for ${customer.name}`} className="modal-in flex max-h-[96vh] w-full min-w-0 max-w-[88rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 pt-5">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">New quotation</p>
@@ -386,7 +423,7 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
                 </Field>
                 <Field name="Send to CRM" required><Choice value={f.sendToCrm} options={detail.options.sendToCrm} onChange={(v) => upd({ sendToCrm: v })} aria="Send to CRM" /></Field>
                 <Field name="Reminder frequency" required><Choice value={f.reminderFrequency} options={detail.options.reminderFrequency} onChange={(v) => upd({ reminderFrequency: v })} aria="Reminder frequency" /></Field>
-                <Field name="Product type"><Choice value={f.productType} options={detail.options.productType} onChange={(v) => upd({ productType: v })} blank="—" aria="Product type" /></Field>
+                <Field name="Product type"><Choice value={pt} options={detail.options.productType} onChange={(v) => upd({ productType: v, ptTyped: true })} blank="—" aria="Product type" /></Field>
                 <Field name="Lead source"><Choice value={f.leadSource} options={detail.options.leadSource} onChange={(v) => upd({ leadSource: v })} blank="—" aria="Lead source" /></Field>
                 <Field name="Deal name" wide>
                   <input className={`${inputCls} !h-9 text-[14px]`} value={deal} placeholder="Product type, quantity, city" maxLength={100} onChange={(e) => upd({ dealName: e.target.value, dealTyped: true })} aria-label="Deal name" />
@@ -438,7 +475,10 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
                   </div>
                 </div>
               </div>
-              <button className={`${btn.quiet} mt-1.5`} onClick={() => setLines((ls) => [...ls, blank()])}>+ Add item</button>
+              <div className="mt-1.5 flex gap-1">
+                <button className={btn.quiet} onClick={() => setBrowsing(true)}>▦ Browse items</button>
+                <button className={btn.quiet} onClick={() => setLines((ls) => [...ls, blank()])}>+ Add a line</button>
+              </div>
 
               <div className="mt-2 grid gap-5 border-t border-line pt-3 lg:grid-cols-[minmax(0,1fr)_24rem]">
                 <div className="min-w-0 text-[13.5px] text-muted">
@@ -487,6 +527,142 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
               <button className={btn.primary} onClick={(e) => submit(true, e)} disabled={Boolean(whySend) || Boolean(busy)} title={whySend || `Zoho Books emails it to ${emails}`}>{busy === "send" ? "Sending…" : "Send quotation"}</button>
             </div>
           </>
+        )}
+      </div>
+      {browsing && createPortal(<Catalogue items={items} lines={lines} onAdd={addItem} onClose={() => setBrowsing(false)} />, document.body)}
+    </div>
+  );
+}
+
+/** The item catalogue (owner, 28 Oct: "adding the items should be easier … you get the item images from zoho books"). */
+function Catalogue({ items, lines, onAdd, onClose }: { items: Item[]; lines: Line[]; onAdd: (i: Item) => void; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [group, setGroup] = useState("");
+  const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
+  const groups = useMemo(() => [...items.reduce((m, i) => m.set(groupOf(i), (m.get(groupOf(i)) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([g]) => g), [items]);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = items.filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w))).sort((a, b) => Number(Boolean(b.image)) - Number(Boolean(a.image)) || a.name.localeCompare(b.name));
+  const inQuote = new Map(lines.filter((l) => l.itemId).map((l) => [l.itemId, l.qty]));
+  return (
+    <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/30 p-3" onMouseDown={(e) => { e.stopPropagation(); onClose(); }}>
+      <div role="dialog" aria-label="Items" className="modal-in flex h-[92vh] w-full min-w-0 max-w-[96rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
+          <h3 className="text-[19px] font-bold tracking-tight text-ink">Items</h3>
+          <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-60 text-[15px]`} placeholder="Search items…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search items" autoFocus />
+          <button className={btn.primary} onClick={onClose}>Done</button>
+        </div>
+        <div className="no-scrollbar flex gap-1.5 overflow-x-auto border-b border-line px-5 py-2.5">
+          {["", ...groups].map((g) => (
+            <button key={g || "all"} className={`shrink-0 rounded-full px-3 py-1 text-[13.5px] font-medium ${group === g ? "bg-brand text-white" : "bg-surface-2 text-ink-2 hover:text-ink"}`} onClick={() => setGroup(g)}>{g || "All"}</button>
+          ))}
+        </div>
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-6">
+            {shown.slice(0, 150).map((i) => (
+              <button key={i.id} className={`flex flex-col overflow-hidden rounded-xl border text-left transition-colors hover:border-brand ${inQuote.has(i.id) ? "border-brand bg-brand-soft" : "border-line"}`} onClick={() => onAdd(i)} title={`Add ${i.name}`}>
+                <ItemImage item={i} />
+                <span className="flex flex-1 flex-col gap-0.5 p-2.5">
+                  <span className="line-clamp-2 text-[13.5px] font-medium leading-snug text-ink">{i.name}</span>
+                  <span className="text-[13px] text-ink-2"><span className="num">{i.rate ? inr(i.rate) : "—"}</span>{i.gst !== null && <span className="text-muted"> + {i.gst}% GST</span>}</span>
+                  <span className="text-[12.5px] text-muted">{i.service ? "Service" : <>{(i.onHand ?? 0).toLocaleString("en-IN")} on hand{i.stock ? ` · ${i.stock}` : ""}</>}</span>
+                  {inQuote.has(i.id) && <span className="mt-0.5 text-[12.5px] font-bold text-brand">In the quote × {inQuote.get(i.id)} · click for one more</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+          {!shown.length && <p className="py-10 text-center text-muted">No item matches.</p>}
+          {shown.length > 150 && <p className="mt-3 text-center text-[13px] text-muted">{shown.length - 150} more — search to narrow it down.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Zoho's picture of the item (through our server); the initials when it has none. */
+function ItemImage({ item }: { item: Item }) {
+  const [failed, setFailed] = useState(item.image === false);
+  return (
+    <span className="relative grid h-32 shrink-0 place-items-center overflow-hidden bg-white">
+      {failed ? <span className="text-[22px] font-bold text-faint">{item.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
+        // eslint-disable-next-line @next/next/no-img-element
+        : <img src={`/api/quotations?image=${item.id}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => setFailed(true)} />}
+    </span>
+  );
+}
+
+/** "New quotation" (owner, 28 Oct: "another option to create quotation from scratch"): any customer, or a new one made in Zoho. */
+function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer) => void; onClose: () => void }) {
+  const [tab, setTab] = useState<"find" | "new">("find");
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<Customer[]>([]);
+  const [n, setN] = useState({ company: "", firstName: "", lastName: "", email: "", phone: "", state: "MH", city: "", gstin: "" });
+  const [state, setState] = useState<{ busy?: boolean; error?: string }>({});
+  useEffect(() => {
+    if (tab !== "find") return;
+    let live = true;
+    const t = setTimeout(() => fetch(`/api/quotations?${new URLSearchParams({ q, page: "0" })}`).then((r) => r.json()).then((j: ListRes) => live && setHits(j.customers?.slice(0, 8) ?? [])).catch(() => {}), q ? 250 : 0);
+    return () => { live = false; clearTimeout(t); };
+  }, [q, tab]);
+  const create = async () => {
+    setState({ busy: true });
+    const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ newCustomer: n }) }).catch(() => null);
+    const j = r ? ((await r.json()) as { ok?: boolean; error?: string; customer?: { id: string; name: string } }) : { error: "Couldn't reach the server" };
+    if (!j.ok || !j.customer) return setState({ error: j.error ?? "Couldn't create the customer" });
+    onPick({ id: j.customer.id, name: j.customer.name, email: n.email, phone: n.phone || null, sector: null, type: null, lastQuote: null, lastInvoice: null });
+  };
+  const field = (k: keyof typeof n, label: string, extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">{label}</span>
+      <input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={n[k]} onChange={(e) => setN((x) => ({ ...x, [k]: e.target.value }))} {...extra} /></label>
+  );
+  const ready = n.company.trim() && n.firstName.trim() && n.email.trim();
+  return (
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={onClose}>
+      <div role="dialog" aria-label="New quotation" className="modal-in flex max-h-[94vh] w-full min-w-0 max-w-2xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-6 pt-5">
+          <div>
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">New quotation</p>
+            <h3 className="text-[21px] font-bold tracking-tight text-ink">Who is it for?</h3>
+          </div>
+          <button className={btn.quiet} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="mt-3 flex gap-1 px-6">
+          {(["find", "new"] as const).map((t) => <button key={t} className={`rounded-full px-3.5 py-1.5 text-[14px] font-medium ${tab === t ? "bg-brand text-white" : "bg-surface-2 text-ink-2"}`} onClick={() => setTab(t)}>{t === "find" ? "A customer in Zoho" : "+ New customer"}</button>)}
+        </div>
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          {tab === "find" ? (
+            <>
+              <input className={`${inputCls} !h-10 text-[15px]`} placeholder="Search a customer, email or phone…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" autoFocus />
+              <div className="mt-2 divide-y divide-line">
+                {hits.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0"><div className="truncate font-medium text-ink">{c.name}</div><div className="truncate text-[13px] text-muted">{c.email ?? "no email"}</div></div>
+                    <button className={btn.primary} onClick={() => onPick(c)}>Quote</button>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-[13.5px] text-muted">Not in Zoho yet? <button className="font-semibold text-brand hover:underline" onClick={() => { setTab("new"); setN((x) => ({ ...x, company: x.company || q })); }}>Add them as a new customer</button>.</p>
+            </>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">{field("company", "Company *", { autoFocus: true, maxLength: 200 })}</div>
+              {field("firstName", "Contact first name *", { maxLength: 100 })}
+              {field("lastName", "Last name", { maxLength: 100 })}
+              {field("email", "Email *", { type: "email", maxLength: 200 })}
+              {field("phone", "Mobile", { type: "tel", maxLength: 30 })}
+              <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">State * <span className="normal-case tracking-normal">(decides the GST)</span></span>
+                <select className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={n.state} onChange={(e) => setN((x) => ({ ...x, state: e.target.value }))}>{res.states.map(([c, name]) => <option key={c} value={c}>{name}</option>)}</select></label>
+              {field("city", "City", { maxLength: 100 })}
+              <div className="sm:col-span-2">{field("gstin", "GSTIN (if registered)", { maxLength: 15, placeholder: "27ABCDE1234F1Z5" })}</div>
+              <p className="text-[13px] text-muted sm:col-span-2">The customer is created in Zoho Books with this contact as primary, then the quotation opens.{res.connected && !res.connected.newCustomers && <b className="text-medium"> Zoho Books needs one more permission for this — Admin: Reconnect on this page first.</b>}</p>
+            </div>
+          )}
+        </div>
+        {tab === "new" && (
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
+            {state.error && <span className="mr-auto text-[14px] font-medium text-high">{state.error}</span>}
+            <button className={btn.ghost} onClick={onClose}>Cancel</button>
+            <button className={btn.primary} onClick={create} disabled={!ready || state.busy || !res.live} title={res.live ? undefined : "Only the live site creates customers in Zoho"}>{state.busy ? "Creating…" : "Create in Zoho and quote"}</button>
+          </div>
         )}
       </div>
     </div>
