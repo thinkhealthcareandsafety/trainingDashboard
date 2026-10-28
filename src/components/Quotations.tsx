@@ -449,8 +449,11 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
                 )}
               </div>
 
-              <div className="mt-3 flex items-baseline justify-between">
-                <p className={label}>Items</p>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <p className={label}>Items</p>
+                  <button className={`${btn.primary} !h-8`} onClick={() => setBrowsing(true)}>▦ Browse items</button>
+                </div>
                 {detail.last && <p className="text-[13px] text-muted">Started from {detail.last.number} ({fmtDay(detail.last.date)}) · <button className="font-semibold text-brand hover:underline" onClick={() => setLines([blank()])}>start empty</button></p>}
               </div>
               <div>
@@ -486,10 +489,7 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
                   </div>
                 </div>
               </div>
-              <div className="mt-1.5 flex gap-1">
-                <button className={btn.quiet} onClick={() => setBrowsing(true)}>▦ Browse items</button>
-                <button className={btn.quiet} onClick={() => setLines((ls) => [...ls, blank()])}>+ Add a line</button>
-              </div>
+              <button className={`${btn.ghost} mt-2 !h-8`} onClick={() => setLines((ls) => [...ls, blank()])}>+ Add a line</button>
 
               <div className="mt-2 grid gap-5 border-t border-line pt-3 lg:grid-cols-[minmax(0,1fr)_24rem]">
                 <div className="min-w-0 text-[13.5px] text-muted">
@@ -548,30 +548,30 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
 /** The item catalogue (owner, 28 Oct: "adding the items should be easier … you get the item images from zoho books"). */
 function Catalogue({ items, lines, onAdd, onClose }: { items: Item[]; lines: Line[]; onAdd: (i: Item) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
+  const [, setMissing] = useState(0); // re-sorts when a picture turns out to be missing
   const [group, setGroup] = useState("");
   const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
   const groups = useMemo(() => [...items.reduce((m, i) => m.set(groupOf(i), (m.get(groupOf(i)) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([g]) => g), [items]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = items.filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w))).sort((a, b) => Number(Boolean(b.image)) - Number(Boolean(a.image)) || a.name.localeCompare(b.name));
+  const shown = items.filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w))).sort((a, b) => Number(hasPicture(b)) - Number(hasPicture(a)) || a.name.localeCompare(b.name));
   const inQuote = new Map(lines.filter((l) => l.itemId).map((l) => [l.itemId, l.qty]));
   return (
     <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/30 p-3" onMouseDown={(e) => { e.stopPropagation(); onClose(); }}>
       <div role="dialog" aria-label="Items" className="modal-in flex h-[92vh] w-full min-w-0 max-w-[96rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
           <h3 className="text-[19px] font-bold tracking-tight text-ink">Items</h3>
+          <select className={`${btn.ghost} max-w-[16rem] cursor-pointer !pr-3`} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
+            <option value="">All groups</option>
+            {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
           <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-60 text-[15px]`} placeholder="Search items…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search items" autoFocus />
           <button className={btn.primary} onClick={onClose}>Done</button>
-        </div>
-        <div className="no-scrollbar flex gap-1.5 overflow-x-auto border-b border-line px-5 py-2.5">
-          {["", ...groups].map((g) => (
-            <button key={g || "all"} className={`shrink-0 rounded-full px-3 py-1 text-[13.5px] font-medium ${group === g ? "bg-brand text-white" : "bg-surface-2 text-ink-2 hover:text-ink"}`} onClick={() => setGroup(g)}>{g || "All"}</button>
-          ))}
         </div>
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-6">
             {shown.slice(0, 150).map((i) => (
               <button key={i.id} className={`flex flex-col overflow-hidden rounded-xl border text-left transition-colors hover:border-brand ${inQuote.has(i.id) ? "border-brand bg-brand-soft" : "border-line"}`} onClick={() => onAdd(i)} title={`Add ${i.name}`}>
-                <ItemImage item={i} />
+                <ItemImage item={i} onMissing={() => setMissing((n) => n + 1)} />
                 <span className="flex flex-1 flex-col gap-0.5 p-2.5">
                   <span className="line-clamp-2 text-[13.5px] font-medium leading-snug text-ink">{i.name}</span>
                   <span className="text-[13px] text-ink-2"><span className="num">{i.rate ? inr(i.rate) : "—"}</span>{i.gst !== null && <span className="text-muted"> + {i.gst}% GST</span>}</span>
@@ -589,14 +589,18 @@ function Catalogue({ items, lines, onAdd, onClose }: { items: Item[]; lines: Lin
   );
 }
 
+/** Items whose picture didn't load (Zoho has a name but no picture) — they go to the end, like those without one. */
+const noPicture = new Set<string>();
+const hasPicture = (i: Item) => i.image !== false && !noPicture.has(i.id); // unknown until the next full sync: try it
+
 /** Zoho's picture of the item (through our server); the initials when it has none. */
-function ItemImage({ item }: { item: Item }) {
-  const [failed, setFailed] = useState(item.image === false);
+function ItemImage({ item, onMissing }: { item: Item; onMissing: () => void }) {
+  const [failed, setFailed] = useState(!hasPicture(item));
   return (
     <span className="relative grid h-32 shrink-0 place-items-center overflow-hidden bg-white">
       {failed ? <span className="text-[22px] font-bold text-faint">{item.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
         // eslint-disable-next-line @next/next/no-img-element
-        : <img src={`/api/quotations?image=${item.id}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => setFailed(true)} />}
+        : <img src={`/api/quotations?image=${item.id}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => { setFailed(true); noPicture.add(item.id); onMissing(); }} />}
     </span>
   );
 }
