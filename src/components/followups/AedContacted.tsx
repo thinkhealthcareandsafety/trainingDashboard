@@ -194,7 +194,7 @@ function History({ card, onClose }: { card: CardView; onClose: () => void }) {
   const o = card.outreach!;
   const rows = [
     ...o.calls.map((c, i) => ({ at: c.at, text: `Call ${i + 1} · ${c.to}${c.person ? ` (${c.person})` : ""}`, by: c.by })),
-    ...o.sent.map((m, i) => ({ at: m.at, text: `Email ${i + 1} · ${aedMailStep(m.step)} · ${m.to}`, by: m.by })),
+    ...o.sent.map((m, i) => ({ at: m.at, text: `Email ${i + 1} · ${m.marked ? "sent from Zoho Mail (marked)" : aedMailStep(m.step)}${m.to ? ` · ${m.to}` : ""}`, by: m.by })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={onClose}>
@@ -272,6 +272,12 @@ export function ContactedSection({ card, member, onShowReply }: { card: CardView
     if (!current) return;
     const [ev] = addCardEvents([{ cardIds: [card.id, aedCustomerId(card.customerId)], ref: card.customerId, kind: "aed_call", value: current.value, person: current.person, by: member.name }]);
     toast({ text: `Call ${o.calls.length + 1} logged · ${current.value}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+  };
+
+  // An email she sent from Zoho Mail herself (owner, 28 Oct 2026): +1 on the count, like a logged call. Nothing is sent.
+  const markSent = () => {
+    const [ev] = addCardEvents([{ cardIds: [card.id], kind: "aed_email_marked", value: o.email, by: member.name }]);
+    toast({ text: `Email ${o.sent.length + 1} marked as sent`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
   };
 
   const saveEmail = () => {
@@ -367,7 +373,7 @@ export function ContactedSection({ card, member, onShowReply }: { card: CardView
           <span className="text-[12px] font-bold uppercase tracking-wide text-muted">Email</span>
           <span className="text-[12px] text-muted">
             Emails {chip(String(o.sent.length), "bg-info-bg text-info")}
-            {lastMail && <> · last <span className="num">{fmtStamp(lastMail.at)}</span> ({aedMailStep(lastMail.step)})</>}
+            {lastMail && <> · last <span className="num">{fmtStamp(lastMail.at)}</span> ({lastMail.marked ? "from Zoho Mail" : aedMailStep(lastMail.step)})</>}
           </span>
         </div>
         {editingMail !== null ? (
@@ -402,6 +408,7 @@ export function ContactedSection({ card, member, onShowReply }: { card: CardView
           >
             Send email
           </button>
+          <button className={btn.quiet} onClick={markSent} title="Sent it from Zoho Mail yourself? Adds 1 to the email count — nothing is sent">Mark email sent</button>
           <span className="text-[12px] text-muted">from {MAILBOX} · email {nextStep} · next in line: {aedMailStep(nextStep)}</span>
         </div>
         {o.replies.length > 0 && <RepliesLine card={card} onShow={onShowReply} />}

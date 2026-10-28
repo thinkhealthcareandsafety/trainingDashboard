@@ -159,7 +159,7 @@ export interface AedOutreach {
   emailConfirmed: boolean;
   /** This invoice's calls and emails, oldest first. */
   calls: { at: string; by: string; to: string; person?: string }[];
-  sent: { at: string; by: string; to: string; step: number; messageId?: string; threaded?: boolean }[];
+  sent: { at: string; by: string; to: string; step: number; messageId?: string; threaded?: boolean; marked?: boolean }[]; // marked = sent from Zoho Mail directly
   /** The last call to this customer, on any of their AED invoices. */
   lastCall?: { at: string; by: string; to: string; person?: string; cardId: string };
   /** Replies to her emails found in hello@'s Inbox by the hourly check, oldest first; star = one not opened yet. */
@@ -228,7 +228,10 @@ function aedOutreach(card: CardView, inv: AedInvoice, own: CardEvent[], shared: 
     email,
     emailConfirmed: own.some((e) => (e.kind === "aed_confirm_email" || e.kind === "aed_set_email" || e.kind === "aed_email") && same(e.value)),
     calls: own.filter((e) => e.kind === "aed_call").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", person: e.person })),
-    sent: own.filter((e) => e.kind === "aed_email").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", step: e.step ?? 1, messageId: e.messageId, threaded: e.threaded })),
+    // Emails sent from the dashboard, and the ones she sent from Zoho Mail herself and marked as sent (owner, 28 Oct).
+    sent: own.filter((e) => e.kind === "aed_email" || e.kind === "aed_email_marked").map((e) => ({
+      at: e.at, by: e.by, to: e.value ?? "", step: e.step ?? 1, messageId: e.messageId, threaded: e.threaded, marked: e.kind === "aed_email_marked" || undefined,
+    })),
     lastCall,
     replies,
     // ★ on every reply to her emails, until she opens it in Zoho Mail from the card (a newer reply brings it back).
@@ -1155,6 +1158,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "aed_confirm_email": return `Checked the email: ${v}`;
     case "aed_call": return `Called ${v}${e.person ? ` (${e.person})` : ""}`;
     case "aed_email": return `Email sent to ${v} — ${aedMailStep(e.step ?? 1)}${e.threaded ? ", as a reply in the same thread" : ""}`;
+    case "aed_email_marked": return `Marked an email as sent${v ? ` to ${v}` : ""} — sent from Zoho Mail directly`;
     case "set_logistics": {
       if (v.startsWith("expected:")) return `Not reached yet — expected ${fmtDay(v.slice("expected:".length))} · moved to Received by Client`;
       const text: Record<string, string> = {

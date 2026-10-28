@@ -29,12 +29,15 @@ async function context(request: Request, card: string | null, to: string | null,
   if (!inv) return { error: Response.json({ error: "That invoice isn't on the AedSmartx board" }, { status: 404 }) };
   const template = await getTemplate(TEMPLATE);
   const events = (await db()).collection<CardEvent & { _id: string }>("cardEvents");
-  const earlier = await events.find({ kind: "aed_email", cardIds: card, revertedAt: { $exists: false } }).sort({ at: 1 }).toArray();
+  // Emails she sent from Zoho Mail herself and marked as sent (owner, 28 Oct 2026) count towards the next in line, but
+  // aren't quoted or replied to — the dashboard doesn't have them.
+  const earlier = await events.find({ kind: { $in: ["aed_email", "aed_email_marked"] }, cardIds: card, revertedAt: { $exists: false } }).sort({ at: 1 }).toArray();
+  const ours = earlier.filter((e) => e.kind === "aed_email");
   const steps = template.steps.map((s) => s.label);
   const next = Math.min(earlier.length + 1, steps.length); // past the last template the last one repeats
   const step = pick && Number.isInteger(pick) && pick >= 1 && pick <= steps.length ? pick : next;
-  const mail = buildMail(template, step, { invoice: inv.number }, earlier.map((e) => ({ at: e.at, step: e.step ?? 1 })), earlier.length > 0);
-  return { me, card, to: to.trim(), inv, template, events, earlier, step, next, steps, mail };
+  const mail = buildMail(template, step, { invoice: inv.number }, ours.map((e) => ({ at: e.at, step: e.step ?? 1 })), ours.length > 0);
+  return { me, card, to: to.trim(), inv, template, events, earlier, ours, step, next, steps, mail };
 }
 
 export async function GET(request: Request) {
@@ -55,7 +58,7 @@ export async function GET(request: Request) {
     const box = await mailboxInfo(c.template.from);
     return Response.json({
       connected: Boolean(box), from: c.template.from, to: c.to, step: c.step, next: c.next, steps: c.steps, label: c.mail.label, subject: c.mail.subject, text: c.mail.text,
-      replyTo: c.earlier[0] ? { at: c.earlier[0].at, messageId: c.earlier[0].messageId } : null, count: c.earlier.length,
+      replyTo: c.ours[0] ? { at: c.ours[0].at, messageId: c.ours[0].messageId } : null, count: c.earlier.length,
     });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't prepare the email" }, { status: 502 });
@@ -78,7 +81,7 @@ export async function POST(request: Request) {
     }
     // The preview she saw must still be the next email (someone else may have just sent one), and no double clicks.
     if ((body.count ?? (body.step ?? 0) - 1) !== c.earlier.length) return Response.json({ error: "Another email was just sent for this invoice — check it and try again" }, { status: 409 });
-    const thread = c.earlier.find((e) => e.messageId);
+    const thread = c.ours.find((e) => e.messageId);
     const sent = await sendMail(c.template.from, { to: c.to, subject: c.mail.subject, html: c.mail.html, replyTo: thread?.messageId });
     const event: CardEvent = {
       id: randomUUID().replace(/-/g, ""), cardIds: [c.card], kind: "aed_email", value: c.to, step: c.step, subject: c.mail.subject,
