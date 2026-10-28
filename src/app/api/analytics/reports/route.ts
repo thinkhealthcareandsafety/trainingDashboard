@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
-import { datasetOf } from "@/lib/analytics/model";
+import { canRead, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, checkSpec } from "@/lib/analytics/query";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   const list = await (await col()).find({}).sort({ updatedAt: -1 }).limit(500).toArray();
   return Response.json({
     canBuild: hasFullAccess(me),
-    reports: list.filter((r) => { const d = datasetOf(r.spec.dataset); return d && boards.includes(d.board); })
+    reports: list.filter((r) => { const d = datasetOf(r.spec.dataset); return d && canRead(d, boards, isAdmin(me)); })
       .map((r) => ({ id: r._id, spec: r.spec, by: r.by, at: r.at, updatedAt: r.updatedAt, mine: r.byId === me.id || isAdmin(me) })),
   });
 }
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { id?: string; spec?: Spec };
   if (!body.spec) return Response.json({ error: "Nothing to save" }, { status: 400 });
   try {
-    checkSpec(body.spec);
+    if (!canRead(checkSpec(body.spec), boardsFor(me), isAdmin(me))) return Response.json({ error: "You can't see this data" }, { status: 403 });
   } catch (e) {
     return Response.json({ error: e instanceof SpecError ? e.message : "That report can't be saved" }, { status: 400 });
   }

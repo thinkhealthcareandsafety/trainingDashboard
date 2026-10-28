@@ -39,7 +39,10 @@ export type Dataset = {
   measures: Measure[];
   /** Who may read it: members whose boards include this one (money lives on the Training board). */
   board: BoardNeed;
+  /** Costs and margins (owner, 28 Oct: ANALYTICS-PLAN §11 #25–26) — Admin only, also refused by the server. */
+  admin?: boolean;
 };
+export const canRead = (d: Dataset, boards: string[], admin: boolean) => boards.includes(d.board) && (!d.admin || admin);
 
 const DATE: Field = { key: "date", label: "Date", kind: "date" };
 /** Stock's days-of-cover bands, most urgent first. */
@@ -208,6 +211,36 @@ export const DATASETS: Dataset[] = [
       { key: "valuedCount", label: "Trainings (with a value)", format: "count", agg: "sum", field: "valued", def: "Trainings that have a value (PI or invoice)." },
       { key: "valuePerPerson", label: "Value per person trained", format: "inr", agg: "ratio", num: "value", den: "peopleValued", def: "Training value ÷ people, on trainings that have a value." },
       { key: "valuePerTraining", label: "Value per training", format: "inr", agg: "ratio", num: "value", den: "valuedCount", def: "Training value ÷ trainings, on trainings that have a value." },
+    ],
+  },
+  {
+    // Owner, 28 Oct (ANALYTICS-PLAN §11 #26): what shipping costs us. Admin only, like margins.
+    key: "freight",
+    label: "Freight",
+    desc: "One row per invoice — the freight paid to send it (invoice field “Freight Incurred”, filled in since Apr 2025) and the shipping charged to the customer.",
+    source: "Zoho Analytics (synced from Zoho Books): Invoices + Customers",
+    dateField: "date",
+    board: "training",
+    admin: true,
+    fields: [
+      { ...DATE, label: "Invoice date" },
+      { key: "invoice", label: "Invoice", kind: "text" },
+      ...CUSTOMER,
+      { key: "salesperson", label: "Sales person", kind: "text" },
+      { key: "courier", label: "Courier", kind: "text", hint: "Invoice field “Shipped by” (spellings merged)" },
+      { key: "shipped", label: "Shipped?", kind: "text", hint: "yes = freight was paid on the invoice", order: ["yes", "no"] },
+      { key: "businessType", label: "Business type", kind: "text" },
+    ],
+    measures: [
+      { key: "freight", label: "Freight paid", format: "inr", agg: "sum", field: "freight", better: "down", def: "Invoice field “Freight Incurred”: what we paid to send the order (filled in on invoices since Apr 2025)." },
+      { key: "charged", label: "Shipping charged", format: "inr", agg: "sum", field: "charged", def: "The shipping charge on the invoice, before tax — what the customer paid towards it." },
+      { key: "revenue", label: "Revenue", format: "inr", agg: "sum", field: "amount", def: "Invoice sub-totals before tax, less invoice-level discounts (every invoice, shipped or not)." },
+      { key: "shippedRevenue", label: "Revenue shipped", format: "inr", agg: "sum", field: "amount", where: { field: "shipped", values: ["yes"] }, def: "Revenue of the invoices that had freight." },
+      { key: "freightPct", label: "Freight % of revenue", format: "pct", agg: "ratio", num: "freight", den: "revenue", scale: 100, better: "down", def: "Freight paid ÷ all revenue." },
+      { key: "freightPctShipped", label: "Freight % of what was shipped", format: "pct", agg: "ratio", num: "freight", den: "shippedRevenue", scale: 100, better: "down", def: "Freight paid ÷ revenue of the invoices that had freight." },
+      { key: "recovered", label: "Shipping recovered", format: "pct", agg: "ratio", num: "charged", den: "freight", scale: 100, def: "Shipping charged ÷ freight paid: how much of it customers paid." },
+      { key: "shipments", label: "Shipments", format: "count", agg: "count", where: { field: "shipped", values: ["yes"] }, def: "Invoices with freight paid." },
+      { key: "perShipment", label: "Freight per shipment", format: "inr", agg: "ratio", num: "freight", den: "shipments", better: "down", def: "Freight paid ÷ shipments." },
     ],
   },
   {

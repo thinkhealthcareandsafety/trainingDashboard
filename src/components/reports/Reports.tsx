@@ -64,7 +64,7 @@ export function Reports() {
         <div className="inline-flex flex-wrap rounded-full bg-surface-2 p-0.5" role="tablist" aria-label="Dashboards">
           {[{ id: "mine", label: "My dashboard", desc: "Your own choice of reports from every tab" }, ...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }].map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} title={t.desc}
-              className={`rounded-full px-4 py-1.5 text-[14px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
+              className={`rounded-full px-3.5 py-1.5 text-[14px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>
         <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})}>+ New report</button>

@@ -257,4 +257,30 @@ export const DASHBOARDS: DashboardDef[] = [
       { id: "open", section: "Open quotes", w: 12, spec: { dataset: "quotes", measures: ["value"], by: ["customer"], limit: 10, chart: "bar", filters: [{ field: "outcome", values: ["Open"] }], title: "Biggest open quotes (by customer)" } },
     ],
   },
+  {
+    // Owner, 28 Oct (ANALYTICS-PLAN §11 #25–26, "yessir" = defaults): costs — Admin only (the datasets are `admin`, so
+    // the tab shows only to Admin and the server refuses the data to anyone else).
+    id: "margin",
+    title: "Margin",
+    desc: "Admin only — what it costs us: freight paid to send orders, against revenue and what customers were charged.",
+    period: "fy",
+    filters: [
+      { field: "courier", label: "Courier" },
+      { field: "state", label: "State" },
+      { field: "customerType", label: "Customer type" },
+      { field: "sector", label: "Sector" },
+      { field: "salesperson", label: "Sales person" },
+    ],
+    tiles: [
+      kpi("freight", "freight", "freight", "Freight paid", { section: "Freight" }),
+      kpi("freightPct", "freight", "freightPct", "Freight % of revenue", { section: "Freight" }),
+      kpi("perShipment", "freight", "perShipment", "Freight per shipment", { section: "Freight" }),
+      kpi("recovered", "freight", "recovered", "Shipping charged to customers", { section: "Freight" }),
+      { id: "freightMonth", section: "Freight", w: 12, note: "“Freight Incurred” is filled in on invoices since Apr 2025", spec: { dataset: "freight", measures: ["freight"], by: ["date"], grain: "month", chart: "column", title: "Freight paid by month" } },
+      { id: "freightPctMonth", section: "Freight", w: 6, spec: { dataset: "freight", measures: ["freightPctShipped"], by: ["date"], grain: "month", chart: "line", title: "Freight as % of what was shipped, by month" } },
+      { id: "freightState", section: "Freight", w: 6, spec: { dataset: "freight", measures: ["freight"], by: ["state"], limit: 10, chart: "bar", title: "Freight paid by state" } },
+      { id: "courier", section: "Freight", w: 12, spec: { dataset: "freight", measures: ["freight", "shipments", "perShipment", "freightPctShipped"], by: ["courier"], chart: "table", filters: [{ field: "shipped", values: ["yes"] }], title: "Couriers" } },
+      { id: "freightCustomers", section: "Freight", w: 12, spec: { dataset: "freight", measures: ["freight", "shipments", "charged", "freightPctShipped"], by: ["customer"], limit: 10, chart: "table", filters: [{ field: "shipped", values: ["yes"] }], title: "Customers we pay the most freight for" } },
+    ],
+  },
 ];

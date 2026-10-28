@@ -18,7 +18,7 @@ export const STOCK_TABLES: TableKey[] = ["stockIn", "stockOut", "warehouses"];
 
 /** The Zoho Analytics tables used, with the columns kept (the rest is never stored). */
 export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
-  invoices: { name: "Invoices", columns: ["Invoice ID", "Invoice Number", "Invoice Date", "Invoice Status", "Customer ID", "Due Date", "Sub Total (BCY)", "Discount Amount (BCY)", "Is Discount Before Tax", "Balance (BCY)", "Salesperson ID", "Address ID", "Last Payment Date", "Business Type", "Lead Source", "Product Type", "Training Date", "Trainer Name", "Freight Incurred", "Shipped by", "Quote ID"] },
+  invoices: { name: "Invoices", columns: ["Invoice ID", "Invoice Number", "Invoice Date", "Invoice Status", "Customer ID", "Due Date", "Sub Total (BCY)", "Discount Amount (BCY)", "Is Discount Before Tax", "Balance (BCY)", "Salesperson ID", "Address ID", "Last Payment Date", "Business Type", "Lead Source", "Product Type", "Training Date", "Trainer Name", "Freight Incurred", "Shipped by", "Quote ID", "Shipping Charge (BCY)"] },
   invoiceItems: { name: "Invoice Items", columns: ["Item ID", "Invoice ID", "Product ID", "Item Name", "Quantity", "Sub Total (BCY)", "Tax Inclusive Total (BCY)"] },
   customers: { name: "Customers", columns: ["Customer ID", "Customer Name", "Status", "Type", "Sector", "Special Identifier", "Created Time"] },
   addresses: { name: "Customer Addresses", columns: ["Address ID", "Customer ID", "Billing City", "Billing State", "Shipping City", "Shipping State"] },
@@ -126,6 +126,28 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       daysToPay: balance <= 0 && paidOn && date ? Math.max(0, dayDiff(date, paidOn)) : null,
     });
   }
+
+  // Freight (owner, 28 Oct: §11 #26): one row per live invoice. "Shipped by" is typed by hand ("Shree Maruti Courier" /
+  // "shree maruti"): spellings with the same letters, "Courier" or not, become the most used one.
+  const courierKey = (s: string) => nameKey(s).replace(/courier$/, "");
+  const spellings = new Map<string, Map<string, number>>();
+  for (const i of t.invoices ?? []) {
+    const s = text(i["Shipped by"]);
+    if (!s) continue;
+    const m = spellings.get(courierKey(s)) ?? spellings.set(courierKey(s), new Map()).get(courierKey(s))!;
+    m.set(s, (m.get(s) ?? 0) + 1);
+  }
+  const courierOf = (s: string | null) => s && [...spellings.get(courierKey(s))!].sort((a, b) => b[1] - a[1])[0][0];
+  const freight: Row[] = (t.invoices ?? []).filter((i) => live(i["Invoice Status"])).map((i) => {
+    const sub = money(i["Sub Total (BCY)"]) ?? 0;
+    const disc = /false|no/i.test(i["Is Discount Before Tax"] ?? "") ? 0 : money(i["Discount Amount (BCY)"]) ?? 0;
+    const paid = money(i["Freight Incurred"]) ?? 0;
+    return {
+      date: day(i["Invoice Date"]), invoice: text(i["Invoice Number"]), ...customerFields(i["Customer ID"], i["Address ID"]),
+      salesperson: ix.people.get(i["Salesperson ID"]) ?? null, courier: courierOf(text(i["Shipped by"])), shipped: paid > 0 ? "yes" : "no",
+      businessType: text(i["Business Type"]), freight: paid, charged: money(i["Shipping Charge (BCY)"]) ?? 0, amount: sub - disc,
+    };
+  });
 
   // Each customer's first-ever live invoice (earliest date, then the lowest number) — "New customers" / "Repeat". By
   // name, like every customer count here: a name that's in Zoho twice (two contacts) is one customer.
@@ -279,7 +301,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     };
   });
 
-  return { sales, invoices, quotes, payments, orders, trainings: boardRows, ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today) } : {}) };
+  return { sales, invoices, quotes, payments, orders, trainings: boardRows, freight, ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today) } : {}) };
 }
 
 const SOLD_DAYS = 90;

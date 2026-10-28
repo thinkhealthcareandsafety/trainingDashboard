@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { boardsFor, isAdmin } from "@/lib/roles";
-import { DATASETS, datasetOf } from "@/lib/analytics/model";
+import { DATASETS, canRead, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, runQuery } from "@/lib/analytics/query";
 import { STALE_MS, dataState, datasetRows, refreshAnalyticsData } from "@/lib/analytics/source";
 import { TABLES, type TableKey } from "@/lib/analytics/build";
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   const boards = boardsFor(me);
   const state = await dataState();
-  return Response.json({ datasets: DATASETS.filter((d) => boards.includes(d.board)).map((d) => d.key), state, today: istToday(), admin: isAdmin(me) });
+  return Response.json({ datasets: DATASETS.filter((d) => canRead(d, boards, isAdmin(me))).map((d) => d.key), state, today: istToday(), admin: isAdmin(me) });
 }
 
 export async function POST(request: Request) {
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
   const results = specs.map((spec) => {
     try {
       const d = datasetOf(spec.dataset);
-      if (!d || !boards.includes(d.board)) return { error: "You can't see this data" };
+      if (!d || !canRead(d, boards, isAdmin(me))) return { error: "You can't see this data" };
       return runQuery({ ...spec, asOf: today }, rows[d.key] ?? []);
     } catch (e) {
       return { error: e instanceof SpecError ? e.message : "Couldn't run this report" };
