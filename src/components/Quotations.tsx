@@ -90,6 +90,16 @@ function dealName(productType: string, lines: Line[], city: string | null) {
 const fmtDay = (ymd: string) => new Date(`${ymd}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 const ago = (ymd: string) => { const d = Math.round((Date.now() - Date.parse(`${ymd}T00:00:00+05:30`)) / 86_400_000); return d <= 0 ? "today" : d === 1 ? "yesterday" : d < 60 ? `${d} days ago` : d < 730 ? `${Math.round(d / 30)} months ago` : `${Math.round(d / 365)} years ago`; };
 
+/** No background scrolling while a popup is open (like the card popup). Nested popups restore in order. */
+function useNoPageScroll() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const prev = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => { root.style.overflow = prev; };
+  }, []);
+}
+
 let itemsOnce: Promise<Item[]> | null = null; // the item list, once per page load
 const loadItems = () => (itemsOnce ??= fetch("/api/quotations?items=1").then((r) => r.json()).then((j: { items?: Item[] }) => j.items ?? []).catch(() => { itemsOnce = null; return []; }));
 
@@ -278,6 +288,7 @@ function StockCell({ item }: { item: Item | undefined }) {
 const GRID = "grid grid-cols-[4.5rem_minmax(0,1fr)_6.5rem_2rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_5rem_7.5rem_4.5rem_7.5rem_2rem]";
 
 function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boolean; onClose: (sent: boolean) => void }) {
+  useNoPageScroll();
   const { toast } = useStore();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -592,6 +603,7 @@ function ItemImage({ item }: { item: Item }) {
 
 /** "New quotation" (owner, 28 Oct: "another option to create quotation from scratch"): any customer, or a new one made in Zoho. */
 function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer) => void; onClose: () => void }) {
+  useNoPageScroll();
   const [tab, setTab] = useState<"find" | "new">("find");
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Customer[]>([]);
@@ -671,6 +683,7 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
 
 /** Admin: connect Zoho Books for quotations — a one-time code from the Zoho API console (Self Client). */
 function ConnectBooks({ scopes, onClose }: { scopes: string; onClose: (ok: boolean) => void }) {
+  useNoPageScroll();
   const [code, setCode] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
