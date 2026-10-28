@@ -30,12 +30,22 @@ export const sessionCookie = (token: string, request: Request) =>
   `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${YEAR}${secure(request) ? "; Secure" : ""}`;
 export const clearedCookie = (request: Request) => `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure(request) ? "; Secure" : ""}`;
 
+// Names kept in this server's memory for a minute (owner, 28 Oct: "cache memory") — every request asked the database,
+// and from Vercel each ask is a round trip to Mumbai. A renamed or removed member shows within MEMBER_MS.
+const MEMBER_MS = 60_000;
+const memberNames = new Map<string, { at: number; name: string | null }>();
+
 /** The signed-in member's id and name (from the server's member list, not from the browser), or null. */
 export async function signedInMember(request: Request): Promise<{ id: string; name: string } | null> {
   const id = memberIdOf(request);
   if (!id) return null;
   if (id === "admin") return { id, name: "Admin" };
-  const { db } = await import("./db");
-  const m = await (await db()).collection<{ _id: string; name?: string }>("members").findOne({ _id: id });
-  return m?.name ? { id, name: m.name } : null;
+  let kept = memberNames.get(id);
+  if (!kept || Date.now() - kept.at > MEMBER_MS) {
+    const { db } = await import("./db");
+    const m = await (await db()).collection<{ _id: string; name?: string }>("members").findOne({ _id: id });
+    kept = { at: Date.now(), name: m?.name ?? null };
+    memberNames.set(id, kept);
+  }
+  return kept.name ? { id, name: kept.name } : null;
 }

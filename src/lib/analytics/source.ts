@@ -31,10 +31,17 @@ export type DataState = { _id?: string; refreshedAt?: string; refreshedBy?: stri
 
 const kv = async () => (await db()).collection<DataState & { _id: string; until?: number; owner?: string }>("kv");
 
+// Kept STATE_MS in memory (owner, 28 Oct: "cache memory"): every Reports request read these two docs — two round trips
+// to Mumbai from Vercel. Another server's refresh shows here within STATE_MS; this server's own refresh at once.
+const STATE_MS = 20_000;
+let state: { at: number; value: DataState } | null = null;
+
 export async function dataState(): Promise<DataState> {
-  const s = await (await kv()).findOne({ _id: STATE_KEY });
-  const lock = await (await kv()).findOne({ _id: LOCK });
-  return { refreshedAt: s?.refreshedAt, refreshedBy: s?.refreshedBy, error: s?.error, tables: s?.tables, running: Boolean(lock?.until && lock.until > Date.now()), partial: s?.partial };
+  if (state && Date.now() - state.at < STATE_MS) return state.value;
+  const [s, lock] = await Promise.all([(await kv()).findOne({ _id: STATE_KEY }), (await kv()).findOne({ _id: LOCK })]);
+  const value = { refreshedAt: s?.refreshedAt, refreshedBy: s?.refreshedBy, error: s?.error, tables: s?.tables, running: Boolean(lock?.until && lock.until > Date.now()), partial: s?.partial };
+  state = { at: Date.now(), value };
+  return value;
 }
 
 async function lock(): Promise<string | null> {
@@ -57,6 +64,7 @@ async function lock(): Promise<string | null> {
 export async function refreshAnalyticsData(by: string): Promise<boolean> {
   const owner = await lock();
   if (!owner) return false;
+  state = null; // "refreshing…" shows at once on this server
   const col = (await db()).collection<TableDoc>(COL);
   const counts: Record<string, number> = {};
   let error: string | undefined;
@@ -86,6 +94,7 @@ export async function refreshAnalyticsData(by: string): Promise<boolean> {
     await (await kv()).updateOne({ _id: STATE_KEY }, { $set: { refreshedAt: new Date().toISOString(), refreshedBy: by, error, partial, ...counts } }, { upsert: true });
     await (await kv()).updateOne({ _id: LOCK, owner }, { $set: { until: 0 } });
     memo = null;
+    state = null; // this server shows its own refresh at once
     copy = null;
   }
   return true;

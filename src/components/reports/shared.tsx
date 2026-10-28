@@ -11,15 +11,43 @@ export type DataState = { refreshedAt?: string; refreshedBy?: string; error?: st
 export type Answer = Result | { error: string };
 export const isError = (a: Answer | undefined): a is { error: string } => Boolean(a && "error" in a);
 
+/*
+ * Answers kept in this tab's memory (owner, 28 Oct: "cache memory"): the same report asked again — back to a tab or a
+ * page, My dashboard after Sales — shows at once, with no request. Kept CACHE_MS (trainings, read live from the
+ * board, TRAININGS_MS); all dropped when the Zoho copy changes (Refresh now, or the automatic one) or the page reloads.
+ */
+const CACHE_MS = 10 * 60_000;
+const TRAININGS_MS = 60_000;
+const answers = new Map<string, { at: number; answer: Result }>();
+let copyOf = ""; // the Zoho copy (refreshedAt) the kept answers came from
+export const forgetAnswers = () => answers.clear();
+
 export async function runSpecs(specs: Spec[]): Promise<{ results: Answer[]; state?: DataState }> {
   if (!specs.length) return { results: [] };
-  const r = await fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ specs }) }).catch(() => null);
-  if (!r) return { results: specs.map(() => ({ error: "Couldn't reach the server" })) };
+  const keys = specs.map((s) => JSON.stringify(s));
+  const kept = keys.map((k, i) => {
+    const a = answers.get(k);
+    return a && Date.now() - a.at < (specs[i].dataset === "trainings" ? TRAININGS_MS : CACHE_MS) ? a.answer : undefined;
+  });
+  const ask = specs.filter((_, i) => !kept[i]);
+  if (!ask.length) return { results: kept as Answer[] };
+  const r = await fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ specs: ask }) }).catch(() => null);
+  const failed = (error: string) => ({ results: kept.map((a) => a ?? { error }) });
+  if (!r) return failed("Couldn't reach the server");
   if (!r.ok) {
     const j = (await r.json().catch(() => ({}))) as { error?: string };
-    return { results: specs.map(() => ({ error: j.error ?? (r.status === 504 ? "The server took too long — try again in a minute" : "Couldn't reach the server") })) };
+    return failed(j.error ?? (r.status === 504 ? "The server took too long — try again in a minute" : "Couldn't reach the server"));
   }
-  return r.json();
+  const j = (await r.json()) as { results: Answer[]; state?: DataState };
+  if (j.state?.refreshedAt && j.state.refreshedAt !== copyOf) { answers.clear(); copyOf = j.state.refreshedAt; }
+  let n = 0;
+  const results = kept.map((a, i) => {
+    if (a) return a;
+    const got = j.results[n++];
+    if (got && !isError(got)) answers.set(keys[i], { at: Date.now(), answer: got });
+    return got;
+  });
+  return { results, state: j.state };
 }
 
 /** A spec with its relative period turned into dates (saved reports store "fy", "3m"…). */

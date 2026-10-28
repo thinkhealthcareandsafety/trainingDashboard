@@ -10,7 +10,7 @@ import { Builder } from "./Builder";
 import { DashboardView, TileCard } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
 import { MyDashboard } from "./MyDashboard";
-import { type Answer, type Meta, runSpecs, stamp, withPeriod } from "./shared";
+import { type Answer, type Meta, forgetAnswers, runSpecs, stamp, withPeriod } from "./shared";
 
 /*
  * Reports (sidebar → Reports): the official dashboards (Sales, Trainings, Quotes), the team's saved reports, and the
@@ -43,6 +43,7 @@ export function Reports() {
     const r = await fetch("/api/analytics", { method: "PUT" }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : {};
     setRefreshing(false);
+    forgetAnswers(); // the kept answers are from the old copy
     if (j.error) setError(j.error);
     await loadMeta();
   };
