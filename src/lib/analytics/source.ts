@@ -5,7 +5,7 @@ import { db } from "../db";
 import { exportTable, workspaceViews } from "../zohoAnalytics";
 import { getSnapshot } from "../zohoSync";
 import { boardTrainings } from "../fulfilServer";
-import { type Raw, type RawTables, type TableKey, TABLES, buildRows } from "./build";
+import { type Raw, type RawTables, type TableKey, STOCK_TABLES, TABLES, buildRows } from "./build";
 import type { Row } from "./model";
 
 /*
@@ -89,18 +89,25 @@ let copy: { refreshedAt: string; tables: RawTables } | null = null;
 /**
  * Every dataset's rows (Zoho Analytics copy + the board's trainings), rebuilt when either changes (trainings: 60 s).
  * `withTrainings` false: no board needed (Sales, Growth, Collections… — the goal meter too), so a new server doesn't
- * load the whole Zoho copy (3.3 MB) just to answer them.
+ * load the whole Zoho copy (3.3 MB) just to answer them. `withStock`: the stock tables are read only when a stock
+ * report asks (28 Oct — keep Reports lazy).
  */
-export async function datasetRows(today: string, withTrainings = true): Promise<{ rows: Record<string, Row[]>; state: DataState }> {
+export async function datasetRows(today: string, withTrainings = true, withStock = false): Promise<{ rows: Record<string, Row[]>; state: DataState }> {
   const state = await dataState();
   const snap = withTrainings ? await getSnapshot() : null;
-  const key = `${state.refreshedAt ?? ""}|${withTrainings ? snap?.version ?? 0 : "-"}|${today}`;
-  if (memo && memo.key === key && Date.now() - memo.at < 60_000) return { rows: memo.rows, state };
+  const col = (await db()).collection<TableDoc>(COL);
   if (!copy || copy.refreshedAt !== (state.refreshedAt ?? "")) {
-    const docs = await (await db()).collection<TableDoc>(COL).find({}).toArray();
+    const docs = await col.find({ _id: { $nin: STOCK_TABLES } }).toArray();
     copy = { refreshedAt: state.refreshedAt ?? "", tables: Object.fromEntries(docs.map((d) => [d._id, unpack(d)])) };
   }
+  // Once read, they stay with the copy (until the next refresh), so stock and other reports share one set of rows.
+  if (withStock && STOCK_TABLES.some((k) => !copy!.tables[k])) {
+    for (const d of await col.find({ _id: { $in: STOCK_TABLES } }).toArray()) copy.tables[d._id] = unpack(d);
+  }
   const tables = copy.tables;
+  const hasStock = STOCK_TABLES.every((k) => tables[k]);
+  const key = `${state.refreshedAt ?? ""}|${withTrainings ? snap?.version ?? 0 : "-"}|${hasStock ? "stock" : "-"}|${today}`;
+  if (memo && memo.key === key && Date.now() - memo.at < 60_000) return { rows: memo.rows, state };
   const trainings = snap ? (await boardTrainings(snap)).board : [];
   const rows = buildRows(tables, trainings, today);
   memo = { key, at: Date.now(), rows };

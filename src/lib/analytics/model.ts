@@ -1,3 +1,5 @@
+import { BOOKED_DAYS } from "./goal";
+
 /*
  * The Reports page's semantic layer (ANALYTICS-PLAN.md §3): every dataset, field and measure, defined once with a
  * plain-English definition. Reports, dashboards and (later) the AI all build on these — nobody writes queries — so two
@@ -40,6 +42,8 @@ export type Dataset = {
 };
 
 const DATE: Field = { key: "date", label: "Date", kind: "date" };
+/** Stock's days-of-cover bands, most urgent first. */
+export const COVER_ORDER = ["Out of stock, still selling", "Under 30 days", "30–90 days", "90–180 days", "Over 180 days", "Not sold in 90 days", "No stock, not selling", "Below zero in Zoho"];
 const CUSTOMER: Field[] = [
   { key: "customer", label: "Customer", kind: "text" },
   { key: "customerType", label: "Customer type", kind: "text", hint: "New / Old Customer, New / Old Reseller (Zoho Books)" },
@@ -204,6 +208,36 @@ export const DATASETS: Dataset[] = [
       { key: "valuedCount", label: "Trainings (with a value)", format: "count", agg: "sum", field: "valued", def: "Trainings that have a value (PI or invoice)." },
       { key: "valuePerPerson", label: "Value per person trained", format: "inr", agg: "ratio", num: "value", den: "peopleValued", def: "Training value ÷ people, on trainings that have a value." },
       { key: "valuePerTraining", label: "Value per training", format: "inr", agg: "ratio", num: "value", den: "valuedCount", def: "Training value ÷ trainings, on trainings that have a value." },
+    ],
+  },
+  {
+    // Owner, 28 Oct (ANALYTICS-PLAN §11 #27): stock on hand and days of cover. A snapshot — today, not a period.
+    key: "stock",
+    label: "Stock now",
+    desc: "One row per item Zoho keeps stock of — what's on hand today, what it cost, and how long it lasts at the recent rate of sales.",
+    source: "Zoho Analytics (synced from Zoho Books / Inventory): Stock In Flow + Stock Out Flow + Items + Sales Orders",
+    dateField: "date",
+    board: "training",
+    fields: [
+      { ...DATE, label: "Last sold", hint: "The item's last invoice — stock is today's, whatever the period" },
+      { key: "item", label: "Item", kind: "text" },
+      { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
+      { key: "itemStatus", label: "Item status", kind: "text", hint: "Active / Inactive in Zoho Books" },
+      { key: "stock", label: "Stock", kind: "text", hint: "In stock · Out of stock · Sold more than bought (Zoho shows it below zero — a purchase or stock adjustment is missing there)", order: ["In stock", "Out of stock", "Sold more than bought"] },
+      { key: "cover", label: "Days of cover", kind: "text", hint: "How long what's available lasts at the last 90 days' rate of sales", order: COVER_ORDER },
+      { key: "reorder", label: "Reorder level", kind: "text", hint: "Available against the item's reorder level in Zoho (few items have one)", order: ["Below reorder level", "Above reorder level", "No reorder level"] },
+    ],
+    measures: [
+      { key: "value", label: "Stock value (cost)", format: "inr", agg: "sum", field: "value", def: "What the stock on hand cost: each purchase still in stock × its purchase price, before tax (Zoho's FIFO)." },
+      { key: "onHand", label: "Units on hand", format: "count", agg: "sum", field: "onHand", def: "Units in stock now (Zoho Inventory). Items Zoho shows below zero count 0." },
+      { key: "committed", label: "Units committed", format: "count", agg: "sum", field: "committed", def: `Units still to invoice on PIs from the last ${BOOKED_DAYS} days (older open PIs are mostly stale).` },
+      { key: "available", label: "Units available", format: "count", agg: "sum", field: "available", def: "On hand − committed." },
+      { key: "sold90", label: "Units sold (90 days)", format: "count", agg: "sum", field: "sold90", def: "Units invoiced in the last 90 days." },
+      { key: "daysCover", label: "Days of cover", format: "days", agg: "ratio", num: "available", den: "sold90", scale: 90, def: "Available ÷ units sold in the last 90 days × 90: how many days the stock lasts at that rate. Compare one item at a time." },
+      { key: "items", label: "Items in stock", format: "count", agg: "count", where: { field: "stock", values: ["In stock"] }, def: "Items with at least one unit on hand." },
+      { key: "toReorder", label: "Items to reorder", better: "down", format: "count", agg: "count", where: { field: "cover", values: ["Out of stock, still selling", "Under 30 days"] }, def: "Items that sold in the last 90 days and have under 30 days of cover (or none left)." },
+      { key: "oversold", label: "Items below zero in Zoho", better: "down", format: "count", agg: "count", where: { field: "stock", values: ["Sold more than bought"] }, def: "Items invoiced with no stock recorded — Zoho shows them below zero until a purchase or stock adjustment is entered." },
+      { key: "short", label: "Units below zero", format: "count", agg: "sum", field: "short", def: "How far below zero Zoho has the item (units invoiced with no stock recorded)." },
     ],
   },
 ];

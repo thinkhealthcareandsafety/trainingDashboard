@@ -1,5 +1,6 @@
 import type { BoardTraining } from "../types";
 import { QUOTE_VALID_DAYS } from "../forecast";
+import { BOOKED_DAYS } from "./goal";
 import type { Row } from "./model";
 
 /*
@@ -11,7 +12,9 @@ import type { Row } from "./model";
 
 export type Raw = Record<string, string>;
 export type RawTables = Partial<Record<TableKey, Raw[]>>;
-export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments" | "salesOrders" | "salesOrderItems";
+export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments" | "salesOrders" | "salesOrderItems" | "stockIn" | "stockOut" | "warehouses";
+/** Read only when a report needs them (stock), so the other Reports pages don't download them. */
+export const STOCK_TABLES: TableKey[] = ["stockIn", "stockOut", "warehouses"];
 
 /** The Zoho Analytics tables used, with the columns kept (the rest is never stored). */
 export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
@@ -20,12 +23,17 @@ export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
   customers: { name: "Customers", columns: ["Customer ID", "Customer Name", "Status", "Type", "Sector", "Special Identifier", "Created Time"] },
   addresses: { name: "Customer Addresses", columns: ["Address ID", "Customer ID", "Billing City", "Billing State", "Shipping City", "Shipping State"] },
   salespersons: { name: "Salespersons", columns: ["Salesperson ID", "Name"] },
-  items: { name: "Items", columns: ["Item ID", "Item Name", "Item Identifier", "Product Category", "Brand"] },
+  items: { name: "Items", columns: ["Item ID", "Item Name", "Item Identifier", "Product Category", "Brand", "Status", "Reorder Level"] },
   quotes: { name: "Quotes", columns: ["Quote ID", "Quote Number", "Quote Date", "Status", "Customer ID", "Sub Total (BCY)", "Salesperson ID", "Address ID"] },
   payments: { name: "Customer Payments", columns: ["Payment ID", "Payment Date", "Customer ID", "Amount (BCY)", "Withholding Tax (BCY)", "Payment Mode"] },
   // PIs (27 Oct, for the ₹50 L goal's "booked" part). "Total (BCY)" exports abbreviated ("INR …K") — sub-totals only.
   salesOrders: { name: "Sales Orders", columns: ["Sales order ID", "Order Date", "Sales Order#", "Status", "Invoiced Status", "Customer ID", "Sub Total (BCY)", "Discount Amount (BCY)", "Is Discount Before Tax", "Salesperson ID", "Address ID"] },
   salesOrderItems: { name: "Sales Order Items", columns: ["Item ID", "Sales order ID", "Product ID", "Quantity", "Quantity Invoiced", "Quantity Cancelled", "Sub Total (BCY)"] },
+  // Stock (owner, 28 Oct: ANALYTICS-PLAN §11 #27). Each stock-in row is one purchase / adjustment; "Quantity
+  // Available" is what's left of it after Zoho's FIFO, so on hand = its sum per item. Stock-outs are what left (sales).
+  stockIn: { name: "Stock In Flow Table", columns: ["Stock In Flow ID", "Product ID", "Transaction Date", "EntityType", "Quantity In", "Quantity Available", "Price (BCY)", "Warehouse ID"] },
+  stockOut: { name: "Stock Out Flow Table", columns: ["Stock Out Flow ID", "Product ID", "Transaction Date", "Invoice ID", "EntityType", "Quantity Out", "Warehouse ID"] },
+  warehouses: { name: "Warehouses", columns: ["Warehouse ID", "Warehouse Name", "Status"] },
 };
 
 /** "INR 852,000.00" / "3,250.00" / "-1,200" → number; abbreviated "INR 954.24K" → approximate (avoid those columns). */
@@ -271,5 +279,62 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     };
   });
 
-  return { sales, invoices, quotes, payments, orders, trainings: boardRows };
+  return { sales, invoices, quotes, payments, orders, trainings: boardRows, ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today) } : {}) };
+}
+
+const SOLD_DAYS = 90;
+
+/**
+ * Stock now (owner, 28 Oct: ANALYTICS-PLAN §11 #27) — one row per item Zoho keeps stock of (any stock movement).
+ * On hand = what's left of each purchase after Zoho's FIFO ("Quantity Available"), worth its purchase price. Zoho puts
+ * a negative "backup" row when something is invoiced with no stock recorded (often services / licences set up as
+ * goods): those items count 0 on hand and are listed as "Sold more than bought". Committed = still to invoice on PIs
+ * from the last BOOKED_DAYS days (older open PIs are mostly stale — 5,100 units on PIs over 6 months old on 28 Oct).
+ * Days of cover = available ÷ what sold in the last 90 days.
+ */
+function stockRows(t: RawTables, today: string): Row[] {
+  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
+  const s = new Map<string, { left: number; value: number; short: number; sold: number; lastSold: string | null; committed: number }>();
+  const get = (p: string) => s.get(p) ?? s.set(p, { left: 0, value: 0, short: 0, sold: 0, lastSold: null, committed: 0 }).get(p)!;
+  for (const r of t.stockIn ?? []) {
+    const left = money(r["Quantity Available"]) ?? 0;
+    const x = get(r["Product ID"]);
+    if (left >= 0) { x.left += left; x.value += left * (money(r["Price (BCY)"]) ?? 0); } else x.short -= left;
+  }
+  const since = new Date(Date.parse(today) - SOLD_DAYS * 86_400_000).toISOString().slice(0, 10);
+  for (const r of t.stockOut ?? []) {
+    const date = day(r["Transaction Date"]);
+    const x = get(r["Product ID"]);
+    if (!/invoice/i.test(r["EntityType"] ?? "") || !date) continue; // sales only — not adjustments / returns to vendors
+    if (date > since && date <= today) x.sold += money(r["Quantity Out"]) ?? 0;
+    if (!x.lastSold || date > x.lastSold) x.lastSold = date;
+  }
+  const bookedFrom = new Date(Date.parse(today) - BOOKED_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const recentPi = new Set((t.salesOrders ?? []).filter((o) => !/void|draft|closed/i.test(o["Status"] ?? "") && (day(o["Order Date"]) ?? "") >= bookedFrom).map((o) => o["Sales order ID"]));
+  for (const li of t.salesOrderItems ?? []) {
+    if (!recentPi.has(li["Sales order ID"]) || !s.has(li["Product ID"])) continue;
+    const open = (money(li["Quantity"]) ?? 0) - (money(li["Quantity Invoiced"]) ?? 0) - (money(li["Quantity Cancelled"]) ?? 0);
+    if (open > 0) s.get(li["Product ID"])!.committed += open;
+  }
+  return [...s].map(([p, x]) => {
+    const item = items.get(p);
+    // A tiny fraction left by FIFO rounding (0.0001) is nothing.
+    const onHand = x.left > 0.001 ? x.left : 0;
+    const available = onHand - x.committed;
+    const perDay = x.sold / SOLD_DAYS;
+    const cover = perDay > 0 ? available / perDay : null;
+    const reorder = money(item?.["Reorder Level"]) ?? 0;
+    // Below zero: mostly bought per order and invoiced without stock (N95 masks, bandages) or services set up as goods
+    // — not stock to reorder, so their own band (28 Oct: they filled "To reorder").
+    const below = x.short > 0 && onHand === 0;
+    return {
+      date: x.lastSold, item: text(item?.["Item Name"]) ?? "(unknown item)", itemGroup: text(item?.["Item Identifier"]),
+      itemStatus: text(item?.["Status"]),
+      stock: below ? "Sold more than bought" : onHand > 0 ? "In stock" : "Out of stock",
+      cover: below ? "Below zero in Zoho" : cover === null ? (onHand > 0 ? "Not sold in 90 days" : "No stock, not selling")
+        : available <= 0 ? "Out of stock, still selling" : cover < 30 ? "Under 30 days" : cover < 90 ? "30–90 days" : cover < 180 ? "90–180 days" : "Over 180 days",
+      reorder: reorder <= 0 ? "No reorder level" : available < reorder ? "Below reorder level" : "Above reorder level",
+      onHand, value: x.value, committed: x.committed, available, sold90: x.sold, short: x.short,
+    };
+  });
 }

@@ -125,7 +125,7 @@ export const DASHBOARDS: DashboardDef[] = [
   {
     id: "products",
     title: "Products",
-    desc: "What sells, at what price, in which months — and whether growth came from more units, better prices or a richer mix.",
+    desc: "What sells, at what price, in which months — whether growth came from more units, better prices or a richer mix — and the stock on hand.",
     period: "fy",
     filters: [
       { field: "itemGroup", label: "Item group" },
@@ -143,6 +143,14 @@ export const DASHBOARDS: DashboardDef[] = [
       { id: "price", section: "Prices", w: 6, noCompare: true, note: "Filter to one item for a clean price line", spec: { dataset: "sales", measures: ["avgPrice"], by: ["date", "itemGroup"], grain: "quarter", limit: 4, chart: "line", filters: [{ field: "itemGroup", values: ["All AEDs", "AED Pads", "AED Batteries", "Training Services"] }], title: "Average selling price by quarter" } },
       { id: "priceItems", section: "Prices", w: 6, spec: { dataset: "sales", measures: ["avgPrice"], by: ["item"], limit: 10, chart: "bar", filters: [{ field: "itemGroup", values: ["All AEDs"] }], title: "Average price per AED model" } },
       { id: "leadTable", section: "Lead sources", w: 12, spec: { dataset: "sales", measures: ["revenue", "invoices", "customers", "newCustomers", "avgInvoice"], by: ["leadSource"], chart: "table", title: "Lead-source performance" } },
+      // Stock (owner, 28 Oct: ANALYTICS-PLAN §11 #27) — today's, so the period and Compare leave it alone.
+      ...([["stockValue", "value", "Stock value (cost)"], ["stockItems", "items", "Items in stock"], ["stockReorder", "toReorder", "Items to reorder"], ["stockBelow", "oversold", "Items below zero in Zoho"]] as const)
+        .map(([id, measure, title]): Tile => ({ id, w: 3, section: "Stock now", fixedPeriod: true, noCompare: true, spec: { dataset: "stock", measures: [measure], chart: "kpi", title } })),
+      { id: "stockLow", section: "Stock now", w: 12, fixedPeriod: true, noCompare: true, note: "Sold in the last 90 days, under 30 days of cover left", spec: { dataset: "stock", measures: ["sold90", "available", "daysCover", "committed", "onHand"], by: ["item"], limit: 15, chart: "table", filters: [{ field: "cover", values: ["Out of stock, still selling", "Under 30 days"] }], title: "To reorder" } },
+      { id: "stockGroup", section: "Stock now", w: 6, fixedPeriod: true, noCompare: true, spec: { dataset: "stock", measures: ["value"], by: ["itemGroup"], limit: 8, chart: "bar", title: "Stock value by item group" } },
+      { id: "stockCover", section: "Stock now", w: 6, fixedPeriod: true, noCompare: true, note: "Not sold in 90 days = slow-moving stock", spec: { dataset: "stock", measures: ["value"], by: ["cover"], sort: "label", chart: "bar", filters: [{ field: "stock", values: ["In stock"] }], title: "Stock value by days of cover" } },
+      { id: "stockItemsTable", section: "Stock now", w: 12, fixedPeriod: true, noCompare: true, spec: { dataset: "stock", measures: ["value", "onHand", "committed", "available", "sold90", "daysCover"], by: ["item"], limit: 20, chart: "table", filters: [{ field: "stock", values: ["In stock"] }], title: "Stock by item" } },
+      { id: "stockZero", section: "Stock now", w: 12, fixedPeriod: true, noCompare: true, note: "Invoiced with no stock recorded — enter the purchase or a stock adjustment in Zoho (or untick stock tracking for services)", spec: { dataset: "stock", measures: ["short", "sold90"], by: ["item"], limit: 15, chart: "table", filters: [{ field: "stock", values: ["Sold more than bought"] }], title: "Below zero in Zoho" } },
     ],
   },
   {

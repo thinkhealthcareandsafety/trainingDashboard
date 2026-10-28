@@ -225,7 +225,8 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
             if (run.kpi) return (
               <Fragment key={ri}>
                 <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} className={top ? "mt-5" : "mt-4"} />
-                {gi === 0 && ri === 0 && footnote && <p className="mt-2 text-[12.5px] text-faint">{footnote}</p>}
+                {/* Not under numbers that are never compared (stock: today's). */}
+                {gi === 0 && ri === 0 && footnote && run.tiles.some((t) => !t.noCompare) && <p className="mt-2 text-[12.5px] text-faint">{footnote}</p>}
               </Fragment>
             );
             return (
