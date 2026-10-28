@@ -10,17 +10,61 @@ import { btn, inputCls } from "./ui";
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
  * items (started from their last quotation), the total — then Send makes the quotation in Zoho Books and Zoho emails it
  * (standard email + PDF). Or Save as draft in Zoho. Server: /api/quotations. Ready-made quotes come later (owner).
+ * 28 Oct (owner: "the popup is very small … that's how a zoho quote making looks"): wide like Zoho's form — the quote's
+ * fields (sales person, Send to CRM and Reminder Frequency — mandatory in Zoho —, product type, lead source, deal name),
+ * stock and GST per item, editable descriptions, the totals as Zoho works them out, notes and terms.
  */
 
 type Last = { date: string; number: string; amount: number; status: string };
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
 type ListRes = { connected: { connectedAt: string; connectedBy: string } | null; scopes: string; admin: boolean; live: boolean; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
-type Item = { id: string; name: string; group: string | null; rate: number | null };
+type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null };
 type Contact = { id: string; name: string | null; email: string | null; phone: string | null; primary: boolean };
-type Line = { key: number; itemId: string; name: string; qty: number; rate: number; description?: string };
-type Detail = { contacts: Contact[]; last: { number: string; date: string; lines: { itemId: string; name: string; qty: number; rate: number; description?: string }[] } | null; recent: { number: string; date: string; days: number } | null; error?: string };
+type Line = { key: number; itemId: string; name: string; qty: number; rate: number; gst: number | null; description?: string; open?: boolean };
+type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: string[]; leadSource: string[] };
+type Detail = {
+  contacts: Contact[];
+  customer: { gstin: string | null; state: string | null; city: string | null; place: string | null; tax: "intra" | "inter" | "none" };
+  last: { number: string; date: string; salesperson: string | null; fields: Record<string, string>; lines: Omit<Line, "key">[] } | null;
+  recent: { number: string; date: string; days: number } | null;
+  salespeople: string[]; salesperson: string | null; options: Opts; notes: string; terms: string; today: string; error?: string;
+};
+/** The quote's own fields, as in Zoho's form. Send to CRM and Reminder Frequency are mandatory in Zoho. */
+type Form = {
+  salesperson: string; sendToCrm: string; reminderFrequency: string; productType: string; leadSource: string; dealName: string; dealTyped: boolean;
+  reference: string; expiry: string; discount: string; discountPct: boolean; shipping: string; adjustment: string; notes: string; terms: string;
+};
 
 const inr = (v: number) => `₹${Math.round(v).toLocaleString("en-IN")}`;
+const inr2 = (v: number) => `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * The totals the way Zoho works them out: discount on the whole quote before tax (shared over the lines), GST per rate
+ * on what's left — CGST + SGST (half each) in Maharashtra, IGST elsewhere, none abroad — then shipping and adjustment.
+ */
+function totals(lines: Line[], f: Form, tax: Detail["customer"]["tax"]) {
+  const filled = lines.filter((l) => l.itemId);
+  const sub = filled.reduce((s, l) => s + l.qty * l.rate, 0);
+  const d = Number(f.discount) || 0;
+  const discount = Math.min(sub, f.discountPct ? (sub * d) / 100 : d);
+  const share = sub > 0 ? (sub - discount) / sub : 1;
+  const byRate = new Map<number, number>();
+  for (const l of filled) if (l.gst) byRate.set(l.gst, (byRate.get(l.gst) ?? 0) + l.qty * l.rate * share * (l.gst / 100));
+  const taxes = tax === "none" ? [] : [...byRate].sort((a, b) => a[0] - b[0]).flatMap(([rate, amt]) =>
+    tax === "intra" ? [{ label: `CGST ${rate / 2}%`, amount: round2(amt / 2) }, { label: `SGST ${rate / 2}%`, amount: round2(amt / 2) }] : [{ label: `IGST ${rate}%`, amount: round2(amt) }]);
+  const shipping = Number(f.shipping) || 0;
+  const adjustment = Number(f.adjustment) || 0;
+  const total = round2(sub - discount + taxes.reduce((s, t) => s + t.amount, 0) + shipping + adjustment);
+  return { sub, discount: round2(discount), taxes, shipping, adjustment, total, noGst: tax !== "none" && filled.some((l) => l.gst === null) };
+}
+
+/** Deal Name the way the team writes it: product type, quantity of the main item, city ("pads 2 Bengaluru Urban"). */
+function dealName(productType: string, lines: Line[], city: string | null) {
+  if (!productType.trim()) return "";
+  const main = lines.filter((l) => l.itemId).sort((a, b) => b.qty * b.rate - a.qty * a.rate)[0];
+  return [productType.trim(), main ? String(main.qty) : "", city ?? ""].filter(Boolean).join(" ");
+}
 const fmtDay = (ymd: string) => new Date(`${ymd}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 const ago = (ymd: string) => { const d = Math.round((Date.now() - Date.parse(`${ymd}T00:00:00+05:30`)) / 86_400_000); return d <= 0 ? "today" : d === 1 ? "yesterday" : d < 60 ? `${d} days ago` : d < 730 ? `${Math.round(d / 30)} months ago` : `${Math.round(d / 365)} years ago`; };
 
@@ -169,46 +213,118 @@ function ItemPicker({ items, value, onPick }: { items: Item[]; value: string; on
   );
 }
 
+const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
+const need = <span className="text-high"> *</span>;
+
+/** A labelled field in the details panel. */
+function Field({ name, required, wide, children }: { name: string; required?: boolean; wide?: boolean; children: React.ReactNode }) {
+  return (
+    <label className={`block min-w-0 ${wide ? "sm:col-span-2" : ""}`}>
+      <span className={label}>{name}{required && need}</span>
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
+
+/** One of Zoho's dropdowns (its exact values, shown trimmed). */
+function Choice({ value, options, onChange, blank, aria }: { value: string; options: string[]; onChange: (v: string) => void; blank?: string; aria: string }) {
+  return (
+    <select className={`${inputCls} !h-9 text-[14px]`} value={value} onChange={(e) => onChange(e.target.value)} aria-label={aria}>
+      {blank !== undefined && <option value="">{blank}</option>}
+      {options.map((o) => <option key={o} value={o}>{o.trim()}</option>)}
+    </select>
+  );
+}
+
+/** Stock for a line: on hand (our stock copy) and Zoho's Stock Status field; services have none. */
+function StockCell({ item }: { item: Item | undefined }) {
+  if (!item) return <span className="text-faint">—</span>;
+  if (item.service) return <span className="text-[13px] text-muted">Service</span>;
+  const tone = /back|out/i.test(item.stock ?? "") ? "text-medium" : /in stock/i.test(item.stock ?? "") ? "text-low" : "text-muted";
+  return (
+    <span className="block leading-tight">
+      <span className="num text-[14px] text-ink">{(item.onHand ?? 0).toLocaleString("en-IN")}</span> <span className="text-[12.5px] text-muted">on hand</span>
+      {item.stock && <span className={`block text-[12.5px] ${tone}`}>{item.stock}</span>}
+    </span>
+  );
+}
+
+// Wide: one row per item like Zoho. Phone: the item on its own row, then quantity, rate, amount (no stock / GST).
+const GRID = "grid grid-cols-[4.5rem_minmax(0,1fr)_6.5rem_2rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_5rem_7.5rem_4.5rem_7.5rem_2rem]";
+
 function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boolean; onClose: (sent: boolean) => void }) {
   const { toast } = useStore();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [to, setTo] = useState<string[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
+  const [f, setF] = useState<Form | null>(null);
+  const [more, setMore] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [busy, setBusy] = useState<"" | "send" | "draft">("");
   const [error, setError] = useState("");
-  const [done, setDone] = useState<{ number: string; total: number; url: string; sent: boolean } | null>(null);
+  const [done, setDone] = useState<{ number: string; total: number; url: string; sent: boolean; ours: number } | null>(null);
   const key = useRef(0);
   const row = (l: Omit<Line, "key">): Line => ({ ...l, key: ++key.current });
+  const blank = () => row({ itemId: "", name: "", qty: 1, rate: 0, gst: null });
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
   useEffect(() => {
-    loadItems().then(setItems);
+    let current = true; // a late answer (an earlier open) must not reset lines someone is already editing
+    loadItems().then((i) => current && setItems(i));
     fetch(`/api/quotations?customer=${customer.id}`).then((r) => r.json()).then((j: Detail) => {
+      if (!current) return;
       setDetail(j);
       if (j.error) return;
       // Who: the primary contact (with an email), else the first with one. What: their last quotation's lines.
       const withMail = j.contacts.filter((c) => c.email);
-      setTo((withMail.find((c) => c.primary) ?? withMail[0]) ? [(withMail.find((c) => c.primary) ?? withMail[0]).id] : []);
-      setLines(j.last?.lines.length ? j.last.lines.map((l) => row(l)) : [row({ itemId: "", name: "", qty: 1, rate: 0 })]);
-    }).catch(() => setDetail({ contacts: [], last: null, recent: null, error: "Couldn't reach the server" }));
+      const first = withMail.find((c) => c.primary) ?? withMail[0];
+      setTo(first ? [first.id] : []);
+      setLines(j.last?.lines.length ? j.last.lines.map((l) => row(l)) : [blank()]);
+      // The quote's fields: Send to CRM Yes (owner, 28 Oct); the rest from their last quotation where it had them.
+      const was = (k: keyof Opts, fallback: string) => { const v = j.last?.fields[k] ?? ""; return j.options[k].includes(v) ? v : fallback; };
+      setF({
+        salesperson: j.salesperson ?? "", sendToCrm: "Yes", reminderFrequency: was("reminderFrequency", "15 days"), productType: was("productType", ""), leadSource: was("leadSource", ""),
+        dealName: "", dealTyped: false, reference: "", expiry: "", discount: "", discountPct: true, shipping: "", adjustment: "", notes: j.notes, terms: j.terms,
+      });
+    }).catch(() => current && setDetail({ error: "Couldn't reach the server" } as Detail));
+    return () => { current = false; };
   }, [customer.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const total = lines.reduce((s, l) => s + (l.itemId ? l.qty * l.rate : 0), 0);
-  const filled = lines.filter((l) => l.itemId);
-  const why = !live ? "Only the live site creates quotations" : !filled.length ? "Add at least one item" : filled.some((l) => !(l.qty > 0)) ? "Every item needs a quantity" : "";
-  const whySend = why || (!to.length ? "Pick who it goes to" : "");
   const set = (k: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...patch } : l)));
+  const pick = (k: number, i: Item) => {
+    set(k, { itemId: i.id, name: i.name, rate: i.rate || 0, gst: i.gst, description: undefined });
+    // Zoho puts the item's description on the line — read it now (and the GST %, if the item list is older than the item).
+    fetch(`/api/quotations?item=${i.id}`).then((r) => r.json()).then((j: { description?: string; gst?: number | null }) => {
+      setLines((ls) => ls.map((l) => (l.key === k && l.itemId === i.id ? { ...l, description: l.description ?? j.description ?? "", gst: l.gst ?? j.gst ?? null } : l)));
+    }).catch(() => {});
+  };
+  const upd = (patch: Partial<Form>) => setF((x) => (x ? { ...x, ...patch } : x));
+
+  const filled = lines.filter((l) => l.itemId);
+  const t = f && detail?.customer ? totals(lines, f, detail.customer.tax) : null;
+  const deal = f ? (f.dealTyped ? f.dealName : dealName(f.productType, lines, detail?.customer?.city ?? null)) : "";
+  const why = !live ? "Only the live site creates quotations" : !filled.length ? "Add at least one item" : filled.some((l) => !(l.qty > 0)) ? "Every item needs a quantity"
+    : !f?.sendToCrm || !f.reminderFrequency ? "Fill in Send to CRM and Reminder frequency" : t && t.discount > t.sub ? "The discount is more than the items" : "";
+  const whySend = why || (!to.length ? "Pick who it goes to" : "");
 
   const submit = async (send: boolean, e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!f || !t) return;
     const from = e.currentTarget;
     if (send && detail?.recent && !confirm(`${detail.recent.number} went to ${customer.name} ${detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`}. Send another?`)) return;
     setBusy(send ? "send" : "draft");
     setError("");
     try {
-      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
+      const details = {
+        salesperson: f.salesperson || undefined, sendToCrm: f.sendToCrm, reminderFrequency: f.reminderFrequency, productType: f.productType || undefined, leadSource: f.leadSource || undefined,
+        dealName: deal || undefined, reference: f.reference || undefined, expiry: f.expiry || undefined,
+        discount: Number(f.discount) > 0 ? { value: Number(f.discount), percent: f.discountPct } : undefined, shipping: Number(f.shipping) || undefined, adjustment: Number(f.adjustment) || undefined,
+        notes: f.notes, terms: f.terms,
+      };
+      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send, details, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
       const j = (await r.json()) as { ok?: boolean; error?: string; quote?: { number: string; total: number; url: string; sent: boolean } };
       if (!r.ok || !j.quote) throw new Error(j.error ?? "Couldn't create the quotation");
-      setDone(j.quote);
+      setDone({ ...j.quote, ours: t.total });
       if (send) celebrate(from);
       toast({ text: `${j.quote.number} ${send ? "sent to" : "saved as a draft for"} ${customer.name}` });
     } catch (err) {
@@ -217,14 +333,17 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
     setBusy("");
   };
 
-  const emails = detail?.contacts.filter((c) => to.includes(c.id)).map((c) => c.email).join(", ");
+  const emails = detail?.contacts?.filter((c) => to.includes(c.id)).map((c) => c.email).join(", ");
+  const c = detail?.customer;
+  const gstLine = c && (c.tax === "none" ? "Outside India · no GST" : [c.gstin && `GSTIN ${c.gstin}`, c.state, c.tax === "intra" ? "CGST + SGST" : "IGST (outside Maharashtra)"].filter(Boolean).join(" · "));
   return (
-    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={busy ? undefined : () => onClose(Boolean(done))}>
-      <div role="dialog" aria-label={`Quotation for ${customer.name}`} className="modal-in flex max-h-[92vh] w-full max-w-3xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={busy ? undefined : () => onClose(Boolean(done))}>
+      <div role="dialog" aria-label={`Quotation for ${customer.name}`} className="modal-in flex max-h-[96vh] w-full min-w-0 max-w-6xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 pt-5">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">New quotation</p>
-            <h3 className="truncate text-[20px] font-bold tracking-tight text-ink" title={customer.name}>{customer.name}</h3>
+            <h3 className="truncate text-[21px] font-bold tracking-tight text-ink" title={customer.name}>{customer.name}</h3>
+            {gstLine && <p className="text-[13.5px] text-muted">{gstLine}</p>}
           </div>
           <button className={btn.quiet} onClick={() => onClose(Boolean(done))} aria-label="Close" disabled={Boolean(busy)}>✕</button>
         </div>
@@ -232,7 +351,8 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
         {done ? (
           <div className="px-6 py-8 text-center">
             <p className="text-[22px] font-bold text-low">{done.sent ? "Sent" : "Saved as a draft"} · {done.number}</p>
-            <p className="mt-1 text-[15px] text-ink-2">{done.sent ? <>Zoho Books emailed it to {emails}.</> : <>It&apos;s in Zoho Books as a draft — send it from there when ready.</>} Total incl. GST <b className="num">{inr(done.total)}</b>.</p>
+            <p className="mt-1 text-[15px] text-ink-2">{done.sent ? <>Zoho Books emailed it to {emails}.</> : <>It&apos;s in Zoho Books as a draft — send it from there when ready.</>} Total incl. GST <b className="num">{inr2(done.total)}</b>.</p>
+            {Math.abs(done.total - done.ours) > 1 && <p className="mt-1 text-[14px] text-medium">This page worked out {inr2(done.ours)} — Zoho&apos;s total is the one on the quotation; check it there.</p>}
             <div className="mt-5 flex justify-center gap-2">
               <a className={btn.ghost} href={done.url} target="_blank" rel="noreferrer">Open in Zoho Books</a>
               <button className={btn.primary} onClick={() => onClose(true)} autoFocus>Done</button>
@@ -240,48 +360,124 @@ function QuotePopup({ customer, live, onClose }: { customer: Customer; live: boo
           </div>
         ) : !detail ? (
           <p className="px-6 py-10 text-center text-[15px] text-muted">Getting {customer.name}&apos;s contacts and last quotation from Zoho…</p>
-        ) : detail.error ? (
-          <p className="px-6 py-10 text-center text-[15px] text-high">{detail.error}</p>
+        ) : detail.error || !f || !t ? (
+          <p className="px-6 py-10 text-center text-[15px] text-high">{detail.error ?? "Couldn't load the quotation"}</p>
         ) : (
           <>
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-2 pt-3">
+            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-3">
               {detail.recent && <p className="mb-3 rounded-xl border border-medium/50 bg-medium-bg px-3 py-2 text-[14px] font-medium text-medium">⚑ {detail.recent.number} went to them {detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`} — a quotation is valid 15 days.</p>}
 
-              <p className="text-[13px] font-bold uppercase tracking-wide text-muted">To</p>
+              <p className={label}>To</p>
               <div className="mt-1 flex flex-wrap gap-1.5">
-                {detail.contacts.map((c) => (
-                  <label key={c.id} className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-[14px] ${to.includes(c.id) ? "border-brand bg-brand-soft" : "border-line"} ${c.email ? "" : "cursor-not-allowed opacity-50"}`} title={c.email ? undefined : "No email in Zoho"}>
-                    <input type="checkbox" className="accent-[var(--brand)]" disabled={!c.email} checked={to.includes(c.id)} onChange={(e) => setTo((t) => (e.target.checked ? [...t, c.id] : t.filter((x) => x !== c.id)))} />
-                    <span className="text-ink">{c.name ?? c.email ?? "Contact"}</span>
-                    {c.email && c.name && <span className="text-muted">{c.email}</span>}
-                    {c.primary && <span className="rounded bg-surface-2 px-1.5 text-[11px] font-bold text-muted">PRIMARY</span>}
+                {detail.contacts.map((p) => (
+                  <label key={p.id} className={`flex max-w-full min-w-0 cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-[14px] ${to.includes(p.id) ? "border-brand bg-brand-soft" : "border-line"} ${p.email ? "" : "cursor-not-allowed opacity-50"}`} title={p.email ? undefined : "No email in Zoho"}>
+                    <input type="checkbox" className="accent-[var(--brand)]" disabled={!p.email} checked={to.includes(p.id)} onChange={(e) => setTo((x) => (e.target.checked ? [...x, p.id] : x.filter((y) => y !== p.id)))} />
+                    <span className="text-ink">{p.name ?? p.email ?? "Contact"}</span>
+                    {p.email && p.name && <span className="min-w-0 truncate text-muted">{p.email}</span>}
+                    {p.primary && <span className="rounded bg-surface-2 px-1.5 text-[11px] font-bold text-muted">PRIMARY</span>}
                   </label>
                 ))}
-                {!detail.contacts.some((c) => c.email) && <p className="text-[14px] text-high">No contact person with an email in Zoho — add one there, or save it as a draft.</p>}
+                {!detail.contacts.some((p) => p.email) && <p className="text-[14px] text-high">No contact person with an email in Zoho — add one there, or save it as a draft.</p>}
               </div>
 
-              <div className="mt-4 flex items-baseline justify-between">
-                <p className="text-[13px] font-bold uppercase tracking-wide text-muted">Items</p>
-                {detail.last && <p className="text-[13px] text-muted">Started from {detail.last.number} ({fmtDay(detail.last.date)}) · <button className="font-semibold text-brand hover:underline" onClick={() => setLines([row({ itemId: "", name: "", qty: 1, rate: 0 })])}>start empty</button></p>}
+              <div className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Field name="Sales person">
+                  <Choice value={f.salesperson} options={detail.salespeople} onChange={(v) => upd({ salesperson: v })} blank="Zoho's default" aria="Sales person" />
+                </Field>
+                <Field name="Send to CRM" required><Choice value={f.sendToCrm} options={detail.options.sendToCrm} onChange={(v) => upd({ sendToCrm: v })} aria="Send to CRM" /></Field>
+                <Field name="Reminder frequency" required><Choice value={f.reminderFrequency} options={detail.options.reminderFrequency} onChange={(v) => upd({ reminderFrequency: v })} aria="Reminder frequency" /></Field>
+                <Field name="Product type"><Choice value={f.productType} options={detail.options.productType} onChange={(v) => upd({ productType: v })} blank="—" aria="Product type" /></Field>
+                <Field name="Lead source"><Choice value={f.leadSource} options={detail.options.leadSource} onChange={(v) => upd({ leadSource: v })} blank="—" aria="Lead source" /></Field>
+                <Field name="Deal name" wide>
+                  <input className={`${inputCls} !h-9 text-[14px]`} value={deal} placeholder="Product type, quantity, city" maxLength={100} onChange={(e) => upd({ dealName: e.target.value, dealTyped: true })} aria-label="Deal name" />
+                </Field>
+                {more ? (
+                  <>
+                    <Field name="Reference #"><input className={`${inputCls} !h-9 text-[14px]`} value={f.reference} maxLength={50} onChange={(e) => upd({ reference: e.target.value })} aria-label="Reference number" /></Field>
+                    <Field name="Expiry date"><input className={`${inputCls} !h-9 text-[14px]`} type="date" min={detail.today} value={f.expiry} onChange={(e) => upd({ expiry: e.target.value })} aria-label="Expiry date" /></Field>
+                  </>
+                ) : (
+                  <div className="flex items-end"><button className={`${btn.quiet} !h-9`} onClick={() => setMore(true)}>+ Reference #, expiry date</button></div>
+                )}
               </div>
-              <div className="mt-1 grid grid-cols-[minmax(0,1fr)_5.5rem_7.5rem_7rem_2rem] items-center gap-2 text-[13px] text-muted">
-                <span>Item</span><span className="text-right">Qty</span><span className="text-right">Price (before tax)</span><span className="text-right">Amount</span><span />
+
+              <div className="mt-3 flex items-baseline justify-between">
+                <p className={label}>Items</p>
+                {detail.last && <p className="text-[13px] text-muted">Started from {detail.last.number} ({fmtDay(detail.last.date)}) · <button className="font-semibold text-brand hover:underline" onClick={() => setLines([blank()])}>start empty</button></p>}
               </div>
-              <div className="mt-1 space-y-1.5">
-                {lines.map((l) => (
-                  <div key={l.key} className="grid grid-cols-[minmax(0,1fr)_5.5rem_7.5rem_7rem_2rem] items-center gap-2">
-                    <ItemPicker items={items} value={l.name} onPick={(i) => set(l.key, { itemId: i.id, name: i.name, rate: i.rate ?? l.rate, description: undefined })} />
-                    <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={1} value={l.qty} onChange={(e) => set(l.key, { qty: Number(e.target.value) })} aria-label="Quantity" />
-                    <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={0} value={l.rate} onChange={(e) => set(l.key, { rate: Number(e.target.value) })} aria-label="Price before tax" />
-                    <span className="num text-right text-[14px] text-ink">{l.itemId ? inr(l.qty * l.rate) : "—"}</span>
-                    <button className="rounded-full text-[15px] text-muted hover:text-high" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : [row({ itemId: "", name: "", qty: 1, rate: 0 })]))} aria-label="Remove item">✕</button>
+              <div>
+                <div>
+                  <div className={`${GRID} mt-1 !hidden text-[13px] text-muted sm:!grid`}>
+                    <span>Item</span><span>Stock</span><span className="text-right">Qty</span><span className="text-right">Rate (before tax)</span><span className="text-right">GST</span><span className="text-right">Amount</span><span />
                   </div>
-                ))}
+                  <div className="mt-1 space-y-1.5">
+                    {lines.map((l) => (
+                      <div key={l.key}>
+                        <div className={GRID}>
+                          <div className="col-span-full min-w-0 sm:col-span-1">
+                            <ItemPicker items={items} value={l.name} onPick={(i) => pick(l.key, i)} />
+                          </div>
+                          <span className="hidden sm:block"><StockCell item={l.itemId ? byId.get(l.itemId) : undefined} /></span>
+                          <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={1} value={l.qty} onChange={(e) => set(l.key, { qty: Number(e.target.value) })} aria-label="Quantity" />
+                          <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={0} value={l.rate} onChange={(e) => set(l.key, { rate: Number(e.target.value) })} aria-label="Rate before tax" />
+                          <span className="num hidden text-right text-[14px] text-ink-2 sm:block">{!l.itemId ? "" : detail.customer.tax === "none" ? "—" : l.gst === null ? "?" : `${l.gst}%`}</span>
+                          <span className="num text-right text-[14px] text-ink">{l.itemId ? inr2(l.qty * l.rate) : "—"}</span>
+                          <button className="rounded-full text-[15px] text-muted hover:text-high" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : [blank()]))} aria-label="Remove item">✕</button>
+                        </div>
+                        {l.itemId && (
+                          l.open ? (
+                            <textarea className={`${inputCls} mt-1 !h-auto py-1.5 text-[13.5px] leading-snug`} rows={Math.min(8, Math.max(2, (l.description ?? "").split("\n").length))} value={l.description ?? ""} onChange={(e) => set(l.key, { description: e.target.value })} aria-label={`Description of ${l.name}`} autoFocus />
+                          ) : (
+                            <button className="mt-0.5 block w-full truncate pl-3 text-left text-[13px] text-muted hover:text-ink" onClick={() => set(l.key, { open: true })} title="Edit the description on the quotation">
+                              {l.description ? <>✎ {l.description.split("\n")[0]}{l.description.includes("\n") ? " …" : ""}</> : "✎ Add a description"}
+                            </button>
+                          )
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <button className={`${btn.quiet} mt-1.5`} onClick={() => setLines((ls) => [...ls, row({ itemId: "", name: "", qty: 1, rate: 0 })])}>+ Add item</button>
-              <div className="mt-2 flex items-baseline justify-between border-t border-line pt-2">
-                <span className="text-[13px] text-muted">Zoho adds GST and sends its standard quotation email with the PDF.</span>
-                <span className="text-[16px] font-semibold text-ink">Total before tax <span className="num">{inr(total)}</span></span>
+              <button className={`${btn.quiet} mt-1.5`} onClick={() => setLines((ls) => [...ls, blank()])}>+ Add item</button>
+
+              <div className="mt-2 grid gap-5 border-t border-line pt-3 lg:grid-cols-[minmax(0,1fr)_24rem]">
+                <div className="min-w-0 text-[13.5px] text-muted">
+                  <p>Zoho adds each item&apos;s GST and sends its standard quotation email with the PDF.{t.noGst && " An item's GST isn't known here yet (?) — Zoho adds it."}</p>
+                  <button className="mt-2 font-semibold text-brand hover:underline" onClick={() => setNotesOpen((o) => !o)}>{notesOpen ? "▾" : "▸"} Customer notes &amp; terms</button>
+                  {notesOpen && (
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <Field name="Customer notes"><textarea className={`${inputCls} !h-auto py-1.5 text-[13.5px]`} rows={6} value={f.notes} onChange={(e) => upd({ notes: e.target.value })} aria-label="Customer notes" /></Field>
+                      <Field name="Terms & conditions"><textarea className={`${inputCls} !h-auto py-1.5 text-[13.5px]`} rows={6} value={f.terms} onChange={(e) => upd({ terms: e.target.value })} aria-label="Terms and conditions" /></Field>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1 self-start rounded-xl bg-surface-2 px-4 py-2.5 text-[14px] sm:[&_span]:whitespace-nowrap">
+                  <div className="flex justify-between"><span className="text-ink-2">Sub total</span><span className="num text-ink">{inr2(t.sub)}</span></div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-ink-2">Discount</span>
+                    <span className="flex items-center gap-1.5">
+                      <input className={`${inputCls} !h-8 !w-16 text-right text-[13.5px] num sm:!w-20`} type="number" min={0} value={f.discount} placeholder="0" onChange={(e) => upd({ discount: e.target.value })} aria-label="Discount" />
+                      <select className={`${inputCls} !h-8 !w-14 px-1 text-[13.5px]`} value={f.discountPct ? "%" : "₹"} onChange={(e) => upd({ discountPct: e.target.value === "%" })} aria-label="Discount in % or ₹"><option>%</option><option>₹</option></select>
+                      <span className="num w-20 text-right text-ink sm:w-24">{t.discount ? `−${inr2(t.discount)}` : "0"}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-ink-2">Shipping charges</span>
+                    <span className="flex items-center gap-1.5">
+                      <input className={`${inputCls} !h-8 !w-24 text-right sm:!w-[8.4rem] text-[13.5px] num`} type="number" min={0} value={f.shipping} placeholder="0" onChange={(e) => upd({ shipping: e.target.value })} aria-label="Shipping charges" />
+                      <span className="num w-20 text-right text-ink sm:w-24">{inr2(t.shipping)}</span>
+                    </span>
+                  </div>
+                  {t.taxes.map((x) => <div key={x.label} className="flex justify-between"><span className="text-ink-2">{x.label}</span><span className="num text-ink">{inr2(x.amount)}</span></div>)}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-ink-2">Adjustment</span>
+                    <span className="flex items-center gap-1.5">
+                      <input className={`${inputCls} !h-8 !w-24 text-right sm:!w-[8.4rem] text-[13.5px] num`} type="number" value={f.adjustment} placeholder="0" onChange={(e) => upd({ adjustment: e.target.value })} aria-label="Adjustment" />
+                      <span className="num w-20 text-right text-ink sm:w-24">{inr2(t.adjustment)}</span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-line pt-2 text-[17px] font-bold text-ink"><span>Total</span><span className="num">{inr2(t.total)}</span></div>
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
