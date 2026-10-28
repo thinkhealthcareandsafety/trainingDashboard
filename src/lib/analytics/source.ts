@@ -20,19 +20,21 @@ const STATE_KEY = "za_state";
 const LOCK = "za_refresh_lock";
 export const STALE_MS = 6 * 3600_000;
 const PACE_MS = 2500; // Zoho Analytics refuses bursts ("exceeded the allowed limits")
+const BUDGET_MS = 85_000; // start no table after this — the route's maxDuration is 120 s
 
 // `gz` (27 Oct): the rows as gzipped JSON — 6.2 MB → 0.55 MB for all tables, so a new server reads the copy in seconds
 // even when the free Atlas cluster is slowed to ~90 KB/s. Copies made before that still have plain `rows`.
 type TableDoc = { _id: TableKey; rows?: Raw[]; gz?: Binary; count: number; at: string };
 const unpack = (d: TableDoc): Raw[] => (d.gz ? JSON.parse(gunzipSync(d.gz.buffer).toString("utf8")) : d.rows ?? []);
-export type DataState = { _id?: string; refreshedAt?: string; refreshedBy?: string; error?: string; tables?: Partial<Record<TableKey, number>>; running?: boolean };
+/** `partial`: the last refresh ran out of time — the remaining tables are copied by the next one. */
+export type DataState = { _id?: string; refreshedAt?: string; refreshedBy?: string; error?: string; tables?: Partial<Record<TableKey, number>>; running?: boolean; partial?: boolean };
 
 const kv = async () => (await db()).collection<DataState & { _id: string; until?: number; owner?: string }>("kv");
 
 export async function dataState(): Promise<DataState> {
   const s = await (await kv()).findOne({ _id: STATE_KEY });
   const lock = await (await kv()).findOne({ _id: LOCK });
-  return { refreshedAt: s?.refreshedAt, refreshedBy: s?.refreshedBy, error: s?.error, tables: s?.tables, running: Boolean(lock?.until && lock.until > Date.now()) };
+  return { refreshedAt: s?.refreshedAt, refreshedBy: s?.refreshedBy, error: s?.error, tables: s?.tables, running: Boolean(lock?.until && lock.until > Date.now()), partial: s?.partial };
 }
 
 async function lock(): Promise<string | null> {
@@ -56,24 +58,32 @@ export async function refreshAnalyticsData(by: string): Promise<boolean> {
   const owner = await lock();
   if (!owner) return false;
   const col = (await db()).collection<TableDoc>(COL);
-  const counts: Partial<Record<TableKey, number>> = {};
+  const counts: Record<string, number> = {};
   let error: string | undefined;
+  let partial = false;
+  const started = Date.now();
   try {
     const views = await workspaceViews();
-    for (const key of Object.keys(TABLES) as TableKey[]) {
+    // From Vercel each table takes ~8 s (export + pace): 16 tables ran past the 120 s limit and were cut off (28 Oct).
+    // So: oldest copies first, no new table after BUDGET_MS — the rest follow on the next call (the route asks again
+    // within 10 minutes while `partial`).
+    const at = new Map((await col.find({}, { projection: { at: 1 } }).toArray()).map((d) => [d._id, d.at]));
+    const keys = (Object.keys(TABLES) as TableKey[]).sort((a, b) => (at.get(a) ?? "").localeCompare(at.get(b) ?? ""));
+    for (const key of keys) {
+      if (Date.now() - started > BUDGET_MS) { partial = true; break; }
       const def = TABLES[key];
       const view = views.find((v) => v.name === def.name && /^table$/i.test(v.type));
       if (!view) { error = `No “${def.name}” table in the workspace`; continue; }
       await new Promise((r) => setTimeout(r, PACE_MS));
       const rows = (await exportTable(view.id)).map((r) => Object.fromEntries(def.columns.map((c) => [c, r[c] ?? ""])));
       await col.replaceOne({ _id: key }, { gz: new Binary(gzipSync(Buffer.from(JSON.stringify(rows)))), count: rows.length, at: new Date().toISOString() }, { upsert: true });
-      counts[key] = rows.length;
+      counts[`tables.${key}`] = rows.length;
     }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error(`[analytics] refresh failed: ${error}`);
   } finally {
-    await (await kv()).updateOne({ _id: STATE_KEY }, { $set: { refreshedAt: new Date().toISOString(), refreshedBy: by, error, tables: counts } }, { upsert: true });
+    await (await kv()).updateOne({ _id: STATE_KEY }, { $set: { refreshedAt: new Date().toISOString(), refreshedBy: by, error, partial, ...counts } }, { upsert: true });
     await (await kv()).updateOne({ _id: LOCK, owner }, { $set: { until: 0 } });
     memo = null;
     copy = null;

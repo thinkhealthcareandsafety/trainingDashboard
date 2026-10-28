@@ -45,7 +45,8 @@ export async function POST(request: Request) {
   // A stale copy refreshes itself after this answer (whoever opens Reports), never twice at once (lock). So does a copy
   // missing a table added since (e.g. Sales Orders, 27 Oct) — at most every 10 minutes, in case Zoho keeps refusing it.
   const age = state.refreshedAt ? Date.now() - Date.parse(state.refreshedAt) : Infinity;
-  const missing = Object.keys(TABLES).some((k) => state.tables?.[k as TableKey] === undefined);
+  // `partial` (28 Oct): the last refresh ran out of time — the rest of the tables follow the same way.
+  const missing = state.partial || Object.keys(TABLES).some((k) => state.tables?.[k as TableKey] === undefined);
   if (!state.running && (age > STALE_MS || (missing && age > 10 * 60_000))) {
     after(() => refreshAnalyticsData("Reports (automatic)").then(() => undefined, () => undefined));
   }
