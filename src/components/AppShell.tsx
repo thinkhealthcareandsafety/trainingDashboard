@@ -489,7 +489,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             )}
           </header>
-          <main key={path} className={`rise mx-auto px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10 ${path.startsWith("/follow-up") ? "max-w-none" : "max-w-[1680px]"}`}>{children}</main>
+          {/* Every page uses the whole window (owner, 28 Oct: "if i zoom out, the website should get wide with it") —
+              was capped at 1680 px except the boards, so zooming out only added empty margins. */}
+          <main key={path} className="rise px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10">{children}</main>
         </div>
       </div>
 
