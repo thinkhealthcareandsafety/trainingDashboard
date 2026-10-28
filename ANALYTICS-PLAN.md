@@ -11,9 +11,16 @@ data from the Zoho Analytics copy of all of Books (part of Phase 1b already: 8 t
 HANDOFF.md §3 "Reports + Zoho Analytics".
 
 **Session 15 (27 Oct) — advanced Reports, all defaults accepted ("yessir"):** see §11 for the 27 report ideas and the
-build order. Built locally, not pushed yet: (a) ₹50 L goal meter, (b) less congested layout, (c) more KPIs,
-(d) compare / filters / views / "Change this chart" / what-if, (e) first batch of reports (Growth, Team & pipeline,
-Collections tabs). Left: the rest of the ✅ reports, then (f) "My dashboard".
+build order. **Live (`0af501b`):** (a) ₹50 L goal meter, (b) less congested layout, (c) more KPIs, (d) compare /
+filters / views / "Change this chart" / what-if, (e) first batch of reports (Growth, Team & pipeline, Collections).
+
+**Session 16 (27–28 Oct) — all of §11 built and live (`207d0d5`):** themes follow the meter (`d456670`); Customers +
+Products tabs and training economics (`2a94484`); training value for trainings on payment cards (`7b2ff08`);
+(f) **My dashboard** (`bb387fa`); #18 **India map** (`25a5e6b`); plus, at the owner's request, **pages** in every tab —
+only the open page is fetched (`bbb061e`). Database fixes after the free cluster hit its weekly transfer limit:
+`857114d`, `efb56d0`, `207d0d5` (HANDOFF §3 "Reports + database — session 16").
+**Left:** the three ⚠ reports — #25 margin, #26 freight, #27 stock (new Zoho Analytics tables; defaults proposed,
+waiting for the owner — HANDOFF §10 #143) — and the Builder catching up with the new options (HANDOFF §10 #139).
 
 ---
 
@@ -547,7 +554,7 @@ a less congested UI.
 | 15 | Open quotes by age (valid 15 days / expired) | ✅ |
 | 16 | Lead-source performance | ✅ invoices; win rate per channel ❌ |
 | 17 | Collections: ageing, overdue %, days-to-pay trend, slow payers | ✅ |
-| 18 | Geography: state / city, change vs last year, India map | ✅ (+ a free India outline file) |
+| 18 | Geography: state / city, change vs last year, India map | ✅ built 27 Oct (DataMeet outline, CC BY 4.0) |
 | 19 | Product mix trend (share per quarter) | ✅ |
 | 20 | Average selling price per item over time | ✅; line discounts ⚠ |
 | 21 | Resellers vs direct | ✅ |

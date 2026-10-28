@@ -1,66 +1,87 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Tue 27 Oct 2026, after session 14 (26 Oct). All code is pushed (`b81bab6`, live on both addresses);
-this file is the only uncommitted change. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: Wed 28 Oct 2026, end of session 16. **Live = `207d0d5`** (both addresses) — **everything is pushed**;
+the only commit after it is this docs update. Written for the next Claude Code session (and the owner,
+sshah@thinkhealth.in)._
 
 Read this end to end before touching code. It records:
-- what the owner asked for (every prompt, all fourteen sessions — §5);
+- what the owner asked for (every prompt, all sixteen sessions — §5);
 - the business rules that came out of it, and how the code works **now**;
 - what was verified, and what is still open.
 
 **§11 "Changing things without breaking the live site" — read it before the first edit.**
 
 Plans:
-- `ANALYTICS-PLAN.md` — Reports. Phase 1 is done; Phase 2 is next, and the owner's new request below is mostly Phase 2
-  + 3.
+- `ANALYTICS-PLAN.md` — Reports. **§11 = the advanced-reports plan** (27 report ideas, the owner's decisions, build
+  order, status line at the top). **All of §11 is built and live** except the three ⚠ reports (#25 margin, #26 freight,
+  #27 stock — need new Zoho Analytics tables; questions in §10 #143). §3 "Reports — session 15" and "Reports +
+  database — session 16" describe the code.
 - `ANALYTICS-SCHEMA.md` — every Zoho Analytics table / column.
 - `PROGRESS-TRACKER-PLAN.md` — the Progress tracker, built in session 14 (§3 "Progress tracker").
 - `MONDAY-PLAN.md` — the older backlog; "My day" is now largely covered by the tracker's Everyone's to-do, and renewals
   are still waiting.
 
-**Start of the next session — do these first (details in §3 and §10 #118–#126):**
-1. `git status` — the code is pushed (`b81bab6`). Commit this HANDOFF.md only when the owner says "push".
-2. **The owner's new request (session 15's main job — the owner's starter message has it word for word):**
-   - Research advanced EDA / business reports that top companies use to grow, and propose **at least 20**. Examples:
-     this year vs last year revenue **by sector and by customer type**, with **several selections at once**.
-   - Let each user **choose which reports show** on their dashboard.
-   - Add **more KPIs**.
-   - Add a **monthly goal of ₹50 lakh** as a **vertical meter on the left**.
-   - Bring **Tableau / Power BI flexibility**: custom filters, **parameters**.
-   - Make the UI **less congested**.
-
-   **Research first, then restate with questions + recommended defaults** (§8: the owner says "yeah" to accept all).
-   Map each proposed report to data that exists: `ANALYTICS-SCHEMA.md`, `src/lib/analytics/model.ts` and `build.ts`
-   fields. Questions that must be asked:
-   - (a) Where does the ₹50 L meter go — Reports' Sales dashboard, the Overview, or both?
-   - (b) Is ₹50 L before or after tax? Oct 2026 so far = ₹59.04 L **incl. tax** (49 invoices); compute the ex-tax
-     figure before asking.
-   - (c) Is "choose which reports" per person (default) or one team layout set by Admin?
-   - (d) The order to build in.
-3. **Progress tracker is live** (Reports → Progress tracker, §3).
-   - The owner calls it a **separate idea that may be removed later**: §10 #119 has the exact revert order.
-   - The first real request (R-0001, Priyanka → Arti, Review, 26 Oct 10:34) was seen in 7 min and resolved in 12.
-   - 4 members have been seen so far.
-   - Check that nothing broke: the Sync log, the `ptRequests` / `ptNotifications` counts.
-4. **Tata Motors Pune AED:** the 26 Oct 5-day reminder went at 09:01 (email + WhatsApp, recorded). At **09:14 Priyanka
-   undid the 31 Oct date and marked it "Training not required"**, so no more reminders. The owner was told; **unconfirmed
-   whether that was intended**.
-5. **Diana Builwell W Goa (21 Oct)** and **Sierragold Heights (22 Oct)** are still not completed, with no contact
-   number. They now show in **Shikha's to-do as "Mark completed or postpone" (overdue)**. Sierragold is still a quote.
-6. **Still-open older questions** (ask only if relevant):
-   - the Zoho Analytics → Books sync interval;
-   - which Zoho Analytics dashboards to rebuild first, and their query-table SQL;
-   - the Reports Phase 2 questions asked on 26 Oct (own dashboards, drag / resize, click a number → documents) got no
-     answer — the new request supersedes most of them;
-   - the builder height (~900 / 958 px).
-7. **Pushing works from the Bash tool (Git Bash)**, not from PowerShell:
-   - PowerShell fails with "could not read Username"; Git Bash uses Git Credential Manager's saved sign-in.
-   - Use `timeout 170 git push origin master` — once it took > 90 s, waiting on GCM.
-   - Commit messages go in a **file** (`git commit -F <scratch file>`): PowerShell splits inline messages at quotes.
-   - Owner's rule: if a push fails with a GitHub sign-in error, say so — the owner pushes from Cursor. But when they
-     answered "you push it tho", Git Bash worked.
+**Start of the next session — do these first (details in §3 "Reports + database — session 16" and §10 #141–#149):**
+1. **`git status` / `git log -3` / `git ls-remote origin master`.** Expected: GitHub = live = `207d0d5` (or the docs
+   commit right after it, if the owner said "push"); nothing else local except this session's scratch files.
+2. **Database health first (new, session 16).** The Atlas cluster (Cluster0) is the **free M0 tier: 10 GB out per
+   rolling 7 days**, then Atlas slows it to **~90 KB/s** and pauses each new connection. On 27 Oct it was throttled —
+   Reports took 2 min / timed out, boards were slow. Session 16 cut the traffic (§3 "Reports + database"); by
+   **28 Oct 08:30 it was back to 4–8 MB/s** and live Reports answered in ~4.7 s cold / < 1 s warm.
+   - Check read speed with the §9 #18 script (`speed.cjs`): 4–8 MB/s = fine; ~90 KB/s = throttled again.
+   - If throttled again: something new is re-reading whole collections — find it (bytes per call × how often) before
+     anything else. Never add a poll that reads a whole collection; use `readAll` (`src/lib/cachedRead.ts`).
+3. **Morning checks as usual** (git, live JS, Progress tracker, Sync log, Reports copy). 28 Oct: Sync log clean (last
+   evening 6:13 pm manual full sync ok, 8:28 am today ok); 1 tracker request (resolved); 936 change-log entries;
+   `reportPrefs` 0 docs (nobody has customised My dashboard yet), 0 saved reports.
+4. **The goal is now ₹60 L** (kv `reports_goal.monthly` = 6000000, set by Admin on the evening of 27 Oct — the
+   owner's own ✎ most likely). Mention it in one line; don't change it.
+5. **Waiting on the owner (ask, with the defaults already proposed):**
+   - The three ⚠ reports (ANALYTICS-PLAN §11 #25–#27) — the question list is in §10 #143. "yessir" = all defaults.
+   - ₹11 Cr of quotes over 90 days old still "open" in Zoho (#132); ₹30 L of the overdue on Sumit's accounts (#133);
+     the segment rules are my proposal (#136); count customers by `nameKey` (#131).
+   - Feedback on My dashboard and the new **pages** in Reports (both live since 27 Oct evening).
+6. **Pushing:** from the **Bash tool (Git Bash)**: `timeout 170 git push origin master` (PowerShell can't sign in).
+   The auto-mode classifier **refuses a push the owner didn't ask for in their latest message** ("Production Deploy")
+   — a "push it" covers the commits that existed when they said it; a fix made afterwards needs a new "push it".
+   Commit messages go in a file (`git commit -F`). §11 checklist every time.
+7. **Older items still open** (check only if relevant): Tata Motors Pune AED marked "Training not required" by
+   Priyanka on 26 Oct (unconfirmed whether intended); Diana Builwell W Goa (21 Oct) / Sierragold Heights (22 Oct)
+   were still "Mark completed or postpone" on 27 Oct; Zoho Analytics → Books sync interval; Progress tracker is a
+   "separate idea that may be removed later" (§10 #119 has the revert order).
 8. **Still owner-side:** `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic Citi test rows in the master sheet,
    Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41).
+
+**Session 16 in one paragraph (27–28 Oct):**
+- **Checks:** clean (GitHub = live `7814162`; Sync log ok; 0 open tracker requests).
+- **Finished session 15's work:** training value for trainings on payment cards (#127 — 55 of 56 valued, each FY
+  training checked against its Books invoice; the 4 differences are exactly the travel-expense lines); `next build` +
+  browser check of the Customers / Products tabs, which found and fixed three bugs (a comparison by segment dropped
+  ₹93 L of last year's revenue; the seasonality heatmap lost 5 months to "Others"; phone axis labels overlapped).
+- **Built:** **My dashboard** (each person picks their reports; restated with 5 questions → "yes go ahead"); the
+  **India map** (#18, DataMeet outline, CC BY 4.0); **pages in Reports** (owner, mid-turn: "add pagination… only fetch
+  data when clicked").
+- **Incident:** owner's screenshot "its not loading… too much load" → the free Atlas cluster was over its weekly
+  transfer limit (every open tab re-downloaded the whole change log every 15 s). Fixed: fingerprint cache + "nothing
+  new" pulls, Reports copy read once per refresh and stored gzipped (6.2 MB → 0.55 MB), board only when a report needs
+  it, and a failed DB connect no longer breaks a server for good. Throttle gone by the next morning.
+- **Pushes:** 3 (`7814162..857114d` = six commits, then `efb56d0` + `bbb061e`, then `207d0d5`). Owner's words: "yes go
+  ahead", "go through the plan and continue with the next step", "commit all 6" (= push them), "push it to github" ×2,
+  "update the handoff prepare for next session".
+
+**Session 15 in one paragraph (27 Oct):**
+- **Morning checks:** all clean (git = GitHub = live `b81bab6`; 1 tracker request, resolved; Sync log 5 ok + 2 not due;
+  Reports copy refreshed 08:45, 0 saved reports).
+- **Research + proposal:** 27 report ideas mapped to our data (✅ / ⚠ / ❌), questions with defaults → **"yessir"** = all
+  defaults (ANALYTICS-PLAN §11). Data facts found: sector / customer type blank on ~1% of revenue; Oct 2026 so far
+  ₹59.27 L before tax / ₹63.46 L incl.; this FY ₹50 L (before tax) reached in 4 of 7 months.
+- **Built and pushed (`0af501b` + docs `7814162`, live):** (a) ₹50 L goal meter; (b) calmer Reports layout; (c) 7 more
+  KPIs; (d) compare (last year default / period before / two groups / none), is / is not / contains / value-range
+  filters, saved views, "Change this chart", what-if; (e) Growth, Team & pipeline, Collections tabs (10 reports).
+- **After the push:** the meter now follows the theme + 6 new experimental themes (`d456670`, local only); second batch
+  of reports (Customers, Products, training economics — uncommitted, see step 1).
+- **Pushes:** 1 (two commits). Owner's words this session: "yessir", "next" ×4, "push it to github", screenshot "the
+  color should change with the themeeee, also add more experimental themes i like them", "continue", "write a handoff".
 
 **Session 14 in one paragraph (26 Oct):**
 - **Morning checks:** Tata reminder sent, then marked not required; Diana / Sierragold still open; Reports copy from
@@ -197,8 +218,21 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit **`b81bab6`**
-  (26 Oct — Reports tab link removed; live on both addresses, verified in the deployed JS).
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit **`207d0d5`**
+  (27 Oct evening — live on both addresses, checked in the deployed JS and with live read-only requests). Nothing
+  else local except the session 16 docs commit.
+  Session 16 (oldest first, one commit per step — owner's rule):
+  - `d456670` — goal meter follows the theme + 6 experimental themes (from session 15);
+  - `2a94484` — Customers + Products tabs, Trainings → Training economics (+ the 3 browser-check fixes);
+  - `7b2ff08` — training value for trainings on payment cards (#127);
+  - `bb387fa` — **My dashboard**;
+  - `25a5e6b` — **India map** (#18);
+  - `857114d` — database: download team data only when it changed (fingerprint cache, "same" pulls);
+  - `efb56d0` — Reports: gzipped copy, board only when needed, readable errors;
+  - `bbb061e` — **Reports pages** (only the open page is fetched);
+  - `207d0d5` — database: retry a failed connection instead of keeping it.
+  Session 15: `0af501b` — Reports (goal meter, layout, KPIs, compare / filters / views, Growth / Team / Collections) ·
+  `7814162` — docs (ANALYTICS-PLAN §11 + session 14 handoff).
   Session 14 (oldest first):
   - `b63aebb` — session 13 handoff + analytics plan status;
   - `09c4495` — **Progress tracker** (one self-contained commit);
@@ -233,7 +267,8 @@ name** (`b146419`).
   **Sync log** (sidebar). Syncs currently happen only while someone has the site open (+ Vercel's daily 9 am cron) — the
   GitHub hourly job skips until the `CRON_SECRET` repo secret is added (§10 #11).
 - **Database:** MongoDB Atlas cluster **Cluster0** (the cluster in `MONGODB_URI`), database `thinkhealth_dashboard`
-  (free tier, ~1% used). It is **not** the "Directory" cluster the owner sees in their own Atlas project — Cluster0 sits
+  (**free M0 tier**: ~13 MB of data, but only **10 GB of data out per rolling 7 days** — over that, Atlas slows it to
+  ~90 KB/s; it happened on 27 Oct, see §3 "Reports + database — session 16"). It is **not** the "Directory" cluster the owner sees in their own Atlas project — Cluster0 sits
   in another project/account; a colleague added `0.0.0.0/0` to its IP access list for Vercel.
 - **Stack:** Next.js **16.3** (Turbopack) + React 19 + Tailwind v4 + MongoDB + Zoho Books (India DC).
   `AGENTS.md`: this Next.js differs from training data — read `node_modules/next/dist/docs/` before Next-specific code.
@@ -616,6 +651,10 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   mode and a dark one only in dark (globals.css rules) — picking a theme sets both.
 - **Experimental** (recolour cards, lines, text, accents — token overrides under `:root[data-theme=…][data-bg=…]`):
   **Plum** (`dark-xplum`) and **Smoky coastal** (`xcoastal`). Status colours (high / medium / low) are left alone.
+  **Session 15 (`d456670`, not pushed):** + Deep sea (`dark-xocean`), Espresso (`dark-xespresso`), Emerald night
+  (`dark-xemerald`), Sakura (`xsakura`), Sand dune (`xsand`), Nordic (`xnordic`) — each = globals.css gradient + tokens,
+  AppShell `THEMES` entry, Chart `THEME_PALETTES` entry. Text / muted / brand / button text all ≥ 4.5:1 on their cards.
+  The owner likes the experimental themes ("i like them").
 - Phones have no sidebar → no theme picker there yet.
 
 ### Reports + Zoho Analytics (session 13) — see `ANALYTICS-PLAN.md` for the plan, `ANALYTICS-SCHEMA.md` for the tables
@@ -670,6 +709,114 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
   an empty tile).
 - **Text sizes** were raised one step (owner, 22 Oct: "too small"): axes 13, bar values 13, legends 13.5, tooltips 14,
   tile titles 16.5, KPI 36, tables 14.5, filters / tabs 14.
+
+### Reports — session 15 (27 Oct) — ANALYTICS-PLAN.md §11 has the owner's decisions
+- **Goal meter** (`src/components/reports/GoalMeter.tsx`, maths `src/lib/analytics/goal.ts`, route
+  `src/app/api/analytics/goal/route.ts`): left column of every Reports tab (`Reports.tsx`, grid `14rem` + content; a strip
+  on top below xl). Shown to members whose datasets include `sales` (Training board).
+  - Revenue = every Zoho Books invoice **before tax** (Sales "revenue", this month incl. later-dated invoices).
+  - **Booked** = PIs from the last `BOOKED_DAYS` = 60 days not invoiced yet (`orders` dataset "toInvoice"); older open
+    PIs are mostly stale.
+  - "today" tick = goal × working days so far ÷ working days in the month (Mon–Sat, `workingDaysInRange`); estimate =
+    so far ÷ working days so far × all (shown after 3 working days); needed / day; last 6 months reached; **What if…**
+    slider (rest of the month ±%).
+  - Goal: kv **`reports_goal`** `{monthly, months{YYYY-MM}, updatedAt, updatedBy}`; default ₹50 L (no doc = default).
+    GET = Training-board members; POST = Admin only (₹1 L–₹100 Cr sanity check). ✎ on the meter opens the editor.
+  - Confetti once a month per browser when reached (localStorage `th.goal.cheered`).
+  - Colour = the theme's chart colour (`useThemeColour` in `Chart.tsx`) — **in `d456670`, not pushed yet**.
+- **Data:** `build.ts` `TABLES` + **Sales Orders / Sales Order Items** (`orders` dataset "PIs"; "Total (BCY)" exports
+  lossy "K" → sub-totals only). `/api/analytics` POST refreshes the copy when a `TABLES` key is missing from
+  `za_state.tables` (at most every 10 min). Uncommitted batch 2 adds `Product ID` to Sales Order Items — the live copy
+  gets it at its next refresh (6 h) after release; Admin "Refresh now" does it at once.
+- **New fields / measures** (`model.ts`): sales `repeat` (customer's first-ever invoice by **name**, `firstOf`),
+  `docValue` ranges (`Dataset.ranges`, for "invoices ≥ ₹1 L"), measures newCustomers / repeatRevenue / repeatShare /
+  top10Share / avgPrice*; invoices overduePct; quotes `age`, `valid` (≤ `QUOTE_VALID_DAYS`), validOpen(Count),
+  invoicedCount, daysToInvoice (quote → its first invoice via invoice "Quote ID"); `better: "down"` measures colour a
+  fall green. *Batch 2 (uncommitted): sales `segment`, `cohort`, `channel`, `fy`, `monthName`, avgPrice; trainings
+  value / valuePerPerson / valuePerTraining.
+- **Engine** (`query.ts`): measures can have `where` (count only some rows) and `topShare`; filters have `exclude`,
+  `contains`, `min` / `max`; **`compare`** = true / "previous" / "lastYear" / `{field, a, b}` — KPIs get `previous`
+  (running periods: same days), and with one split every row gets `prev` (dates shifted onto this period's axis); two
+  text splits (matrix) too, incl. cells only in the comparison. **Analyses** (`spec.analysis`, function `analyse`):
+  bridge, pareto, winback, drivers (keeps blanks so it adds up), funnel; batch 2: pvm, reorder, crosssell
+  (`spec.variant`). `Result.note` = a sentence under the chart; `nowLabel` / `prevLabel` name the two sides.
+- **Charts** (`Chart.tsx`): comparison twin series (time = grey, group = second hue; line = dashed), table + CSV get
+  the comparison and Change columns; % KPIs change in **points**; kinds `matrix` (pivot with change per cell),
+  `waterfall`, `diverging`; goal line (`target`, needs `MarkLineComponent` — registered); batch 2: `heatmap`,
+  `stacked100`, matrix `relative` (cohort %), `Result.by[].order`.
+- **Dashboard view** (`Dashboard.tsx`): toolbar = period · **Compare** (default "vs last year") · **Filters** panel
+  (is / is not, "everything containing", value range) · **Views** (per person, server: collection **`reportPrefs`**
+  `_id` = member id, `views.<dash>` = [{name, state}], route `/api/analytics/prefs`) · chips. KPIs next to each other
+  share a band (`KpiBand`, hairlines = 1 px grid gaps over `--line`); tiles grouped by `section`; ⋯ menu per tile with
+  **Change this chart…** (measure / split / top N / grouping; kept in localStorage `th.reports.tweaks.<dash>`; not on
+  KPIs or fixed-shape analyses, yes on drivers). `Tile.fixedPeriod` (+ optional `spec.period`), `goalLine`,
+  `noCompare` (batch 2).
+- **Tabs** (`dashboards.ts`): Sales (8 KPIs, sections, Money owed band) · **Growth** · **Team & pipeline** ·
+  **Collections** · Trainings · Quotes · Saved reports; batch 2 adds **Customers**, **Products** and Trainings →
+  Training economics.
+- **Checked** (scripts in the session-15 scratchpad, rebuild from §9 #17): every new number against an independent
+  calculation on live data (read-only) — new customers 125 = 125, top-10 47%, overdue 43%, valid quotes 22 / ₹24.2 L,
+  all compare modes, bridge / pareto / matrix / drivers add up, win-back 130 = bridge "didn't buy again", pvm adds up,
+  segments cover all 659 customers once, reorder 45, cross-sell 207 / 55.
+
+### Reports + database — session 16 (27–28 Oct)
+- **Training value (#127, `7b2ff08`):** `fulfilServer.docsBehind` gives every `BoardTraining` the **`piNumber` /
+  `invoiceNumber`** behind it — its own card's or any card merged into it (`historyIds`, `linkedPI`,
+  `linkedInvoice`). `build.ts`: value = the invoice's training lines (what was billed), else the PI's, before tax.
+  55 of 56 trainings valued (the one left is a quote); this FY 23 of 24, ₹1,365 / person. Checked each FY training
+  against its Books sub-total (zohoDocs): 18 of 22 customer-months equal; the other 4 differ by exactly the travel line.
+- **Customers / Products tabs (`2a94484`)** — browser-check fixes in `query.ts` / `Chart.tsx`:
+  - a one-split comparison on a field with a fixed `order` (segment, age band…) keeps values that only had sales in
+    the comparison (prev only, now 0);
+  - heatmap / matrix skip the 8-series cap (`MAX_SERIES` is a colour rule);
+  - value axes `hideOverlap`; top legend `type: "scroll"` (one line, ◀ ▶ on phones).
+- **My dashboard (`bb387fa`)** — `src/components/reports/MyDashboard.tsx`, rules `src/lib/analytics/layout.ts`:
+  - First tab of Reports; Reports opens on it the first time (localStorage `th.reports.mine`), then on the last tab.
+  - It is an ordinary `DashboardView` built from the person's list (`LayoutEntry {dash, tile, size?}`, tile id =
+    `dash.tile`), so period / compare / filters (customer type, sector, sales person) / views / picks / tweaks work.
+  - **Customise** popup (portal): library by tab (+ Saved reports — keep their own period), ✓ to add; right list
+    ↑ ↓, **S / M / L** (= w 3 / 6 / 12; numbers always sit in the band), ×; Reset to starting layout; Admin: **Make
+    this the starting layout**.
+  - Storage: `reportPrefs.layout = {tiles, updatedAt}` per member; starting layout kv **`reports_layout`** `{tiles,
+    updatedBy}` (none = `START` in layout.ts). Route `/api/analytics/prefs`: GET {views, layout, starting,
+    startingBy}; POST {layout} (null = follow starting) / {starting} (Admin; null = built-in) / {dash, views};
+    `cleanLayout` validates (≤ 60, no repeats).
+  - Checked: 32 route checks with a fake db; browser at 1728 / 390, light / dark; fits with no inner scroll.
+- **India map (#18, `25a5e6b`)** — Customers → "Where they are": map + "Revenue by state" bars (top 15, tall).
+  - Outline `public/maps/india-states.json` (136 KB): DataMeet States, India's official boundaries, **CC BY 4.0**
+    (credit line under the map + `public/maps/README.md`; how it was simplified is there).
+  - `src/components/reports/indiaMap.ts`: `geoName` (Zoho GST names → outline names, old spellings), `loadIndia`
+    (registers ECharts MapChart + VisualMap + the outline, once).
+  - Chart kind **`map`**: square-root shading in the theme colour, hover = value + last year + change, click = pick;
+    "Not on the map: Out of India …" under it. `Tile.tall` = 470 px.
+- **Reports pages (`bbb061e`, owner: "add pagination… only fetch data when clicked")** — `Dashboard.tsx`:
+  - `pagesOf`: one page per section ("Key numbers" before the first); dashboards without sections (My dashboard)
+    in pages of ~6 charts (a number = ¼). Pills under the toolbar, ← / → + "Page n of N" at the bottom; page kept
+    per tab (localStorage `th.reports.page.<dash>`).
+  - Answers kept per tile **with the query they answer** (`got`); only the open page's missing ones are asked; a
+    period / filter change re-asks the open page only; clicking a page again retries failed tiles; a pick clears on
+    page change. Section headings are gone (the pill names the page).
+  - The Filters panel loads its value lists the first time it's opened.
+  - Checked: opening Sales = 1 query (was 7 + meter), a page click 1, going back 0, a period change 1.
+- **Database transfer (the 27 Oct incident):**
+  - Cause: Atlas M0's 10 GB / 7 days egress. Every open tab pulled `/api/store` (all of `cardEvents` + entries…,
+    ~0.25 MB) **every 15 s** (~60 MB / hour per tab, growing with the log); Reports re-read its 6.2 MB copy every
+    minute; board builds re-read the change log. Throttled to ~90 KB/s → cold Reports 119 s, 504s / 500s.
+  - **`src/lib/cachedRead.ts`** (`857114d`): `fingerprint(name)` = Mongo aggregate (count, `$bsonSize` sum, XOR of
+    `$toHashedIndexKey` per doc — MongoDB 8.0; a few bytes, ~20 ms); `readAll(name)` keeps the last copy per server
+    instance and downloads again only when the fingerprint moved. Used by `/api/store` GET, `boardsNow`
+    (cardEvents) and the snapshot's `zohoCustomers`. Callers get the shared array — copy it before changing it.
+  - **`/api/store`**: answer carries `v` (member id + fingerprints); the browser sends `?v=`; nothing new →
+    `{same: true}` (0.1 KB instead of 217 KB). `store.tsx` clears its version on every save, so a refused change
+    still vanishes at the next pull. Hidden tabs don't poll (they pull on show).
+  - **Reports copy** (`efb56d0`): `za_tables` docs store **`gz`** = gzipped JSON rows (6.2 MB → 0.55 MB; `unpack`
+    still reads old `rows`); read once per refresh (`copy` keyed by `refreshedAt`), not per minute;
+    `datasetRows(today, withTrainings)` loads the board snapshot only when a spec uses `trainings`; a failure answers
+    503 `{error}` and `runSpecs` shows it in the tiles.
+  - **`db.ts`** (`207d0d5`): a failed connect is forgotten (was cached forever → instant "Server selection timed
+    out" on that server); `serverSelectionTimeoutMS` 20 s, `maxPoolSize` 10.
+  - Wire compression (`compressors: ["zlib"]`) was tried: no effect on M0 — don't bother.
+  - Result: 28 Oct 08:30 reads 4–8 MB/s again; live Reports 4.7 s cold, < 1 s warm, trainings 3.8 s.
 
 ### Progress tracker (session 14) — see `PROGRESS-TRACKER-PLAN.md` (top "Status" blocks = what's built)
 - **Where:** `/reports/progress-tracker`, sidebar **Progress tracker** (in line with the other items, below Reports,
@@ -833,6 +980,9 @@ archives to `cardEventsArchive` first (fields `eventId`, `clearedAt`, `clearedBy
 | `src/lib/auth.ts`, `src/lib/pins.ts`, `src/lib/session.tsx`, `src/app/api/members/*` | Sign-in, PINs, cookie, session. |
 | `src/app/api/{pipeline,aed,trainings,zoho/meta,zoho/sync,cron/sync,store/clear-logs}/route.ts` | API routes (`zoho/sync`: GET heartbeat, POST Sync now). |
 | `.github/workflows/zoho-sync.yml` | Hourly GitHub Actions call to `/api/cron/sync` (needs the `CRON_SECRET` repo secret). |
+| `src/lib/cachedRead.ts` | Session 16: whole-collection reads that download only when the collection changed (Mongo-side fingerprint) — the free cluster's transfer limit. |
+| `src/components/reports/MyDashboard.tsx`, `src/lib/analytics/layout.ts`, `src/app/api/analytics/prefs/route.ts` | Session 16: My dashboard (Customise popup, layouts, starting layout). |
+| `src/components/reports/indiaMap.ts`, `public/maps/` | Session 16: India state map (outline + licence note). |
 
 ---
 
@@ -1427,6 +1577,30 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 294 | Screenshot of "Progress tracker →" in Reports: "remove this, why is it there, push" | It was the plan's second entry point; removed (`b81bab6`). |
 | 295 | "write a handoff + message; research 20+ advanced EDA reports, user picks which reports show, more KPIs, ₹50 L monthly goal as a vertical meter on the left, Tableau / Power BI flexibility (custom filters, parameters), less congested UI" | This update; the work itself is for session 15 (starter message). |
 
+### Session 15 (27 Oct 2026) — advanced Reports
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 296 | Brief: read HANDOFF; rules; morning checks; then research 20+ reports (Tableau / Power BI), choose-your-reports, more KPIs, ₹50 L meter on the left, filters / parameters, less congested UI — restate + questions with defaults, then one at a time | Checks clean. 27 report ideas with data mapping + 9 questions with defaults. |
+| 297 | "yessir" | All defaults (ANALYTICS-PLAN §11). Built (a) the goal meter. |
+| 298–301 | "next" ×4 | (b) calmer layout · (c) more KPIs · (d) compare / filters / views / Change this chart / what-if · (e) Growth, Team & pipeline, Collections. |
+| 302 | "push it to github" | `0af501b` + `7814162`, live (one code commit — the steps shared files; promised: commit per step from now on). |
+| 303 | Screenshot of the meter in teal on Plum: "the color should change with the themeeee, also add more experimental themes i like them" | Meter takes the theme's chart colour; 6 new experimental themes (`d456670`, local). |
+| 304 | "continue" ×2 | Second batch of reports (Customers, Products, training economics) — uncommitted, see "Start of the next session". |
+| 305 | "write a handoff for new session — whatever is done, whatever is left" | Session 15 handoff. |
+
+### Session 16 (27–28 Oct 2026) — finish Reports, My dashboard, India map, pages, database incident
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 306 | Brief: read HANDOFF; rules (no test data, no real emails, push only when asked, §11 before every push, Git Bash, no secrets, one commit per step); git status + live checks; fix #127; build + browser-check Customers / Products; show; restate "My dashboard" with questions + defaults | Checks clean. #127 fixed (`7b2ff08`); batch 2 checked, 3 bugs fixed (`2a94484`); My dashboard restated with 5 questions. |
+| 307 | "yes go ahead" | All defaults → My dashboard (`bb387fa`). |
+| 308 | "go through the plan and continue with the next step" | #18 India map (`25a5e6b`); then proposed the ⚠ reports with defaults (§10 #143). |
+| 309 | Screenshot of live Reports stuck on "Updating…", blank meter: "its not loading in, i am thinking its because theres too much load now, check whats the issue and try to figure out a way around this" | Found Atlas M0 over its weekly transfer limit (~90 KB/s; cold Reports 119 s) caused by 15-s full pulls; fingerprint cache + "same" pulls (`857114d`). |
+| 310 | "commit all 6" | All six were already committed → read as option 2 "push all six"; pushed `7814162..857114d`. |
+| 311 | (mid-turn) "add pagination in the reports . only fetch data when clicked and not before that" | Pages per section, only the open page fetched, Filters lists on first open (`bbb061e`); plus gzipped Reports copy / board only when needed / readable errors (`efb56d0`). |
+| 312 | "push it to github" | Pushed both; ran Refresh now (copy stored gzipped); found live "Server selection timed out" = cached failed connect → `207d0d5` committed; **the push was refused by the classifier** (not covered by that "push it"). |
+| 313 | "push it to github" | `207d0d5` pushed; live Reports all 200, ~10 s cold while throttled. |
+| 314 | "update the handoff prepare for next session" | This update (throttle gone by 28 Oct 08:30; Reports 4.7 s cold). |
+
 ---
 
 ## 6. Zoho facts learned the hard way
@@ -1490,6 +1664,23 @@ Session 14 (Progress tracker — **all real team data**, never write test docume
 - **`ptNotifications`** — to, kind request / ping / resolved / reopened / comment / mention, requestId, text, at,
   urgent, readAt, `expiresAt` (**TTL 30 days**).
 - kv **`pt_request_seq`** (counter).
+
+Session 15:
+- kv **`reports_goal`** — the monthly revenue goal (none yet = ₹50 L default; Admin's ✎ writes it). Real setting.
+- **`reportPrefs`** — each member's own Reports settings (`_id` member id, `views.<dashboard>` = saved views). Real team
+  data, written only when someone saves a view; 0 docs on 27 Oct.
+- `za_tables` gained **`salesOrders`** and **`salesOrderItems`** (cache; batch 2 adds the `Product ID` column — already
+  refreshed into the copy locally on 27 Oct).
+
+Session 16:
+- **`za_tables`** docs are now `{gz: Binary (gzipped JSON rows), count, at}` — written by every refresh since
+  `efb56d0` (Admin "Refresh now" ran on 27 Oct 11:27 UTC; all 10 tables gz, same counts). Old `{rows}` docs are still
+  read. Still a rebuildable cache.
+- **`reportPrefs.layout`** = `{tiles: [{dash, tile, size?}], updatedAt}` — a member's My dashboard (real team data;
+  0 docs on 28 Oct — nobody has customised yet). kv **`reports_layout`** = `{tiles, updatedAt, updatedBy}` — Admin's
+  starting layout (not set on 28 Oct → built-in `START`).
+- kv **`reports_goal.monthly` = 6000000 (₹60 L)**, set by Admin on 27 Oct evening.
+- Per-instance memory only (no DB): `cachedRead` copies (keyed by fingerprint), Reports `copy` (keyed by refreshedAt).
 
 `ptStandups` was used only by the removed check-ins (empty). On 27 Oct: 1 request (R-0001, resolved), 2 notices,
 4 presence docs.
@@ -1570,6 +1761,24 @@ request in session 1 (twice) and by Shikha once in session 2; Admin cleared **Ev
     existing code.
   - They notice redundant entry points ("why is it there") — don't add a second way into a page unless asked.
   - "push it to github" in the same message as a new request = push the finished request when done.
+- Session 15:
+  - "yessir" = all defaults (like "yeah"). "next" = build the next agreed step; "continue" = carry on with the plan.
+  - They like **dense analysis but a calm screen**: one toolbar row, panels / menus instead of rows of buttons, sections.
+  - Colours must **follow the chosen theme** everywhere (they noticed the meter's fixed teal on Plum at once).
+  - They **like the experimental themes** and want more of them.
+  - Commit **one commit per step** (session 15 bundled five steps into one commit because they shared files — said so;
+    keep commits per step from now on so each idea can be reverted alone).
+- Session 16:
+  - "yes go ahead" after a restated list = all defaults. "go through the plan and continue with the next step" = take
+    the next item of the plan (ANALYTICS-PLAN §11), build it, then propose the one after with defaults.
+  - **"commit all 6" meant push** (they were already committed). When a word doesn't match the state (commit vs push),
+    pick the meaning that fits the offered options and say which one you took.
+  - Slowness is reported as "too much load" — **measure first** (time each call; Mongo read speed), then fix the cause.
+  - They want Reports to **fetch only what's on screen** ("only fetch data when clicked and not before that") — keep
+    new Reports features lazy (per page / on open).
+  - The auto-mode classifier refuses a push not asked for in the latest message — commit, then ask; a new fix after a
+    "push it" needs its own "push it".
+  - They changed the goal to ₹60 L themselves (Admin ✎) — they use the Admin tools on live.
 
 ---
 
@@ -1682,6 +1891,52 @@ No test suite. Pattern used throughout:
       quotes splits into pathspecs; use `-F file`.
     - The auto-mode classifier sometimes answers "no verdict" several times in a row; after ~6, stop and report. Ten
       in a row ends the turn.
+17. **Session 15 patterns (scratchpad scripts — rebuild from this):**
+    - **Engine on live data, no server:** `entry.ts` re-exporting `buildRows` (build.ts) and `runQuery` (query.ts) →
+      `npx esbuild entry.ts --bundle --platform=node --format=cjs --outfile=engine.cjs`; a script reads `za_tables`
+      read-only (`{_id: rows}`), calls `buildRows(t, [], "<today>")` and checks each number against an independent
+      calculation from the raw tables (sums add up, counts match). Trainings need the board → use the local server.
+    - **Local Admin helpers:** sign in (`POST /api/members/sign-in {memberId:"admin", pin}`), then GET routes or
+      `POST /api/analytics {specs}` (read-only report queries); `PUT /api/analytics` = refresh the Zoho Analytics copy
+      (cache, same as the automatic refresh). `/api/zoho-analytics?export=<view id>` → `{count, sample}` (5 rows; print
+      only the columns you need — never customer details).
+    - **Route tests with a fake db:** esbuild the route with a plugin mapping `@/lib/db` → in-memory fake (`findOne`,
+      `updateOne` with `$set` / `$unset` + upsert) and `@/lib/auth` → member from an `x-test-member` header; esbuild
+      must be installed in the scratchpad (`npm i esbuild`) to use its JS API; load it with `createRequire` in an .mjs.
+    - **Browser:** the session 13 / 14 pattern + `th.session` in localStorage = `{member:{id:"admin",name:"Admin"},
+      token}` from the sign-in answer (without it the sign-in screen shows); steps: CSS click via `el.click()` (a
+      puppeteer click can land on the phone's fixed tab bar), `SELECT:css=>value`, `TYPE:css=>text`, `TEXT:<button
+      text>`, `SCROLL:css`, `ESC`, `OUTSIDE`; `FAKE_GOAL=<₹>` answers the goal route in the browser only; set
+      `th.goal.cheered` to this month to skip confetti. `el.click()` doesn't fire mousedown, so "click elsewhere
+      closes it" doesn't happen in tests.
+    - **Secret scan** (`scan.cjs`): added diff lines + untracked files against `.env.local` values (PINs as whole
+      numbers), Zoho tokens, Mongo URIs, private keys; prints names only.
+    - When **Bash keeps getting "no verdict"**, the PowerShell tool may still work (it did for `tsc` and node scripts on
+      27 Oct); file edits can always go through the Edit tool.
+    - Contrast check for new themes: a tiny WCAG luminance script (text / muted / brand / button text ≥ 4.5:1).
+18. **Session 16 patterns (scratchpad scripts — rebuild from this):**
+    - **DB speed** (`speed.cjs`): read `members`, `cardEvents`, `zohoDocs`, `zohoCustomers`, `zohoPayments` whole and
+      print MB, ms and KB/s. Normal 4–8 MB/s; **~90 KB/s = Atlas throttling** (M0 over 10 GB / 7 days).
+    - **Live timing, read-only** (`live5.cjs`): sign in on the live site as Admin (PIN from `.env.local`, never
+      printed), POST `/api/analytics` with 1–2 specs several times; print status, ms, `x-vercel-id`,
+      `x-vercel-error` (`FUNCTION_INVOCATION_TIMEOUT` = the 120 s `maxDuration`), and the totals (this FY revenue
+      ₹4,21,31,846.16 and owed ₹72,48,982.58 on 27–28 Oct). The Vercel CLI here is **not** signed in — no logs; the
+      route now answers 503 with the error text instead.
+    - **Store check** (`storetest.cjs`, local): `/api/store` full → `v`; `?v=` → `{same:true}` 0.1 KB; every
+      collection identical to a direct Mongo read (sorted JSON); then Reports POST ×2.
+    - **Fingerprint** (`fp.cjs`): the `cachedRead` aggregate on its own (needs MongoDB ≥ 7; server is 8.0.34).
+    - **Query counting** (`pages.cjs`): puppeteer, record every `POST /api/analytics` body; open a tab, click a page
+      pill, go back, change the period — count the queries. In dev, React runs effects twice (the goal meter's
+      request shows twice — not in production).
+    - **Browser runs on Reports must set `th.reports.mine = "1"`** in localStorage, else the first visit lands on
+      My dashboard (the shots script's tab choice is ignored).
+    - **Route tests with a fake db** (`rt/`): esbuild the route with `@/lib/db` → in-memory fake (`findOne`,
+      `updateOne` with `$set` / `$unset` dotted paths + upsert) and `@/lib/auth` → `x-test-member` header; `@/…`
+      resolved to `src/…` + ".ts". 32 checks for `/api/analytics/prefs` + `layout.ts`.
+    - **Old-commit code** for timing comparisons: `git archive <commit> src/lib | tar -x -C <scratch>/live`, then
+      esbuild from there.
+    - **Map outline**: `npm i mapshaper@0.6` in a scratch `tools/` folder; `mapshaper Admin2.shp -filter-fields ST_NM
+      -simplify 0.7% keep-shapes -o format=geojson precision=0.001`.
 
 ---
 
@@ -2021,14 +2276,72 @@ No test suite. Pattern used throughout:
      may want to hide them (Logistics → hide) or they're genuinely undelivered — ask.
 125. **Shikha's to-do:** Diana (21 Oct) and Sierragold (22 Oct) "Mark completed or postpone", overdue. Contact numbers
      are still missing on every training.
-126. `git status` clean except this file. `npm audit` / Next 16.3 upgrade still pending (#113).
+126. `npm audit` / Next 16.3 upgrade still pending (#113).
+
+**Session 15 — open items:**
+
+127. ~~Training value on payment cards~~ — **done** (`7b2ff08`, session 16): `BoardTraining.piNumber` / `invoiceNumber`;
+     55 of 56 valued. §3 "Reports + database — session 16".
+128. ~~Batch 2 not built / browser-checked~~ — **done** (`2a94484`, 3 bugs fixed on the way).
+129. ~~(f) "My dashboard"~~ — **done** (`bb387fa`). Tweaks ("Change this chart") still live in the browser (#137).
+130. ~~#18 India map~~ — **done** (`25a5e6b`, DataMeet outline, CC BY 4.0).
+131. **Cohort counts can be 1 off** — the first purchase is found by normalised name (`nameKey`: "USHA FIRE SAFETY" =
+     "Usha Fire Safety") but customers are counted by exact spelling; Zoho has a few names in two spellings. Fixing it
+     everywhere = count customers by `nameKey` (changes "Customers billed" slightly) — ask the owner first.
+132. **₹11 Cr of quotes over 90 days old are still "open" in Zoho** (Team & pipeline → Open quotes by age) — ask the
+     owner whether to close them in Zoho or treat quotes over N days as expired in Reports.
+133. **Overdue concentration:** ₹30 L of ₹31.3 L overdue is on Sumit A Shah's accounts (Collections) — tell the owner.
+134. **Days to pay by invoice month** counts paid invoices only, so recent months look faster (the tile says so).
+135. **Price · volume · mix** works item by item; "units" mean different things across groups (AEDs vs training
+     people), so the overall bridge is a rough guide — the AED-only tile is the clean one. The note says so.
+136. **Segment rules** (New ≤ 180 days since first invoice; Champions = last ≤ 180 days and 4+ invoices; Loyal; Promising;
+     At risk / Hibernating = 1–2 years; Lost > 2 years) are my proposal, not the owner's — show them and adjust.
+137. **"Change this chart" tweaks live in the browser** (localStorage); saved views live on the server. If the owner
+     wants tweaks to follow people across computers, move them into `reportPrefs` with (f).
+138. **Comparison default changed to "vs last year"** — for "This month" the KPIs now compare with the same days of
+     last year's month (before: last month). Mentioned to the owner.
+139. **Saved reports' builder** (`Builder.tsx`) doesn't offer the new options (compare modes, exclude / contains /
+     ranges, analyses, new chart kinds) — they exist only on the official dashboards. Add if the owner builds reports.
+140. **Commits:** keep one per step (owner preference noted in §8). Everything through `207d0d5` is pushed.
+
+**Session 16 — open items:**
+
+141. **Atlas M0 transfer limit (10 GB out / 7 days).** Throttled on 27 Oct, normal again 28 Oct 08:30 after the
+     fixes. What still reads a lot: each server instance reloads the Zoho copy (`zohoDocs` 3.3 MB + payments, items)
+     whenever a sync changed something (~hourly, per warm instance); a new instance reads the Reports copy (0.55 MB)
+     and, for trainings, the board. If it throttles again: measure (§9 #18), then consider gzipping `zohoDocs` or
+     asking the colleague who owns Cluster0's Atlas account to move to a paid tier (the owner can't see that account).
+142. **Old tabs** keep pulling the full team data every 15 s until reloaded (Ctrl + Shift + R). The server answers
+     them from memory (little Mongo cost), but it's Vercel bandwidth — remind the team after each release.
+143. **The three ⚠ reports** (ANALYTICS-PLAN §11 #25–#27) — proposed, waiting for the owner's yes:
+     1) **#25 Gross margin** by product / customer — copy Bills + Bill Items; margin = selling price − the item's
+        average purchase cost over the last 12 months (true FIFO later if needed); **Admin only**.
+     2) **#26 Freight %** — the shipping charge on invoices first (check the export format — "K" lossy values);
+        freight paid to transporters (Bills) later.
+     3) **#27 Stock on hand / days of cover** — copy the stock tables if the workspace has them; seen by Sales users.
+     Before building: look at those tables read-only through the app's `/api/zoho-analytics` (pace ≥ 2.5 s).
+144. **Builder** (`Builder.tsx`, saved reports) still lacks the new options (compare modes, ranges, analyses, map,
+     heatmap…) — #139.
+145. **My dashboard:** nobody has customised yet (0 `reportPrefs` docs on 28 Oct); Admin hasn't set a starting layout
+     (built-in `START`: 4 numbers, revenue by month, owed by age, open quotes by age, trainings by month, top 10
+     customers). Ask the owner whether that starting layout suits the team.
+146. **Pages:** a click-to-filter pick clears when you change page (by design — like Power BI's per-page cross-filter);
+     the page is remembered per tab per browser. If the owner wants a pick to carry across pages, drop `setPick(null)`
+     in `goTo`.
+147. **India map:** square-root shading (one big state otherwise blanks the rest); Delhi / Goa are too small to see —
+     the bars beside it carry them. Keep the DataMeet credit line (CC BY 4.0 requires it).
+148. **Reports `maxDuration` is 120 s** (Vercel). Cold loads are ~5 s now; if a new dataset makes them slow again,
+     keep the "only what the page needs" rule (`datasetRows(today, withTrainings)`) rather than raising the limit.
+149. **Local dev server = live database.** Every local browser test reads the shared cluster too (session 16's tests
+     added to the 27 Oct traffic) — keep test runs few and short, and don't leave local tabs open.
 
 ---
 
 ## 11. Changing things without breaking the live site (read before the first edit)
 
 The dashboard is **in daily use by 7 people**, the local server **shares the live database**, and **every push to
-`master` is a production release**. These are the habits that kept 13 sessions incident-free — and the traps found.
+`master` is a production release**. These are the habits that kept the sessions incident-free — and the traps found (session 16's slowdown: the free
+database's weekly transfer limit — see "Database traffic" below).
 
 **Before you change anything**
 1. Read the relevant part of §3 and the code around it; match the surrounding style (comments explain *why*, owner's
@@ -2065,6 +2378,12 @@ The dashboard is **in daily use by 7 people**, the local server **shares the liv
     `THEMES` entry + `Chart.tsx` `THEME_PALETTES` entry. Light themes have no prefix, dark ones `dark-`.
 12. **Files:** `kpi.ts` is CRLF; the rest LF (git warns, harmless). Edit with the Edit tool; avoid `node -e` with
     apostrophes; never `sed` across many files without checking the match count.
+
+**Database traffic (session 16 — the free cluster allows 10 GB out a week):** before adding anything that runs
+repeatedly (a poll, a per-request read, a per-page fetch), work out **bytes per call × calls per hour × open tabs**.
+Never read a whole collection on a timer — use `readAll` (`src/lib/cachedRead.ts`, downloads only on change) or a
+versioned "nothing new" answer like `/api/store`. Keep big caches compressed (`za_tables` `gz`). Keep Reports lazy:
+only the open page's tiles, and the board only when a tile needs trainings.
 
 **Before every push (the owner asks often — do all of it every time)**
 13. `npx tsc --noEmit -p tsconfig.json` and `npx next build` pass.
