@@ -21,7 +21,8 @@ export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: bo
 /** `range`: a min–max on one of the dataset's `ranges` (e.g. invoices of ₹1 L or more). */
 export type DashFilter = { field: string; label: string; range?: boolean };
 /** `grains`: a "Show by Week / Month / Quarter / Year" switch for every time chart (owner, 29 Oct), starting on this one. */
-export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain };
+/** `start`: filters already set when the tab opens, removable like any other (Defibtech: Brand = Defibtech). */
+export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain; start?: Record<string, { values: string[]; exclude?: boolean }> };
 
 /** "{grain}" in a title follows the chart's grouping (owner, 29 Oct: on Month it still said "quarter by quarter"). */
 export const titleOf = (spec: Spec) => (spec.title ?? "").replaceAll("{grain}", { day: "day", week: "week", month: "month", quarter: "quarter", fy: "year" }[spec.grain ?? "month"]);
@@ -312,10 +313,11 @@ export const DASHBOARDS: DashboardDef[] = [
  *  an Overview with each product's four numbers side by side, then a page per product. Built on the margin data (each
  *  sale with what its units cost us), so it's Admin only like Margin. All time by default — a few dozen units a year. */
 function defibtech(): DashboardDef {
-  const brand = { field: "brand", values: ["Defibtech"] };
   const products = [{ kind: "AED", name: "AED", page: "AEDs" }, { kind: "Pads", name: "Pads", page: "Pads" }, { kind: "Battery", name: "Battery", page: "Batteries" }];
-  const only = (kind: string) => [brand, { field: "kind", values: [kind] }];
-  const three = [brand, { field: "kind", values: ["AED", "Pads", "Battery"] }];
+  // Brand is the tab's starting filter, not fixed in the charts (owner, 29 Oct: "select what items i want to include and
+  // what items i dont") — remove it and any item can be picked.
+  const only = (kind: string) => [{ field: "kind", values: [kind] }];
+  const three = [{ field: "kind", values: ["AED", "Pads", "Battery"] }];
   // A product's four numbers: a row of the Overview, and again on top of its own page (its own ids).
   const four = (p: (typeof products)[number], section: string, suffix = ""): Tile[] => ([
     ["Sale", "avgSale", "average selling price"], ["Cost", "avgCost", "average purchase price"],
@@ -336,7 +338,11 @@ function defibtech(): DashboardDef {
     desc: "Admin only — Defibtech AEDs, pads and batteries: what we sell one for, what it cost us, and what we make on each, on average (before tax).",
     period: "all",
     grains: "quarter",
+    start: { brand: { values: ["Defibtech"] } },
     filters: [
+      { field: "brand", label: "Brand" },
+      { field: "zohoItem", label: "Item" },
+      { field: "itemStatus", label: "Item status" },
       { field: "customerType", label: "Customer type" },
       { field: "sector", label: "Sector" },
       { field: "salesperson", label: "Sales person" },
@@ -344,19 +350,23 @@ function defibtech(): DashboardDef {
     ],
     tiles: [
       ...numbers,
+      // Owner, 29 Oct: "kpis for conversion rates. quotes sent and quotes converted, that is accepted, and declined".
+      ...([["qSent", "quotesSent", "Quotes sent"], ["qAccepted", "quotesAccepted", "Quotes accepted"], ["qDeclined", "quotesDeclined", "Quotes declined"], ["qConversion", "conversion", "Conversion rate"]] as const)
+        .map(([id, measure, title]): Tile => ({ id, section: "Overview", w: 3, noCompare: true, spec: { dataset: "quoteItems", measures: [measure], chart: "kpi", title } })),
       { id: "dRevenue", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["revenue"], by: ["kind"], sort: "label", chart: "bar", filters: three, title: "Sales of each, before tax" } },
       { id: "dQtyAll", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Units sold each {grain}" } },
+      { id: "qTime", section: "Overview", w: 12, noCompare: true, note: "A quote with these items, by what became of it · invoiced quotes count as accepted", spec: { dataset: "quoteItems", measures: ["quotesSent"], by: ["date", "stage"], grain: "quarter", chart: "stacked", title: "Quotes sent each {grain}, by result" } },
       // Owner, 29 Oct: "where is all Defibtech items and their reports" — every Defibtech item in Zoho, not just the three
       // (pediatric pads, the bag, the trainer, old item names), item by item.
       ...([["aSales", "margin", "revenue", "Sales, before tax"], ["aProfit", "margin", "profit", "Profit"], ["aUnits", "margin", "costedUnits", "Units sold"], ["aSpent", "purchases", "spent", "Spent on purchases"]] as const)
-        .map(([id, dataset, measure, title]): Tile => ({ id, section: "All items", w: 3, noCompare: true, spec: { dataset, measures: [measure], chart: "kpi", filters: [brand], title } })),
-      { id: "aSalesTime", section: "All items", w: 12, noCompare: true, spec: { dataset: "margin", measures: ["revenue"], by: ["date", "zohoItem"], grain: "quarter", limit: 6, chart: "stacked", filters: [brand], title: "Sales each {grain}, item by item" } },
-      { id: "aUnitsItem", section: "All items", w: 6, noCompare: true, note: "Click an item to see only it on this page", spec: { dataset: "margin", measures: ["costedUnits"], by: ["zohoItem"], limit: 12, chart: "bar", filters: [brand], title: "Units sold, item by item" } },
-      { id: "aProfitItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["profit"], by: ["zohoItem"], limit: 12, chart: "bar", filters: [brand], title: "Profit, item by item" } },
-      { id: "aSaleItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["avgSale"], by: ["zohoItem"], limit: 12, chart: "bar", filters: [brand], title: "Average selling price, item by item" } },
-      { id: "aPaidItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["paidPerUnit"], by: ["zohoItem"], limit: 12, chart: "bar", filters: [brand], title: "Price we paid per unit, item by item" } },
-      { id: "aBoughtItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], by: ["zohoItem"], limit: 12, chart: "bar", filters: [brand], title: "Units bought, item by item" } },
-      { id: "aStockItem", section: "All items", w: 6, noCompare: true, fixedPeriod: true, spec: { dataset: "stockLevel", measures: ["level"], by: ["zohoItem"], limit: 12, chart: "bar", period: "month", filters: [brand], title: "In stock today, item by item" } },
+        .map(([id, dataset, measure, title]): Tile => ({ id, section: "All items", w: 3, noCompare: true, spec: { dataset, measures: [measure], chart: "kpi", title } })),
+      { id: "aSalesTime", section: "All items", w: 12, noCompare: true, spec: { dataset: "margin", measures: ["revenue"], by: ["date", "zohoItem"], grain: "quarter", limit: 6, chart: "stacked", title: "Sales each {grain}, item by item" } },
+      { id: "aUnitsItem", section: "All items", w: 6, noCompare: true, note: "Click an item to see only it on this page", spec: { dataset: "margin", measures: ["costedUnits"], by: ["zohoItem"], limit: 12, chart: "bar", title: "Units sold, item by item" } },
+      { id: "aProfitItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["profit"], by: ["zohoItem"], limit: 12, chart: "bar", title: "Profit, item by item" } },
+      { id: "aSaleItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["avgSale"], by: ["zohoItem"], limit: 12, chart: "bar", title: "Average selling price, item by item" } },
+      { id: "aPaidItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["paidPerUnit"], by: ["zohoItem"], limit: 12, chart: "bar", title: "Price we paid per unit, item by item" } },
+      { id: "aBoughtItem", section: "All items", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], by: ["zohoItem"], limit: 12, chart: "bar", title: "Units bought, item by item" } },
+      { id: "aStockItem", section: "All items", w: 6, noCompare: true, fixedPeriod: true, spec: { dataset: "stockLevel", measures: ["level"], by: ["zohoItem"], limit: 12, chart: "bar", period: "month", title: "In stock today, item by item" } },
       ...products.flatMap(page),
       // Owner, 29 Oct: "purchase trend charts, per year, per month" — from the bills.
       ...products.map((p): Tile => ({ id: `b${p.kind}Units`, section: "Purchases", w: 3, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], chart: "kpi", filters: only(p.kind), title: `${p.name} · units bought` } })),

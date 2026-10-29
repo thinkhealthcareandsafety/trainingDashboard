@@ -109,7 +109,7 @@ const readPage = (id: string) => { try { return Number(localStorage.getItem(`th.
 /** `tools`: extra buttons at the right end of the toolbar (My dashboard: Customise). */
 export function DashboardView({ def, today, tools }: { def: DashboardDef; today: string; tools?: React.ReactNode }) {
   const [period, setPeriod] = useState(def.period);
-  const [filters, setFilters] = useState<Record<string, FState>>({});
+  const [filters, setFilters] = useState<Record<string, FState>>(() => ({ ...def.start }));
   const [compare, setCompare] = useState<CompareMode>("lastYear");
   const [grain, setGrain] = useState<Grain | undefined>(def.grains);
   const [pick, setPick] = useState<Pick | null>(null);
@@ -124,7 +124,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
   const [goal, setGoal] = useState<number | undefined>();
   useEffect(() => { if (def.tiles.some((t) => t.goalLine)) fetch("/api/analytics/goal").then((r) => r.json()).then((g) => setGoal(typeof g.monthly === "number" ? g.monthly : undefined)).catch(() => {}); }, [def]);
-  useEffect(() => { setPeriod(def.period); setFilters({}); setCompare("lastYear"); setGrain(def.grains); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
+  useEffect(() => { setPeriod(def.period); setFilters({ ...def.start }); setCompare("lastYear"); setGrain(def.grains); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
 
   const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, compare, tweaks[t.id], grain)), [def, today, period, filters, pick, compare, tweaks, grain]);

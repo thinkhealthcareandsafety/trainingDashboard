@@ -1,7 +1,7 @@
 import type { BoardTraining } from "../types";
 import { QUOTE_VALID_DAYS } from "../forecast";
 import { BOOKED_DAYS } from "./goal";
-import type { Row } from "./model";
+import type { Row, Value } from "./model";
 
 /*
  * Rows for each dataset (model.ts) — from the Zoho Analytics tables the server keeps (source.ts) and the Training
@@ -12,9 +12,9 @@ import type { Row } from "./model";
 
 export type Raw = Record<string, string>;
 export type RawTables = Partial<Record<TableKey, Raw[]>>;
-export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments" | "salesOrders" | "salesOrderItems" | "stockIn" | "stockOut" | "warehouses" | "fifo" | "bills" | "billItems";
+export type TableKey = "invoices" | "invoiceItems" | "customers" | "addresses" | "salespersons" | "items" | "quotes" | "payments" | "salesOrders" | "salesOrderItems" | "stockIn" | "stockOut" | "warehouses" | "fifo" | "bills" | "billItems" | "quoteItems";
 /** Read only when a report needs them (stock, margin), so the other Reports pages don't download them. */
-export const STOCK_TABLES: TableKey[] = ["stockIn", "stockOut", "warehouses", "fifo", "bills", "billItems"];
+export const STOCK_TABLES: TableKey[] = ["stockIn", "stockOut", "warehouses", "fifo", "bills", "billItems", "quoteItems"];
 
 /** The Zoho Analytics tables used, with the columns kept (the rest is never stored). */
 export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
@@ -39,6 +39,8 @@ export const TABLES: Record<TableKey, { name: string; columns: string[] }> = {
   // Goods Zoho doesn't keep stock of have no FIFO cost: their average purchase price from the bills instead.
   bills: { name: "Bills", columns: ["Bill ID", "Bill Date", "Bill Status"] },
   billItems: { name: "Bill Item", columns: ["Bill ID", "Product ID", "Quantity", "Sub Total (BCY)"] },
+  // Quotes per item (owner, 29 Oct: Defibtech "quotes sent and quotes converted").
+  quoteItems: { name: "Quote Items", columns: ["Item ID", "Quote ID", "Product ID", "Item Name", "Quantity", "Sub Total (BCY)"] },
 };
 
 /** "INR 852,000.00" / "3,250.00" / "-1,200" → number; abbreviated "INR 954.24K" → approximate (avoid those columns). */
@@ -93,7 +95,7 @@ function indexes(t: RawTables) {
   for (const s of t.salespersons ?? []) { const n = text(s["Name"]); if (n) variants.set(spell(n), [...(variants.get(spell(n)) ?? []), n]); }
   const best = (n: string) => { const vs = variants.get(spell(n)) ?? [n]; return vs.find((v) => v.split(" ").every((w) => /^[A-Z]/.test(w))) ?? vs[0]; };
   const people = new Map((t.salespersons ?? []).map((s) => { const n = text(s["Name"]); return [s["Salesperson ID"], n ? best(n) : null]; }));
-  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], { group: text(i["Item Identifier"]), category: text(i["Product Category"]), brand: text(i["Brand"]), name: text(i["Item Name"]) }]));
+  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], { group: text(i["Item Identifier"]), category: text(i["Product Category"]), brand: text(i["Brand"]), name: text(i["Item Name"]), status: text(i["Status"]) }]));
   const where = (addressId: string | undefined, customerId: string) => (addressId && addr.get(addressId)) || addrByCustomer.get(customerId) || { state: null, city: null };
   const who = (customerId: string): Cust => customers.get(customerId) ?? { name: "(unknown customer)", type: null, sector: null, chain: null };
   return { who, where, people, items, byName };
@@ -364,6 +366,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
         salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
         brand: brandOf(item?.brand ?? null, li["Item Name"]), kind: kindOf(item?.group ?? null, li["Item Name"]),
         zohoItem: item?.name ?? text(li["Item Name"]), // the line's name is often retyped ("DDP 100" = Defibtech Pad DDP100)
+        itemStatus: item?.status ?? null,
         costSource: fifoCost.has(k) ? "Zoho FIFO" : avg !== null ? "Average purchase price" : "No cost in Zoho",
         amount, qty, cost, costedAmount: cost === null ? 0 : amount, costedQty: cost === null ? 0 : qty, profit: cost === null ? null : amount - cost,
       });
@@ -391,8 +394,35 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     sales, invoices, quotes, payments, orders, trainings: boardRows, freight,
     ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today), stockLevel: stockLevelRows(t, today) } : {}),
     ...(t.bills && t.billItems ? { purchases: purchaseRows(t) } : {}),
+    ...(t.quoteItems ? { quoteItems: quoteItemRows(t, ix, customerFields) } : {}),
     ...(margin ? { margin } : {}),
   };
+}
+
+/** Owner, 29 Oct: "on the overview add kpis for conversion rates — quotes sent and quotes converted, that is accepted,
+ *  and declined". One row per quote and Zoho item (a quote listing an item twice counts once); invoiced = accepted. */
+function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFields: (customerId: string, addressId?: string) => Record<string, Value>): Row[] {
+  const quotes = new Map((t.quotes ?? []).map((q) => [q["Quote ID"], q]));
+  const seen = new Map<string, Row>();
+  for (const li of t.quoteItems ?? []) {
+    const q = quotes.get(li["Quote ID"]);
+    const item = ix.items.get(li["Product ID"]);
+    if (!q) continue;
+    const s = (q["Status"] ?? "").toLowerCase();
+    const name = item?.name ?? text(li["Item Name"]);
+    const k = `${li["Quote ID"]}|${li["Product ID"] || name}`;
+    const amount = money(li["Sub Total (BCY)"]) ?? 0;
+    const had = seen.get(k);
+    if (had) { had.amount = (had.amount as number) + amount; continue; }
+    seen.set(k, {
+      date: day(q["Quote Date"]), quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
+      salesperson: ix.people.get(q["Salesperson ID"]) ?? null,
+      stage: /accepted|invoiced/.test(s) ? "Accepted" : /declined|rejected/.test(s) ? "Declined" : /expired/.test(s) ? "Expired" : /draft/.test(s) ? "Draft" : "Waiting",
+      item: text(li["Item Name"]), zohoItem: name, itemStatus: item?.status ?? null, itemGroup: item?.group ?? null,
+      brand: brandOf(item?.brand ?? null, name ?? ""), kind: kindOf(item?.group ?? null, name ?? ""), amount,
+    });
+  }
+  return [...seen.values()];
 }
 
 /** Owner, 29 Oct: "purchase trend charts, per year, per month" — one row per bill line (void / draft bills left out). */
@@ -406,7 +436,7 @@ function purchaseRows(t: RawTables): Row[] {
     if (!date || !item) continue; // lines without an item (freight, services typed in) aren't goods we stock
     const name = text(item["Item Name"]);
     const group = text(item["Item Identifier"]);
-    out.push({ date, item: name, zohoItem: name, itemGroup: group, brand: brandOf(text(item["Brand"]), name ?? ""), kind: kindOf(group, name ?? ""), qty: money(b["Quantity"]) ?? 0, amount: money(b["Sub Total (BCY)"]) ?? 0 });
+    out.push({ date, item: name, zohoItem: name, itemStatus: text(item["Status"]), itemGroup: group, brand: brandOf(text(item["Brand"]), name ?? ""), kind: kindOf(group, name ?? ""), qty: money(b["Quantity"]) ?? 0, amount: money(b["Sub Total (BCY)"]) ?? 0 });
   }
   return out;
 }
@@ -424,7 +454,7 @@ function stockLevelRows(t: RawTables, today: string): Row[] {
     const item = items.get(p);
     const name = text(item?.["Item Name"]) ?? "(unknown item)";
     const group = text(item?.["Item Identifier"]);
-    const base = { item: name, zohoItem: name, itemGroup: group, brand: brandOf(text(item?.["Brand"]), name), kind: kindOf(group, name) };
+    const base = { item: name, zohoItem: name, itemStatus: text(item?.["Status"]), itemGroup: group, brand: brandOf(text(item?.["Brand"]), name), kind: kindOf(group, name) };
     ms.sort((a, b) => (a.d < b.d ? -1 : 1));
     let i = 0, level = 0;
     for (let m = ms[0].d.slice(0, 7); m <= today.slice(0, 7); m = nextMonth(m)) {
