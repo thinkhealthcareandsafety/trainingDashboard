@@ -19,7 +19,9 @@ import { DashboardView } from "./Dashboard";
 export type SavedReport = { id: string; spec: Spec; by: string };
 type Source = { dash: string; label: string; tiles: Tile[] };
 type Placed = { entry: LayoutEntry; tile: Tile; source: string };
-type Prefs = { layout: LayoutEntry[] | null; starting: LayoutEntry[] | null; startingBy?: string };
+/** `hidden`: the Reports tabs this person unticked under "Select Dashboards to display" (owner, 29 Oct). */
+export type Prefs = { layout: LayoutEntry[] | null; starting: LayoutEntry[] | null; startingBy?: string; hidden: string[] };
+export type TabChoice = { id: string; label: string };
 
 // Fields every dataset here has (or most do) — each reaches the tiles whose data has it.
 const FILTERS: DashFilter[] = [
@@ -52,14 +54,12 @@ function place(entries: LayoutEntry[], sources: Source[]): Placed[] {
   return out;
 }
 
-export function MyDashboard({ today, admin, dashboards, saved }: { today: string; admin: boolean; dashboards: DashboardDef[]; saved: SavedReport[] | null }) {
-  const [prefs, setPrefs] = useState<Prefs | null>(null);
+export function MyDashboard({ today, admin, dashboards, saved, prefs, tabs, onPrefs }: {
+  today: string; admin: boolean; dashboards: DashboardDef[]; saved: SavedReport[] | null;
+  /** Loaded by Reports (it needs `hidden` for the tab bar). */
+  prefs: Prefs | null; tabs: TabChoice[]; onPrefs: (patch: Partial<Prefs>) => void;
+}) {
   const [customising, setCustomising] = useState(false);
-  useEffect(() => {
-    fetch("/api/analytics/prefs").then((r) => r.json())
-      .then((j) => setPrefs({ layout: j.layout ?? null, starting: j.starting ?? null, startingBy: j.startingBy }))
-      .catch(() => setPrefs({ layout: null, starting: null }));
-  }, []);
 
   const starting = prefs?.starting ?? START;
   const entries = prefs?.layout ?? starting;
@@ -91,7 +91,7 @@ export function MyDashboard({ today, admin, dashboards, saved }: { today: string
       )}
       {customising && createPortal(
         <Customise placed={placed} own={prefs.layout !== null} starting={starting} startingBy={prefs.startingBy} admin={admin} sources={sources}
-          onClose={() => setCustomising(false)} onSaved={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))} />,
+          tabs={tabs} hidden={prefs.hidden} onClose={() => setCustomising(false)} onSaved={onPrefs} />,
         document.body,
       )}
     </>
@@ -99,11 +99,12 @@ export function MyDashboard({ today, admin, dashboards, saved }: { today: string
 }
 
 /** The Customise popup: tick tiles on the left (by tab), order / size / remove them on the right. */
-function Customise({ placed, own, starting, startingBy, admin, sources, onClose, onSaved }: {
+function Customise({ placed, own, starting, startingBy, admin, sources, tabs, hidden, onClose, onSaved }: {
   placed: Placed[]; own: boolean; starting: LayoutEntry[]; startingBy?: string; admin: boolean; sources: Source[];
-  onClose: () => void; onSaved: (patch: Partial<Prefs>) => void;
+  tabs: TabChoice[]; hidden: string[]; onClose: () => void; onSaved: (patch: Partial<Prefs>) => void;
 }) {
   const [draft, setDraft] = useState<LayoutEntry[]>(() => placed.map((p) => p.entry));
+  const [off, setOff] = useState<string[]>(hidden);
   // Still following the starting layout: saving keeps it that way (and later changes to it reach this person).
   const [follows, setFollows] = useState(!own);
   const [tab, setTab] = useState(sources[0]?.dash ?? "");
@@ -139,8 +140,8 @@ function Customise({ placed, own, starting, startingBy, admin, sources, onClose,
   const save = async () => {
     setState({ busy: true });
     try {
-      const j = await post({ layout: follows ? null : rows.map((p) => p.entry) });
-      onSaved({ layout: j.layout });
+      const j = await post({ layout: follows ? null : rows.map((p) => p.entry), hidden: off });
+      onSaved({ layout: j.layout, hidden: off });
       onClose();
     } catch (e) { setState({ error: (e as Error).message }); }
   };
@@ -168,6 +169,19 @@ function Customise({ placed, own, starting, startingBy, admin, sources, onClose,
           <button onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
             <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
           </button>
+        </div>
+        {/* Owner, 29 Oct: which tabs show at the top of Reports. My dashboard always does (it holds this popup). */}
+        <div className="border-b border-line px-5 py-3">
+          <p className="text-[15px] font-semibold uppercase tracking-wide text-muted">Select Dashboards to display</p>
+          <div className="mt-1.5 flex flex-wrap gap-x-1 gap-y-0.5">
+            {[{ id: "mine", label: "My dashboard" }, ...tabs].map((t) => (
+              <label key={t.id} className={`flex items-center gap-2 rounded-lg px-2 py-1 ${t.id === "mine" ? "opacity-60" : "cursor-pointer hover:bg-surface-2"}`} title={t.id === "mine" ? "Always shown — Customise lives here" : undefined}>
+                <input type="checkbox" className="size-4 shrink-0 accent-[var(--brand)]" checked={!off.includes(t.id)} disabled={t.id === "mine"}
+                  onChange={() => setOff(off.includes(t.id) ? off.filter((x) => x !== t.id) : [...off, t.id])} />
+                <span className="text-[16px] text-ink">{t.label}</span>
+              </label>
+            ))}
+          </div>
         </div>
         <div className="no-scrollbar grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-y-auto lg:grid-cols-[minmax(0,1fr)_440px] lg:overflow-hidden">
           {/* The library: every tile, one tab at a time. */}

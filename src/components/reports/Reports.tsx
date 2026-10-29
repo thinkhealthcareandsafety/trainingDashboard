@@ -9,7 +9,7 @@ import { btn } from "../ui";
 import { Builder } from "./Builder";
 import { DashboardView, TileCard } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
-import { MyDashboard } from "./MyDashboard";
+import { MyDashboard, type Prefs } from "./MyDashboard";
 import { type Answer, type Meta, forgetAnswers, runSpecs, stamp, withPeriod } from "./shared";
 
 /*
@@ -32,11 +32,21 @@ export function Reports() {
 
   const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => setMeta(j)).catch(() => setError("Couldn't reach the server")), []);
   const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json()).then(setSaved).catch(() => {}), []);
-  useEffect(() => { loadMeta(); loadSaved(); }, [loadMeta, loadSaved]);
+  // My dashboard's list + the tabs this person hid ("Select Dashboards to display", owner 29 Oct) — per person, server.
+  const [prefs, setPrefs] = useState<Prefs | null>(null);
+  useEffect(() => {
+    loadMeta(); loadSaved();
+    fetch("/api/analytics/prefs").then((r) => r.json())
+      .then((j) => setPrefs({ layout: j.layout ?? null, starting: j.starting ?? null, startingBy: j.startingBy, hidden: j.hidden ?? [] }))
+      .catch(() => setPrefs({ layout: null, starting: null, hidden: [] }));
+  }, [loadMeta, loadSaved]);
   useEffect(() => { try { localStorage.setItem("th.reports.tab", tab); localStorage.setItem("th.reports.mine", "1"); } catch {} }, [tab]);
 
   const dashboards = useMemo(() => DASHBOARDS.filter((d) => meta && d.tiles.every((t) => meta.datasets.includes(t.spec.dataset))), [meta]);
-  const current = dashboards.find((d) => d.id === tab);
+  const hidden = prefs?.hidden ?? [];
+  const shown = hidden.includes(tab) ? "mine" : tab; // a hidden tab that was open falls back to My dashboard
+  const current = dashboards.find((d) => d.id === shown);
+  const allTabs = [...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }];
 
   const refresh = async () => {
     setRefreshing(true);
@@ -63,15 +73,16 @@ export function Reports() {
           bottom of the page — owner, 27 Oct: "too congested"). */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="inline-flex flex-wrap rounded-full bg-surface-2 p-0.5" role="tablist" aria-label="Dashboards">
-          {[{ id: "mine", label: "My dashboard", desc: "Your own choice of reports from every tab" }, ...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }].map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} title={t.desc}
-              className={`rounded-full px-3 py-1.5 text-[15px] font-medium transition ${tab === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
+          {[{ id: "mine", label: "My dashboard", desc: "Your own choice of reports from every tab" }, ...allTabs.filter((t) => !hidden.includes(t.id))].map((t) => (
+            <button key={t.id} role="tab" aria-selected={shown === t.id} onClick={() => setTab(t.id)} title={t.desc}
+              className={`rounded-full px-3 py-1.5 text-[15px] font-medium transition ${shown === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>
         <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})} title="New report">+ New</button>
       </div>
       <div className="mt-4">
-        {tab === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={dashboards} saved={saved ? saved.reports : null} />
+        {shown === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={dashboards} saved={saved ? saved.reports : null}
+            prefs={prefs} tabs={allTabs.map((t) => ({ id: t.id, label: t.label.replace(/ \(\d+\)$/, "") }))} onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))} />
           : current ? <DashboardView def={current} today={meta.today} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}
       </div>

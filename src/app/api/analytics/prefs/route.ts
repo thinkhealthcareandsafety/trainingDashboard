@@ -10,11 +10,12 @@ export const dynamic = "force-dynamic";
  * per dashboard (a name + period, filters, comparison) and "My dashboard" (`layout`). GET — mine, plus the starting
  * layout (kv `reports_layout`, Admin's). POST { dash, views } — replace my views on that dashboard; { layout } — my
  * dashboard (null = back to the starting layout); { starting } — Admin: the starting layout for everyone who hasn't
- * made their own (null = back to the built-in one). Nobody reads or writes anyone else's.
+ * made their own (null = back to the built-in one). { hidden } — the Reports tabs I don't want to see (owner, 29 Oct:
+ * "Select Dashboards to display"; may come with { layout }). Nobody reads or writes anyone else's.
  */
 
 type View = { name: string; state: unknown };
-type Doc = { _id: string; views?: Record<string, View[]>; layout?: { tiles: LayoutEntry[]; updatedAt: string }; updatedAt?: string };
+type Doc = { _id: string; views?: Record<string, View[]>; layout?: { tiles: LayoutEntry[]; updatedAt: string }; hidden?: string[]; updatedAt?: string };
 type Starting = { _id: string; tiles?: LayoutEntry[]; updatedAt?: string; updatedBy?: string };
 const col = async () => (await db()).collection<Doc>("reportPrefs");
 const kv = async () => (await db()).collection<Starting>("kv");
@@ -24,15 +25,23 @@ export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const [d, s] = await Promise.all([(await col()).findOne({ _id: me.id }), (await kv()).findOne({ _id: STARTING })]);
-  return Response.json({ views: d?.views ?? {}, layout: d?.layout?.tiles ?? null, starting: s?.tiles ?? null, startingBy: s?.tiles ? s.updatedBy : undefined });
+  return Response.json({ views: d?.views ?? {}, layout: d?.layout?.tiles ?? null, starting: s?.tiles ?? null, startingBy: s?.tiles ? s.updatedBy : undefined, hidden: d?.hidden ?? [] });
 }
 
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { dash?: unknown; views?: unknown; layout?: unknown; starting?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { dash?: unknown; views?: unknown; layout?: unknown; starting?: unknown; hidden?: unknown };
   const now = new Date().toISOString();
+
+  if ("hidden" in body) {
+    const ok = Array.isArray(body.hidden) && body.hidden.length <= 30 && body.hidden.every((x) => typeof x === "string" && /^[a-z0-9-]{1,40}$/.test(x) && x !== "mine");
+    if (!ok) return Response.json({ error: "Those dashboards can't be saved" }, { status: 400 });
+    const hidden = [...new Set(body.hidden as string[])];
+    await (await col()).updateOne({ _id: me.id }, { $set: { hidden, updatedAt: now } }, { upsert: true });
+    if (!("layout" in body)) return Response.json({ ok: true, hidden });
+  }
 
   if ("starting" in body) {
     if (!isAdmin(me)) return Response.json({ error: "Only Admin sets the starting layout" }, { status: 403 });
