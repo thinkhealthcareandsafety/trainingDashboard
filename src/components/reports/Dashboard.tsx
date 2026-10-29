@@ -79,7 +79,8 @@ const readTweaks = (id: string): Record<string, Tweak> => { try { return JSON.pa
  * into pages of about six charts — a band of numbers counts as one.
  */
 type Page = { name: string; tiles: Tile[]; half?: Set<string> };
-function pagesOf(def: DashboardDef): Page[] {
+/** `extras`: false = the pages as defined (for editing — no charts repeated next to the numbers). */
+export function pagesOf(def: DashboardDef, extras = true): Page[] {
   const tiles = def.tiles;
   // Pages set by hand (the team's dashboards): as they were arranged, nothing added.
   if (def.pages) return def.pages.map((p) => ({ name: p.name, tiles: p.tiles.map((id) => tiles.find((t) => t.id === id)).filter((t): t is Tile => Boolean(t)) }));
@@ -94,7 +95,7 @@ function pagesOf(def: DashboardDef): Page[] {
     // Owner, 28 Oct: "some reports should be shown along with the kpis". A numbers-only first page also shows the next
     // sections' first two charts, half width side by side (they stay on their own page too; one answer serves both).
     const [first, ...rest] = pages;
-    if (first && rest.length && first.tiles.every((t) => t.spec.chart === "kpi")) {
+    if (extras && first && rest.length && first.tiles.every((t) => t.spec.chart === "kpi")) {
       const two = rest.flatMap((p) => p.tiles).filter((t) => t.spec.chart !== "kpi").slice(0, 2);
       first.tiles.push(...two);
       first.half = new Set(two.map((t) => t.id));

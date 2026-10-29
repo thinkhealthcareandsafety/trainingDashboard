@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { DASHBOARDS, type DashboardDef, type Tile } from "@/lib/analytics/dashboards";
-import { type CustomDash, toDef } from "@/lib/analytics/custom";
+import { type CustomDash, fromDef, newId, toDef } from "@/lib/analytics/custom";
+import { Editor } from "./Editor";
 import { datasetOf } from "@/lib/analytics/model";
 import type { Spec } from "@/lib/analytics/query";
 import { btn } from "../ui";
 import { Builder } from "./Builder";
-import { DashboardView, TileCard } from "./Dashboard";
+import { DashboardView, TileCard, pagesOf } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
 import { MyDashboard, type Prefs } from "./MyDashboard";
 import { type Answer, type Meta, forgetAnswers, runSpecs, stamp, withPeriod } from "./shared";
@@ -30,6 +31,8 @@ export function Reports() {
   const [saved, setSaved] = useState<{ canBuild: boolean; reports: Saved[] } | null>(null);
   const [builder, setBuilder] = useState<{ spec?: Spec; id?: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Editing a dashboard (owner, 29 Oct): a copy of it, and whether it's new / a built-in tab not edited yet.
+  const [editing, setEditing] = useState<{ draft: CustomDash; fresh: boolean } | null>(null);
 
   const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => setMeta(j)).catch(() => setError("Couldn't reach the server")), []);
   const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json()).then(setSaved).catch(() => {}), []);
@@ -91,12 +94,16 @@ export function Reports() {
               className={`rounded-full px-3 py-1.5 text-[15px] font-medium transition ${shown === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>
-        <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})} title="New report">+ New</button>
+        {team.canEdit && <button className={`${btn.ghost} ml-auto`} onClick={() => setEditing({ fresh: true, draft: { id: newId("d-"), title: "New dashboard", shared: true, pages: [{ id: newId("p"), name: "Page 1", slots: [] }] } })}>+ New dashboard</button>}
+        <button className={`${btn.primary} ${team.canEdit ? "" : "ml-auto"}`} onClick={() => setBuilder({})} title="New report">+ New report</button>
       </div>
       <div className="mt-4">
         {shown === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={builtIns} saved={saved ? saved.reports : null}
             prefs={prefs} tabs={allTabs.map((t) => ({ id: t.id, label: t.label.replace(/ \(\d+\)$/, "") }))} onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))} />
-          : current ? <DashboardView def={current} today={meta.today} />
+          : current ? <DashboardView def={current} today={meta.today} tools={team.canEdit ? (
+            <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[16px] font-medium text-ink-2 transition hover:border-line-strong"
+              onClick={() => setEditing({ fresh: !current.custom, draft: current.custom ?? fromDef(current, pagesOf(current, false)) })}>✎ Edit dashboard</button>
+          ) : undefined} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}
       </div>
       <p className="mt-8 text-[15px] text-faint" title={st.error ? `Last refresh: ${st.error}` : undefined}>
@@ -105,6 +112,8 @@ export function Reports() {
       </p>
     </div>
       {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
+      {editing && <Editor draft={editing.draft} fresh={editing.fresh} builtIns={builtIns} saved={saved?.reports ?? []} admin={team.admin}
+        onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); loadTeam(); setTab(id); }} />}
       {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={() => { loadSaved(); setTab("saved"); }} />, document.body)}
     </div>
   );
