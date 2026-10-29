@@ -302,7 +302,9 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
   const [browsing, setBrowsing] = useState(false);
   const [busy, setBusy] = useState<"" | "send" | "draft">("");
   const [error, setError] = useState("");
-  const [done, setDone] = useState<{ number: string; total: number; url: string; sent: boolean; ours: number } | null>(null);
+  const [done, setDone] = useState<{ estimateId: string; number: string; total: number; url: string; ours: number; emailedTo?: string } | null>(null);
+  // After "Save and email…" (#150 step 5) the done screen is the email step until it's sent or skipped.
+  const [emailing, setEmailing] = useState(false);
   const key = useRef(0);
   const row = (l: Omit<Line, "key">): Line => ({ ...l, key: ++key.current });
   const blank = () => row({ itemId: "", name: "", qty: 1, rate: 0, gst: null });
@@ -358,9 +360,10 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
     : !f?.sendToCrm || !f.reminderFrequency ? "Fill in Send to CRM and Reminder frequency" : t && t.discount > t.sub ? "The discount is more than the items" : "";
   const whySend = why || (!to.length ? "Pick who it goes to" : "");
 
-  const submit = async (send: boolean, e: React.MouseEvent<HTMLButtonElement>) => {
+  // Both save the quotation in Zoho without Zoho's standard email; "Save and email…" then opens our email step
+  // (Zoho's template, its PDF attached, + your attachments).
+  const submit = async (send: boolean) => {
     if (!f || !t) return;
-    const from = e.currentTarget;
     if (send && detail?.recent && !confirm(`${detail.recent.number} went to ${customer.name} ${detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`}. Send another?`)) return;
     setBusy(send ? "send" : "draft");
     setError("");
@@ -371,12 +374,12 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
         discount: Number(f.discount) > 0 ? { value: Number(f.discount), percent: f.discountPct } : undefined, shipping: Number(f.shipping) || undefined, adjustment: Number(f.adjustment) || undefined,
         notes: f.notes, terms: f.terms,
       };
-      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send, details, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
-      const j = (await r.json()) as { ok?: boolean; error?: string; quote?: { number: string; total: number; url: string; sent: boolean } };
+      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send: false, details, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
+      const j = (await r.json()) as { ok?: boolean; error?: string; quote?: { estimateId: string; number: string; total: number; url: string } };
       if (!r.ok || !j.quote) throw new Error(j.error ?? "Couldn't create the quotation");
       setDone({ ...j.quote, ours: t.total });
-      if (send) celebrate(from);
-      toast({ text: `${j.quote.number} ${send ? "sent to" : "saved as a draft for"} ${customer.name}` });
+      setEmailing(send);
+      toast({ text: `${j.quote.number} saved in Zoho Books for ${customer.name}` });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create the quotation");
     }
@@ -398,13 +401,19 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
           <button className={btn.quiet} onClick={() => onClose(Boolean(done))} aria-label="Close" disabled={Boolean(busy)}>✕</button>
         </div>
 
-        {done ? (
+        {done && emailing ? (
+          <EmailStep quote={done} live={live} onBack={() => setEmailing(false)}
+            onSent={(list, from) => { setDone((d) => d && { ...d, emailedTo: list }); setEmailing(false); celebrate(from); toast({ text: `${done.number} emailed to ${list}` }); }} />
+        ) : done ? (
+          // The done screen (#150 step 4): Zoho's PDF to download, and the email step.
           <div className="px-6 py-8 text-center">
-            <p className="text-[22px] font-bold text-low">{done.sent ? "Sent" : "Saved as a draft"} · {done.number}</p>
-            <p className="mt-1 text-[15px] text-ink-2">{done.sent ? <>Zoho Books emailed it to {emails}.</> : <>It&apos;s in Zoho Books as a draft — send it from there when ready.</>} Total incl. GST <b className="num">{inr2(done.total)}</b>.</p>
+            <p className="text-[22px] font-bold text-low">{done.emailedTo ? "Emailed" : "Saved"} · {done.number}</p>
+            <p className="mt-1 text-[15px] text-ink-2">{done.emailedTo ? <>Zoho Books emailed it to {done.emailedTo} and marked it Sent.</> : <>It&apos;s in Zoho Books as a draft.</>} Total incl. GST <b className="num">{inr2(done.total)}</b>.</p>
             {Math.abs(done.total - done.ours) > 1 && <p className="mt-1 text-[14px] text-medium">This page worked out {inr2(done.ours)} — Zoho&apos;s total is the one on the quotation; check it there.</p>}
-            <div className="mt-5 flex justify-center gap-2">
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
               <a className={btn.ghost} href={done.url} target="_blank" rel="noreferrer">Open in Zoho Books</a>
+              <a className={btn.ghost} href={`/api/quotations?${new URLSearchParams({ pdf: done.estimateId, name: done.number })}`} download>⬇ Download PDF</a>
+              {!done.emailedTo && <button className={btn.ghost} onClick={() => setEmailing(true)}>✉ Email it…</button>}
               <button className={btn.primary} onClick={() => onClose(true)} autoFocus>Done</button>
             </div>
           </div>
@@ -537,14 +546,124 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
               {error && <span className="mr-auto text-[14px] font-medium text-high">{error}</span>}
               <button className={btn.ghost} onClick={() => onClose(false)} disabled={Boolean(busy)}>Cancel</button>
-              <button className={btn.ghost} onClick={(e) => submit(false, e)} disabled={Boolean(why) || Boolean(busy)} title={why || "Make it in Zoho Books without emailing it"}>{busy === "draft" ? "Saving…" : "Save as draft in Zoho"}</button>
-              <button className={btn.primary} onClick={(e) => submit(true, e)} disabled={Boolean(whySend) || Boolean(busy)} title={whySend || `Zoho Books emails it to ${emails}`}>{busy === "send" ? "Sending…" : "Send quotation"}</button>
+              <button className={btn.ghost} onClick={() => submit(false)} disabled={Boolean(why) || Boolean(busy)} title={why || "Make it in Zoho Books without emailing it"}>{busy === "draft" ? "Saving…" : "Save as draft in Zoho"}</button>
+              <button className={btn.primary} onClick={() => submit(true)} disabled={Boolean(whySend) || Boolean(busy)} title={whySend || `Save it, then check the email to ${emails} before it goes`}>{busy === "send" ? "Saving…" : "Save and email…"}</button>
             </div>
           </>
         )}
       </div>
       {browsing && createPortal(<Catalogue items={items} lines={lines} onAdd={addItem} onClose={() => setBrowsing(false)} />, document.body)}
     </div>
+  );
+}
+
+/** Zoho's email HTML made safe to edit here: no scripts, frames or on… handlers. */
+function cleanHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("script, style, iframe, object, embed, link, meta").forEach((n) => n.remove());
+  doc.querySelectorAll("*").forEach((el) => { for (const a of [...el.attributes]) if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name); });
+  return doc.body.innerHTML;
+}
+const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+/**
+ * The email step (#150 step 5; owner, 28 Oct: "download that quotation directly … attach to email, also give option to
+ * add attachments"). Starts from Zoho's own quote email (GET ?email=): To = the quote's contacts, subject and body from
+ * Zoho's template, the quote's PDF attached by Zoho; + attachments from this computer (4 MB together). Sent through
+ * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
+ */
+function EmailStep({ quote, live, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
+  type Draft = { subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string };
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [extra, setExtra] = useState("");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const body = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    fetch(`/api/quotations?email=${quote.estimateId}`).then((r) => r.json()).then((j: Draft) => {
+      setDraft(j);
+      if (j.error) return;
+      setPicked(j.to.filter((x) => x.selected).map((x) => x.email));
+      setSubject(j.subject);
+    }).catch(() => setDraft({ subject: "", body: "", fileName: null, maxBytes: 0, to: [], error: "Couldn't reach the server" }));
+  }, [quote.estimateId]);
+  useEffect(() => { if (draft && !draft.error && body.current) body.current.innerHTML = cleanHtml(draft.body); }, [draft]);
+  const size = files.reduce((n, f) => n + f.size, 0);
+  const max = draft?.maxBytes || 4 * 1024 * 1024;
+  const to = [...picked, ...extra.split(/[,;\s]+/).filter(Boolean)];
+  const why = !live ? "Only the live site sends email" : !to.length ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
+  const send = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    const from = e.currentTarget;
+    setBusy(true);
+    setError("");
+    const form = new FormData();
+    form.set("estimateId", quote.estimateId);
+    form.set("to", to.join(","));
+    form.set("cc", cc);
+    form.set("subject", subject);
+    form.set("body", body.current?.innerHTML ?? "");
+    if (draft?.fileName) form.set("fileName", draft.fileName);
+    for (const f of files) form.append("attachments", f, f.name);
+    const r = await fetch("/api/quotations", { method: "POST", body: form }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!j.ok) return setError(j.error ?? "Couldn't send the email");
+    onSent(to.join(", "), from);
+  };
+  const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
+  if (!draft) return <p className="px-6 py-10 text-center text-[15px] text-muted">Getting Zoho&apos;s email for {quote.number}…</p>;
+  if (draft.error) return (
+    <div className="px-6 py-10 text-center"><p className="text-[15px] text-high">{draft.error}</p><button className={`${btn.ghost} mt-4`} onClick={onBack}>Back</button></div>
+  );
+  return (
+    <>
+      <div className="no-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
+        <div>
+          <span className={label}>To</span>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {draft.to.map((x) => (
+              <label key={x.email} className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[14px] ${picked.includes(x.email) ? "border-brand bg-brand-soft text-ink" : "border-line text-ink-2"}`}>
+                <input type="checkbox" className="accent-[var(--brand)]" checked={picked.includes(x.email)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, x.email] : p.filter((m) => m !== x.email)))} />
+                {x.name ? <>{x.name} <span className="text-muted">{x.email}</span></> : x.email}
+              </label>
+            ))}
+            <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-56 text-[14px]`} placeholder="Other emails, comma between" value={extra} onChange={(e) => setExtra(e.target.value)} aria-label="Other emails" />
+          </div>
+        </div>
+        <label className="block"><span className={label}>Cc</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Comma between" /></label>
+        <label className="block"><span className={label}>Subject</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} /></label>
+        <div>
+          <span className={label}>Message</span>
+          <div ref={body} contentEditable suppressContentEditableWarning role="textbox" aria-multiline aria-label="Message"
+            className="mt-1 max-h-[38vh] min-h-40 overflow-y-auto rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14.5px] leading-relaxed text-ink outline-none focus:border-brand" />
+        </div>
+        <div>
+          <span className={label}>Attachments</span>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title="Zoho Books attaches the quotation's PDF itself">📄 {draft.fileName ?? `${quote.number}.pdf`} <span className="text-muted">(the quotation)</span></span>
+            {files.map((f, i) => (
+              <span key={`${f.name}-${i}`} className="flex items-center gap-1 rounded-full bg-surface-2 py-1 pl-3 pr-1 text-[14px] text-ink-2">
+                {f.name} <span className="text-muted">{kb(f.size)}</span>
+                <button className="grid h-6 w-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-high" onClick={() => setFiles((x) => x.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`}>×</button>
+              </span>
+            ))}
+            <button className={`${btn.ghost} !h-8`} onClick={() => fileInput.current?.click()}>+ Add attachments</button>
+            <input ref={fileInput} type="file" multiple hidden onChange={(e) => { const add = [...(e.target.files ?? [])]; setFiles((x) => [...x, ...add].slice(0, 10)); e.target.value = ""; }} />
+            {files.length > 0 && <span className={`text-[13px] ${size > max ? "font-semibold text-high" : "text-muted"}`}>{kb(size)} of 4 MB</span>}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
+        {error && <span className="mr-auto text-[14px] font-medium text-high">{error}</span>}
+        <button className={btn.ghost} onClick={onBack} disabled={busy}>Not now</button>
+        <button className={btn.primary} onClick={send} disabled={Boolean(why) || busy} title={why || `Zoho Books sends it from your organisation's address`}>{busy ? "Sending…" : "Send email"}</button>
+      </div>
+    </>
   );
 }
 

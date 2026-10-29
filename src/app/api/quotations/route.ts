@@ -4,9 +4,9 @@ import { hasFullAccess, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, money, nameKey, onHandByItem } from "@/lib/analytics/build";
-import { type ZItem, itemGst, itemImage, zohoGet } from "@/lib/zoho";
+import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, quotesInfo } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -141,6 +141,27 @@ export async function GET(request: Request) {
       return new Response(img.bytes, { headers: { "Content-Type": img.type, "Cache-Control": "private, max-age=604800" } });
     }
 
+    // Zoho's own PDF of a quotation, to download (#150 step 4) — read with the sync's read-only connection.
+    const pdfId = q.get("pdf");
+    if (pdfId) {
+      if (!/^\d+$/.test(pdfId)) return new Response(null, { status: 400 });
+      const name = (q.get("name") ?? "").replace(/[^A-Za-z0-9_-]/g, "") || "Quotation";
+      return new Response(await estimatePdf(pdfId), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${name}.pdf"`, "Cache-Control": "private, no-store" } });
+    }
+
+    // The email step's starting point: Zoho's quote email template filled for this quote (#150 step 5).
+    const emailId = q.get("email");
+    if (emailId) {
+      if (!/^\d+$/.test(emailId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+      type ToContact = { email?: string; first_name?: string; last_name?: string; selected?: boolean };
+      const j = await zohoGet<Record<string, unknown> & { data?: Record<string, unknown> }>(`/estimates/${emailId}/email`);
+      const d = (j.data ?? j) as { subject?: string; body?: string; file_name?: string; to_contacts?: ToContact[] };
+      return Response.json({
+        subject: d.subject ?? "", body: d.body ?? "", fileName: d.file_name ?? null, maxBytes: EMAIL_MAX_BYTES,
+        to: (d.to_contacts ?? []).filter((x) => x.email).map((x) => ({ email: x.email!, name: [x.first_name, x.last_name].filter(Boolean).join(" ") || null, selected: x.selected !== false })),
+      });
+    }
+
     const itemId = q.get("item");
     if (itemId) {
       if (!/^\d+$/.test(itemId)) return Response.json({ error: "Unknown item" }, { status: 400 });
@@ -227,6 +248,7 @@ export async function POST(request: Request) {
   if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha and Sumit send quotations" }, { status: 403 });
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
+  if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) return sendEmail(await request.formData().catch(() => null));
   const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer> };
   if (body.newCustomer) return newCustomer(body.newCustomer);
   const customerId = String(body.customerId ?? "");
@@ -257,6 +279,29 @@ export async function POST(request: Request) {
   } catch (e) {
     console.error("[quotations] create failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't create the quotation" }, { status: 502 });
+  }
+}
+
+/** The email step's Send (multipart: estimateId, to, cc, subject, body, fileName, attachments) — checked, then through Zoho Books. */
+async function sendEmail(form: FormData | null): Promise<Response> {
+  if (!form) return Response.json({ error: "Nothing to send" }, { status: 400 });
+  const str = (k: string, max: number) => String(form.get(k) ?? "").trim().slice(0, max);
+  const mails = (k: string) => str(k, 2000).split(/[,;\s]+/).map((x) => x.toLowerCase()).filter(Boolean);
+  const id = str("estimateId", 30), to = mails("to"), cc = mails("cc"), subject = str("subject", 300), body = str("body", 100_000);
+  const files = form.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  const bad = [...to, ...cc].find((m) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
+  if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+  if (!to.length) return Response.json({ error: "Add at least one email in To" }, { status: 400 });
+  if (bad) return Response.json({ error: `${bad} doesn't look like an email` }, { status: 400 });
+  if (to.length + cc.length > 20 || files.length > 10) return Response.json({ error: "At most 20 emails and 10 attachments" }, { status: 400 });
+  if (!subject) return Response.json({ error: "Type a subject" }, { status: 400 });
+  if (files.reduce((n, f) => n + f.size, 0) > EMAIL_MAX_BYTES) return Response.json({ error: "Attachments are over 4 MB together — leave some out" }, { status: 400 });
+  try {
+    await emailQuote(id, { to, cc, subject, body, fileName: str("fileName", 120) || undefined, files });
+    return Response.json({ ok: true });
+  } catch (e) {
+    console.error("[quotations] email failed:", e);
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't send the email" }, { status: 502 });
   }
 }
 

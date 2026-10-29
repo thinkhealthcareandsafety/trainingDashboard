@@ -266,6 +266,17 @@ export async function itemImage(id: string): Promise<{ bytes: ArrayBuffer; type:
   return { bytes: await res.arrayBuffer(), type };
 }
 
+/** A quotation as Zoho's own PDF (its template, as the customer gets it) — #150 step 4. Throws in plain words. */
+export async function estimatePdf(id: string): Promise<ArrayBuffer> {
+  const url = new URL(`${API}/estimates/${id}`);
+  url.searchParams.set("organization_id", ORG);
+  url.searchParams.set("accept", "pdf");
+  G.calls = (G.calls ?? 0) + 1;
+  const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` }, cache: "no-store" });
+  if (!res.ok || !(res.headers.get("content-type") ?? "").includes("pdf")) throw new Error(`Zoho Books didn't give the PDF (${res.status})`);
+  return res.arrayBuffer();
+}
+
 /** Quotations are picked up when they contain one of these items (all have Item Identifier "Training Services"). */
 export const QUOTE_TRAINING_ITEMS = [
   "Fire Safety Evacuation Training and Drill",

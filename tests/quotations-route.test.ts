@@ -38,3 +38,22 @@ test("an individual needs no company; a bad GSTIN state or PIN is refused", asyn
   assert.match((await create({ ...good, gstin: "99ABCDE1234F1Z5" })).j.error, /state code/);
   assert.match((await create({ ...good, zip: "4000" })).j.error, /PIN/);
 });
+
+const email = async (fields: Record<string, string>, files: File[] = []) => {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.set(k, v);
+  for (const f of files) form.append("attachments", f);
+  const r = await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(sumit) }, body: form }));
+  return { s: r.status, j: await r.json() };
+};
+const mail = { estimateId: "9001", to: "asha@example.com", subject: "Quote QT-1" };
+
+test("the quote email: To, a subject and 4 MB of attachments at most; else on to Zoho (not connected here)", async () => {
+  assert.match((await email({ ...mail, to: "" })).j.error, /To/);
+  assert.match((await email({ ...mail, to: "asha@" })).j.error, /doesn't look like an email/);
+  assert.match((await email({ ...mail, subject: "" })).j.error, /subject/);
+  assert.match((await email(mail, [new File([new Uint8Array(4 * 1024 * 1024 + 1)], "big.pdf")])).j.error, /4 MB/);
+  const ok = await email({ ...mail, cc: "boss@example.com" }, [new File(["x"], "brochure.pdf")]);
+  assert.equal(ok.s, 502);
+  assert.match(ok.j.error, /isn't connected/);
+});

@@ -41,13 +41,15 @@ async function accessFor(c: Conn, force = false): Promise<string> {
 type BooksRes = Record<string, unknown> & { code?: number; message?: string };
 
 /** One Zoho Books call with this connection; one retry after a 401. Throws Zoho's own message. */
+/** `body` as JSON, or a FormData sent as multipart (files: the quote email's attachments). */
 async function books(c: Conn, method: "GET" | "POST", path: string, params: Record<string, string> = {}, body?: unknown): Promise<BooksRes> {
   const url = new URL(`${API}${path}`);
   url.searchParams.set("organization_id", ORG);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   for (let attempt = 0; ; attempt++) {
     const token = await accessFor(c, attempt > 0);
-    const res = await fetch(url, { method, headers: { Authorization: `Zoho-oauthtoken ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
+    const form = body instanceof FormData;
+    const res = await fetch(url, { method, headers: { Authorization: `Zoho-oauthtoken ${token}`, ...(body && !form ? { "Content-Type": "application/json" } : {}) }, body: form ? body : body ? JSON.stringify(body) : undefined, cache: "no-store" });
     if (res.status === 401 && attempt === 0) continue;
     const json = (await res.json().catch(() => ({}))) as BooksRes;
     if (!res.ok || json.code !== 0) {
@@ -167,4 +169,25 @@ export async function createQuote(q: { customerId: string; contactPersonIds: str
   const j = await books(c, "POST", "/estimates", { send: String(q.send) }, body);
   const e = (j.estimate ?? {}) as Record<string, unknown>;
   return { estimateId: String(e.estimate_id ?? ""), number: String(e.estimate_number ?? ""), total: Number(e.total ?? 0), status: String(e.status ?? "") };
+}
+
+/*
+ * Emailing a quotation from Zoho Books (#150 step 5): POST /estimates/{id}/email — Zoho sends it from the organisation's
+ * address with the quote's PDF attached (file_name), keeps it in the quote's history and marks a draft Sent. Extra
+ * files go as multipart `attachments` with the fields in `JSONString` (Zoho's multipart convention). Scope:
+ * ZohoBooks.estimates.CREATE (already in QUOTE_SCOPES). Production only — the route checks.
+ */
+export const EMAIL_MAX_BYTES = 4 * 1024 * 1024; // Vercel refuses request bodies over 4.5 MB
+export type QuoteEmail = { to: string[]; cc: string[]; subject: string; body: string; fileName?: string; files: File[] };
+
+export async function emailQuote(estimateId: string, m: QuoteEmail): Promise<void> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const fields = { to_mail_ids: m.to, cc_mail_ids: m.cc, subject: m.subject, body: m.body };
+  const params: Record<string, string> = m.fileName ? { file_name: m.fileName } : {};
+  if (!m.files.length) { await books(c, "POST", `/estimates/${estimateId}/email`, params, fields); return; }
+  const form = new FormData();
+  form.set("JSONString", JSON.stringify(fields));
+  for (const f of m.files) form.append("attachments", f, f.name);
+  await books(c, "POST", `/estimates/${estimateId}/email`, params, form);
 }
