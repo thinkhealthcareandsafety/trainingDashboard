@@ -5,7 +5,7 @@ import { type Grain, datasetOf, fieldOf, measureOf } from "@/lib/analytics/model
 import { type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
 import type { Compare, Filter, Spec } from "@/lib/analytics/query";
 import { Chart, Kpi, downloadCsv, labelOf, resolveKind } from "./Chart";
-import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldValues, withPeriod } from "./shared";
+import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
 
 /*
  * A dashboard: period, comparison, a Filters panel and saved views over the tiles. Every filter reaches every tile
@@ -176,6 +176,13 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
 
   const firstDatasetWith = (field: string) => def.tiles.map((t) => t.spec.dataset).find((k) => fieldOf(datasetOf(k)!, field));
   const chosen = def.filters.filter((f) => fActive(filters[f.field]));
+  // The other active filters a field's list can take (its own data must have them).
+  const othersFor = (field: string): Filter[] => {
+    const d = datasetOf(firstDatasetWith(field) ?? "");
+    if (!d) return [];
+    return Object.entries(filters).filter(([k, f]) => k !== field && fActive(f) && fieldOf(d, k) && f.values.length + (f.contains?.trim() ? 1 : 0) > 0)
+      .map(([k, f]) => ({ field: k, values: f.contains?.trim() ? [] : f.values, exclude: f.exclude || undefined, contains: f.contains?.trim() || undefined }));
+  };
   const specOf = (t: Tile) => specs[def.tiles.indexOf(t)];
   const setF = (field: string, patch: Partial<FState>) => setFilters((s) => ({ ...s, [field]: { ...(s[field] ?? { values: [] }), ...patch } }));
 
@@ -224,7 +231,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
         <FiltersButton count={chosen.length}>
           {def.filters.map((f) => f.range
             ? <RangeControl key={f.field} label={f.label} value={filters[f.field]} onChange={(min, max) => setF(f.field, { min, max })} />
-            : <FilterControl key={f.field} dataset={firstDatasetWith(f.field)} field={f.field} label={f.label} state={filters[f.field]} onChange={(patch) => setF(f.field, patch)} />)}
+            : <FilterControl key={f.field} dataset={firstDatasetWith(f.field)} field={f.field} label={f.label} state={filters[f.field]} others={othersFor(f.field)} onChange={(patch) => setF(f.field, patch)} />)}
         </FiltersButton>
         <ViewsButton dash={def.id} current={viewState} onApply={(v) => { setPeriod(v.period); setFilters(v.filters ?? {}); setCompare(v.compare ?? "lastYear"); setGrain(v.grain ?? def.grains); setPick(null); }} />
         {/* What's active, one chip each — × removes it. */}
@@ -521,9 +528,11 @@ function FiltersButton({ count, children }: { count: number; children: React.Rea
   );
 }
 
-function FilterControl({ dataset, field, label, state, onChange }: { dataset?: string; field: string; label: string; state?: FState; onChange: (patch: Partial<FState>) => void }) {
-  const values = useFieldValues(dataset, field);
-  return <MultiSelect wide label={label} values={values} selected={state?.values ?? []} onChange={(v) => onChange({ values: v })} loading={!values.length}
+function FilterControl({ dataset, field, label, state, others, onChange }: { dataset?: string; field: string; label: string; state?: FState; others: Filter[]; onChange: (patch: Partial<FState>) => void }) {
+  const list = useFieldList(dataset, field, others);
+  // What's ticked stays in the list even when the other filters leave it out (so it can be unticked).
+  const values = [...(state?.values ?? []).filter((v) => !list.values.includes(v)), ...list.values];
+  return <MultiSelect wide label={label} values={values} selected={state?.values ?? []} onChange={(v) => onChange({ values: v })} loading={!list.loaded}
     rule={{ exclude: state?.exclude, contains: state?.contains }} onRule={(r) => onChange({ exclude: r.exclude, contains: r.contains })} />;
 }
 
@@ -578,6 +587,8 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
       <div className={isKpi ? "mt-2" : "mt-4 min-h-0 flex-1"}>
         {!answer ? <div className={`animate-pulse rounded-lg bg-surface-2 ${isKpi ? "h-14" : "h-[260px]"}`} />
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
+          // Nothing to draw: say so, not empty axes at ₹0 (29 Oct).
+          : !isKpi && answer.rows.every((r) => r.values.every((v) => !v) && !r.prev?.some((v) => v)) ? <p className="grid h-[200px] place-items-center rounded-lg bg-surface-2/60 px-4 text-center text-[15.5px] text-muted">Nothing here for these dates and filters</p>
           : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} />}
       </div>
     </section>

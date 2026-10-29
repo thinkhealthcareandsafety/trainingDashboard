@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Period, fieldOf, datasetOf, grainKey, periods } from "@/lib/analytics/model";
-import { BLANK, type Result, type Spec } from "@/lib/analytics/query";
+import { BLANK, type Filter, type Result, type Spec } from "@/lib/analytics/query";
 
 /* The Reports page's shared pieces: the API calls, period helpers and the multi-select filter. */
 
@@ -93,6 +93,25 @@ export function useFieldValues(dataset: string | undefined, field: string, enabl
     return () => { live = false; };
   }, [dataset, field, enabled]);
   return values;
+}
+
+/** A filter's list narrowed by the other filters (owner, 29 Oct: with Brand = Defibtech the Item list still showed every
+ *  brand). `loaded` tells an empty list ("nothing with these filters") from one still on its way. */
+export function useFieldList(dataset: string | undefined, field: string, others: Filter[]): { values: string[]; loaded: boolean } {
+  const [got, setGot] = useState<{ key: string; values: string[] } | null>(null);
+  const key = JSON.stringify([dataset, field, others]);
+  useEffect(() => {
+    const d = dataset ? datasetOf(dataset) : undefined;
+    if (!d || !fieldOf(d, field) || field === d.dateField) return;
+    let live = true;
+    runSpecs([{ dataset: dataset!, measures: [d.measures.find((m) => m.agg === "count")?.key ?? d.measures[0].key], by: [field], filters: others }]).then((j) => {
+      const r = j.results[0];
+      if (live && r && !isError(r)) setGot({ key, values: r.rows.map((row) => row.keys[0]).filter((v) => v !== BLANK) });
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return got?.key === key ? { values: got.values, loaded: true } : { values: got?.values ?? [], loaded: false };
 }
 
 /** How a filter matches (Filters panel, owner 27 Oct: "custom filters"): is / is not the ticked values, or contains text. */
