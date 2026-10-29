@@ -21,13 +21,15 @@ type Props = {
   /** A built-in tab not edited yet / a new dashboard (nothing to delete or restore). */
   fresh: boolean;
   admin: boolean;
+  /** My dashboard: always mine, no name to change; "Reset" goes back to the starting one; Admin can make it everyone's start. */
+  mine?: boolean;
   onClose: () => void;
   onSaved: (id: string) => void;
 };
 
 const isKpi = (t?: Tile) => t?.spec.chart === "kpi";
 
-export function Editor({ draft: start, builtIns, saved, fresh, admin, onClose, onSaved }: Props) {
+export function Editor({ draft: start, builtIns, saved, fresh, admin, mine, onClose, onSaved }: Props) {
   const [d, setD] = useState<CustomDash>(() => structuredClone(start));
   const [at, setAt] = useState(0);
   const [adding, setAdding] = useState(false);
@@ -115,8 +117,11 @@ export function Editor({ draft: start, builtIns, saved, fresh, admin, onClose, o
   const run = async (fn: () => Promise<void>) => { setState({ busy: true }); try { await fn(); } catch (e) { setState({ error: (e as Error).message }); } };
   const save = () => run(async () => { await call({ method: "POST", body: JSON.stringify({ dashboard: d }) }); onSaved(d.id); });
   const remove = () => {
-    const msg = d.base ? `Restore “${d.title}” to how it was built? The team's changes to it go.` : `Delete the dashboard “${d.title}” for everyone? Its reports stay in the library.`;
+    const msg = mine ? "Reset My dashboard to the starting one?" : d.base ? `Restore “${d.title}” to how it was built? The team's changes to it go.` : `Delete the dashboard “${d.title}” for everyone? Its reports stay in the library.`;
     if (confirm(msg)) run(async () => { await call({ method: "DELETE" }, `?id=${encodeURIComponent(d.id)}`); onSaved(d.base ?? "mine"); });
+  };
+  const makeStart = () => {
+    if (confirm("Make this everyone's starting dashboard? People who haven't edited their own My dashboard will see it.")) run(async () => { await call({ method: "POST", body: JSON.stringify({ dashboard: { ...d, id: "my-start", shared: true } }) }); onSaved("mine"); });
   };
   const hide = () => {
     if (confirm(`Delete the “${d.title}” tab for everyone? Admin can bring it back from My dashboard → Customise.`)) run(async () => { await call({ method: "POST", body: JSON.stringify({ hide: d.base ?? d.id }) }); onSaved("mine"); });
@@ -127,9 +132,9 @@ export function Editor({ draft: start, builtIns, saved, fresh, admin, onClose, o
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3 sm:p-4" onMouseDown={onClose}>
       <div role="dialog" aria-label="Edit dashboard" className="modal-in flex max-h-[94vh] w-full max-w-[1280px] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
-          <input aria-label="Dashboard name" value={d.title} onChange={(e) => setD({ ...d, title: e.target.value.slice(0, 40) })}
+          <input aria-label="Dashboard name" value={d.title} readOnly={mine} onChange={(e) => setD({ ...d, title: e.target.value.slice(0, 40) })}
             className="h-10 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-[19px] font-bold tracking-tight text-ink hover:border-line focus:border-brand focus:outline-none" />
-          {!d.base && (
+          {!d.base && !mine && (
             <label className="flex items-center gap-2 text-[15.5px] text-ink-2">
               <input type="checkbox" className="size-4 accent-[var(--brand)]" checked={!d.shared} onChange={(e) => setD({ ...d, shared: !e.target.checked })} />
               Only me
@@ -215,7 +220,8 @@ export function Editor({ draft: start, builtIns, saved, fresh, admin, onClose, o
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3">
-          {!fresh && (d.base ? admin : true) && <button type="button" className={btn.danger} disabled={state.busy} onClick={remove}>{d.base ? "Restore original" : "Delete dashboard"}</button>}
+          {!fresh && (d.base ? admin : true) && <button type="button" className={btn.danger} disabled={state.busy} onClick={remove}>{mine ? "Reset to the starting one" : d.base ? "Restore original" : "Delete dashboard"}</button>}
+          {mine && admin && <button type="button" className={btn.quiet} disabled={state.busy} onClick={makeStart}>Make this everyone&apos;s starting dashboard</button>}
           {admin && d.base && <button type="button" className={btn.danger} disabled={state.busy} onClick={hide}>Delete this tab</button>}
           {state.error ? <span className="text-[15px] text-high">{state.error}</span> : state.note ? <span className="text-[15px] text-muted">{state.note}</span> : null}
           <div className="ml-auto flex gap-2">

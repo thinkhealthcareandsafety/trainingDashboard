@@ -33,7 +33,7 @@ export function Reports() {
   const [builder, setBuilder] = useState<{ spec?: Spec; id?: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   // Editing a dashboard (owner, 29 Oct): a copy of it, and whether it's new / a built-in tab not edited yet.
-  const [editing, setEditing] = useState<{ draft: CustomDash; fresh: boolean } | null>(null);
+  const [editing, setEditing] = useState<{ draft: CustomDash; fresh: boolean; mine?: boolean } | null>(null);
 
   const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => setMeta(j)).catch(() => setError("Couldn't reach the server")), []);
   const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json()).then(setSaved).catch(() => {}), []);
@@ -57,7 +57,8 @@ export function Reports() {
     const own = (id: string) => team.dashboards.find((c) => c.base === id);
     return [
       ...builtIns.filter((d) => !team.hidden.includes(d.id)).map((d) => { const c = own(d.id); return c ? toDef(c, builtIns, savedList) : d; }),
-      ...team.dashboards.filter((c) => !c.base).map((c) => toDef(c, builtIns, savedList)),
+      // (My dashboard and the starting one aren't tabs.)
+      ...team.dashboards.filter((c) => !c.base && c.id !== "mine" && !c.id.startsWith("my-")).map((c) => toDef(c, builtIns, savedList)),
     ];
   }, [builtIns, team, saved]);
   const hidden = prefs?.hidden ?? [];
@@ -121,8 +122,13 @@ export function Reports() {
         <button className={`${btn.primary} ${team.canEdit ? "" : "ml-auto"}`} onClick={() => setBuilder({})} title="New report">+ New report</button>
       </div>
       <div className="mt-4">
-        {shown === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={builtIns} saved={saved ? saved.reports : null}
-            prefs={prefs} tabs={allTabs.map((t) => ({ id: t.id, label: t.label.replace(/ \(\d+\)$/, "") }))} onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))} />
+        {shown === "mine" ? <MyDashboard today={meta.today} admin={team.admin} builtIns={builtIns} saved={saved ? saved.reports : null} prefs={prefs}
+            mine={team.dashboards.find((c) => c.id === "mine")} start={team.dashboards.find((c) => c.id === "my-start")}
+            tabs={allTabs.map((t) => ({ id: t.id, label: t.label.replace(/ \(\d+\)$/, "") }))}
+            deleted={builtIns.filter((d) => team.hidden.includes(d.id)).map((d) => ({ id: d.id, label: d.title }))}
+            onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))}
+            onEdit={(draft, fresh) => setEditing({ draft, fresh, mine: true })}
+            onUnhide={(id) => { fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hide: id, hidden: false }) }).then(loadTeam).catch(() => {}); }} />
           : current ? <DashboardView def={current} today={meta.today} tools={team.canEdit ? (
             <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[16px] font-medium text-ink-2 transition hover:border-line-strong"
               onClick={() => setEditing({ fresh: !current.custom, draft: current.custom ?? fromDef(current, pagesOf(current, false)) })}>✎ Edit dashboard</button>
@@ -135,7 +141,7 @@ export function Reports() {
       </p>
     </div>
       {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
-      {editing && <Editor draft={editing.draft} fresh={editing.fresh} builtIns={builtIns} saved={saved?.reports ?? []} admin={team.admin}
+      {editing && <Editor draft={editing.draft} fresh={editing.fresh} mine={editing.mine} builtIns={builtIns} saved={saved?.reports ?? []} admin={team.admin}
         onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); loadTeam(); setTab(id); }} />}
       {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={place} targets={targets} defaultTarget={current?.id} />, document.body)}
     </div>
