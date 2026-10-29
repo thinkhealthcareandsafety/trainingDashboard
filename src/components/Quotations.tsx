@@ -224,20 +224,27 @@ function connectedLine(res: ListRes | null, reconnect: () => void) {
 }
 
 /** One item row: the item (type to search Zoho's items), quantity, price before tax, line total. */
-function ItemPicker({ items, value, onPick }: { items: Item[]; value: string; onPick: (i: Item) => void }) {
+/** Type to find an item; ↑ ↓ to move, Enter picks (the first match by default), Esc closes (#150 step 6). */
+function ItemPicker({ items, value, onPick, autoFocus }: { items: Item[]; value: string; onPick: (i: Item) => void; autoFocus?: boolean }) {
   const [text, setText] = useState(value);
   const [open, setOpen] = useState(false);
+  const [at, setAt] = useState(0);
   useEffect(() => setText(value), [value]);
   const words = text.toLowerCase().split(/\s+/).filter(Boolean);
   const hits = open ? items.filter((i) => words.every((w) => i.name.toLowerCase().includes(w))).slice(0, 8) : [];
+  const keys = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); setOpen(true); setAt((x) => Math.max(0, Math.min(hits.length - 1, x + (e.key === "ArrowDown" ? 1 : -1)))); }
+    else if (e.key === "Enter" && hits.length) { e.preventDefault(); onPick(hits[Math.min(at, hits.length - 1)]); setOpen(false); }
+    else if (e.key === "Escape" && open) { e.stopPropagation(); setOpen(false); }
+  };
   return (
     <div className="relative min-w-0 flex-1">
-      <input className={`${inputCls} !h-9 text-[14px]`} value={text} placeholder="Type to find an item…" onChange={(e) => { setText(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => { setOpen(false); setText(value); }, 150)} aria-label="Item" />
+      <input className={`${inputCls} !h-9 text-[14px]`} value={text} placeholder="Type to find an item…" autoFocus={autoFocus} onKeyDown={keys} onChange={(e) => { setText(e.target.value); setOpen(true); setAt(0); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => { setOpen(false); setText(value); }, 150)} aria-label="Item" />
       {hits.length > 0 && (
         <ul className="absolute inset-x-0 top-full z-10 mt-1 max-h-72 overflow-y-auto rounded-xl border border-line bg-surface py-1 shadow-pop">
-          {hits.map((i) => (
+          {hits.map((i, n) => (
             <li key={i.id}>
-              <button type="button" className="flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-[14px] hover:bg-surface-2" onMouseDown={(e) => e.preventDefault()} onClick={() => { onPick(i); setOpen(false); }}>
+              <button type="button" className={`flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-[14px] hover:bg-surface-2 ${n === at ? "bg-surface-2" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => { onPick(i); setOpen(false); }}>
                 <span className="text-ink">{i.name}<span className="ml-2 text-[12.5px] text-muted">{i.group ?? ""}</span></span>
                 {i.rate ? <span className="num shrink-0 text-muted">{inr(i.rate)}</span> : null}
               </button>
@@ -325,7 +332,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
       // The quote's fields: Send to CRM Yes (owner, 28 Oct); the rest from their last quotation where it had them.
       const was = (k: keyof Opts, fallback: string) => { const v = (!fresh && j.last?.fields[k]) || ""; return j.options[k].includes(v) ? v : fallback; };
       setF({
-        salesperson: j.salesperson ?? "", sendToCrm: "Yes", reminderFrequency: was("reminderFrequency", "15 days"), productType: was("productType", ""), ptTyped: false, leadSource: was("leadSource", "Direct "),
+        salesperson: (j.salespeople.includes(lastSalesperson()) ? lastSalesperson() : j.salesperson) ?? "", sendToCrm: "Yes", reminderFrequency: was("reminderFrequency", "15 days"), productType: was("productType", ""), ptTyped: false, leadSource: was("leadSource", "Direct "),
         dealName: "", dealTyped: false, reference: "", expiry: "", discount: "", discountPct: true, shipping: "", adjustment: "", notes: j.notes, terms: j.terms,
       });
     }).catch(() => current && setDetail({ error: "Couldn't reach the server" } as Detail));
@@ -350,6 +357,18 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
     pick(k, i);
   };
   const upd = (patch: Partial<Form>) => setF((x) => (x ? { ...x, ...patch } : x));
+  // Keyboard (#150 step 6): an item picked → its quantity; Enter in a quantity or rate → a new line, its item box.
+  const [focusKey, setFocusKey] = useState(0);
+  const focusQty = (k: number) => setTimeout(() => document.querySelector<HTMLInputElement>(`[data-qty="${k}"]`)?.select(), 0);
+  const enterAdds = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const empty = lines.find((l) => !l.itemId);
+    if (empty) return setFocusKey(empty.key);
+    const b = blank();
+    setLines((ls) => [...ls, b]);
+    setFocusKey(b.key);
+  };
 
   const filled = lines.filter((l) => l.itemId);
   const t = f && detail?.customer ? totals(lines, f, detail.customer.tax) : null;
@@ -364,6 +383,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
   // (Zoho's template, its PDF attached, + your attachments).
   const submit = async (send: boolean) => {
     if (!f || !t) return;
+    try { if (f.salesperson) localStorage.setItem(SALESPERSON_KEY, f.salesperson); } catch {}
     if (send && detail?.recent && !confirm(`${detail.recent.number} went to ${customer.name} ${detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`}. Send another?`)) return;
     setBusy(send ? "send" : "draft");
     setError("");
@@ -478,11 +498,11 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
                       <div key={l.key}>
                         <div className={GRID}>
                           <div className="col-span-full min-w-0 sm:col-span-1">
-                            <ItemPicker items={items} value={l.name} onPick={(i) => pick(l.key, i)} />
+                            <ItemPicker items={items} value={l.name} autoFocus={l.key === focusKey} onPick={(i) => { pick(l.key, i); focusQty(l.key); }} />
                           </div>
                           <span className="hidden sm:block"><StockCell item={l.itemId ? byId.get(l.itemId) : undefined} /></span>
-                          <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={1} value={l.qty} onChange={(e) => set(l.key, { qty: Number(e.target.value) })} aria-label="Quantity" />
-                          <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={0} value={l.rate} onChange={(e) => set(l.key, { rate: Number(e.target.value) })} aria-label="Rate before tax" />
+                          <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={1} value={l.qty} onChange={(e) => set(l.key, { qty: Number(e.target.value) })} onKeyDown={enterAdds} data-qty={l.key} aria-label="Quantity" />
+                          <input className={`${inputCls} !h-9 text-right text-[14px] num`} type="number" min={0} value={l.rate} onChange={(e) => set(l.key, { rate: Number(e.target.value) })} onKeyDown={enterAdds} aria-label="Rate before tax" />
                           <span className="num hidden text-right text-[14px] text-ink-2 sm:block">{!l.itemId ? "" : detail.customer.tax === "none" ? "—" : l.gst === null ? "?" : `${l.gst}%`}</span>
                           <span className="num text-right text-[14px] text-ink">{l.itemId ? inr2(l.qty * l.rate) : "—"}</span>
                           <button className="rounded-full text-[15px] text-muted hover:text-high" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : [blank()]))} aria-label="Remove item">✕</button>
@@ -556,6 +576,10 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
     </div>
   );
 }
+
+/** The sales person picked last on this computer (#150 step 6) — the next quote starts with them. */
+const SALESPERSON_KEY = "th.quotes.salesperson";
+const lastSalesperson = () => { try { return localStorage.getItem(SALESPERSON_KEY) ?? ""; } catch { return ""; } };
 
 /** Zoho's email HTML made safe to edit here: no scripts, frames or on… handlers. */
 function cleanHtml(html: string): string {
