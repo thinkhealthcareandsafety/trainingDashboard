@@ -71,3 +71,14 @@ test("every built-in tab, made editable, is a valid dashboard (fits, no overlaps
     assert.equal(c.pages.reduce((n, p) => n + p.items.length, 0), def.tiles.length, `${def.id}: a report went missing`);
   }
 });
+
+test("dashboards saved in an older shape (slots, places) come back as a valid canvas", async () => {
+  const { upgrade } = await import("@/lib/analytics/custom");
+  const slots = { id: "d-old", title: "Old", shared: true, pages: [{ id: "p1", name: "One", slots: [
+    { id: "s1", kpis: true, refs: [{ dash: "sales", tile: "rev" }, { dash: "sales", tile: "inv" }] },
+    { id: "s2", wide: true, refs: [{ dash: "sales", tile: "bymonth" }] },
+  ] }] } as unknown as CustomDash;
+  const up = upgrade(slots);
+  assert.ok(!("error" in cleanDashboard(up)));
+  assert.deepEqual(up.pages[0].items.map((i) => [i.ref.tile, i.w, i.h]), [["rev", 3, 2], ["inv", 3, 2], ["bymonth", 12, 4]]);
+});
