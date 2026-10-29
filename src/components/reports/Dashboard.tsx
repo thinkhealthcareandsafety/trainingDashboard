@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { type Grain, datasetOf, fieldOf, measureOf } from "@/lib/analytics/model";
-import { type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
+import { DASHBOARDS, type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
 import type { Compare, Filter, Spec } from "@/lib/analytics/query";
 import { Chart, Kpi, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
@@ -110,11 +110,31 @@ function pagesOf(tiles: Tile[]): Page[] {
 }
 const readPage = (id: string) => { try { return Number(localStorage.getItem(`th.reports.page.${id}`)) || 0; } catch { return 0; } };
 
-/** What a tab was left on (owner, 29 Oct: filters vanished on changing tab) — this browser only, like the page. */
+/*
+ * Owner, 29 Oct: "the filters remain the same in all dashboards" — period, compare, Show-by and filters are one set for
+ * every tab (this browser). A dashboard's own starting filters (Defibtech: Brand = Defibtech) stay with that dashboard
+ * — its "scope", so they never reach Sales.
+ */
+const GLOBAL = "th.reports.state";
+const scopeKey = (id: string) => `th.reports.scope.${id}`;
+const readJson = <T,>(key: string): T | null => { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; } };
+const readScope = (def: DashboardDef): Record<string, FState> => readJson<Record<string, FState>>(scopeKey(def.id)) ?? { ...def.start };
 const readState = (def: DashboardDef): ViewState => {
-  const start: ViewState = { period: def.period, filters: { ...def.start }, compare: "lastYear", grain: def.grains };
-  try { return { ...start, ...JSON.parse(localStorage.getItem(`th.reports.state.${def.id}`) || "{}") }; } catch { return start; }
+  const g = readJson<Partial<ViewState>>(GLOBAL) ?? {};
+  return { period: g.period ?? def.period, compare: g.compare ?? "lastYear", grain: g.grain, filters: { ...(g.filters ?? {}), ...readScope(def) } };
 };
+const writeState = (def: DashboardDef, st: ViewState) => {
+  // The dashboard's scope fields (its starting ones, and any it still has) stay its own; the rest is everyone's.
+  const scoped = new Set([...Object.keys(def.start ?? {}), ...Object.keys(readJson<Record<string, FState>>(scopeKey(def.id)) ?? {})]);
+  const mine = Object.fromEntries(Object.entries(st.filters).filter(([k]) => scoped.has(k)));
+  const rest = Object.fromEntries(Object.entries(st.filters).filter(([k]) => !scoped.has(k)));
+  try {
+    localStorage.setItem(GLOBAL, JSON.stringify({ ...st, filters: rest }));
+    if (scoped.size) localStorage.setItem(scopeKey(def.id), JSON.stringify(Object.fromEntries([...scoped].map((k) => [k, mine[k] ?? { values: [] }]))));
+  } catch {}
+};
+/** A filter's name wherever it was set (a filter set on another tab shows here as a chip too). */
+const filterLabel = (def: DashboardDef, field: string) => def.filters.find((f) => f.field === field)?.label ?? DASHBOARDS.flatMap((d) => d.filters).find((f) => f.field === field)?.label ?? field;
 
 /** `tools`: extra buttons at the right end of the toolbar (My dashboard: Customise). */
 export function DashboardView({ def, today, tools }: { def: DashboardDef; today: string; tools?: React.ReactNode }) {
@@ -175,7 +195,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   }, [pick]);
 
   const firstDatasetWith = (field: string) => def.tiles.map((t) => t.spec.dataset).find((k) => fieldOf(datasetOf(k)!, field));
-  const chosen = def.filters.filter((f) => fActive(filters[f.field]));
+  const chosen: DashFilter[] = Object.keys(filters).filter((k) => fActive(filters[k])).map((k) => def.filters.find((f) => f.field === k) ?? { field: k, label: filterLabel(def, k) });
   // The other active filters a field's list can take (its own data must have them).
   const othersFor = (field: string): Filter[] => {
     const d = datasetOf(firstDatasetWith(field) ?? "");
@@ -214,12 +234,18 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   // changing" — they skipped such tiles silently). Named on the tile instead.
   const skippedOf = (t: Tile) => {
     const d = datasetOf(t.spec.dataset)!;
-    const out = def.filters.filter((f) => fActive(filters[f.field]) && !fieldOf(d, f.field) && !(f.range && d.ranges?.some((r) => r.key === f.field))).map((f) => f.label);
+    const out = chosen.filter((f) => !fieldOf(d, f.field) && !(f.range && d.ranges?.some((r) => r.key === f.field))).map((f) => f.label);
     if (pick && pick.tileId !== t.id && pick.field !== "date" && !fieldOf(d, pick.field)) out.push(`“${pick.label}”`);
     return out;
   };
   const viewState: ViewState = { period, filters, compare, grain };
-  useEffect(() => { try { localStorage.setItem(`th.reports.state.${def.id}`, JSON.stringify({ period, filters, compare, grain })); } catch {} }, [def.id, period, filters, compare, grain]);
+  // Not on the first render of a tab: its state was just read, and writing it back before the reset effect ran would
+  // copy the last tab's filters into this one's scope.
+  const shown = useRef<string | null>(null);
+  useEffect(() => {
+    if (shown.current !== def.id) { shown.current = def.id; return; }
+    writeState(def, { period, filters, compare, grain });
+  }, [def, period, filters, compare, grain]);
 
   return (
     <div>
