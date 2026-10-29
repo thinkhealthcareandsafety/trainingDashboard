@@ -5,7 +5,7 @@ import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, itemGst, itemImage, zohoGet } from "@/lib/zoho";
-import { INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, quotesInfo } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, quotesInfo } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -208,6 +208,7 @@ export async function GET(request: Request) {
     const count = (k: "sector" | "type") => [...docs.reduce((m, c) => (c[k] ? m.set(c[k]!, (m.get(c[k]!) ?? 0) + 1) : m), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([v]) => v);
     return Response.json({
       connected: info, scopes: QUOTE_SCOPES, admin: isAdmin(me), live: process.env.VERCEL_ENV === "production", states: INDIA_STATES,
+      customerTypes: CUSTOMER_FIELDS.type.options, customerSectors: CUSTOMER_FIELDS.sector.options,
       total: withLast.length, page, pageSize: PAGE, sectors: count("sector"), types: count("type"),
       customers: withLast.slice(page * PAGE, page * PAGE + PAGE).map(({ c, quote, invoice }) => ({
         id: c.contactId, name: c.name, email: c.email ?? null, phone: c.mobile ?? c.phone ?? null, sector: c.sector ?? null, type: c.type ?? null,
@@ -261,10 +262,15 @@ export async function POST(request: Request) {
 /** "New quotation" → a new customer in Zoho Books (checked here; one already in Zoho by that name is refused). */
 async function newCustomer(n: Partial<NewCustomer>): Promise<Response> {
   const s = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
-  const company = s(n.company, 200), firstName = s(n.firstName, 100), email = s(n.email, 200).toLowerCase(), gstin = s(n.gstin, 15).toUpperCase();
+  const company = s(n.company, 200), firstName = s(n.firstName, 100), lastName = s(n.lastName, 100), email = s(n.email, 200).toLowerCase(), gstin = s(n.gstin, 15).toUpperCase();
   const state = INDIA_STATES.find(([code]) => code === n.state);
+  // Zoho's mandatory Type (default New Customer) and Sector, and the Last Name its CRM sync needs (#151).
+  const type = (CUSTOMER_FIELDS.type.options as readonly string[]).includes(n.type ?? "") ? n.type! : "New Customer";
+  const sector = (CUSTOMER_FIELDS.sector.options as readonly string[]).find((x) => x === n.sector);
   if (company.length < 2) return Response.json({ error: "Type the company's name" }, { status: 400 });
   if (!firstName) return Response.json({ error: "Type the contact person's name" }, { status: 400 });
+  if (!lastName) return Response.json({ error: "Type the contact's last name (Zoho needs it to sync with CRM)" }, { status: 400 });
+  if (!sector) return Response.json({ error: "Pick the sector" }, { status: 400 });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "That email doesn't look right" }, { status: 400 });
   if (!state) return Response.json({ error: "Pick the state (it decides the GST)" }, { status: 400 });
   if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/.test(gstin)) return Response.json({ error: "That GSTIN doesn't look right (15 characters)" }, { status: 400 });
@@ -272,7 +278,7 @@ async function newCustomer(n: Partial<NewCustomer>): Promise<Response> {
     const { docs } = await readAll<ZohoLead>("zohoCustomers");
     const same = docs.find((c) => nameKey(c.name) === nameKey(company));
     if (same) return Response.json({ error: `${same.name} is already in Zoho Books — pick it from the list`, existing: same.contactId }, { status: 409 });
-    const made = await createCustomer({ company, firstName, lastName: s(n.lastName, 100), email, phone: s(n.phone, 30), state: state[0], stateName: state[1], city: s(n.city, 100), gstin: gstin || undefined });
+    const made = await createCustomer({ company, firstName, lastName, email, phone: s(n.phone, 30), state: state[0], stateName: state[1], city: s(n.city, 100), gstin: gstin || undefined, type, sector });
     return Response.json({ ok: true, customer: made });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't create the customer" }, { status: 502 });

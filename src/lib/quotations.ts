@@ -78,7 +78,17 @@ export const INDIA_STATES: [string, string][] = [
   ["AN", "Andaman and Nicobar Islands"], ["DN", "Dadra and Nagar Haveli and Daman and Diu"], ["LD", "Lakshadweep"],
 ];
 
-export type NewCustomer = { company: string; firstName: string; lastName?: string; email: string; phone?: string; state: string; city?: string; gstin?: string };
+/*
+ * The customer's own mandatory fields in Zoho Books (Contacts → Field Customization, read 29 Oct with the Books
+ * connector): Zoho refuses a new customer without Type and Sector (#151). Exact spelling; if they change in Zoho,
+ * change them here too.
+ */
+export const CUSTOMER_FIELDS = {
+  type: { id: "982417000008274205", label: "Type", options: ["New Customer", "Old Customer", "New Reseller", "Old Reseller", "Old Vendor", "New Vendor"] },
+  sector: { id: "982417000011023041", label: "Sector", options: ["Traders", "Tourism & Hospitality", "Aviation", "School & College", "Automobile", "Manufacturing", "IT", "Energy & Power", "Real Estate", "Construction & Infrastructure", "Banking", "Merchant Navy", "Healthcare & Life Sciences", "Telecommunications", "Defence", "Media house", "Transportation", "Sports & Recreational", "NGO"] },
+} as const;
+
+export type NewCustomer = { company: string; firstName: string; lastName: string; email: string; phone?: string; state: string; city?: string; gstin?: string; type: string; sector: string };
 
 /**
  * A new customer in Zoho Books (from "New quotation"), with its contact person as primary. GST: with a GSTIN it's a
@@ -91,7 +101,8 @@ export async function createCustomer(n: NewCustomer & { stateName: string }): Pr
     contact_name: n.company, company_name: n.company, contact_type: "customer",
     gst_treatment: n.gstin ? "business_gst" : "business_none", ...(n.gstin ? { gst_no: n.gstin } : {}), place_of_contact: n.state,
     billing_address: { city: n.city ?? "", state: n.stateName, country: "India" }, shipping_address: { city: n.city ?? "", state: n.stateName, country: "India" },
-    contact_persons: [{ first_name: n.firstName, last_name: n.lastName ?? "", email: n.email, mobile: n.phone ?? "", is_primary_contact: true }],
+    contact_persons: [{ first_name: n.firstName, last_name: n.lastName, email: n.email, mobile: n.phone ?? "", is_primary_contact: true }],
+    custom_fields: [{ customfield_id: CUSTOMER_FIELDS.type.id, value: n.type }, { customfield_id: CUSTOMER_FIELDS.sector.id, value: n.sector }],
   }).catch((e: Error) => {
     throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs one more permission for new customers — Admin: Reconnect on the Quotations page") : e;
   });

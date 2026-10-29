@@ -17,7 +17,7 @@ import { btn, inputCls } from "./ui";
 
 type Last = { date: string; number: string; amount: number; status: string };
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
-type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
+type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; customerTypes: string[]; customerSectors: string[]; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
 type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null };
 type Contact = { id: string; name: string | null; email: string | null; phone: string | null; primary: boolean };
 type Line = { key: number; itemId: string; name: string; qty: number; rate: number; gst: number | null; description?: string; open?: boolean };
@@ -613,7 +613,7 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
   const [tab, setTab] = useState<"find" | "new">("find");
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Customer[]>([]);
-  const [n, setN] = useState({ company: "", firstName: "", lastName: "", email: "", phone: "", state: "MH", city: "", gstin: "" });
+  const [n, setN] = useState({ company: "", firstName: "", lastName: "", email: "", phone: "", state: "MH", city: "", gstin: "", type: "New Customer", sector: "" });
   const [state, setState] = useState<{ busy?: boolean; error?: string }>({});
   useEffect(() => {
     if (tab !== "find") return;
@@ -626,13 +626,21 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
     const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ newCustomer: n }) }).catch(() => null);
     const j = r ? ((await r.json()) as { ok?: boolean; error?: string; customer?: { id: string; name: string } }) : { error: "Couldn't reach the server" };
     if (!j.ok || !j.customer) return setState({ error: j.error ?? "Couldn't create the customer" });
-    onPick({ id: j.customer.id, name: j.customer.name, email: n.email, phone: n.phone || null, sector: null, type: null, lastQuote: null, lastInvoice: null });
+    onPick({ id: j.customer.id, name: j.customer.name, email: n.email, phone: n.phone || null, sector: n.sector, type: n.type, lastQuote: null, lastInvoice: null });
   };
   const field = (k: keyof typeof n, label: string, extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">{label}</span>
       <input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={n[k]} onChange={(e) => setN((x) => ({ ...x, [k]: e.target.value }))} {...extra} /></label>
   );
-  const ready = n.company.trim() && n.firstName.trim() && n.email.trim();
+  const pick = (k: "type" | "sector" | "state", label: React.ReactNode, opts: [string, string][], blank?: string) => (
+    <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">{label}</span>
+      <select className={`select-chevron ${inputCls} mt-1 !h-10 text-[14.5px]`} value={n[k]} onChange={(e) => setN((x) => ({ ...x, [k]: e.target.value }))}>
+        {blank && <option value="" disabled>{blank}</option>}
+        {opts.map(([v, name]) => <option key={v} value={v}>{name}</option>)}
+      </select></label>
+  );
+  // Zoho refuses a customer without Type and Sector, and its CRM sync needs a last name (#151).
+  const ready = n.company.trim() && n.firstName.trim() && n.lastName.trim() && n.email.trim() && n.sector;
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={onClose}>
       <div role="dialog" aria-label="New quotation" className="modal-in flex max-h-[94vh] w-full min-w-0 max-w-2xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
@@ -664,11 +672,12 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">{field("company", "Company *", { autoFocus: true, maxLength: 200 })}</div>
               {field("firstName", "Contact first name *", { maxLength: 100 })}
-              {field("lastName", "Last name", { maxLength: 100 })}
+              {field("lastName", "Last name *", { maxLength: 100 })}
               {field("email", "Email *", { type: "email", maxLength: 200 })}
               {field("phone", "Mobile", { type: "tel", maxLength: 30 })}
-              <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">State * <span className="normal-case tracking-normal">(decides the GST)</span></span>
-                <select className={`select-chevron ${inputCls} mt-1 !h-10 text-[14.5px]`} value={n.state} onChange={(e) => setN((x) => ({ ...x, state: e.target.value }))}>{res.states.map(([c, name]) => <option key={c} value={c}>{name}</option>)}</select></label>
+              {pick("type", "Type *", res.customerTypes.map((t) => [t, t]))}
+              {pick("sector", "Sector *", res.customerSectors.map((t) => [t, t]), "Pick the sector…")}
+              {pick("state", <>State * <span className="normal-case tracking-normal">(decides the GST)</span></>, res.states)}
               {field("city", "City", { maxLength: 100 })}
               <div className="sm:col-span-2">{field("gstin", "GSTIN (if registered)", { maxLength: 15, placeholder: "27ABCDE1234F1Z5" })}</div>
               <p className="text-[13px] text-muted sm:col-span-2">The customer is created in Zoho Books with this contact as primary, then the quotation opens.{res.connected && !res.connected.newCustomers && <b className="text-medium"> Zoho Books needs one more permission for this — Admin: Reconnect on this page first.</b>}</p>
