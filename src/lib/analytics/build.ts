@@ -102,6 +102,8 @@ function indexes(t: RawTables) {
 }
 
 const live = (status: string | undefined) => !/void|draft/i.test(status ?? "");
+/** A quote with no answer this many days after it was made counts as expired (owner, 27 Oct: §11 #132). */
+export const QUOTE_EXPIRE_DAYS = 90;
 // Defibtech report (owner, 29 Oct): Zoho's "Brand", else from the name — old inactive Defibtech items have no brand.
 const brandOf = (brand: string | null, name: string | undefined) => brand ?? (/defibte?ch|lifeline/i.test(name ?? "") ? "Defibtech" : null);
 /** AED / Pads / Battery from Zoho's item group ("All AEDs", "AED Pads", "AED Batteries"), else from the name. */
@@ -238,14 +240,16 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     const s = (q["Status"] ?? "").toLowerCase();
     const won = /accepted|invoiced/.test(s);
     const date = day(q["Quote Date"]);
-    const outcome = won ? "Won" : /declined|rejected/.test(s) ? "Lost" : /expired/.test(s) ? "Expired" : "Open";
     const age = date ? Math.max(0, dayDiff(date, today)) : null;
+    // One set of words everywhere (owner, 29 Oct: "converted, that is accepted … declined"); a quote with no answer
+    // after QUOTE_EXPIRE_DAYS counts as expired (agreed 27 Oct, ANALYTICS-PLAN §11 #132) — not "open" for ever.
+    const outcome = won ? "Accepted" : /declined|rejected/.test(s) ? "Declined" : /expired/.test(s) || (age ?? 0) > QUOTE_EXPIRE_DAYS ? "Expired" : "Waiting";
     return {
       date, quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
       salesperson: ix.people.get(q["Salesperson ID"]) ?? null, status: text(q["Status"]), outcome,
       age: age === null ? null : age <= 15 ? "0–15 days" : age <= 30 ? "16–30 days" : age <= 90 ? "31–90 days" : "Over 90 days",
       // Owner: a quote is valid for 15 days, then they make a new one.
-      valid: outcome === "Open" && age !== null && age <= QUOTE_VALID_DAYS ? "yes" : "no",
+      valid: outcome === "Waiting" && age !== null && age <= QUOTE_VALID_DAYS ? "yes" : "no",
       amount: money(q["Sub Total (BCY)"]) ?? 0, docValue: money(q["Sub Total (BCY)"]) ?? 0, won: won ? 1 : 0,
       invoiced: invoicedOn.has(q["Quote ID"]) || /invoiced/.test(s) ? "yes" : "no",
       daysToInvoice: date && invoicedOn.has(q["Quote ID"]) ? Math.max(0, dayDiff(date, invoicedOn.get(q["Quote ID"])!)) : null,
@@ -394,14 +398,14 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     sales, invoices, quotes, payments, orders, trainings: boardRows, freight,
     ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today), stockLevel: stockLevelRows(t, today) } : {}),
     ...(t.bills && t.billItems ? { purchases: purchaseRows(t) } : {}),
-    ...(t.quoteItems ? { quoteItems: quoteItemRows(t, ix, customerFields) } : {}),
+    ...(t.quoteItems ? { quoteItems: quoteItemRows(t, ix, customerFields, today) } : {}),
     ...(margin ? { margin } : {}),
   };
 }
 
 /** Owner, 29 Oct: "on the overview add kpis for conversion rates — quotes sent and quotes converted, that is accepted,
  *  and declined". One row per quote and Zoho item (a quote listing an item twice counts once); invoiced = accepted. */
-function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFields: (customerId: string, addressId?: string) => Record<string, Value>): Row[] {
+function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFields: (customerId: string, addressId?: string) => Record<string, Value>, today: string): Row[] {
   const quotes = new Map((t.quotes ?? []).map((q) => [q["Quote ID"], q]));
   const seen = new Map<string, Row>();
   for (const li of t.quoteItems ?? []) {
@@ -414,10 +418,12 @@ function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFie
     const amount = money(li["Sub Total (BCY)"]) ?? 0;
     const had = seen.get(k);
     if (had) { had.amount = (had.amount as number) + amount; continue; }
+    const date = day(q["Quote Date"]);
+    const old = date ? dayDiff(date, today) > QUOTE_EXPIRE_DAYS : false;
     seen.set(k, {
-      date: day(q["Quote Date"]), quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
+      date, quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
       salesperson: ix.people.get(q["Salesperson ID"]) ?? null,
-      stage: /accepted|invoiced/.test(s) ? "Accepted" : /declined|rejected/.test(s) ? "Declined" : /expired/.test(s) ? "Expired" : /draft/.test(s) ? "Draft" : "Waiting",
+      stage: /accepted|invoiced/.test(s) ? "Accepted" : /declined|rejected/.test(s) ? "Declined" : /expired/.test(s) ? "Expired" : /draft/.test(s) ? "Draft" : old ? "Expired" : "Waiting",
       item: text(li["Item Name"]), zohoItem: name, itemStatus: item?.status ?? null, itemGroup: item?.group ?? null,
       brand: brandOf(item?.brand ?? null, name ?? ""), kind: kindOf(item?.group ?? null, name ?? ""), amount,
     });
