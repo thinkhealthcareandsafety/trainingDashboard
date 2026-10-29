@@ -117,7 +117,9 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
   const customerFields = (customerId: string, addressId?: string) => {
     const c = ix.who(customerId);
     const w = ix.where(addressId, customerId);
-    return { customer: c.name, customerType: c.type, sector: c.sector, chain: c.chain, state: w.state, city: w.city };
+    // One spelling per customer (agreed 27 Oct, #131): Zoho has a few in two ("USHA FIRE SAFETY" / "Usha Fire Safety"),
+    // which counted as two customers — the first spelling in Zoho's list stands for both.
+    return { customer: ix.byName.get(nameKey(c.name))?.name ?? c.name, customerType: c.type, sector: c.sector, chain: c.chain, state: w.state, city: w.city };
   };
 
   // Invoices (one row each) — also the header for the sales lines.
