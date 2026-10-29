@@ -1,13 +1,13 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { type Grain, datasetOf, fieldOf, measureOf } from "@/lib/analytics/model";
+import { type Grain, datasetOf, fieldOf, formatValue, measureOf } from "@/lib/analytics/model";
 import { DASHBOARDS, type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
 import { type CustomDash, type Ref, SIZE, type SavedRef, addItem, addPage, arrange, deletePage, fullness, movePage, moveToPage, refKey, removeItem, renamePage, tileOf } from "@/lib/analytics/custom";
 import { Canvas, heightOf } from "./Canvas";
 import { Library } from "./Editor";
 import { btn } from "../ui";
-import type { Compare, Filter, Spec } from "@/lib/analytics/query";
+import { BLANK, type Compare, type Filter, type Spec } from "@/lib/analytics/query";
 import { Chart, Kpi, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
 
@@ -174,6 +174,48 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
   const cmpMode: CompareMode = period === "all" ? "none" : compare;
   const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, cmpMode, tweaks[t.id], grain)), [def, today, period, filters, pick, cmpMode, tweaks, grain]);
   const keys = useMemo(() => specs.map((s) => JSON.stringify(s)), [specs]);
+  // "What changed" (owner, 29 Oct — phase 3): the tab's main number against the comparison, and the two biggest rises
+  // and falls by one field — same period, filters, click and comparison as the reports below. Two small queries.
+  const sumSpecs = useMemo(() => {
+    const s = def.summary;
+    if (!s || edit) return [];
+    const tile = (extra: Partial<Spec>): Tile => ({ id: "__summary", w: 12, spec: { dataset: s.dataset, measures: [s.measure], chart: "kpi", ...extra } });
+    const total = compose(tile({}), today, period, filters, pick, cmpMode, undefined, grain);
+    if (cmpMode === "none" || typeof cmpMode === "object") return [total];
+    return [total, compose(tile({ by: [s.by], analysis: "drivers", limit: 2, chart: "diverging" }), today, period, filters, pick, cmpMode, undefined, grain)];
+  }, [def.summary, edit, today, period, filters, pick, cmpMode, grain]);
+  const [summary, setSummary] = useState<{ key: string; a: Answer[] } | null>(null);
+  const sumKey = JSON.stringify(sumSpecs);
+  useEffect(() => {
+    if (!sumSpecs.length) return;
+    let live = true;
+    runSpecs(sumSpecs).then((j) => { if (live) setSummary({ key: sumKey, a: j.results }); }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sumKey]);
+  const summaryText = (() => {
+    const [k, drv] = summary?.key === sumKey ? summary.a : [];
+    if (!k || isError(k) || k.totals[0] === null) return null;
+    const m = k.measures[0];
+    const now = k.totals[0];
+    const prev = k.previous?.[0];
+    const money = (v: number) => formatValue(Math.abs(v), m.format);
+    let out = `${m.label}: ${formatValue(now, m.format)}`;
+    if (prev !== undefined && prev !== null && prev !== 0) {
+      const pct = Math.round(((now - prev) / Math.abs(prev)) * 100);
+      out += ` — ${pct === 0 ? "level with" : `${pct > 0 ? "up" : "down"} ${Math.abs(pct)}% on`} ${cmpMode === "lastYear" ? "the same days last year" : "the period before"} (${formatValue(prev, m.format)})`;
+    }
+    out += ".";
+    if (drv && !isError(drv) && drv.rows.length) {
+      const name = (drv.by[0]?.label ?? "").toLowerCase();
+      const who = (k: string) => (k === BLANK ? "not set" : k);
+      const ups = drv.rows.filter((r) => (r.values[0] ?? 0) > 0).slice(0, 2).map((r) => `${who(r.keys[0])} +${money(r.values[0]!)}`);
+      const downs = drv.rows.filter((r) => (r.values[0] ?? 0) < 0).sort((a, b) => a.values[0]! - b.values[0]!).slice(0, 2).map((r) => `${who(r.keys[0])} −${money(r.values[0]!)}`);
+      if (ups.length) out += ` Biggest rises by ${name}: ${ups.join(", ")}.`;
+      if (downs.length) out += ` Biggest falls: ${downs.join(", ")}.`;
+    }
+    return out;
+  })();
   // Only the open page asks the server, and only for tiles whose query changed (period, filters, a picked bar…).
   useEffect(() => {
     const want = (pages[at]?.tiles ?? []).map((t) => ({ t, i: def.tiles.indexOf(t) }))
@@ -329,6 +371,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
         {tools && <div className="ml-auto flex items-center gap-2">{tools}</div>}
       </div>
 
+      {summaryText && <p className="mt-3 rounded-xl bg-surface-2/70 px-4 py-2.5 text-[15.5px] leading-relaxed text-ink-2" aria-live="polite"><span className="font-semibold text-ink">What changed · </span>{summaryText}</p>}
       {edit && (
         <div className="sticky top-0 z-30 -mx-1 mb-3 rounded-2xl border border-brand/40 bg-surface/95 px-4 py-3 shadow-pop backdrop-blur">
           <div className="flex flex-wrap items-center gap-2">

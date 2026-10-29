@@ -33,9 +33,9 @@ test("a built-in tab: the team's version under its id; only Admin restores or hi
   assert.equal((await call("ashish", "POST", { dashboard: board({ id: "sales", base: "sales", title: "Sales" }) })).s, 200);
   assert.equal((await call("ashish", "DELETE", undefined, "?id=sales")).s, 403);
   assert.equal((await call("admin", "DELETE", undefined, "?id=sales")).s, 200);
-  assert.equal((await call("ashish", "POST", { hide: "growth" })).s, 403);
-  assert.deepEqual((await call("admin", "POST", { hide: "growth" })).j.hidden, ["growth"]);
-  assert.deepEqual((await call("admin", "POST", { hide: "growth", hidden: false })).j.hidden, []);
+  assert.equal((await call("ashish", "POST", { hide: "trainings" })).s, 403);
+  assert.deepEqual((await call("admin", "POST", { hide: "trainings" })).j.hidden, ["trainings"]);
+  assert.deepEqual((await call("admin", "POST", { hide: "trainings", hidden: false })).j.hidden, []);
 });
 
 test("My dashboard is each person's own; the starting one is Admin's", async () => {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { DASHBOARDS, type DashboardDef, type Tile } from "@/lib/analytics/dashboards";
+import { DASHBOARDS, type DashboardDef, type Tile, tabOf } from "@/lib/analytics/dashboards";
 import { type CustomDash, addItem, addPage, fromDef, fullness, newId, savedTile, toDef } from "@/lib/analytics/custom";
 import type { Target } from "./Builder";
 import { EditBar } from "./Editor";
@@ -28,7 +28,7 @@ export function Reports() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [error, setError] = useState("");
   // Opens on My dashboard the first time (owner, 27 Oct), then on the tab last used.
-  const [tab, setTab] = useState<TabKey>(() => { try { return (localStorage.getItem("th.reports.mine") && localStorage.getItem("th.reports.tab")) || "mine"; } catch { return "mine"; } });
+  const [tab, setTab] = useState<TabKey>(() => { try { return tabOf((localStorage.getItem("th.reports.mine") && localStorage.getItem("th.reports.tab")) || "mine"); } catch { return "mine"; } });
   const [saved, setSaved] = useState<{ canBuild: boolean; reports: Saved[] } | null>(null);
   const [builder, setBuilder] = useState<{ spec?: Spec; id?: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,18 +50,20 @@ export function Reports() {
   }, [loadMeta, loadSaved, loadTeam]);
   useEffect(() => { try { localStorage.setItem("th.reports.tab", tab); localStorage.setItem("th.reports.mine", "1"); } catch {} }, [tab]);
 
-  const builtIns = useMemo(() => DASHBOARDS.filter((d) => meta && d.tiles.every((t) => meta.datasets.includes(t.spec.dataset))), [meta]);
+  // Each report shows to whoever may read its data (Money: the margin pages are Admin's); an Admin tab whole or not at all.
+  const builtIns = useMemo(() => (meta ? DASHBOARDS.map((d) => ({ ...d, tiles: d.tiles.filter((t) => meta.datasets.includes(t.spec.dataset)) })).filter((d) => d.tiles.length && (!d.admin || meta.admin)) : []), [meta]);
   // The tabs: each built-in one (or the team's version of it), then the dashboards the team made.
   const dashboards = useMemo<DashboardDef[]>(() => {
     const savedList = saved?.reports ?? [];
     const own = (id: string) => team.dashboards.find((c) => c.base === id);
     return [
-      ...builtIns.filter((d) => !team.hidden.includes(d.id)).map((d) => { const c = own(d.id); return c ? toDef(c, builtIns, savedList) : d; }),
+      ...builtIns.filter((d) => !team.hidden.map(tabOf).includes(d.id)).map((d) => { const c = own(d.id); return c ? toDef(c, builtIns, savedList) : d; }),
       // (My dashboard and the starting one aren't tabs.)
       ...team.dashboards.filter((c) => !c.base && c.id !== "mine" && !c.id.startsWith("my-")).map((c) => toDef(c, builtIns, savedList)),
     ];
   }, [builtIns, team, saved]);
-  const hidden = prefs?.hidden ?? [];
+  // A tab hidden before the merge hides the tab it went into (owner's rule for phase 3).
+  const hidden = (prefs?.hidden ?? []).map(tabOf);
   const shown = hidden.includes(tab) ? "mine" : tab; // a hidden tab that was open falls back to My dashboard
   const current = dashboards.find((d) => d.id === shown);
   // A dashboard as it would be edited (the team's version, or a built-in tab in places of 4).
@@ -134,7 +136,7 @@ export function Reports() {
         ) : shown === "mine" ? <MyDashboard today={meta.today} admin={team.admin} builtIns={builtIns} saved={saved ? saved.reports : null} prefs={prefs}
             mine={team.dashboards.find((c) => c.id === "mine")} start={team.dashboards.find((c) => c.id === "my-start")}
             tabs={allTabs.map((t) => ({ id: t.id, label: t.label.replace(/ \(\d+\)$/, "") }))}
-            deleted={builtIns.filter((d) => team.hidden.includes(d.id)).map((d) => ({ id: d.id, label: d.title }))}
+            deleted={builtIns.filter((d) => team.hidden.map(tabOf).includes(d.id)).map((d) => ({ id: d.id, label: d.title }))}
             onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))}
             onEdit={(draft, fresh) => setEditing({ draft, fresh, mine: true })}
             onUnhide={(id) => { fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hide: id, hidden: false }) }).then(loadTeam).catch(() => {}); }} />

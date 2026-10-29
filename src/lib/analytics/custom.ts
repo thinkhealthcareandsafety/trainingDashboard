@@ -1,4 +1,4 @@
-import type { DashboardDef, DashFilter, Tile } from "./dashboards";
+import { type DashboardDef, type DashFilter, type Tile, tabOf } from "./dashboards";
 import type { Spec } from "./query";
 
 /*
@@ -102,7 +102,8 @@ export const isKpiTile = (t: Tile) => t.spec.chart === "kpi";
 /** The report a ref points to, or undefined (a deleted saved report, a tab this member can't see). */
 export function tileOf(ref: Ref, builtIns: DashboardDef[], saved: SavedRef[]): Tile | undefined {
   if (ref.dash === "saved") { const r = saved.find((x) => x.id === ref.tile); return r ? savedTile(r) : undefined; }
-  return builtIns.find((d) => d.id === ref.dash)?.tiles.find((t) => t.id === ref.tile);
+  // Tabs merged on 29 Oct answer for their old ids (dashboards.ts ALIASES).
+  return builtIns.find((d) => d.id === tabOf(ref.dash))?.tiles.find((t) => t.id === ref.tile);
 }
 
 const COMMON: DashFilter[] = [{ field: "customerType", label: "Customer type" }, { field: "sector", label: "Sector" }, { field: "salesperson", label: "Sales person" }];

@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
-import { DASHBOARDS } from "@/lib/analytics/dashboards";
+import { ALIASES, DASHBOARDS } from "@/lib/analytics/dashboards";
 import { type CustomDash, cleanDashboard, upgrade } from "@/lib/analytics/custom";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,8 @@ const col = async () => (await db()).collection<Doc>("reportDashboards");
 const kv = async () => (await db()).collection<Hidden>("kv");
 const HIDDEN = "reports_hidden";
 const BUILT_IN = new Set(DASHBOARDS.map((d) => d.id));
-const RESERVED = new Set([...BUILT_IN, "mine", "saved"]);
+// (and the ids of tabs merged on 29 Oct — they still point at their new tab)
+const RESERVED = new Set([...BUILT_IN, ...Object.keys(ALIASES), "mine", "saved"]);
 
 // Old shapes (slots, places) come out as the canvas — see `upgrade`.
 const out = ({ _id, ...d }: Doc): CustomDash => upgrade({ id: _id, ...d });

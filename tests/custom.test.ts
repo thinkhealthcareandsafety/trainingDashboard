@@ -82,3 +82,19 @@ test("dashboards saved in an older shape (slots, places) come back as a valid ca
   assert.ok(!("error" in cleanDashboard(up)));
   assert.deepEqual(up.pages[0].items.map((i) => [i.ref.tile, i.w, i.h]), [["rev", 3, 2], ["inv", 3, 2], ["bymonth", 12, 4]]);
 });
+
+test("merged tabs (29 Oct): every report kept but the planned duplicates; old tab ids still find their reports", async () => {
+  const { ALIASES } = await import("@/lib/analytics/dashboards");
+  const { tileOf } = await import("@/lib/analytics/custom");
+  const ids = DASHBOARDS.map((d) => d.id);
+  assert.deepEqual(ids, ["sales", "customers", "products", "quotes", "collections", "trainings", "defibtech"]);
+  for (const d of DASHBOARDS) assert.equal(new Set(d.tiles.map((t) => t.id)).size, d.tiles.length, `${d.id}: two reports share an id`);
+  for (const [old, now] of Object.entries(ALIASES)) assert.ok(ids.includes(now), `${old} → ${now}`);
+  assert.equal(tileOf({ dash: "growth", tile: "bridge" }, DASHBOARDS, [])?.spec.analysis, "bridge");
+  assert.ok(tileOf({ dash: "team", tile: "openAge" }, DASHBOARDS, []));
+  assert.ok(tileOf({ dash: "margin", tile: "profit" }, DASHBOARDS, []));
+  // the duplicates went from their second home only
+  const sales = DASHBOARDS.find((d) => d.id === "sales")!;
+  assert.ok(!sales.tiles.some((t) => t.section === "Money owed" || t.id === "state"));
+  assert.ok(DASHBOARDS.find((d) => d.id === "collections")!.tiles.some((t) => t.spec.measures.includes("outstanding")));
+});

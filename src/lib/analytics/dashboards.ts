@@ -25,7 +25,11 @@ export type DashFilter = { field: string; label: string; range?: boolean };
 /** `pages`: set by hand (the team's dashboards — custom.ts): each page's tile ids, in order; else pages come from `section`.
  *  `custom`: the stored dashboard it was built from (for Edit). */
 export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain; start?: Record<string, { values: string[]; exclude?: boolean }>;
-  pages?: { name: string; tiles: string[]; boxes?: Record<string, import("./custom").Box> }[]; custom?: import("./custom").CustomDash };
+  pages?: { name: string; tiles: string[]; boxes?: Record<string, import("./custom").Box> }[]; custom?: import("./custom").CustomDash;
+  /** "What changed" line under the toolbar (phase 3, 29 Oct). */
+  summary?: Summary;
+  /** The whole tab is Admin's (Defibtech: built on costs) — else each report shows to whoever may read its data. */
+  admin?: boolean };
 
 /** "{grain}" in a title follows the chart's grouping (owner, 29 Oct: on Month it still said "quarter by quarter"). */
 export const titleOf = (spec: Spec) => (spec.title ?? "").replaceAll("{grain}", { day: "day", week: "week", month: "month", quarter: "quarter", fy: "year" }[spec.grain ?? "month"]);
@@ -33,7 +37,8 @@ export const titleOf = (spec: Spec) => (spec.title ?? "").replaceAll("{grain}", 
 const kpi = (id: string, dataset: string, measure: string, title: string, extra: Partial<Tile> = {}): Tile =>
   ({ id, w: 3, spec: { dataset, measures: [measure], chart: "kpi", compare: true, title }, ...extra });
 
-export const DASHBOARDS: DashboardDef[] = [
+/** The tabs as built (before phase 3 merged some — see MERGED below). */
+const TABS: DashboardDef[] = [
   {
     id: "sales",
     title: "Sales",
@@ -320,6 +325,56 @@ export const DASHBOARDS: DashboardDef[] = [
   defibtech(),
 ];
 
+/*
+ * Owner, 29 Oct ("YEAH GO FOR IT" — phase 3 of the Reports review): 11 tabs → 8, one home per report. Sales + Growth,
+ * Quotes + Team & pipeline, Collections + Margin become one tab each (the second part's pages follow the first's);
+ * copies of a report kept on two tabs are dropped from the one that isn't its home. The old tab ids live on as
+ * ALIASES, so My dashboard, the team's dashboards and anyone's hidden-tabs list keep working.
+ */
+export const ALIASES: Record<string, string> = { growth: "sales", team: "quotes", margin: "collections" };
+export const tabOf = (id: string) => ALIASES[id] ?? id;
+
+/** "What changed" under a tab's toolbar: this measure against the comparison, and which values of `by` moved it most. */
+export type Summary = { dataset: string; measure: string; by: string };
+
+const MERGED: { id: string; title: string; desc: string; parts: string[]; drop?: string[]; summary?: Summary }[] = [
+  { id: "sales", title: "Sales & growth", parts: ["sales", "growth"], drop: ["sales.state", "sales.Money owed"],
+    desc: "Everything invoiced in Zoho Books — how much, who bought, where it came from, and what changed against last year.",
+    summary: { dataset: "sales", measure: "revenue", by: "sector" } },
+  { id: "customers", title: "Customers", parts: ["customers"], summary: { dataset: "sales", measure: "revenue", by: "customer" }, desc: "" },
+  { id: "products", title: "Products & stock", parts: ["products"], summary: { dataset: "sales", measure: "revenue", by: "itemGroup" }, desc: "" },
+  { id: "quotes", title: "Quotes & team", parts: ["quotes", "team"], drop: ["team.rate", "team.personRate"],
+    desc: "Quotations sent and accepted, what's still open, and how each sales person turns quotes into invoices.",
+    summary: { dataset: "quotes", measure: "value", by: "salesperson" } },
+  { id: "collections", title: "Money", parts: ["collections", "margin"],
+    desc: "What's owed and how fast it's paid; for Admin, what the goods cost us (gross margin) and freight.",
+    summary: { dataset: "payments", measure: "received", by: "customer" } },
+  { id: "trainings", title: "Trainings", parts: ["trainings"], summary: { dataset: "trainings", measure: "count", by: "trainer" }, desc: "" },
+  { id: "defibtech", title: "Defibtech", parts: ["defibtech"], summary: { dataset: "margin", measure: "revenue", by: "kind" }, desc: "" },
+];
+
+function merge(m: (typeof MERGED)[number]): DashboardDef {
+  const parts = m.parts.map((id) => TABS.find((d) => d.id === id)!);
+  const tiles: Tile[] = [];
+  const sections = new Set<string>();
+  for (const [i, p] of parts.entries()) {
+    for (const t of p.tiles) {
+      if (m.drop?.includes(`${p.id}.${t.id}`) || (t.section && m.drop?.includes(`${p.id}.${t.section}`))) continue;
+      // A later part's numbers with no section start its own page; a section name taken already gets the part's name.
+      let section = t.section ?? (i > 0 ? p.title : undefined);
+      if (i > 0 && section && sections.has(section)) section = `${section} (${p.title.toLowerCase()})`;
+      tiles.push(i > 0 || section !== t.section ? { ...t, section } : t);
+    }
+    for (const t of tiles) if (t.section) sections.add(t.section);
+  }
+  const filters: DashFilter[] = [];
+  for (const f of parts.flatMap((p) => p.filters)) if (!filters.some((x) => x.field === f.field)) filters.push(f);
+  return { ...parts[0], title: m.title, desc: m.desc || parts[0].desc, tiles, filters, summary: m.summary };
+}
+
+/** The tabs, in order (Saved reports follows them). */
+export const DASHBOARDS: DashboardDef[] = MERGED.map(merge);
+
 /** Owner, 29 Oct: "a report of defibtech aeds, pads, battery, their price change between sales and purchase and its
  *  average" — then, the same day: "i have 3 items … i want to see all about it … the charts and tables confuse me, make
  *  them easier". So: never one average over all three (an AED and a pad don't average), plain words, no comparisons;
@@ -348,6 +403,7 @@ function defibtech(): DashboardDef {
   return {
     id: "defibtech",
     title: "Defibtech",
+    admin: true,
     desc: "Admin only — Defibtech AEDs, pads and batteries: what we sell one for, what it cost us, and what we make on each, on average (before tax).",
     period: "all",
     grains: "quarter",
