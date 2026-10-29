@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
 import { DASHBOARDS } from "@/lib/analytics/dashboards";
-import { type CustomDash, cleanDashboard } from "@/lib/analytics/custom";
+import { type CustomDash, cleanDashboard, upgrade } from "@/lib/analytics/custom";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,8 @@ const HIDDEN = "reports_hidden";
 const BUILT_IN = new Set(DASHBOARDS.map((d) => d.id));
 const RESERVED = new Set([...BUILT_IN, "mine", "saved"]);
 
-const out = ({ _id, ...d }: Doc): CustomDash => ({ id: _id, ...d });
+// Old shapes (slots, places) come out as the canvas — see `upgrade`.
+const out = ({ _id, ...d }: Doc): CustomDash => upgrade({ id: _id, ...d });
 const myDoc = (memberId: string) => `my-${memberId.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 36)}`;
 
 export async function GET(request: Request) {

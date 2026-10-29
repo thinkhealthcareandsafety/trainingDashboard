@@ -154,6 +154,38 @@ export function paginate(list: { name: string; tiles: { ref: Ref; tile: Tile; wi
   return pages.filter((p, i) => p.items.length || i === 0);
 }
 
+type OldEntry = { id?: unknown; ref?: Ref; refs?: Ref[]; kpi?: boolean; kpis?: boolean; wide?: boolean; x?: unknown; y?: unknown; w?: unknown; h?: unknown };
+/**
+ * A stored dashboard of any age → the canvas shape. Dashboards saved before the canvas (29 Oct, live `2c459c4`) have
+ * `slots` of refs, and the rooms version had `items` with no place; those reports go to the first free place at their
+ * starting size, in order, a full page carrying on in a new one. Items that already have a good place keep it.
+ * Read by the route, so the page never meets an old shape (it broke Reports for everyone, 29 Oct).
+ */
+export function upgrade(d: CustomDash): CustomDash {
+  const pages: Page[] = [];
+  for (const p0 of (Array.isArray(d.pages) ? d.pages : []) as (Partial<Page> & { slots?: OldEntry[] })[]) {
+    const name = typeof p0?.name === "string" && p0.name ? p0.name : `Page ${pages.length + 1}`;
+    let cur: Page = { id: typeof p0?.id === "string" ? p0.id : newId("p"), name, items: [] };
+    const later: { id?: string; ref: Ref; kpi: boolean; wide: boolean }[] = [];
+    for (const e of [...(Array.isArray(p0?.items) ? p0.items : []), ...(Array.isArray(p0?.slots) ? p0.slots : [])] as OldEntry[]) {
+      const kpi = Boolean(e?.kpi || e?.kpis);
+      const id = typeof e?.id === "string" && ID.test(e.id) ? e.id : undefined;
+      const box = { x: int(e?.x), y: int(e?.y), w: int(e?.w), h: int(e?.h) };
+      if (e?.ref && id && inside(box) && !cur.items.some((o) => overlaps(o, box))) { cur.items.push({ id, ref: e.ref, ...box, ...(kpi ? { kpi: true } : {}) }); continue; }
+      for (const ref of e?.ref ? [e.ref] : Array.isArray(e?.refs) ? e.refs : []) later.push({ id: e?.ref ? id : undefined, ref, kpi, wide: Boolean(e?.wide) });
+    }
+    let n = 1;
+    for (const x of later) {
+      const s = x.kpi ? SIZE.kpi : x.wide ? SIZE.wide : SIZE.chart;
+      let at = freeSpot(cur.items, s.w, s.h);
+      if (!at) { pages.push(cur); cur = { id: newId("p"), name: `${name} (${++n})`, items: [] }; at = { x: 0, y: 0 }; }
+      cur.items.push({ id: x.id ?? newId("i"), ref: x.ref, ...at, ...s, ...(x.kpi ? { kpi: true } : {}) });
+    }
+    pages.push(cur);
+  }
+  return { ...d, pages: pages.length ? pages : [{ id: newId("p"), name: "Page 1", items: [] }] };
+}
+
 /** A built-in tab → a stored dashboard to edit: its pages as they are (a page that overflows carries on in a second). */
 export function fromDef(def: DashboardDef, pageList: { name: string; tiles: Tile[] }[]): CustomDash {
   const pages = paginate(pageList.map((p) => ({ name: p.name, tiles: p.tiles.map((t) => ({ ref: { dash: def.id, tile: t.id }, tile: t, wide: t.w === 12 })) })));
