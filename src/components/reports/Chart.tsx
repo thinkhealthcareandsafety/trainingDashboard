@@ -441,7 +441,22 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
 }
 
 /** `compact`: the KPI band says "compared with …" once for all its numbers, so each one drops it (kept in the tooltip). */
-export function Kpi({ result, compact = false }: { result: Result; compact?: boolean }) {
+/** A number's months as a small line (owner, 29 Oct — phase 4: "numbers with context"), the last one dotted. */
+function Spark({ values }: { values: (number | null)[] }) {
+  const pts = values.map((v, i) => [i, v] as const).filter((p): p is readonly [number, number] => p[1] !== null);
+  if (pts.length < 2) return null;
+  const lo = Math.min(...pts.map((p) => p[1])), hi = Math.max(...pts.map((p) => p[1]));
+  const W = 100, H = 28, x = (i: number) => (i / (values.length - 1)) * W, y = (v: number) => H - 3 - (hi === lo ? 0.5 : (v - lo) / (hi - lo)) * (H - 6);
+  const last = pts[pts.length - 1];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-2 h-7 w-full text-brand" aria-hidden>
+      <polyline fill="none" stroke="currentColor" strokeWidth="1.6" vectorEffect="non-scaling-stroke" strokeLinejoin="round" points={pts.map((p) => `${x(p[0])},${y(p[1])}`).join(" ")} />
+      <circle cx={x(last[0])} cy={y(last[1])} r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function Kpi({ result, compact = false, spark }: { result: Result; compact?: boolean; spark?: (number | null)[] }) {
   const v = result.totals[0];
   // A running period compares today's position with the same days of the period before (query.ts), never part vs whole.
   const now = result.toDate?.[0] ?? v;
@@ -466,6 +481,7 @@ export function Kpi({ result, compact = false }: { result: Result; compact?: boo
           )}
         </div>
       )}
+      {spark && <Spark values={spark} />}
     </div>
   );
 }

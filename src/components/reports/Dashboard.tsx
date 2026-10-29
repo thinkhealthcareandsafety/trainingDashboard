@@ -184,6 +184,26 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
     return dr ? { ...s, grain: dr.grain, from: dr.from, to: dr.to, title: s.title?.replace(/\b(year|quarter|month|week)\b/, dr.grain) } : s;
   }), [def, today, period, filters, pick, cmpMode, tweaks, grain, drills]);
   const keys = useMemo(() => specs.map((s) => JSON.stringify(s)), [specs]);
+  // Each number on the open page also comes month by month, for its small trend line (one more request a page).
+  const sparkSpecs = useMemo(() => (pages[at]?.tiles ?? []).filter((t) => t.spec.chart === "kpi" && !t.fixedPeriod && !t.spec.analysis).map((t) => {
+    const s = specs[def.tiles.indexOf(t)];
+    return { id: t.id, spec: { ...s, by: [datasetOf(s.dataset)!.dateField], grain: "month" as Grain, chart: "line" as const, compare: undefined } };
+  }), [pages, at, specs, def]);
+  const [sparks, setSparks] = useState<{ key: string; by: Record<string, (number | null)[]> }>({ key: "", by: {} });
+  const sparkKey = JSON.stringify(sparkSpecs);
+  useEffect(() => {
+    if (!sparkSpecs.length) return;
+    let live = true;
+    runSpecs(sparkSpecs.map((x) => x.spec)).then((j) => {
+      if (!live) return;
+      const by: Record<string, (number | null)[]> = {};
+      j.results.forEach((r, i) => { if (r && !isError(r)) by[sparkSpecs[i].id] = r.rows.slice(-12).map((row) => row.values[0]); });
+      setSparks({ key: sparkKey, by });
+    }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sparkKey]);
+  const sparkOf = (t: Tile) => (sparks.key === sparkKey ? sparks.by[t.id] : undefined);
   // "What changed" (owner, 29 Oct — phase 3): the tab's main number against the comparison, and the two biggest rises
   // and falls by one field — same period, filters, click and comparison as the reports below. Two small queries.
   const sumSpecs = useMemo(() => {
@@ -447,7 +467,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
             onArrange={(b) => { const r = arrange(edit!.draft, at, b); if ("error" in r) { setNote(r.error); setRev((x) => x + 1); } else apply(r); }}
             onDropNew={(pos) => dropNew(at, pos)} dropSize={dropSize}
             render={(t, box) => framed(t, t.spec.chart === "kpi"
-              ? <KpiCell title={specOf(t).title ?? ""} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} />
+              ? <KpiCell title={specOf(t).title ?? ""} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} spark={sparkOf(t)} />
               : <TileCard tile={{ ...t, w: 12 }} fill={heightOf(box.h)} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                   picked={pick?.tileId === t.id ? pick.value : null} onPick={edit ? undefined : pickFrom(t)}
                   target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
@@ -461,7 +481,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
             const top = gi === 0 && ri === 0;
             if (run.kpi) return (
               <Fragment key={ri}>
-                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} skippedOf={skippedOf} className={top ? "mt-5" : "mt-4"} />
+                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} skippedOf={skippedOf} sparkOf={sparkOf} className={top ? "mt-5" : "mt-4"} />
                 {/* Not under numbers that are never compared (stock: today's). */}
                 {gi === 0 && ri === 0 && footnote && run.tiles.some((t) => !t.noCompare) && <p className="mt-2 text-[14.5px] text-faint">{footnote}</p>}
               </Fragment>
@@ -648,7 +668,7 @@ function ViewsButton({ dash, current, onApply }: { dash: string; current: ViewSt
 const BAND_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-1 sm:grid-cols-3", 4: "grid-cols-2 xl:grid-cols-4", 6: "grid-cols-2 xl:grid-cols-3", 8: "grid-cols-2 xl:grid-cols-4" };
 
 /** Numbers side by side in one card, parted by hairlines (the grid's 1 px gaps over the line colour). */
-function KpiBand({ tiles, specOf, answers, skippedOf, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; skippedOf?: (t: Tile) => string[]; className?: string }) {
+function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; skippedOf?: (t: Tile) => string[]; sparkOf?: (t: Tile) => (number | null)[] | undefined; className?: string }) {
   return (
     <section className={`card overflow-hidden ${className}`} aria-label="Key numbers">
       <div className={`grid gap-px bg-line ${BAND_COLS[tiles.length] ?? "grid-cols-2 xl:grid-cols-4"}`}>
@@ -661,7 +681,7 @@ function KpiBand({ tiles, specOf, answers, skippedOf, className = "" }: { tiles:
               <div className="mt-1.5">
                 {!a ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
                   : isError(a) ? <p className="text-[15px] text-high">{a.error}</p>
-                  : <Kpi result={a} compact />}
+                  : <Kpi result={a} compact spark={sparkOf?.(t)} />}
               </div>
               <Skipped labels={skippedOf?.(t)} />
             </div>
@@ -673,14 +693,14 @@ function KpiBand({ tiles, specOf, answers, skippedOf, className = "" }: { tiles:
 }
 
 /** One number on the canvas — it fills the box it was given. */
-function KpiCell({ title, def, answer, skipped }: { title: string; def?: string; answer?: Answer; skipped?: string[] }) {
+function KpiCell({ title, def, answer, skipped, spark }: { title: string; def?: string; answer?: Answer; skipped?: string[]; spark?: (number | null)[] }) {
   return (
     <section className="card flex h-full min-w-0 flex-col overflow-hidden px-5 py-4" aria-label={title}>
       <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${title} — ${def}` : title}>{title}</h3>
       <div className="mt-1.5">
         {!answer ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
-          : <Kpi result={answer} compact />}
+          : <Kpi result={answer} compact spark={spark} />}
       </div>
       <Skipped labels={skipped} />
     </section>
