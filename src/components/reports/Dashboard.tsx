@@ -43,9 +43,10 @@ export function tweaked(tile: Tile, tweak?: Tweak): Spec {
   return s;
 }
 
-export function compose(tile: Tile, today: string, periodKey: string, filters: Record<string, FState>, pick: Pick | null, compare: CompareMode = "previous", tweak?: Tweak): Spec {
-  const base = tweaked(tile, tweak);
+export function compose(tile: Tile, today: string, periodKey: string, filters: Record<string, FState>, pick: Pick | null, compare: CompareMode = "previous", tweak?: Tweak, grain?: Grain): Spec {
+  let base = tweaked(tile, tweak);
   const d = datasetOf(base.dataset)!;
+  if (grain && !tile.fixedGrain && base.by?.[0] === d.dateField) base = { ...base, grain };
   const has = (f: string) => Boolean(fieldOf(d, f));
   const isRange = (f: string) => Boolean(d.ranges?.some((r) => r.key === f));
   const list: Filter[] = [...(base.filters ?? [])];
@@ -109,6 +110,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const [period, setPeriod] = useState(def.period);
   const [filters, setFilters] = useState<Record<string, FState>>({});
   const [compare, setCompare] = useState<CompareMode>("lastYear");
+  const [grain, setGrain] = useState<Grain | undefined>(def.grains);
   const [pick, setPick] = useState<Pick | null>(null);
   const [tweaks, setTweaks] = useState<Record<string, Tweak>>(() => readTweaks(def.id));
   // Each tile's last answer and the exact query it answers — kept when you change page, so going back costs nothing.
@@ -121,10 +123,10 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
   const [goal, setGoal] = useState<number | undefined>();
   useEffect(() => { if (def.tiles.some((t) => t.goalLine)) fetch("/api/analytics/goal").then((r) => r.json()).then((g) => setGoal(typeof g.monthly === "number" ? g.monthly : undefined)).catch(() => {}); }, [def]);
-  useEffect(() => { setPeriod(def.period); setFilters({}); setCompare("lastYear"); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
+  useEffect(() => { setPeriod(def.period); setFilters({}); setCompare("lastYear"); setGrain(def.grains); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
 
-  const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, compare, tweaks[t.id])), [def, today, period, filters, pick, compare, tweaks]);
+  const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, compare, tweaks[t.id], grain)), [def, today, period, filters, pick, compare, tweaks, grain]);
   const keys = useMemo(() => specs.map((s) => JSON.stringify(s)), [specs]);
   // Only the open page asks the server, and only for tiles whose query changed (period, filters, a picked bar…).
   useEffect(() => {
@@ -194,7 +196,9 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
     <div>
       <div className="relative flex flex-wrap items-center gap-2">
         <PeriodSelect today={today} value={period} onChange={setPeriod} />
-        <CompareControl def={def} value={compare} onChange={setCompare} datasetOf={firstDatasetWith} />
+        {/* A dashboard that never compares (Defibtech) doesn't offer it. */}
+        {def.tiles.some((t) => !t.noCompare) && <CompareControl def={def} value={compare} onChange={setCompare} datasetOf={firstDatasetWith} />}
+        {def.grains && grain && <GrainSwitch value={grain} onChange={(g) => { setGrain(g); setPick(null); }} />}
         <FiltersButton count={chosen.length}>
           {def.filters.map((f) => f.range
             ? <RangeControl key={f.field} label={f.label} value={filters[f.field]} onChange={(min, max) => setF(f.field, { min, max })} />
@@ -269,6 +273,20 @@ const lakh = (n: number) => `₹${(Math.round((n / 1e5) * 100) / 100).toLocaleSt
 function chipText(f: DashFilter, s: FState): string {
   if (f.range) return s.min !== undefined && s.max !== undefined ? `${lakh(s.min)} – ${lakh(s.max)}` : s.min !== undefined ? `${lakh(s.min)} or more` : `up to ${lakh(s.max!)}`;
   return ruleSummary(s.values, s);
+}
+
+/** "Show by Week | Month | Quarter | Year" (owner, 29 Oct) — regroups every time chart on the dashboard. */
+function GrainSwitch({ value, onChange }: { value: Grain; onChange: (g: Grain) => void }) {
+  const opts: [Grain, string][] = [["week", "Week"], ["month", "Month"], ["quarter", "Quarter"], ["fy", "Year"]];
+  return (
+    <div className="inline-flex h-10 items-center rounded-full border border-line bg-surface p-0.5" role="group" aria-label="Show by">
+      <span className="px-3 text-[15px] text-muted">Show by</span>
+      {opts.map(([g, label]) => (
+        <button key={g} type="button" aria-pressed={value === g} onClick={() => onChange(g)} title={g === "fy" ? "Financial year (April–March)" : undefined}
+          className={`h-full rounded-full px-3.5 text-[15.5px] font-medium transition ${value === g ? "bg-brand-soft text-ink" : "text-muted hover:text-ink"}`}>{label}</button>
+      ))}
+    </div>
+  );
 }
 
 /** "Compare: Last year ▾" — or two groups of one field (e.g. Aviation vs IT), picked in a small panel. */

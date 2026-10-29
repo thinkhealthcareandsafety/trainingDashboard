@@ -281,6 +281,47 @@ export const DATASETS: Dataset[] = [
     ],
   },
   {
+    // Owner, 29 Oct: "purchase trend charts, per year, per month". Admin only, like costs.
+    key: "purchases",
+    label: "Purchases (bills)",
+    desc: "Every bill line for an item: what we bought, when, and what we paid (before tax). Void and draft bills left out.",
+    source: "Zoho Analytics (synced from Zoho Books): Bills + Bill Item + Items",
+    dateField: "date",
+    board: "training",
+    admin: true,
+    fields: [
+      { ...DATE, label: "Bill date" },
+      { key: "item", label: "Item", kind: "text" },
+      { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
+      { key: "brand", label: "Brand", kind: "text", hint: "Zoho Books item “Brand” (old Defibtech items without one: from the name)" },
+      { key: "kind", label: "AED / pads / battery", kind: "text", order: ["AED", "Pads", "Battery", "Other"] },
+    ],
+    measures: [
+      { key: "bought", label: "Units bought", format: "count", agg: "sum", field: "qty", def: "Quantity on the bills." },
+      { key: "spent", label: "Spent", format: "inr", agg: "sum", field: "amount", def: "Bill line totals before tax." },
+      { key: "paidPerUnit", label: "Price paid per unit", format: "inr", agg: "ratio", num: "spent", den: "bought", def: "Spent ÷ units bought: the average price on the bills, before tax." },
+    ],
+  },
+  {
+    // Owner, 29 Oct: "a monthly chart of how much stock we have of those items". One row per item per month end.
+    key: "stockLevel",
+    label: "Stock by month",
+    desc: "Units on hand at each month end, per item: everything that came into stock minus everything that left, up to that day (this month: today).",
+    source: "Zoho Analytics (synced from Zoho Books / Inventory): Stock In Flow + Stock Out Flow + Items",
+    dateField: "date",
+    board: "training",
+    fields: [
+      { ...DATE, label: "Month end" },
+      { key: "item", label: "Item", kind: "text" },
+      { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
+      { key: "brand", label: "Brand", kind: "text" },
+      { key: "kind", label: "AED / pads / battery", kind: "text", order: ["AED", "Pads", "Battery", "Other"] },
+    ],
+    measures: [
+      { key: "level", label: "Units in stock", format: "count", agg: "sum", field: "onHand", def: "Units on hand at the month end (below zero in Zoho counts 0). Group by month only — adding months together means nothing." },
+    ],
+  },
+  {
     // Owner, 28 Oct (ANALYTICS-PLAN §11 #27): stock on hand and days of cover. A snapshot — today, not a period.
     key: "stock",
     label: "Stock now",

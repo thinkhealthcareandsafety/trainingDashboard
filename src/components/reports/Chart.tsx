@@ -340,7 +340,8 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
   if (k === "map") return indiaMap(m, t, own, base, fmt, picked);
   const horizontal = k === "bar" || k === "diverging";
   const catAxis = { type: "category", data: m.xLabels, axisLine: { lineStyle: { color: t.line } }, axisTick: { show: false }, axisLabel: { ...axisText, ...(horizontal ? { width: 180, overflow: "truncate" } : { hideOverlap: true }) }, inverse: horizontal };
-  const valAxis = { type: "value", splitNumber: 4, splitLine: { lineStyle: { color: t.line, width: 1 } }, axisLabel: { ...axisText, hideOverlap: true, formatter: (v: number) => fmt(v) } };
+  // Counts step in whole numbers (29 Oct: "0.3 AEDs in stock").
+  const valAxis = { type: "value", splitNumber: 4, ...(m.format === "count" ? { minInterval: 1 } : {}), splitLine: { lineStyle: { color: t.line, width: 1 } }, axisLabel: { ...axisText, hideOverlap: true, formatter: (v: number) => fmt(v) } };
   const radius = horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0];
   const series = m.series.map((s, si) => {
     const colour = colourOf(s.key);

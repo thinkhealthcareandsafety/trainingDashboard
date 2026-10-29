@@ -1,3 +1,4 @@
+import type { Grain } from "./model";
 import type { Spec } from "./query";
 
 /*
@@ -14,10 +15,13 @@ export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: bo
   /** Never compared (cohorts, seasonality, lists over all of history) — the dashboard's "Compare" leaves it alone. */
   noCompare?: boolean;
   /** A taller chart (the India map, and the bars beside it). */
-  tall?: boolean };
+  tall?: boolean;
+  /** Keeps its own grouping when the dashboard's "Show by" changes (stock levels: months can't be added up). */
+  fixedGrain?: boolean };
 /** `range`: a min–max on one of the dataset's `ranges` (e.g. invoices of ₹1 L or more). */
 export type DashFilter = { field: string; label: string; range?: boolean };
-export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string };
+/** `grains`: a "Show by Week / Month / Quarter / Year" switch for every time chart (owner, 29 Oct), starting on this one. */
+export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain };
 
 const kpi = (id: string, dataset: string, measure: string, title: string, extra: Partial<Tile> = {}): Tile =>
   ({ id, w: 3, spec: { dataset, measures: [measure], chart: "kpi", compare: true, title }, ...extra });
@@ -308,6 +312,7 @@ function defibtech(): DashboardDef {
   const brand = { field: "brand", values: ["Defibtech"] };
   const products = [{ kind: "AED", name: "AED", page: "AEDs" }, { kind: "Pads", name: "Pads", page: "Pads" }, { kind: "Battery", name: "Battery", page: "Batteries" }];
   const only = (kind: string) => [brand, { field: "kind", values: [kind] }];
+  const three = [brand, { field: "kind", values: ["AED", "Pads", "Battery"] }];
   // A product's four numbers: a row of the Overview, and again on top of its own page (its own ids).
   const four = (p: (typeof products)[number], section: string, suffix = ""): Tile[] => ([
     ["Sale", "avgSale", "average selling price"], ["Cost", "avgCost", "average purchase price"],
@@ -327,6 +332,7 @@ function defibtech(): DashboardDef {
     title: "Defibtech",
     desc: "Admin only — Defibtech AEDs, pads and batteries: what we sell one for, what it cost us, and what we make on each, on average (before tax).",
     period: "all",
+    grains: "quarter",
     filters: [
       { field: "customerType", label: "Customer type" },
       { field: "sector", label: "Sector" },
@@ -335,9 +341,18 @@ function defibtech(): DashboardDef {
     ],
     tiles: [
       ...numbers,
-      { id: "dRevenue", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["revenue"], by: ["kind"], sort: "label", chart: "bar", filters: [brand, { field: "kind", values: ["AED", "Pads", "Battery"] }], title: "Sales of each, before tax" } },
-      { id: "dQtyAll", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: [brand, { field: "kind", values: ["AED", "Pads", "Battery"] }], title: "Units sold each quarter" } },
+      { id: "dRevenue", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["revenue"], by: ["kind"], sort: "label", chart: "bar", filters: three, title: "Sales of each, before tax" } },
+      { id: "dQtyAll", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Units sold each quarter" } },
       ...products.flatMap(page),
+      // Owner, 29 Oct: "purchase trend charts, per year, per month" — from the bills.
+      ...products.map((p): Tile => ({ id: `b${p.kind}Units`, section: "Purchases", w: 3, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], chart: "kpi", filters: only(p.kind), title: `${p.name} · units bought` } })),
+      { id: "bSpent", section: "Purchases", w: 3, noCompare: true, spec: { dataset: "purchases", measures: ["spent"], chart: "kpi", filters: three, title: "Spent on all three" } },
+      { id: "bUnits", section: "Purchases", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Units bought" } },
+      { id: "bMoney", section: "Purchases", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["spent"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Money spent, before tax" } },
+      ...products.map((p): Tile => ({ id: `b${p.kind}Price`, section: "Purchases", w: 4, noCompare: true, spec: { dataset: "purchases", measures: ["paidPerUnit"], by: ["date"], grain: "quarter", chart: "line", filters: only(p.kind), title: `${p.name}: price we paid per unit` } })),
+      // Owner, 29 Oct: "a monthly chart of how much stock we have of those items" — always by month.
+      ...products.map((p): Tile => ({ id: `s${p.kind}Now`, section: "Stock", w: 4, noCompare: true, fixedPeriod: true, spec: { dataset: "stockLevel", measures: ["level"], chart: "kpi", period: "month", filters: only(p.kind), title: `${p.name} · in stock today` } })),
+      ...products.map((p): Tile => ({ id: `s${p.kind}Month`, section: "Stock", w: 4, noCompare: true, fixedGrain: true, spec: { dataset: "stockLevel", measures: ["level"], by: ["date"], grain: "month", chart: "column", filters: only(p.kind), title: `${p.page} in stock, month end` } })),
     ],
   };
 }

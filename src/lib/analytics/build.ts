@@ -386,9 +386,56 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     }
   }
 
-  return { sales, invoices, quotes, payments, orders, trainings: boardRows, freight, ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today) } : {}), ...(margin ? { margin } : {}) };
+  return {
+    sales, invoices, quotes, payments, orders, trainings: boardRows, freight,
+    ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today), stockLevel: stockLevelRows(t, today) } : {}),
+    ...(t.bills && t.billItems ? { purchases: purchaseRows(t) } : {}),
+    ...(margin ? { margin } : {}),
+  };
 }
 
+/** Owner, 29 Oct: "purchase trend charts, per year, per month" — one row per bill line (void / draft bills left out). */
+function purchaseRows(t: RawTables): Row[] {
+  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
+  const billDay = new Map((t.bills ?? []).filter((b) => live(b["Bill Status"])).map((b) => [b["Bill ID"], day(b["Bill Date"])]));
+  const out: Row[] = [];
+  for (const b of t.billItems ?? []) {
+    const date = billDay.get(b["Bill ID"]);
+    const item = items.get(b["Product ID"]);
+    if (!date || !item) continue; // lines without an item (freight, services typed in) aren't goods we stock
+    const name = text(item["Item Name"]);
+    const group = text(item["Item Identifier"]);
+    out.push({ date, item: name, itemGroup: group, brand: brandOf(text(item["Brand"]), name ?? ""), kind: kindOf(group, name ?? ""), qty: money(b["Quantity"]) ?? 0, amount: money(b["Sub Total (BCY)"]) ?? 0 });
+  }
+  return out;
+}
+
+/** Owner, 29 Oct: "a monthly chart of how much stock we have" — units on hand at each month end, per item: every
+ *  stock-in (bills, adjustments, opening stock) minus every stock-out up to that day. The running month's row is today. */
+function stockLevelRows(t: RawTables, today: string): Row[] {
+  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
+  const moves = new Map<string, { d: string; q: number }[]>();
+  const add = (p: string | undefined, d: string | null, q: number) => { if (p && d && q) (moves.get(p) ?? moves.set(p, []).get(p)!).push({ d, q }); };
+  for (const r of t.stockIn ?? []) add(r["Product ID"], day(r["Transaction Date"]), money(r["Quantity In"]) ?? 0);
+  for (const r of t.stockOut ?? []) add(r["Product ID"], day(r["Transaction Date"]), -(money(r["Quantity Out"]) ?? 0));
+  const out: Row[] = [];
+  for (const [p, ms] of moves) {
+    const item = items.get(p);
+    const name = text(item?.["Item Name"]) ?? "(unknown item)";
+    const group = text(item?.["Item Identifier"]);
+    const base = { item: name, itemGroup: group, brand: brandOf(text(item?.["Brand"]), name), kind: kindOf(group, name) };
+    ms.sort((a, b) => (a.d < b.d ? -1 : 1));
+    let i = 0, level = 0;
+    for (let m = ms[0].d.slice(0, 7); m <= today.slice(0, 7); m = nextMonth(m)) {
+      const end = m === today.slice(0, 7) ? today : new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).toISOString().slice(0, 10);
+      while (i < ms.length && ms[i].d <= end) level += ms[i++].q;
+      // FIFO rounding leaves 0.0001s; Zoho below zero (sold before the purchase was entered) counts 0, as in "Stock now".
+      out.push({ ...base, date: end, onHand: level > 0.001 ? level : 0 });
+    }
+  }
+  return out;
+}
+const nextMonth = (m: string) => { const y = Number(m.slice(0, 4)), mo = Number(m.slice(5, 7)); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; };
 const SOLD_DAYS = 90;
 
 /**
