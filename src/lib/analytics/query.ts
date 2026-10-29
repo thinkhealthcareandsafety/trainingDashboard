@@ -333,7 +333,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
  * - pareto:   how revenue is spread over customers: top 10, 11–20, 21–50, 51–100, the rest
  * - winback:  customers who bought in the comparison period and not in this one, biggest first (needs a time compare)
  * - drivers:  what changed: each value of the split's change against the comparison, biggest rises and falls
- * - funnel:   each measure as a step (quotes → won → invoiced), with its share of the first
+ * - funnel:   each measure as a step (quotes → accepted → invoiced), with its share of the first
  */
 function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
   const m = spec.measures[0];

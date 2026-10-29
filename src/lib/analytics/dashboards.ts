@@ -251,7 +251,7 @@ export const DASHBOARDS: DashboardDef[] = [
   {
     id: "quotes",
     title: "Quotes",
-    desc: "Quotations sent and won — by month, sales person and customer.",
+    desc: "Quotations sent and accepted — by month, sales person and customer.",
     period: "fy",
     filters: [
       { field: "customerType", label: "Customer type" },

@@ -132,7 +132,7 @@ export const DATASETS: Dataset[] = [
   {
     key: "quotes",
     label: "Quotes",
-    desc: "One row per quotation — how many go out, their value, and how many are won.",
+    desc: "One row per quotation — how many go out, their value, and how many are accepted.",
     source: "Zoho Analytics (synced from Zoho Books): Quotes + Customers",
     dateField: "date",
     board: "training",
