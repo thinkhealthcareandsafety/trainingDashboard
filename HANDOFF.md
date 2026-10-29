@@ -1,11 +1,11 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Thu 29 Oct 2026, end of session 17. **Live = `a3275dd`** (both addresses) — **everything is pushed**;
+_Last updated: Thu 29 Oct 2026, end of session 18. **Live = `6dfab55`** (both addresses) — **everything is pushed**;
 the only commit after it is this docs update. Written for the next Claude Code session (and the owner,
 sshah@thinkhealth.in)._
 
 Read this end to end before touching code. It records:
-- what the owner asked for (every prompt, all seventeen sessions — §5);
+- what the owner asked for (every prompt, all eighteen sessions — §5);
 - the business rules that came out of it, and how the code works **now**;
 - what was verified, and what is still open.
 
@@ -14,46 +14,75 @@ Read this end to end before touching code. It records:
 Plans:
 - `ANALYTICS-PLAN.md` — Reports. **§11 = the advanced-reports plan** (27 report ideas, the owner's decisions, build
   order, status line at the top). **All of §11 is built and live**, the three ⚠ reports too (#25 margin, #26 freight,
-  #27 stock — built in session 17 from new Zoho Analytics tables). §3 "Reports — session 15" and "Reports +
-  database — session 16" describe the code.
+  #27 stock — built in session 17 from new Zoho Analytics tables). §3 "Reports — session 15", "Reports + database —
+  session 16" and **"Reports — session 18"** describe the code. Phases 5–6 (new business reports, builder wells,
+  export, scheduled email) are listed in §10 #162–#163.
 - `ANALYTICS-SCHEMA.md` — every Zoho Analytics table / column.
 - `PROGRESS-TRACKER-PLAN.md` — the Progress tracker, built in session 14 (§3 "Progress tracker").
 - `MONDAY-PLAN.md` — the older backlog; "My day" is now largely covered by the tracker's Everyone's to-do, and renewals
   are still waiting.
 
-**Start of the next session (18) — do these first:**
-1. **`git status` / `git log -3` / `git ls-remote origin master`.** Expected: GitHub = live = `a3275dd` (or the docs
-   commit right after it, if the owner said "push"); nothing else local except scratch files.
-2. **Database speed** with the §9 #18 script (`speed.cjs`): 4–8 MB/s = fine; ~90 KB/s = Atlas throttled again (§3
-   "Reports + database — session 16").
-3. **Sync log** — the first scheduled syncs since the functions moved to **Mumbai (`bom1`, `vercel.json`, 28 Oct)**:
-   the 9 am and 2 pm full syncs on 29 Oct should be "ok". If a cron failed, check Vercel's cron logs first (region
-   change), then the Sync log row.
-4. **Two connections Admin may still have to redo** (both owner-side, both have buttons now):
-   - **Quotations → Reconnect** with the new scope line (it now ends in `ZohoBooks.contacts.CREATE`). Check:
-     `GET /api/quotations` → `connected.newCustomers` must be `true` before "New customer" can work.
-   - **Master certificate sheet** — Zoho refused its 12 Oct sign-in on 28 Oct ("invalid_code" on refresh). Check:
-     `GET /api/sheet?check=1` → an `error` field = still broken. Fix: Generate certificates → "Reconnect sheet"
-     (beside "Replace designs", Admin) → new code as digital@thinkhealth.in, scope `ZohoSheet.dataAPI.READ,ZohoSheet.dataAPI.UPDATE`.
-5. **Has a real quotation been made from the page yet?** Read `quotationsSent` (read-only). If one exists, open it in
-   Zoho (Books connector `get_estimate`) and check: Send to CRM / Reminder Frequency / Reminder Date / Product Type /
-   Deal Name landed, GST and total match the popup, notes + terms present, sales person right. Nobody had made one by
-   the end of 28 Oct (Vaibhav was trying the popup on "Test By Vaibhav").
-6. **The owner's next task is §10 #150** (quotation flow "like Zoho Books but better": customer creation with Zoho's
-   mandatory fields → quote right after; download the PDF; an email step with the PDF attached + extra attachments).
-   The owner will paste the Zoho "New Customer" screenshot again. **Restate #150 in numbered steps with the defaults
-   written there, wait for "yeah", then build** (§11 #2). **#151 (new customers are missing Zoho's two mandatory
-   custom fields) is a real bug in what's live — fix it as step 1 of #150.**
-7. **Pushing:** from the **Bash tool (Git Bash)**: `git push origin master` (PowerShell can't sign in). Push only when
-   the owner's latest message says so ("push it to github"); a fix made after their "push it" needs a new one.
-   Commit messages via `git commit -F` / `-m`. §11 checklist every time (tsc, `next build`, `scan.cjs`, browser check).
-   The owner is short on credits: when they say "push it … immediately", do build + scan + push in one step and
-   report in a few lines.
-8. **Waiting on the owner** (ask only if relevant): which Reports filter "didn't change the reports" (§10 #159 —
-   verified working on the server); the two accepted-but-unbuilt defaults (#160); Tata Motors Pune AED "Training not
-   required" (26 Oct); Diana Builwell W Goa / Sierragold Heights still "Mark completed or postpone".
-9. **Still owner-side:** `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic Citi test rows in the master
-   sheet, Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41).
+**Start of the next session (19) — do these first:**
+1. **`git fetch` / `git status` / `git log -3` / `git log HEAD..origin/master`.** Expected: GitHub = live = `6dfab55`
+   (or the docs commit right after it, if the owner said "push"). **More than one Claude session pushes to this repo**
+   (a cloud session pushed `f8a9c37` mid-session 18) — always check `HEAD..origin/master` before committing or pushing.
+2. **Database speed** with the §9 #18 script (`speed.cjs`): 4–8 MB/s = fine (7 MB/s on 29 Oct); ~90 KB/s = Atlas
+   throttled again (§3 "Reports + database — session 16").
+3. **Sync log** — all ok on 29 Oct since the move to Mumbai (`bom1`). A failed cron → Vercel's cron logs first.
+4. **Quotations connection:** `GET /api/quotations` → `connected.newCustomers` was still **`false`** on 29 Oct — Admin
+   must **Reconnect** (scope line ends in `ZohoBooks.contacts.CREATE`; #150 step 8 may add an email scope). The master
+   certificate sheet is working again (reconnected; `GET /api/sheet?check=1` has no `error`).
+5. **Has a real quotation been made from the page yet?** Read `quotationsSent` (read-only). None by end of 29 Oct (the
+   one test quote was deleted in Zoho). If one exists, check it in Zoho (`get_estimate`): Send to CRM / Reminder
+   Frequency / Reminder Date / Product Type / Deal Name, GST + total vs the popup, notes + terms, sales person.
+6. **The owner's next task is §10 #150** (quotation flow). **It was restated as 8 numbered steps (written in #150
+   "Restated 29 Oct") and is waiting for the owner's "yeah"** — don't build before it. Step 1 = #151 (live bug).
+7. **Then Reports phase 5** (§10 #162 — new business reports: restate first), phase 6 (#163), leftovers (#164).
+8. **Tests:** `npm test` (26, Node's own runner, no packages; `tests/register.mjs` maps `@/lib/db` and `@/lib/auth` to
+   `tests/fakes`, so tests never touch live data). Run them before every push alongside §11.
+9. **Pushing:** from the **Bash tool (Git Bash)**: `git push origin master` (PowerShell can't sign in). Push only when
+   the owner's latest message says so; a fix made after their "push it" needs a new one. Commit messages via
+   `git commit -F` / `-m`. §11 checklist every time (tsc, `next build`, `npm test`, `scan.cjs`, browser check).
+   The owner is short on credits: keep replies short; when they say "push it … immediately", do build + scan + push
+   in one step and report in a few lines.
+10. **Gotcha (session 18):** code written through `node -e` or heredoc template strings **loses regex backslashes**
+    (`\d`, `\b` became `d` or a backspace character, twice). Write snippets to a file or use the Edit tool, then grep
+    the changed files for stray control characters (`grep -nP '[\x00-\x08]'`).
+11. **Waiting on the owner** (ask only if relevant): which Reports filter "didn't change the reports" (#159); whether
+    the canvas must keep gaps above items (#164); Tata Motors Pune AED "Training not required" (26 Oct); Diana
+    Builwell W Goa / Sierragold Heights still "Mark completed or postpone".
+12. **Still owner-side:** Admin Reconnects Quotations, `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic
+    Citi test rows in the master sheet, Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20
+    rows (#41).
+
+**Session 18 in one paragraph (29 Oct, one long day):**
+- **Checks:** clean (database 7 MB/s, Sync log ok since Mumbai, certificate sheet working again, Quotations still
+  `newCustomers: false`, no real quote made).
+- **Defibtech tab** (Admin only; the owner renamed their copy "AEDs, PADs, BATTERIES" on the canvas): Overview, All
+  items, AEDs / Pads / Batteries, Purchases (bills), Stock (month ends); Show by Week / Month / Quarter / Year; item /
+  brand / item-status filters; quote sent / accepted / declined / conversion. New datasets `purchases`, `stockLevel`,
+  `quoteItems` (new Zoho Analytics table "Quote Items"); Margin gained zohoItem / brand / kind / itemStatus. **Margin
+  fix:** units taken from ~₹0 stock adjustments (6 Jul 2026) are costed at the average bill price — this FY's margin
+  32.6% → 28.8%.
+- **Reports phase 1:** "Not filtered by …" on tiles; filter lists narrow to the other filters; empty tiles say so;
+  "Your own dates…"; no Compare on All time; builder filters is / is not / contains + mixed per-unit warning; one quote
+  vocabulary (Accepted / Declined / Expired / Waiting, "Conversion rate"; no answer in 90 days = Expired — #160 done);
+  Zoho catalogue item / brand / kind / status on sales + stock with Item / Brand filters; one spelling per customer
+  (`nameKey` — #160 done).
+- **Filters shared by every tab** (`th.reports.state`); a dashboard's own starting filters = its `scope`
+  (`th.reports.scope.<tab>`).
+- **Dashboard editor**, in four goes the same day: pages of 4 places (`4ba293e`…`2c459c4`) → in-place rooms, 8 a page
+  (`63557f0`) → **a canvas** (`f5b5059`: owner "a big box container … place my report anywhere … resize by holding its
+  edge … a kpi could be 4x2 too"). Built-in tabs editable / restorable / hideable (Admin), "+ New dashboard", the
+  builder's "Put it on", My dashboard on the same editor.
+- **Incident:** the canvas went live while a dashboard saved on the pages-of-4 version existed → **Reports crashed for
+  everyone** ("This page couldn't load"). Fixed by `f8a9c37` (cloud session, owner "push it to master"): the route
+  passes every stored dashboard through `upgrade` (custom.ts). Lesson in §11 #18.
+- **Tests** (`d0f652b`, `8dbad8a`): `npm test`, 26 tests, fake db/auth.
+- **Phase 3:** 11 tabs → 8 (`80613e6`; old ids are `ALIASES`), "What changed" line per tab.
+- **Phase 4:** chart Lines (average / lowest / highest / target / trend / forecast next 3) + green / red by rule
+  (`ee74ed8`), drill-down year → quarters → months with ← Back (`210d4c5`), 12-month trend lines in number cards
+  (`6dfab55`).
 
 **Session 17 in one paragraph (28 Oct, one long day):**
 - **Reports:** the three ⚠ reports are built and live — Stock now (Products tab), Freight and Gross margin (new Margin
@@ -237,9 +266,18 @@ name** (`b146419`).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
-- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit **`207d0d5`**
-  (27 Oct evening — live on both addresses, checked in the deployed JS and with live read-only requests). Nothing
-  else local except the session 16 docs commit.
+- **GitHub:** `thinkhealthcareandsafety/trainingDashboard` (**public** repo), branch `master`, last pushed commit **`6dfab55`**
+  (29 Oct afternoon — live on both addresses). Nothing else local except the session 18 docs commit.
+  Session 18 (oldest first; full list `git log --reverse 0eb65d4..6dfab55`):
+  - `b3b60a1`…`216c3bd` — **Defibtech tab** (prices, Show by, Purchases, Stock, All items, item filters, quote KPIs);
+  - `77a1d5b`…`9f46106` — Reports phase 1 (not-filtered notes, narrowing filter lists, own dates, quote vocabulary,
+    Zoho item / brand, `nameKey`);
+  - `f363415` — one set of filters for every tab;
+  - `4ba293e`…`2c459c4` — team dashboards on the server, editor (pages of 4 places), "Put it on", My dashboard on it;
+  - `63557f0` — edit in place, rooms; `f5b5059` — **the canvas**; `f8a9c37` — old saved dashboards read as the canvas
+    (fixed the live crash);
+  - `d0f652b`, `8dbad8a` — `npm test`;
+  - `80613e6` — 11 tabs → 8; `ee74ed8` — chart lines; `210d4c5` — drill-down; `6dfab55` — trend lines in numbers.
   Session 16 (oldest first, one commit per step — owner's rule):
   - `d456670` — goal meter follows the theme + 6 experimental themes (from session 15);
   - `2a94484` — Customers + Products tabs, Trainings → Training economics (+ the 3 browser-check fixes);
@@ -836,6 +874,45 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
     out" on that server); `serverSelectionTimeoutMS` 20 s, `maxPoolSize` 10.
   - Wire compression (`compressors: ["zlib"]`) was tried: no effect on M0 — don't bother.
   - Result: 28 Oct 08:30 reads 4–8 MB/s again; live Reports 4.7 s cold, < 1 s warm, trainings 3.8 s.
+
+### Reports — session 18 (29 Oct) — Defibtech, shared filters, the dashboard canvas, tests, 8 tabs
+- **Tabs (`dashboards.ts`):** 11 → 8 (`MERGED` → `DASHBOARDS`): Sales & growth (`sales`), Customers, Products & stock
+  (`products`), Quotes & team (`quotes`), Money (`collections` — Collections + Margin; Margin pages Admin-only),
+  Trainings, Defibtech (Admin only), Saved reports. Old ids are **`ALIASES`** (growth→sales, team→quotes,
+  margin→collections; `tabOf`) so stored dashboards, My dashboard and hidden-tab lists keep working; duplicate tiles
+  were dropped. Each tab has a "What changed" line under its toolbar. `titleOf` fills `{grain}` in titles from Show by.
+- **Datasets (`model.ts` / `build.ts`):** `purchases` (bills), `stockLevel` (month ends), `quoteItems` (Zoho Analytics
+  table "Quote Items"); sales + stock rows carry Zoho catalogue `zohoItem` / `brand` / `kind` / `itemStatus`; margin
+  too. Customers are counted by `nameKey` (one spelling per customer). Quotes: Accepted / Declined / Expired / Waiting,
+  "Conversion rate"; no answer in 90 days = Expired. **Margin:** units from ~₹0 stock adjustments (6 Jul 2026) are
+  costed at the average bill price (FY margin 32.6% → 28.8%).
+- **Filters:** shared by every tab in this browser (`th.reports.state`: period, compare, Show by, filters); a
+  dashboard's own starting filters are its `scope` (`th.reports.scope.<tab>`, e.g. Defibtech Brand = Defibtech). Each
+  filter list is asked with the other active filters; a tile whose data lacks a field says "Not filtered by …"; empty
+  tiles say "Nothing here for these dates and filters"; "Your own dates…" = period `range:YYYY-MM-DD:YYYY-MM-DD`; no
+  Compare on All time.
+- **Dashboards = a canvas** (`src/lib/analytics/custom.ts` pure shapes + edits; `src/components/reports/Canvas.tsx`;
+  `Editor.tsx` `EditBar` + `Library`; route `/api/analytics/dashboards`):
+  - each page is a **12 × 16 grid**; every item has `x / y / w / h` (number starts 3×2, chart 6×4, wide 12×4; min
+    2×2 / 3×3); `cleanDashboard` refuses anything off the page or overlapping (route returns 400 in plain words);
+  - react-grid-layout **2.3.0** with **`verticalCompactor`** (with `noCompactor` pushed items landed on each other —
+    tested); drag anywhere, others move aside live, resize from every edge / corner; a move that would push something
+    off the page is refused and snaps back; below 900 px the page stacks;
+  - "✎ Edit dashboard" edits in place (Admin, Ashish, Shikha, Sumit); "+ New dashboard"; built-in tabs can be edited
+    (team version stored under the tab's id, `base`), restored (delete that doc) and hidden (Admin, kv
+    `reports_hidden`); the builder's "Put it on" a dashboard + page;
+  - **My dashboard** uses the same editor: id `mine` in and out, stored as `my-<member>`; `my-start` = Admin's starting
+    one; its Tabs popup = "Select Dashboards to display";
+  - **`upgrade`** (custom.ts) runs on every stored dashboard the route reads: older shapes (`slots` from the
+    pages-of-4 version, place-less `items` from the rooms version) come out as valid canvas pages. **Any future change
+    to the stored shape needs the same treatment** (§11 #18).
+- **Chart extras (`Dashboard.tsx`):** "Change this chart" → Lines (average / lowest / highest / target / trend /
+  forecast next 3) and green / red by rule — per browser in the tile's tweak (`th.reports.tweaks.<tab>`), not on the
+  dashboard; drill-down on FY / quarter charts (`drills`, "← Back"); number cards get a 12-month trend line (one extra
+  request per page, `sparkSpecs`).
+- **Tests:** `npm test` → `tests/*.test.ts` (query engine, canvas rules incl. `upgrade`, dashboards route) with Node's
+  own runner; `tests/register.mjs` maps `@/lib/db` and `@/lib/auth` to `tests/fakes` — always, so no test can reach
+  the live database. 26 pass.
 
 ### Quotations (session 17, 28 Oct) — `src/app/quotations/page.tsx`, `src/components/Quotations.tsx`, `src/app/api/quotations/route.ts`, `src/lib/quotations.ts`
 Owner: "all of our contacts are here, we need to click one time and a quotation is sent through zoho books" — then
@@ -1682,6 +1759,30 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 330 | "align these arrows" | `a3275dd`; pushed. |
 | 331 | Zoho's New Customer screenshot: "write a handoff … tips, issues … make it work like Zoho Books quotation but better … new customer then quote right after … download the PDF, attach to email, add attachments … explain what you understand" | This update; the task is §10 #150. |
 
+### Session 18 (29 Oct 2026) — Defibtech, Reports phases 1–4, the dashboard canvas, the live crash
+_Paraphrased from the owner's messages as quoted in the commits (the session ran on the owner's PC; one cloud session
+joined mid-day)._
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 332 | Brief + checks | Clean (database 7 MB/s, Sync log ok, sheet working, Quotations `newCustomers: false`). |
+| 333 | "a report of defibtech aeds, pads, battery, their price change between sales and purchase and its average" | Defibtech tab (`b3b60a1`). |
+| 334 | "an option on how many dashboards i want to see … a checkbox in the customise option" | Tabs ticks (`9c8a71a`). |
+| 335 | "i have 3 items … the charts and tables confuse me, make them easier" | Overview + one page per product (`9113a60`). |
+| 336 | "date filters, like yearly, monthly, quarterly, weekly", purchase trends, monthly stock | Show by, Purchases, Stock pages (`6204c41`); titles follow Show by (`28e6f86`). |
+| 337 | "All Defibtech items and their reports, add another page" | All items page (`32f6d67`). |
+| 338 | Item active / inactive filter, include / exclude items; quote sent / accepted / declined / conversion KPIs | `216c3bd`. |
+| 339 | Reports plan phase 1 ("filters don't change the reports", "date filters", narrowing lists, quote wording…) | `77a1d5b`…`9f46106`. |
+| 340 | "the filters remain the same in all dashboards" | Shared filters + dashboard scope (`f363415`). |
+| 341 | "make dashboards, pages, choose what goes where, delete", "select what dashboard it goes in" | `4ba293e`, `843cdfe`, `36369b3`, `3563734`, `2c459c4`. |
+| 342 | Screenshot of the editor popup: "not like this … move charts directly … kpis all individual … max 8 a page" | Edit in place, rooms (`63557f0`). |
+| 343 | "drag and drop, others making space in real time … a big box container … anywhere … resize by its edge … a kpi could be 4x2 too" | Restated (12×16 canvas, react-grid-layout) → "yeah" → canvas (`f5b5059`). |
+| 344 | (cloud session) "continue from last execution" / "how do i push it" | `f5b5059` + `63557f0` were only on the PC; owner pushed from Git Bash with step-by-step help. |
+| 345 | Screenshot "This page couldn't load" on /reports: "my shit died" | Old pages-of-4 dashboards crashed the canvas → `upgrade` in the route (`f8a9c37`); "push it to master" → pushed. |
+| 346 | Phase 2 "do whatever you recommend" | `npm test` (`d0f652b`, `8dbad8a`). |
+| 347 | Phase 3 "YEAH GO FOR IT" | 11 tabs → 8, What changed (`80613e6`). |
+| 348 | Phase 4 "yess les go" / "numbers with context" | Chart lines (`ee74ed8`), drill-down (`210d4c5`), trend lines in numbers (`6dfab55`); pushed. |
+| 349 | "Update HANDOFF.md for session 18 … commit it (push only if I say)" | This update. |
+
 ---
 
 ## 6. Zoho facts learned the hard way
@@ -2430,7 +2531,7 @@ No test suite. Pattern used throughout:
      last year's month (before: last month). Mentioned to the owner.
 139. **Saved reports' builder** (`Builder.tsx`) doesn't offer the new options (compare modes, exclude / contains /
      ranges, analyses, new chart kinds) — they exist only on the official dashboards. Add if the owner builds reports.
-140. **Commits:** keep one per step (owner preference noted in §8). Everything through `207d0d5` is pushed.
+140. **Commits:** keep one per step (owner preference noted in §8). Everything through `6dfab55` is pushed (29 Oct).
 
 **Session 16 — open items:**
 
@@ -2508,6 +2609,17 @@ No test suite. Pattern used throughout:
      **Open questions to ask with defaults:** send the email from Zoho Books (default; marks Sent, org address) or from
      the person's own Zoho Mail mailbox (the app already has Mail connections — replies come to them)? Keep Zoho's
      standard email as a one-click "Send with Zoho's standard email"? Attachment size cap (default 4 MB total)?
+     **Restated 29 Oct (session 18) — waiting for the owner's "yeah", build one commit per step:**
+     1) fix #151 first: new customers send Zoho's mandatory Type (default "New Customer") + Sector; Last Name required;
+     2) a one-screen new customer: Business / Individual, Last Name, company = display name, email, mobile, GSTIN
+        (fills state, PAN, GST treatment), Type, Sector; salutation / work phone / address / tax-exempt behind "More";
+     3) the quote opens straight away for that customer;
+     4) after Save: a done screen with Download PDF (Zoho's) and "Email it";
+     5) the email step: To / Cc, subject + body from Zoho's template, the PDF already attached, + Add attachments
+        (4 MB total), sent through Zoho Books (marks the quote Sent);
+     6) remember the last sales person, Enter adds an item, plain errors;
+     7) writes and sends only from production;
+     8) Admin reconnects Quotations once (add an email scope if Zoho needs one).
 151. **Bug in what's live: new customers miss Zoho's mandatory custom fields.** `createCustomer` (`src/lib/quotations.ts`)
      sends no `custom_fields`, but Zoho's contact fields **Type** (`cf_type`, id `982417000008274205`) and **Sector**
      (`cf_sector`, id `982417000011023041`) are `is_mandatory: true` → Zoho will most likely refuse "Create in Zoho
@@ -2535,11 +2647,25 @@ No test suite. Pattern used throughout:
      on the server every Quotes and Sales tile changes with Sector = Healthcare (31/31); filters skip only tiles whose
      data lacks the field (stock: no customer/sales person; freight: no item; margin: no courier). Not reproduced —
      ask which tab / filter when it comes up.
-160. **Accepted (session 17 "yessir") but not built:** quotes older than 90 days count as expired in Reports (#132);
-     count customers by `nameKey` (#131).
+160. ~~Accepted (session 17 "yessir") but not built: quotes older than 90 days count as expired in Reports (#132);
+     count customers by `nameKey` (#131).~~ — both built in session 18 (`5bec8a8`, `4d26eaa`).
 161. **Answer caches** (session 17): Reports answers kept 10 min in the browser (trainings 1 min) and cleared on a new
      copy / Refresh now; server caches `signedInMember` names 60 s and `dataState` 20 s. If a change "doesn't show",
      these are why — Refresh now clears the browser one.
+162. **Reports phase 5 — new business reports (next after #150; restate with defaults first):** renewals due (pads /
+     batteries by AED age, certificate renewals); sales-person monthly targets; quote follow-up (unanswered 7 / 15 /
+     30 days); cash coming in over 30 / 60 / 90 days; stock health for every brand (dead stock, turns, order-by date);
+     purchase-price change alerts; customer value; lead-source return; trainings vs target.
+163. **Reports phase 6:** builder field wells (Axis / Values / Legend / Tooltip, several measures), export PDF / Excel,
+     a scheduled email (production-only, §11 #5), a data-freshness banner.
+164. **Reports leftovers:** drill-through and small multiples (phase 4); chart lines / targets are per browser only
+     (`th.reports.tweaks.<tab>` — could be saved on dashboard items); the "see Collections →" link cards on merged tabs
+     weren't built; **the canvas can't leave a gap above an item** (`verticalCompactor` floats items up) — the owner
+     asked for "anywhere"; if they insist on gaps, push-aside needs a custom compactor (`noCompactor` let pushed items
+     overlap).
+165. **Stored dashboards:** `reportDashboards` holds docs written by three shapes in one day (pages of 4 `slots`,
+     rooms `items` without places, canvas `items` with `x/y/w/h`); `upgrade` reads them all. They are rewritten in the
+     new shape only when someone saves — leave `upgrade` in place.
 
 ---
 
@@ -2600,6 +2726,10 @@ only the open page's tiles, and the board only when a tile needs trainings.
 17. Poll both addresses (`work.thinkhealth.in`, `training-dashboard-xfwl.vercel.app`) until a string unique to the change
     appears in the served JS (constants may be minified — pick a CSS class or text), then tell the owner it's live and
     **Ctrl + Shift + R**.
+18. **Stored shapes (session 18 crash):** before pushing a change to anything stored (Mongo docs, localStorage), ask
+    "what if a document in the *old* shape is read?" — people save between pushes, even within the hour. Read old
+    shapes forgivingly on the server (like `upgrade` for `reportDashboards`) and add a test with an old document.
+    Also run `npm test` and `git fetch` + `git log HEAD..origin/master` (another session may have pushed).
 
 **Safe-by-default suggestions for what to build next** (each small, additive, reversible):
 - **Read-only first:** new Reports datasets / dashboards, new KPI tiles, new ticker lines — they can't damage data.
