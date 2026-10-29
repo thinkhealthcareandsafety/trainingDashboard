@@ -23,6 +23,9 @@ export type DashFilter = { field: string; label: string; range?: boolean };
 /** `grains`: a "Show by Week / Month / Quarter / Year" switch for every time chart (owner, 29 Oct), starting on this one. */
 export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain };
 
+/** "{grain}" in a title follows the chart's grouping (owner, 29 Oct: on Month it still said "quarter by quarter"). */
+export const titleOf = (spec: Spec) => (spec.title ?? "").replaceAll("{grain}", { day: "day", week: "week", month: "month", quarter: "quarter", fy: "year" }[spec.grain ?? "month"]);
+
 const kpi = (id: string, dataset: string, measure: string, title: string, extra: Partial<Tile> = {}): Tile =>
   ({ id, w: 3, spec: { dataset, measures: [measure], chart: "kpi", compare: true, title }, ...extra });
 
@@ -321,8 +324,8 @@ function defibtech(): DashboardDef {
   const numbers = products.flatMap((p) => four(p, "Overview"));
   const page = (p: (typeof products)[number]): Tile[] => [
     ...four(p, p.page, "P"),
-    { id: `d${p.kind}Price`, section: p.page, w: 12, noCompare: true, note: "The gap between the two lines is what we make on each unit · hover a point for the numbers", spec: { dataset: "margin", measures: ["avgSale", "avgCost"], by: ["date"], grain: "quarter", chart: "line", filters: only(p.kind), title: `${p.name}: selling price vs purchase price, quarter by quarter` } },
-    { id: `d${p.kind}Qty`, section: p.page, w: 6, noCompare: true, note: "Click a quarter to see only its sales on this page", spec: { dataset: "margin", measures: ["costedUnits"], by: ["date"], grain: "quarter", chart: "column", filters: only(p.kind), title: "Units sold each quarter" } },
+    { id: `d${p.kind}Price`, section: p.page, w: 12, noCompare: true, note: "The gap between the two lines is what we make on each unit · hover a point for the numbers", spec: { dataset: "margin", measures: ["avgSale", "avgCost"], by: ["date"], grain: "quarter", chart: "line", filters: only(p.kind), title: `${p.name}: selling price vs purchase price, {grain} by {grain}` } },
+    { id: `d${p.kind}Qty`, section: p.page, w: 6, noCompare: true, note: "Click a bar to see only that period's sales on this page", spec: { dataset: "margin", measures: ["costedUnits"], by: ["date"], grain: "quarter", chart: "column", filters: only(p.kind), title: "Units sold each {grain}" } },
     { id: `d${p.kind}Who`, section: p.page, w: 6, noCompare: true, note: "Click a customer to see their prices", spec: { dataset: "margin", measures: ["costedUnits"], by: ["customer"], limit: 8, chart: "bar", filters: only(p.kind), title: "Who buys the most (units)" } },
     { id: `d${p.kind}Type`, section: p.page, w: 6, noCompare: true, spec: { dataset: "margin", measures: ["avgSale"], by: ["customerType"], limit: 6, chart: "bar", filters: only(p.kind), title: "Average selling price, by customer type" } },
     { id: `d${p.kind}Person`, section: p.page, w: 6, noCompare: true, spec: { dataset: "margin", measures: ["avgSale"], by: ["salesperson"], limit: 6, chart: "bar", filters: only(p.kind), title: "Average selling price, by sales person" } },
@@ -342,14 +345,14 @@ function defibtech(): DashboardDef {
     tiles: [
       ...numbers,
       { id: "dRevenue", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["revenue"], by: ["kind"], sort: "label", chart: "bar", filters: three, title: "Sales of each, before tax" } },
-      { id: "dQtyAll", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Units sold each quarter" } },
+      { id: "dQtyAll", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Units sold each {grain}" } },
       ...products.flatMap(page),
       // Owner, 29 Oct: "purchase trend charts, per year, per month" — from the bills.
       ...products.map((p): Tile => ({ id: `b${p.kind}Units`, section: "Purchases", w: 3, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], chart: "kpi", filters: only(p.kind), title: `${p.name} · units bought` } })),
       { id: "bSpent", section: "Purchases", w: 3, noCompare: true, spec: { dataset: "purchases", measures: ["spent"], chart: "kpi", filters: three, title: "Spent on all three" } },
-      { id: "bUnits", section: "Purchases", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Units bought" } },
-      { id: "bMoney", section: "Purchases", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["spent"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Money spent, before tax" } },
-      ...products.map((p): Tile => ({ id: `b${p.kind}Price`, section: "Purchases", w: 4, noCompare: true, spec: { dataset: "purchases", measures: ["paidPerUnit"], by: ["date"], grain: "quarter", chart: "line", filters: only(p.kind), title: `${p.name}: price we paid per unit` } })),
+      { id: "bUnits", section: "Purchases", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["bought"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Units bought each {grain}" } },
+      { id: "bMoney", section: "Purchases", w: 6, noCompare: true, spec: { dataset: "purchases", measures: ["spent"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: three, title: "Money spent each {grain}, before tax" } },
+      ...products.map((p): Tile => ({ id: `b${p.kind}Price`, section: "Purchases", w: 4, noCompare: true, spec: { dataset: "purchases", measures: ["paidPerUnit"], by: ["date"], grain: "quarter", chart: "line", filters: only(p.kind), title: `${p.name}: price paid per unit, by {grain}` } })),
       // Owner, 29 Oct: "a monthly chart of how much stock we have of those items" — always by month.
       ...products.map((p): Tile => ({ id: `s${p.kind}Now`, section: "Stock", w: 4, noCompare: true, fixedPeriod: true, spec: { dataset: "stockLevel", measures: ["level"], chart: "kpi", period: "month", filters: only(p.kind), title: `${p.name} · in stock today` } })),
       ...products.map((p): Tile => ({ id: `s${p.kind}Month`, section: "Stock", w: 4, noCompare: true, fixedGrain: true, spec: { dataset: "stockLevel", measures: ["level"], by: ["date"], grain: "month", chart: "column", filters: only(p.kind), title: `${p.page} in stock, month end` } })),

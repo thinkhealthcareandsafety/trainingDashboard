@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { DashboardDef, DashFilter, Tile } from "@/lib/analytics/dashboards";
+import { type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
 import { type LayoutEntry, type Size, SIZE_W, START, entryKey, sizeOfW } from "@/lib/analytics/layout";
 import type { Spec } from "@/lib/analytics/query";
 import { btn } from "../ui";
@@ -204,7 +204,7 @@ function Customise({ placed, own, starting, startingBy, admin, sources, tabs, hi
                 return (
                   <label key={t.id} className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-surface-2">
                     <input type="checkbox" className="size-4 shrink-0 accent-[var(--brand)]" checked={on} onChange={() => toggle(source.dash, t.id)} />
-                    <span className="min-w-0 truncate text-[16px] text-ink" title={t.spec.title}>{t.spec.title}</span>
+                    <span className="min-w-0 truncate text-[16px] text-ink" title={titleOf(t.spec)}>{titleOf(t.spec)}</span>
                     {isKpi(t) && <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[13px] font-medium text-muted">Number</span>}
                   </label>
                 );
@@ -223,7 +223,7 @@ function Customise({ placed, own, starting, startingBy, admin, sources, tabs, hi
                 return (
                   <li key={entryKey(p.entry)} className="flex items-center gap-1.5 rounded-xl border border-line px-2.5 py-1.5">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[16px] text-ink" title={p.tile.spec.title}>{p.tile.spec.title}</p>
+                      <p className="truncate text-[16px] text-ink" title={titleOf(p.tile.spec)}>{titleOf(p.tile.spec)}</p>
                       <p className="truncate text-[14px] text-muted">{p.source}</p>
                     </div>
                     {isKpi(p.tile)
@@ -242,7 +242,7 @@ function Customise({ placed, own, starting, startingBy, admin, sources, tabs, hi
                     <button type="button" className={iconBtn} aria-label="Move down" disabled={i === rows.length - 1} onClick={() => move(i, 1)}>
                       <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
                     </button>
-                    <button type="button" className={`${iconBtn} hover:text-high`} aria-label={`Remove ${p.tile.spec.title}`} onClick={() => edit(draft.filter((e) => entryKey(e) !== entryKey(p.entry)))}>×</button>
+                    <button type="button" className={`${iconBtn} hover:text-high`} aria-label={`Remove ${titleOf(p.tile.spec)}`} onClick={() => edit(draft.filter((e) => entryKey(e) !== entryKey(p.entry)))}>×</button>
                   </li>
                 );
               })}

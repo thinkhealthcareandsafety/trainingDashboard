@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { type Grain, datasetOf, fieldOf, measureOf } from "@/lib/analytics/model";
-import type { DashboardDef, DashFilter, Tile } from "@/lib/analytics/dashboards";
+import { type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
 import type { Compare, Filter, Spec } from "@/lib/analytics/query";
 import { Chart, Kpi, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldValues, withPeriod } from "./shared";
@@ -47,6 +47,7 @@ export function compose(tile: Tile, today: string, periodKey: string, filters: R
   let base = tweaked(tile, tweak);
   const d = datasetOf(base.dataset)!;
   if (grain && !tile.fixedGrain && base.by?.[0] === d.dateField) base = { ...base, grain };
+  if (base.title?.includes("{grain}")) base = { ...base, title: titleOf(base) };
   const has = (f: string) => Boolean(fieldOf(d, f));
   const isRange = (f: string) => Boolean(d.ranges?.some((r) => r.key === f));
   const list: Filter[] = [...(base.filters ?? [])];
@@ -531,7 +532,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
     ] : []),
     ...menu,
   ];
-  const sub = meta ?? (tweak ? `Changed from “${tile.spec.title}”` : !isKpi ? tile.note : undefined);
+  const sub = meta ?? (tweak ? `Changed from “${titleOf(tile.spec)}”` : !isKpi ? tile.note : undefined);
   return (
     <section className={`card flex min-w-0 flex-col p-5 ${SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
@@ -623,7 +624,7 @@ function TileSettings({ tile, spec, tweak, onChange, onClose }: { tile: Tile; sp
           <button type="button" className="h-9 rounded-full bg-surface px-4 text-[15.5px] font-semibold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] hover:bg-line" onClick={onClose}>Done</button>
         </div>
       </div>
-      <p className="mt-2 text-[14px] text-faint">Only this chart, only for you (kept in this browser). Reset brings back “{tile.spec.title}”.</p>
+      <p className="mt-2 text-[14px] text-faint">Only this chart, only for you (kept in this browser). Reset brings back “{titleOf(tile.spec)}”.</p>
     </div>
   );
 }
