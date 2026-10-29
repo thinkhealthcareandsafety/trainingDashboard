@@ -25,6 +25,7 @@ export type FState = Rule & { values: string[]; min?: number; max?: number };
 /** Compared with: the same days last year (default), the period before, nothing, or another group. */
 export type CompareMode = "lastYear" | "previous" | "none" | { field: string; a: string[]; b: string[] };
 /** "Change this chart" on one tile (kept in this browser). */
+type Drill = { grain: Grain; from: string; to: string; label: string };
 type Tweak = { measure?: string; by?: string; limit?: number; grain?: Grain; lines?: Lines };
 /** A tweak that changes what the chart shows (not just lines on it) — then its title is made from the new shape. */
 const reshapes = (t?: Tweak) => Boolean(t && (t.measure || t.by || t.limit !== undefined || t.grain));
@@ -167,14 +168,21 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
   const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
   const [goal, setGoal] = useState<number | undefined>();
   useEffect(() => { if (def.tiles.some((t) => t.goalLine)) fetch("/api/analytics/goal").then((r) => r.json()).then((g) => setGoal(typeof g.monthly === "number" ? g.monthly : undefined)).catch(() => {}); }, [def]);
-  useEffect(() => { const st = readState(def); setPeriod(st.period); setFilters(st.filters); setCompare(st.compare); setGrain(st.grain); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id));
+  useEffect(() => { const st = readState(def); setPeriod(st.period); setFilters(st.filters); setCompare(st.compare); setGrain(st.grain); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); setDrills({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
 
   // "All time" has no period before it — comparing would quietly do nothing, so it's off (and the menu hidden).
   const cmpMode: CompareMode = period === "all" ? "none" : compare;
-  const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, cmpMode, tweaks[t.id], grain)), [def, today, period, filters, pick, cmpMode, tweaks, grain]);
+  // Drill-down (owner, 29 Oct — phase 4): a click on a year shows its quarters on that chart, a quarter its months.
+  const [drills, setDrills] = useState<Record<string, Drill[]>>({});
+  const specs = useMemo(() => def.tiles.map((t) => {
+    const s = compose(t, today, period, filters, pick, cmpMode, tweaks[t.id], grain);
+    const dr = drills[t.id]?.at(-1);
+    // The title follows the level ("Revenue by year" → "Revenue by quarter").
+    return dr ? { ...s, grain: dr.grain, from: dr.from, to: dr.to, title: s.title?.replace(/\b(year|quarter|month|week)\b/, dr.grain) } : s;
+  }), [def, today, period, filters, pick, cmpMode, tweaks, grain, drills]);
   const keys = useMemo(() => specs.map((s) => JSON.stringify(s)), [specs]);
   // "What changed" (owner, 29 Oct — phase 3): the tab's main number against the comparison, and the two biggest rises
   // and falls by one field — same period, filters, click and comparison as the reports below. Two small queries.
@@ -323,6 +331,15 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
     const a = answers[t.id];
     const date = !isError(a) && a?.by[0]?.date;
     setPick({ tileId: t.id, field, value, grain: s.grain, label: labelOf(value, Boolean(date), s.grain ?? "month", true) });
+    const down = date && (s.grain === "fy" ? "quarter" : s.grain === "quarter" ? "month" : null);
+    const range = down ? rangeOfKey(value, s.grain) : null;
+    if (down && range) setDrills((d) => ({ ...d, [t.id]: [...(d[t.id] ?? []), { grain: down, ...range, label: labelOf(value, true, s.grain!, true) }] }));
+  };
+  // "FY 2025-26 › Q2 FY25-26 · ← Back" on a drilled chart.
+  const crumbsOf = (t: Tile) => {
+    const ds = drills[t.id];
+    if (!ds?.length) return undefined;
+    return { text: ds.map((x) => x.label).join(" › "), onBack: () => { setPick(null); setDrills((d) => ({ ...d, [t.id]: ds.slice(0, -1) })); } };
   };
   const footnote = cmpMode === "none" ? null
     : typeof cmpMode === "object" ? `▲ ▼ ${groupLabel(cmpMode.a)} against ${groupLabel(cmpMode.b)} — same dates; charts show both.`
@@ -434,7 +451,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
               : <TileCard tile={{ ...t, w: 12 }} fill={heightOf(box.h)} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                   picked={pick?.tileId === t.id ? pick.value : null} onPick={edit ? undefined : pickFrom(t)}
                   target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
-                  skipped={skippedOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />)} />
+                  skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />)} />
           {edit && !(pages[at]?.tiles.length) && <p className="mt-2 text-center text-[15.5px] text-muted">An empty page — + Add report, then drag it anywhere in the box.</p>}
         </>
       ) : groups.map((g, gi) => (
@@ -455,7 +472,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
                   <TileCard key={t.id} tile={pages[at]?.half?.has(t.id) ? { ...t, w: 6, tall: false } : t} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                     picked={pick?.tileId === t.id ? pick.value : null} onPick={pickFrom(t)}
                     target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
-                    skipped={skippedOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />
+                    skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />
                 ))}
               </div>
             );
@@ -733,7 +750,7 @@ const SPAN: Record<Tile["w"], string> = { 3: "col-span-12 sm:col-span-6 xl:col-s
 
 export type MenuItem = { label: string; onClick: () => void; danger?: boolean };
 
-export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, accent, tweak, onTweak, target, skipped, fill }: {
+export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, accent, tweak, onTweak, target, skipped, fill, crumbs }: {
   tile: Tile; spec: Spec; answer?: Answer; picked?: string | null; onPick?: (value: string) => void;
   /** "Change this chart" (dashboards): what's changed on this tile, and how to change / reset it. */
   tweak?: Tweak; onTweak?: (t: Tweak | null) => void;
@@ -743,6 +760,8 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
   skipped?: string[];
   /** On the canvas: the box's height in px — the card fills it and the chart takes what the title leaves. */
   fill?: number;
+  /** Drilled into a year / quarter: where, and the way back. */
+  crumbs?: { text: string; onBack: () => void };
   /** Extra ⋯ menu items (Edit / Delete on saved reports) — on every kind of tile, single numbers and failed ones too. */
   menu?: MenuItem[];
   /** A quiet line under the title (who saved it). */
@@ -774,6 +793,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
         <div className="min-w-0">
           <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[16.5px] text-ink-2" : "text-[18.5px]"}`} title={title}>{title}</h3>
           <Skipped labels={skipped} />
+          {crumbs && <p className="truncate text-[15px] text-ink-2"><button type="button" className="font-semibold text-brand hover:underline" onClick={crumbs.onBack}>← Back</button> · {crumbs.text}</p>}
           {sub && <p className="truncate text-[15px] text-muted">{sub}{tweak && onTweak && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={() => onTweak(null)}>Reset</button></>}</p>}
         </div>
         {items.length > 0 && <TileMenu items={items} label={`${title || "Report"} options`} />}
