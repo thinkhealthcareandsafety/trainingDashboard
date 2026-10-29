@@ -5,7 +5,12 @@ const store: Record<string, Map<string, Doc>> = {};
 const coll = (name: string) => {
   const m = (store[name] ??= new Map());
   return {
-    find: () => ({ limit: () => ({ toArray: async () => [...m.values()].map((d) => structuredClone(d)) }) }),
+    find: () => {
+      const toArray = async () => [...m.values()].map((d) => structuredClone(d));
+      return { toArray, limit: () => ({ toArray }) };
+    },
+    // readAll's fingerprint: no answer → it reads the collection, as with a real failure.
+    aggregate: () => ({ toArray: async () => [] }),
     findOne: async (q: { _id: string }) => (m.has(q._id) ? structuredClone(m.get(q._id)!) : null),
     replaceOne: async (q: { _id: string }, doc: Doc) => { m.set(q._id, structuredClone(doc)); },
     updateOne: async (q: { _id: string }, u: { $set?: Record<string, unknown> }) => { m.set(q._id, { ...(m.get(q._id) ?? {}), _id: q._id, ...(u.$set ?? {}) }); },
@@ -14,4 +19,6 @@ const coll = (name: string) => {
   };
 };
 export const db = async () => ({ collection: coll });
+export const mongoConfigured = () => true;
+export const COLLECTIONS = ["entries", "followUps", "removedTriggers", "announcements", "members", "cardEvents"] as const;
 export const resetFakeDb = () => { for (const k of Object.keys(store)) delete store[k]; };
