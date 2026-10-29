@@ -296,4 +296,44 @@ export const DASHBOARDS: DashboardDef[] = [
       { id: "freightCustomers", section: "Freight", w: 12, spec: { dataset: "freight", measures: ["freight", "shipments", "charged", "freightPctShipped"], by: ["customer"], limit: 10, chart: "table", filters: [{ field: "shipped", values: ["yes"] }], title: "Customers we pay the most freight for" } },
     ],
   },
+  defibtech(),
 ];
+
+/** Owner, 29 Oct: "a report of defibtech aeds, pads, battery, their price change between sales and purchase and its
+ *  average". Built on the margin data (each sale with what its units cost us), so it's Admin only like Margin. All
+ *  time by default — a few dozen units a year. */
+function defibtech(): DashboardDef {
+  const brand = { field: "brand", values: ["Defibtech"] };
+  const per = ["costedUnits", "avgSale", "avgCost", "diffPerUnit", "markupPct"];
+  const kpiD = (id: string, measure: string, title: string): Tile =>
+    ({ id, w: 3, spec: { dataset: "margin", measures: [measure], chart: "kpi", compare: true, filters: [brand], title } });
+  const overTime = (kind: string, title: string): Tile =>
+    ({ id: `price${kind}`, section: "Price over time", w: 4, noCompare: true, spec: { dataset: "margin", measures: ["avgSale", "avgCost"], by: ["date"], grain: "quarter", chart: "line", filters: [brand, { field: "kind", values: [kind] }], title } });
+  return {
+    id: "defibtech",
+    title: "Defibtech",
+    desc: "Admin only — Defibtech AEDs, pads and batteries: what we sell a unit for, what it cost us, and the difference, on average.",
+    period: "all",
+    filters: [
+      { field: "kind", label: "AED / pads / battery" },
+      { field: "item", label: "Item" },
+      { field: "customerType", label: "Customer type" },
+      { field: "sector", label: "Sector" },
+      { field: "salesperson", label: "Sales person" },
+      { field: "state", label: "State" },
+    ],
+    tiles: [
+      kpiD("dUnits", "costedUnits", "Units sold"),
+      kpiD("dSale", "avgSale", "Average sale price"),
+      kpiD("dCost", "avgCost", "Average purchase price"),
+      kpiD("dDiff", "diffPerUnit", "Average difference per unit"),
+      { id: "dKinds", section: "AED, pads, battery", w: 12, noCompare: true, note: "Per unit, before tax, weighted by units · markup = difference ÷ purchase price", spec: { dataset: "margin", measures: per, by: ["kind"], sort: "label", chart: "table", filters: [brand], title: "Sale vs purchase price, on average" } },
+      { id: "dDiffTime", section: "AED, pads, battery", w: 12, noCompare: true, spec: { dataset: "margin", measures: ["diffPerUnit"], by: ["date", "kind"], grain: "quarter", chart: "line", filters: [brand], title: "Difference per unit, by quarter" } },
+      overTime("AED", "AEDs: sale vs purchase price"),
+      overTime("Pads", "Pads: sale vs purchase price"),
+      overTime("Battery", "Batteries: sale vs purchase price"),
+      { id: "dItems", section: "Items", w: 12, noCompare: true, spec: { dataset: "margin", measures: per, by: ["item"], limit: 25, chart: "table", filters: [brand], title: "Item by item" } },
+      { id: "dCustomers", section: "Items", w: 12, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits", "avgSale", "diffPerUnit", "markupPct"], by: ["customer"], limit: 15, chart: "table", filters: [brand], title: "Customers who bought the most" } },
+    ],
+  };
+}

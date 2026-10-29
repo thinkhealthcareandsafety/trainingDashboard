@@ -93,13 +93,20 @@ function indexes(t: RawTables) {
   for (const s of t.salespersons ?? []) { const n = text(s["Name"]); if (n) variants.set(spell(n), [...(variants.get(spell(n)) ?? []), n]); }
   const best = (n: string) => { const vs = variants.get(spell(n)) ?? [n]; return vs.find((v) => v.split(" ").every((w) => /^[A-Z]/.test(w))) ?? vs[0]; };
   const people = new Map((t.salespersons ?? []).map((s) => { const n = text(s["Name"]); return [s["Salesperson ID"], n ? best(n) : null]; }));
-  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], { group: text(i["Item Identifier"]), category: text(i["Product Category"]) }]));
+  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], { group: text(i["Item Identifier"]), category: text(i["Product Category"]), brand: text(i["Brand"]) }]));
   const where = (addressId: string | undefined, customerId: string) => (addressId && addr.get(addressId)) || addrByCustomer.get(customerId) || { state: null, city: null };
   const who = (customerId: string): Cust => customers.get(customerId) ?? { name: "(unknown customer)", type: null, sector: null, chain: null };
   return { who, where, people, items, byName };
 }
 
 const live = (status: string | undefined) => !/void|draft/i.test(status ?? "");
+// Defibtech report (owner, 29 Oct): Zoho's "Brand", else from the name — old inactive Defibtech items have no brand.
+const brandOf = (brand: string | null, name: string | undefined) => brand ?? (/defibte?ch|lifeline/i.test(name ?? "") ? "Defibtech" : null);
+/** AED / Pads / Battery from Zoho's item group ("All AEDs", "AED Pads", "AED Batteries"), else from the name. */
+function kindOf(group: string | null, name: string | undefined) {
+  const s = `${group ?? ""} | ${name ?? ""}`;
+  return /pad|electrode/i.test(s) ? "Pads" : /batter/i.test(s) ? "Battery" : /trainer|accessor|bag|cabinet|bracket|sign|software/i.test(s) ? "Other" : /\baeds?\b|defibrillator|ddu-/i.test(s) ? "AED" : "Other";
+}
 
 export function buildRows(t: RawTables, trainings: BoardTraining[], today: string): Record<string, Row[]> {
   const ix = indexes(t);
@@ -312,9 +319,6 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
   // bundles with no bill of their own (₹72 L this FY on 28 Oct), shown as "No cost in Zoho", never guessed.
   let margin: Row[] | undefined;
   if (t.fifo && t.stockOut && t.billItems && t.bills) {
-    const outKey = new Map((t.stockOut ?? []).filter((r) => r["Invoice ID"]).map((r) => [r["Stock Out Flow ID"], `${r["Invoice ID"]}|${r["Product ID"]}`]));
-    const fifoCost = new Map<string, number>();
-    for (const f of t.fifo) { const k = outKey.get(f["Stock Out Flow ID"]); if (k) fifoCost.set(k, (fifoCost.get(k) ?? 0) + (money(f["Total (BCY)"]) ?? 0)); }
     const qtyOf = new Map<string, number>(); // the invoice's units of that item, over all its lines
     for (const li of t.invoiceItems ?? []) { const k = `${li["Invoice ID"]}|${li["Product ID"]}`; qtyOf.set(k, (qtyOf.get(k) ?? 0) + (money(li["Quantity"]) ?? 0)); }
     const billDay = new Map(t.bills.filter((b) => !/void|draft/i.test(b["Bill Status"] ?? "")).map((b) => [b["Bill ID"], day(b["Bill Date"])]));
@@ -331,6 +335,17 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       const q = use.reduce((s, b) => s + b.q, 0);
       return q > 0 ? use.reduce((s, b) => s + b.v, 0) / q : null;
     };
+    const outOf = new Map((t.stockOut ?? []).filter((r) => r["Invoice ID"]).map((r) => [r["Stock Out Flow ID"], { k: `${r["Invoice ID"]}|${r["Product ID"]}`, d: day(r["Transaction Date"]) }]));
+    // Stock added by an adjustment at ~₹0 (a count correction — 11 Defibtech pads at ₹0.01 on 6 Jul 2026, found 29 Oct)
+    // isn't a purchase: units FIFO takes from it are costed at the average bill price instead of ₹0.
+    const zeroAdjust = new Set((t.stockIn ?? []).filter((r) => /adjust/i.test(r["EntityType"] ?? "") && (money(r["Price (BCY)"]) ?? 0) < 1).map((r) => r["Stock In Flow ID"]));
+    const fifoCost = new Map<string, number>();
+    for (const f of t.fifo) {
+      const o = outOf.get(f["Stock Out Flow ID"]);
+      if (!o) continue;
+      const avg = zeroAdjust.has(f["Stock In Flow ID"]) && o.d ? avgPrice(f["Product ID"], o.d) : null;
+      fifoCost.set(o.k, (fifoCost.get(o.k) ?? 0) + (avg !== null ? avg * (money(f["Quantity Taken"]) ?? 0) : money(f["Total (BCY)"]) ?? 0));
+    }
     margin = [];
     for (const li of t.invoiceItems ?? []) {
       const inv = invoiceById.get(li["Invoice ID"]);
@@ -347,8 +362,9 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       margin.push({
         date, invoice: text(inv["Invoice Number"]), ...customerFields(inv["Customer ID"], inv["Address ID"]),
         salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
+        brand: brandOf(item?.brand ?? null, li["Item Name"]), kind: kindOf(item?.group ?? null, li["Item Name"]),
         costSource: fifoCost.has(k) ? "Zoho FIFO" : avg !== null ? "Average purchase price" : "No cost in Zoho",
-        amount, qty, cost, costedAmount: cost === null ? 0 : amount, profit: cost === null ? null : amount - cost,
+        amount, qty, cost, costedAmount: cost === null ? 0 : amount, costedQty: cost === null ? 0 : qty, profit: cost === null ? null : amount - cost,
       });
     }
     // A kit sold as one priced line, with its parts listed at ₹0 to take them out of stock (e.g. "FRx AED with Child
@@ -362,10 +378,10 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       if (!parts.length || !kits.length) continue;
       const partsCost = parts.reduce((s, r) => s + (r.cost as number), 0);
       const kitValue = kits.reduce((s, r) => s + (r.amount as number), 0);
-      for (const r of parts) Object.assign(r, { cost: 0, profit: 0, costSource: "Kit part (cost on the kit)" });
+      for (const r of parts) Object.assign(r, { cost: 0, profit: 0, costedQty: 0, costSource: "Kit part (cost on the kit)" });
       for (const r of kits) {
         const c = partsCost * ((r.amount as number) / kitValue);
-        Object.assign(r, { cost: c, costedAmount: r.amount, profit: (r.amount as number) - c, costSource: "Kit (parts' FIFO cost)" });
+        Object.assign(r, { cost: c, costedAmount: r.amount, costedQty: r.qty, profit: (r.amount as number) - c, costSource: "Kit (parts' FIFO cost)" });
       }
     }
   }

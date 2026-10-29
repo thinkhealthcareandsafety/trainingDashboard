@@ -229,6 +229,8 @@ export const DATASETS: Dataset[] = [
       { key: "salesperson", label: "Sales person", kind: "text" },
       { key: "item", label: "Item", kind: "text" },
       { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
+      { key: "brand", label: "Brand", kind: "text", hint: "Zoho Books item “Brand” (old Defibtech items without one: from the name)" },
+      { key: "kind", label: "AED / pads / battery", kind: "text", hint: "From the item group (All AEDs, AED Pads, AED Batteries), else the name; trainers, bags and the rest = Other", order: ["AED", "Pads", "Battery", "Other"] },
       { key: "costSource", label: "Cost from", kind: "text", hint: "Zoho FIFO (stock items: the purchases the units came from) · Kit (a kit sold as one line, its parts listed at ₹0 on the same invoice: their FIFO cost) · Average purchase price (bills in the 12 months before the sale) · No cost in Zoho (kits / bundles with no bill of their own)", order: ["Zoho FIFO", "Kit (parts' FIFO cost)", "Average purchase price", "Kit part (cost on the kit)", "No cost in Zoho"] },
     ],
     measures: [
@@ -239,6 +241,13 @@ export const DATASETS: Dataset[] = [
       { key: "marginPct", label: "Gross margin %", format: "pct", agg: "ratio", num: "profit", den: "costedRevenue", scale: 100, def: "Gross margin ÷ revenue with a cost." },
       { key: "noCost", label: "Revenue with no cost", format: "inr", agg: "sum", field: "amount", where: { field: "costSource", values: ["No cost in Zoho"] }, better: "down", def: "Goods revenue Zoho has no cost for (kits / bundles with no bill of their own) — left out of the margin." },
       { key: "units", label: "Units", format: "count", agg: "sum", field: "qty", def: "Quantity on the invoice lines." },
+      // Owner, 29 Oct ("price change between sales and purchase and its average" — the Defibtech tab): per unit,
+      // weighted by units, over lines with a cost only, so sale price − purchase price = margin per unit exactly.
+      { key: "costedUnits", label: "Units (with a cost)", format: "count", agg: "sum", field: "costedQty", def: "Units sold on lines whose cost Zoho has (kit parts listed at ₹0 left out)." },
+      { key: "avgSale", label: "Sale price", format: "inr", agg: "ratio", num: "costedRevenue", den: "costedUnits", def: "What we sold a unit for, on average: revenue ÷ units (after discounts, before tax), lines with a cost only." },
+      { key: "avgCost", label: "Purchase price", format: "inr", agg: "ratio", num: "cost", den: "costedUnits", def: "What a unit sold cost us, on average: Zoho's FIFO cost of the units sold (else the average bill price) ÷ units, before tax." },
+      { key: "diffPerUnit", label: "Difference per unit", format: "inr", agg: "ratio", num: "profit", den: "costedUnits", def: "Average sale price − average purchase price: what we make on one unit." },
+      { key: "markupPct", label: "Markup %", format: "pct", agg: "ratio", num: "profit", den: "cost", scale: 100, def: "Difference ÷ purchase price: how much above cost we sell." },
     ],
   },
   {
