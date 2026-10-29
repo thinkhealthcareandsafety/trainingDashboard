@@ -93,7 +93,7 @@ function indexes(t: RawTables) {
   for (const s of t.salespersons ?? []) { const n = text(s["Name"]); if (n) variants.set(spell(n), [...(variants.get(spell(n)) ?? []), n]); }
   const best = (n: string) => { const vs = variants.get(spell(n)) ?? [n]; return vs.find((v) => v.split(" ").every((w) => /^[A-Z]/.test(w))) ?? vs[0]; };
   const people = new Map((t.salespersons ?? []).map((s) => { const n = text(s["Name"]); return [s["Salesperson ID"], n ? best(n) : null]; }));
-  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], { group: text(i["Item Identifier"]), category: text(i["Product Category"]), brand: text(i["Brand"]) }]));
+  const items = new Map((t.items ?? []).map((i) => [i["Item ID"], { group: text(i["Item Identifier"]), category: text(i["Product Category"]), brand: text(i["Brand"]), name: text(i["Item Name"]) }]));
   const where = (addressId: string | undefined, customerId: string) => (addressId && addr.get(addressId)) || addrByCustomer.get(customerId) || { state: null, city: null };
   const who = (customerId: string): Cust => customers.get(customerId) ?? { name: "(unknown customer)", type: null, sector: null, chain: null };
   return { who, where, people, items, byName };
@@ -363,6 +363,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
         date, invoice: text(inv["Invoice Number"]), ...customerFields(inv["Customer ID"], inv["Address ID"]),
         salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
         brand: brandOf(item?.brand ?? null, li["Item Name"]), kind: kindOf(item?.group ?? null, li["Item Name"]),
+        zohoItem: item?.name ?? text(li["Item Name"]), // the line's name is often retyped ("DDP 100" = Defibtech Pad DDP100)
         costSource: fifoCost.has(k) ? "Zoho FIFO" : avg !== null ? "Average purchase price" : "No cost in Zoho",
         amount, qty, cost, costedAmount: cost === null ? 0 : amount, costedQty: cost === null ? 0 : qty, profit: cost === null ? null : amount - cost,
       });
@@ -405,7 +406,7 @@ function purchaseRows(t: RawTables): Row[] {
     if (!date || !item) continue; // lines without an item (freight, services typed in) aren't goods we stock
     const name = text(item["Item Name"]);
     const group = text(item["Item Identifier"]);
-    out.push({ date, item: name, itemGroup: group, brand: brandOf(text(item["Brand"]), name ?? ""), kind: kindOf(group, name ?? ""), qty: money(b["Quantity"]) ?? 0, amount: money(b["Sub Total (BCY)"]) ?? 0 });
+    out.push({ date, item: name, zohoItem: name, itemGroup: group, brand: brandOf(text(item["Brand"]), name ?? ""), kind: kindOf(group, name ?? ""), qty: money(b["Quantity"]) ?? 0, amount: money(b["Sub Total (BCY)"]) ?? 0 });
   }
   return out;
 }
@@ -423,7 +424,7 @@ function stockLevelRows(t: RawTables, today: string): Row[] {
     const item = items.get(p);
     const name = text(item?.["Item Name"]) ?? "(unknown item)";
     const group = text(item?.["Item Identifier"]);
-    const base = { item: name, itemGroup: group, brand: brandOf(text(item?.["Brand"]), name), kind: kindOf(group, name) };
+    const base = { item: name, zohoItem: name, itemGroup: group, brand: brandOf(text(item?.["Brand"]), name), kind: kindOf(group, name) };
     ms.sort((a, b) => (a.d < b.d ? -1 : 1));
     let i = 0, level = 0;
     for (let m = ms[0].d.slice(0, 7); m <= today.slice(0, 7); m = nextMonth(m)) {

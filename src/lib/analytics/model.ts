@@ -229,6 +229,7 @@ export const DATASETS: Dataset[] = [
       { key: "salesperson", label: "Sales person", kind: "text" },
       { key: "item", label: "Item", kind: "text" },
       { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
+      { key: "zohoItem", label: "Zoho item", kind: "text", hint: "The item in Zoho's catalogue — invoices often retype the line's name" },
       { key: "brand", label: "Brand", kind: "text", hint: "Zoho Books item “Brand” (old Defibtech items without one: from the name)" },
       { key: "kind", label: "AED / pads / battery", kind: "text", hint: "From the item group (All AEDs, AED Pads, AED Batteries), else the name; trainers, bags and the rest = Other", order: ["AED", "Pads", "Battery", "Other"] },
       { key: "costSource", label: "Cost from", kind: "text", hint: "Zoho FIFO (stock items: the purchases the units came from) · Kit (a kit sold as one line, its parts listed at ₹0 on the same invoice: their FIFO cost) · Average purchase price (bills in the 12 months before the sale) · No cost in Zoho (kits / bundles with no bill of their own)", order: ["Zoho FIFO", "Kit (parts' FIFO cost)", "Average purchase price", "Kit part (cost on the kit)", "No cost in Zoho"] },
@@ -292,6 +293,7 @@ export const DATASETS: Dataset[] = [
     fields: [
       { ...DATE, label: "Bill date" },
       { key: "item", label: "Item", kind: "text" },
+      { key: "zohoItem", label: "Zoho item", kind: "text" },
       { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
       { key: "brand", label: "Brand", kind: "text", hint: "Zoho Books item “Brand” (old Defibtech items without one: from the name)" },
       { key: "kind", label: "AED / pads / battery", kind: "text", order: ["AED", "Pads", "Battery", "Other"] },
@@ -313,6 +315,7 @@ export const DATASETS: Dataset[] = [
     fields: [
       { ...DATE, label: "Month end" },
       { key: "item", label: "Item", kind: "text" },
+      { key: "zohoItem", label: "Zoho item", kind: "text" },
       { key: "itemGroup", label: "Item group", kind: "text", hint: "Zoho Books “Item Identifier”" },
       { key: "brand", label: "Brand", kind: "text" },
       { key: "kind", label: "AED / pads / battery", kind: "text", order: ["AED", "Pads", "Battery", "Other"] },
