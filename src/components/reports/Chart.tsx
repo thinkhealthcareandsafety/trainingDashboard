@@ -149,8 +149,12 @@ function colourMap(names: string[], dark: boolean, pal: string[]): Map<string, s
   return m;
 }
 
-export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0, target, relative }: {
+/** Lines and colours added to one chart ("Change this chart" — owner, 29 Oct, phase 4); kept with that chart's tweak. */
+export type Lines = { avg?: boolean; min?: boolean; max?: boolean; target?: number; trend?: boolean; forecast?: boolean; above?: number; below?: number };
+
+export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0, target, relative, lines }: {
   result: Result; kind: ChartKind | undefined; grain?: Grain; height?: number;
+  lines?: Lines;
   /** A goal line across a column / line chart (₹50 L a month — owner, 27 Oct); heatmap: cells at or over it ringed. */
   target?: number;
   /** Matrix: each cell also as a share of its row's first column (cohort retention). */
@@ -189,7 +193,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       }
       const c = chart.current ?? ec.init(el.current, undefined, { renderer: "canvas" });
       chart.current = c;
-      c.setOption(option(model, (k === "stacked100" ? "stacked" : k) as Drawn, readTheme(), picked ?? null, accent, target), { notMerge: true });
+      c.setOption(option(model, (k === "stacked100" ? "stacked" : k) as Drawn, readTheme(), picked ?? null, accent, target, lines, grain), { notMerge: true });
       c.off("click");
       c.on("click", (p: { dataIndex?: number; name?: string }) => {
         const key = model.keyByLabel.get(String(p.name ?? "")) ?? (p.dataIndex !== undefined ? model.x[p.dataIndex] : undefined);
@@ -199,7 +203,8 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       ro.observe(el.current);
     }).catch(() => {});
     return () => { disposed = true; ro?.disconnect(); };
-  }, [model, k, tick, picked, accent, target]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, k, tick, picked, accent, target, JSON.stringify(lines ?? null), grain]);
   useEffect(() => () => { chart.current?.dispose(); chart.current = null; }, []);
 
   if (k === "kpi") return <Kpi result={result} />;
@@ -250,6 +255,15 @@ type Model = {
   prevLabel?: string;
 };
 const PREV = "__prev";
+/** The period after a date key (month "2026-10", FY quarter "2026-Q3", FY "2026", day / week "2026-10-29"). */
+function nextKey(key: string, grain: Grain): string {
+  if (grain === "month") { const y = Number(key.slice(0, 4)), mo = Number(key.slice(5, 7)); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; }
+  if (grain === "quarter") { const [fy, q] = key.split("-Q").map(Number); return q === 4 ? `${fy + 1}-Q1` : `${fy}-Q${q + 1}`; }
+  if (grain === "fy") return String(Number(key) + 1);
+  const d = new Date(`${key}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + (grain === "week" ? 7 : 1));
+  return d.toISOString().slice(0, 10);
+}
 const twinOf = (r: Result): Model["twin"] => (!r.prevLabel ? undefined : r.prevLabel === "Last year" || r.prevLabel === "Period before" ? "time" : "group");
 
 function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Model {
@@ -292,7 +306,7 @@ function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Mod
 }
 
 type Drawn = Exclude<ChartKind, "auto" | "kpi" | "table" | "matrix">;
-function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: number, target?: number) {
+function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: number, target?: number, lines?: Lines, grain?: Grain) {
   const pal = t.palette;
   const colours = colourMap(m.series.map((s) => s.key), t.dark, pal);
   const single = m.series.length === 1;
@@ -370,11 +384,58 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
       emphasis: { focus: k === "stacked" ? "series" : "none" },
     };
   });
+  // Lines and colours someone added to this chart (owner, 29 Oct — phase 4): average / min / max / a target across
+  // the main series, bars coloured by a rule, and over dates a trend (least squares) and a straight-line forecast.
+  const main = series.findIndex((_, si) => m.series[si].key !== PREV);
+  let cats = m.xLabels;
+  if (lines && main >= 0 && k !== "stacked") {
+    const s = series[main] as Record<string, unknown>;
+    const dim = horizontal ? "x" : "y";
+    const at = (type: string, name: string) => ({ type, name, valueDim: dim });
+    const marks: object[] = [
+      ...(lines.avg ? [at("average", "Average")] : []),
+      ...(lines.min ? [at("min", "Lowest")] : []),
+      ...(lines.max ? [at("max", "Highest")] : []),
+      ...(lines.target !== undefined ? [{ [horizontal ? "xAxis" : "yAxis"]: lines.target, name: "Target" }] : []),
+    ];
+    if (marks.length) {
+      const old = (s.markLine as { data?: object[] } | undefined)?.data ?? [];
+      s.markLine = {
+        silent: true, symbol: "none", data: [...old.map((o) => ({ name: "Goal", ...o })), ...marks],
+        lineStyle: { type: "dashed", color: t.ink2, width: 1.5 },
+        label: { color: t.ink2, fontSize: 14, position: horizontal ? "end" : "insideEndTop", formatter: (p: { name?: string; value?: number }) => `${p.name ?? ""} ${fmt(p.value ?? null)}` },
+      };
+    }
+    // Over / under a value: green / red bars (the others keep their colour).
+    if ((lines.above !== undefined || lines.below !== undefined) && Array.isArray(s.data) && s.type === "bar") {
+      s.data = (s.data as { value: number | null; itemStyle: object }[]).map((d) => ({ ...d, itemStyle: { ...d.itemStyle, color: lines.above !== undefined && (d.value ?? -Infinity) >= lines.above ? t.low : lines.below !== undefined && (d.value ?? Infinity) <= lines.below ? t.high : (d.itemStyle as { color?: string }).color } }));
+    }
+    // Trend and forecast: over dates only, from at least 3 values.
+    const vals = m.series[main].values;
+    const pts = vals.map((v, i) => [i, v] as const).filter((p): p is readonly [number, number] => p[1] !== null);
+    if (m.dateX && !horizontal && (lines.trend || lines.forecast) && pts.length >= 3) {
+      const n = pts.length, sx = pts.reduce((a, p) => a + p[0], 0), sy = pts.reduce((a, p) => a + p[1], 0);
+      const sxy = pts.reduce((a, p) => a + p[0] * p[1], 0), sxx = pts.reduce((a, p) => a + p[0] * p[0], 0);
+      const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx || 1), icpt = (sy - slope * sx) / n;
+      const fit = (i: number) => Math.max(0, icpt + slope * i);
+      const dashedLine = (name: string, data: (number | null)[], colour: string) => ({ type: "line", name, data, showSymbol: false, connectNulls: false, lineStyle: { type: "dashed", width: 2, color: colour }, itemStyle: { color: colour }, tooltip: { valueFormatter: (v: unknown) => fmt(typeof v === "number" ? v : null) } });
+      if (lines.trend) series.push(dashedLine("Trend", vals.map((_, i) => fit(i)), t.ink2) as never);
+      if (lines.forecast && grain) {
+        const ahead: string[] = [];
+        let key = m.x[m.x.length - 1];
+        for (let i = 0; i < 3; i++) { key = nextKey(key, grain); ahead.push(key); }
+        cats = [...m.xLabels, ...ahead.map((x) => labelOf(x, true, grain))];
+        const last = vals.length - 1;
+        series.push(dashedLine("Forecast", [...vals.map((v, i) => (i === last ? v ?? fit(i) : null)), ...ahead.map((_, i) => fit(last + 1 + i))], t.brand) as never);
+      }
+    }
+  }
   return {
     ...base,
-    grid: { left: 8, right: horizontal ? 68 : 12, top: m.series.length > 1 ? 32 : 12, bottom: 8, containLabel: true },
-    xAxis: horizontal ? valAxis : catAxis,
-    yAxis: horizontal ? catAxis : valAxis,
+    ...(series.length > m.series.length && !base.legend ? { legend: { type: "scroll", top: 0, left: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 15 } } } : {}),
+    grid: { left: 8, right: horizontal ? 68 : 12, top: series.length > 1 ? 32 : 12, bottom: 8, containLabel: true },
+    xAxis: horizontal ? valAxis : { ...catAxis, data: cats },
+    yAxis: horizontal ? { ...catAxis, data: cats } : valAxis,
     series,
   };
 }

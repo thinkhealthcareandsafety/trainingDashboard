@@ -8,7 +8,7 @@ import { Canvas, heightOf } from "./Canvas";
 import { Library } from "./Editor";
 import { btn } from "../ui";
 import { BLANK, type Compare, type Filter, type Spec } from "@/lib/analytics/query";
-import { Chart, Kpi, downloadCsv, labelOf, resolveKind } from "./Chart";
+import { Chart, Kpi, type Lines, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
 
 /*
@@ -25,7 +25,9 @@ export type FState = Rule & { values: string[]; min?: number; max?: number };
 /** Compared with: the same days last year (default), the period before, nothing, or another group. */
 export type CompareMode = "lastYear" | "previous" | "none" | { field: string; a: string[]; b: string[] };
 /** "Change this chart" on one tile (kept in this browser). */
-type Tweak = { measure?: string; by?: string; limit?: number; grain?: Grain };
+type Tweak = { measure?: string; by?: string; limit?: number; grain?: Grain; lines?: Lines };
+/** A tweak that changes what the chart shows (not just lines on it) — then its title is made from the new shape. */
+const reshapes = (t?: Tweak) => Boolean(t && (t.measure || t.by || t.limit !== undefined || t.grain));
 /** What a saved view keeps. */
 type ViewState = { period: string; filters: Record<string, FState>; compare: CompareMode; grain?: Grain };
 type View = { name: string; state: ViewState };
@@ -756,7 +758,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
   // Analyses have a fixed shape; "what changed" can still switch its split.
   const canTweak = Boolean(onTweak) && !isKpi && tile.spec.by?.length === 1 && (!tile.spec.analysis || tile.spec.analysis === "drivers");
   // Changed here: the title says what it now shows.
-  const title = tweak ? autoTitle(spec) : spec.title ?? "";
+  const title = reshapes(tweak) ? autoTitle(spec) : spec.title ?? "";
   const items: MenuItem[] = [
     ...(canTweak ? [{ label: "Change this chart…", onClick: () => setEditing(true) }] : []),
     ...(!isKpi && ok ? [
@@ -765,7 +767,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
     ] : []),
     ...menu,
   ];
-  const sub = meta ?? (tweak ? `Changed from “${titleOf(tile.spec)}”` : !isKpi ? tile.note : undefined);
+  const sub = meta ?? (reshapes(tweak) ? `Changed from “${titleOf(tile.spec)}”` : !isKpi ? tile.note : undefined);
   return (
     <section className={`card flex min-w-0 flex-col p-5 ${fill ? "h-full overflow-hidden" : SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
@@ -782,7 +784,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
           // Nothing to draw: say so, not empty axes at ₹0 (29 Oct).
           : !isKpi && answer.rows.every((r) => r.values.every((v) => !v) && !r.prev?.some((v) => v)) ? <p className="grid h-[200px] place-items-center rounded-lg bg-surface-2/60 px-4 text-center text-[15.5px] text-muted">Nothing here for these dates and filters</p>
-          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} />}
+          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} lines={tweak?.lines} />}
       </div>
     </section>
   );
@@ -842,11 +844,34 @@ function SettingSelect({ label, value, onPick, options }: { label: string; value
 }
 
 /** Power BI's field parameters, plainly: what to measure, split by what, how many, grouped how — for this tile only. */
+/** A number for a line or a rule; empty = none. ₹ amounts in full rupees (5,00,000 = ₹5 L). */
+function NumberBox({ label, value, unit, onChange }: { label: string; value?: number; unit: string; onChange: (v: number | undefined) => void }) {
+  return (
+    <label className="flex items-center gap-1.5">
+      {label}
+      <span className="inline-flex h-8 items-center rounded-full border border-line bg-surface pl-2.5 pr-1 focus-within:border-brand">
+        {unit && <span className="text-muted">{unit}</span>}
+        <input type="number" inputMode="decimal" className="h-7 w-28 bg-transparent px-1 text-[15px] text-ink focus:outline-none" value={value ?? ""}
+          onChange={(e) => onChange(e.target.value === "" || !Number.isFinite(Number(e.target.value)) ? undefined : Number(e.target.value))} />
+      </span>
+    </label>
+  );
+}
+
 function TileSettings({ tile, spec, tweak, onChange, onClose }: { tile: Tile; spec: Spec; tweak?: Tweak; onChange: (t: Tweak | null) => void; onClose: () => void }) {
   const d = datasetOf(spec.dataset)!;
   const by = spec.by?.[0] ?? d.dateField;
   const isDate = by === d.dateField;
   const set = (patch: Tweak) => onChange({ ...tweak, ...patch });
+  const lines: Lines = tweak?.lines ?? {};
+  // Unticked / emptied ones go; nothing left = no lines (and no tweak at all if nothing else was changed).
+  const setLines = (patch: Lines) => {
+    const next = Object.fromEntries(Object.entries({ ...lines, ...patch }).filter(([, v]) => v !== undefined)) as Lines;
+    const { lines: _old, ...rest } = tweak ?? {};
+    const t: Tweak = { ...rest, ...(Object.keys(next).length ? { lines: next } : {}) };
+    onChange(Object.keys(t).length ? t : null);
+  };
+  const unit = measureOf(d, spec.measures[0])?.format === "inr" ? "₹" : "";
   return (
     <div className="mt-3 rounded-xl border border-line bg-surface-2/60 p-3" role="group" aria-label="Change this chart">
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
@@ -859,6 +884,19 @@ function TileSettings({ tile, spec, tweak, onChange, onClose }: { tile: Tile; sp
           {tweak && <button type="button" className="h-9 rounded-full px-3 text-[15.5px] font-medium text-muted hover:bg-surface hover:text-ink" onClick={() => onChange(null)}>Reset</button>}
           <button type="button" className="h-9 rounded-full bg-surface px-4 text-[15.5px] font-semibold text-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] hover:bg-line" onClick={onClose}>Done</button>
         </div>
+      </div>
+      {/* Phase 4 (owner, 29 Oct): lines across the chart and colours by a rule — for this chart, in this browser. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3 text-[15px] text-ink-2">
+        <span className="font-semibold text-muted">Lines</span>
+        {([["avg", "Average"], ["min", "Lowest"], ["max", "Highest"], ...(isDate ? [["trend", "Trend"], ["forecast", "Forecast (next 3)"]] : [])] as [keyof Lines, string][]).map(([key, label]) => (
+          <label key={key} className="flex cursor-pointer items-center gap-1.5">
+            <input type="checkbox" className="size-4 accent-[var(--brand)]" checked={Boolean(lines[key])} onChange={(e) => setLines({ [key]: e.target.checked || undefined })} />
+            {label}
+          </label>
+        ))}
+        <NumberBox label="Target line" value={lines.target} unit={unit} onChange={(v) => setLines({ target: v })} />
+        <NumberBox label="Green at or over" value={lines.above} unit={unit} onChange={(v) => setLines({ above: v })} />
+        <NumberBox label="Red at or under" value={lines.below} unit={unit} onChange={(v) => setLines({ below: v })} />
       </div>
       <p className="mt-2 text-[14px] text-faint">Only this chart, only for you (kept in this browser). Reset brings back “{titleOf(tile.spec)}”.</p>
     </div>
