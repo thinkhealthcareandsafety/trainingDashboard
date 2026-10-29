@@ -23,7 +23,7 @@ export type CompareMode = "lastYear" | "previous" | "none" | { field: string; a:
 /** "Change this chart" on one tile (kept in this browser). */
 type Tweak = { measure?: string; by?: string; limit?: number; grain?: Grain };
 /** What a saved view keeps. */
-type ViewState = { period: string; filters: Record<string, FState>; compare: CompareMode };
+type ViewState = { period: string; filters: Record<string, FState>; compare: CompareMode; grain?: Grain };
 type View = { name: string; state: ViewState };
 
 const fActive = (f?: FState) => Boolean(f && (f.values.length || f.contains?.trim() || f.min !== undefined || f.max !== undefined));
@@ -46,7 +46,11 @@ export function tweaked(tile: Tile, tweak?: Tweak): Spec {
 export function compose(tile: Tile, today: string, periodKey: string, filters: Record<string, FState>, pick: Pick | null, compare: CompareMode = "previous", tweak?: Tweak, grain?: Grain): Spec {
   let base = tweaked(tile, tweak);
   const d = datasetOf(base.dataset)!;
-  if (grain && !tile.fixedGrain && base.by?.[0] === d.dateField) base = { ...base, grain };
+  // Show-by (owner, 29 Oct) reaches every time chart but the goal ones (the goal is monthly) — and the title follows it.
+  if (grain && !tile.fixedGrain && !tile.goalLine && base.by?.[0] === d.dateField && grain !== base.grain) {
+    const word = { day: "day", week: "week", month: "month", quarter: "quarter", fy: "year" }[grain];
+    base = { ...base, grain, title: base.title?.includes("{grain}") ? base.title : base.title?.replace(/(month|quarter)/, word) };
+  }
   if (base.title?.includes("{grain}")) base = { ...base, title: titleOf(base) };
   const has = (f: string) => Boolean(fieldOf(d, f));
   const isRange = (f: string) => Boolean(d.ranges?.some((r) => r.key === f));
@@ -106,12 +110,18 @@ function pagesOf(tiles: Tile[]): Page[] {
 }
 const readPage = (id: string) => { try { return Number(localStorage.getItem(`th.reports.page.${id}`)) || 0; } catch { return 0; } };
 
+/** What a tab was left on (owner, 29 Oct: filters vanished on changing tab) — this browser only, like the page. */
+const readState = (def: DashboardDef): ViewState => {
+  const start: ViewState = { period: def.period, filters: { ...def.start }, compare: "lastYear", grain: def.grains };
+  try { return { ...start, ...JSON.parse(localStorage.getItem(`th.reports.state.${def.id}`) || "{}") }; } catch { return start; }
+};
+
 /** `tools`: extra buttons at the right end of the toolbar (My dashboard: Customise). */
 export function DashboardView({ def, today, tools }: { def: DashboardDef; today: string; tools?: React.ReactNode }) {
-  const [period, setPeriod] = useState(def.period);
-  const [filters, setFilters] = useState<Record<string, FState>>(() => ({ ...def.start }));
-  const [compare, setCompare] = useState<CompareMode>("lastYear");
-  const [grain, setGrain] = useState<Grain | undefined>(def.grains);
+  const [period, setPeriod] = useState(() => readState(def).period);
+  const [filters, setFilters] = useState<Record<string, FState>>(() => readState(def).filters);
+  const [compare, setCompare] = useState<CompareMode>(() => readState(def).compare);
+  const [grain, setGrain] = useState<Grain | undefined>(() => readState(def).grain);
   const [pick, setPick] = useState<Pick | null>(null);
   const [tweaks, setTweaks] = useState<Record<string, Tweak>>(() => readTweaks(def.id));
   // Each tile's last answer and the exact query it answers — kept when you change page, so going back costs nothing.
@@ -124,7 +134,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
   const [goal, setGoal] = useState<number | undefined>();
   useEffect(() => { if (def.tiles.some((t) => t.goalLine)) fetch("/api/analytics/goal").then((r) => r.json()).then((g) => setGoal(typeof g.monthly === "number" ? g.monthly : undefined)).catch(() => {}); }, [def]);
-  useEffect(() => { setPeriod(def.period); setFilters({ ...def.start }); setCompare("lastYear"); setGrain(def.grains); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
+  useEffect(() => { const st = readState(def); setPeriod(st.period); setFilters(st.filters); setCompare(st.compare); setGrain(st.grain); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
 
   // "All time" has no period before it — comparing would quietly do nothing, so it's off (and the menu hidden).
@@ -201,7 +211,8 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
     if (pick && pick.tileId !== t.id && pick.field !== "date" && !fieldOf(d, pick.field)) out.push(`“${pick.label}”`);
     return out;
   };
-  const viewState: ViewState = { period, filters, compare };
+  const viewState: ViewState = { period, filters, compare, grain };
+  useEffect(() => { try { localStorage.setItem(`th.reports.state.${def.id}`, JSON.stringify({ period, filters, compare, grain })); } catch {} }, [def.id, period, filters, compare, grain]);
 
   return (
     <div>
@@ -209,13 +220,13 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
         <PeriodSelect today={today} value={period} onChange={setPeriod} />
         {/* A dashboard that never compares (Defibtech) doesn't offer it. */}
         {def.tiles.some((t) => !t.noCompare) && period !== "all" && <CompareControl def={def} value={compare} onChange={setCompare} datasetOf={firstDatasetWith} />}
-        {def.grains && grain && <GrainSwitch value={grain} onChange={(g) => { setGrain(g); setPick(null); }} />}
+        {def.tiles.some((t) => t.spec.by?.[0] === datasetOf(t.spec.dataset)?.dateField && !t.fixedGrain && !t.goalLine) && <GrainSwitch value={grain} onChange={(g) => { setGrain(g); setPick(null); }} />}
         <FiltersButton count={chosen.length}>
           {def.filters.map((f) => f.range
             ? <RangeControl key={f.field} label={f.label} value={filters[f.field]} onChange={(min, max) => setF(f.field, { min, max })} />
             : <FilterControl key={f.field} dataset={firstDatasetWith(f.field)} field={f.field} label={f.label} state={filters[f.field]} onChange={(patch) => setF(f.field, patch)} />)}
         </FiltersButton>
-        <ViewsButton dash={def.id} current={viewState} onApply={(v) => { setPeriod(v.period); setFilters(v.filters ?? {}); setCompare(v.compare ?? "lastYear"); setPick(null); }} />
+        <ViewsButton dash={def.id} current={viewState} onApply={(v) => { setPeriod(v.period); setFilters(v.filters ?? {}); setCompare(v.compare ?? "lastYear"); setGrain(v.grain ?? def.grains); setPick(null); }} />
         {/* What's active, one chip each — × removes it. */}
         {chosen.map((f) => (
           <Chip key={f.field} onClear={() => setFilters((s) => { const n = { ...s }; delete n[f.field]; return n; })} title={filters[f.field].values.join(", ")}>
@@ -287,13 +298,13 @@ function chipText(f: DashFilter, s: FState): string {
 }
 
 /** "Show by Week | Month | Quarter | Year" (owner, 29 Oct) — regroups every time chart on the dashboard. */
-function GrainSwitch({ value, onChange }: { value: Grain; onChange: (g: Grain) => void }) {
-  const opts: [Grain, string][] = [["week", "Week"], ["month", "Month"], ["quarter", "Quarter"], ["fy", "Year"]];
+function GrainSwitch({ value, onChange }: { value?: Grain; onChange: (g: Grain | undefined) => void }) {
+  const opts: [Grain | undefined, string][] = [[undefined, "As set"], ["week", "Week"], ["month", "Month"], ["quarter", "Quarter"], ["fy", "Year"]];
   return (
     <div className="inline-flex h-10 items-center rounded-full border border-line bg-surface p-0.5" role="group" aria-label="Show by">
       <span className="px-3 text-[15px] text-muted">Show by</span>
       {opts.map(([g, label]) => (
-        <button key={g} type="button" aria-pressed={value === g} onClick={() => onChange(g)} title={g === "fy" ? "Financial year (April–March)" : undefined}
+        <button key={g ?? "auto"} type="button" aria-pressed={value === g} hidden={g === undefined && value === undefined} onClick={() => onChange(g)} title={g === "fy" ? "Financial year (April–March)" : g === undefined ? "Each chart as the dashboard has it" : undefined}
           className={`h-full rounded-full px-3.5 text-[15.5px] font-medium transition ${value === g ? "bg-brand-soft text-ink" : "text-muted hover:text-ink"}`}>{label}</button>
       ))}
     </div>
