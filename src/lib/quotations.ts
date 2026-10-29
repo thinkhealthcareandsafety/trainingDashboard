@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { clientOf, tokenRequest } from "./zohoOAuth";
+import { fromGstin, gstTreatment } from "./gstin";
 
 /*
  * Quotations (owner, 28 Oct: "all of our contacts are here, we need to click one time and a quotation is sent through
@@ -88,20 +89,26 @@ export const CUSTOMER_FIELDS = {
   sector: { id: "982417000011023041", label: "Sector", options: ["Traders", "Tourism & Hospitality", "Aviation", "School & College", "Automobile", "Manufacturing", "IT", "Energy & Power", "Real Estate", "Construction & Infrastructure", "Banking", "Merchant Navy", "Healthcare & Life Sciences", "Telecommunications", "Defence", "Media house", "Transportation", "Sports & Recreational", "NGO"] },
 } as const;
 
-export type NewCustomer = { company: string; firstName: string; lastName: string; email: string; phone?: string; state: string; city?: string; gstin?: string; type: string; sector: string };
+export type NewCustomer = {
+  /** Zoho's Customer Type: a business (default) or an individual. */
+  kind: "business" | "individual";
+  company: string; displayName: string; salutation?: string; firstName: string; lastName: string; email: string; phone?: string; workPhone?: string;
+  state: string; street?: string; city?: string; zip?: string; gstin?: string; type: string; sector: string;
+};
 
 /**
- * A new customer in Zoho Books (from "New quotation"), with its contact person as primary. GST: with a GSTIN it's a
- * registered business, without one unregistered; the state decides CGST + SGST or IGST (place of supply).
+ * A new customer in Zoho Books (from "New quotation"), with its contact person as primary — every field Zoho's own
+ * "New Customer" form requires (#150 step 2). The state decides CGST + SGST or IGST (place of supply).
  */
 export async function createCustomer(n: NewCustomer & { stateName: string }): Promise<{ id: string; name: string }> {
   const c = await (await kv()).findOne({ _id: KEY });
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const address = { attention: `${n.firstName} ${n.lastName}`, address: n.street ?? "", city: n.city ?? "", zip: n.zip ?? "", state: n.stateName, country: "India" };
   const j = await books(c, "POST", "/contacts", {}, {
-    contact_name: n.company, company_name: n.company, contact_type: "customer",
-    gst_treatment: n.gstin ? "business_gst" : "business_none", ...(n.gstin ? { gst_no: n.gstin } : {}), place_of_contact: n.state,
-    billing_address: { city: n.city ?? "", state: n.stateName, country: "India" }, shipping_address: { city: n.city ?? "", state: n.stateName, country: "India" },
-    contact_persons: [{ first_name: n.firstName, last_name: n.lastName, email: n.email, mobile: n.phone ?? "", is_primary_contact: true }],
+    contact_name: n.displayName, company_name: n.company, contact_type: "customer", customer_sub_type: n.kind,
+    gst_treatment: gstTreatment(n), ...(n.gstin ? { gst_no: n.gstin, pan_no: fromGstin(n.gstin).pan } : {}), place_of_contact: n.state,
+    billing_address: address, shipping_address: address,
+    contact_persons: [{ salutation: n.salutation ?? "", first_name: n.firstName, last_name: n.lastName, email: n.email, mobile: n.phone ?? "", phone: n.workPhone ?? "", is_primary_contact: true }],
     custom_fields: [{ customfield_id: CUSTOMER_FIELDS.type.id, value: n.type }, { customfield_id: CUSTOMER_FIELDS.sector.id, value: n.sector }],
   }).catch((e: Error) => {
     throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs one more permission for new customers — Admin: Reconnect on the Quotations page") : e;

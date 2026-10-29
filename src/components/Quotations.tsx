@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { celebrate } from "@/lib/confetti";
 import { useStore } from "@/lib/store";
+import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 
 /*
@@ -613,7 +614,13 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
   const [tab, setTab] = useState<"find" | "new">("find");
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Customer[]>([]);
-  const [n, setN] = useState({ company: "", firstName: "", lastName: "", email: "", phone: "", state: "MH", city: "", gstin: "", type: "New Customer", sector: "" });
+  const [n, setN] = useState({ kind: "business" as "business" | "individual", company: "", displayName: "", salutation: "", firstName: "", lastName: "", email: "", phone: "", workPhone: "", state: "MH", street: "", city: "", zip: "", gstin: "", type: "New Customer", sector: "" });
+  const [more, setMore] = useState(false);
+  // A whole GSTIN decides the state, PAN and GST treatment (gstin.ts) — the state picker follows it.
+  const gst = GSTIN_RE.test(n.gstin) ? fromGstin(n.gstin) : null;
+  const stateCode = gst?.state ?? n.state;
+  const treatment = gstTreatment({ kind: n.kind, gstin: gst ? n.gstin : undefined });
+  const displayDefault = n.kind === "individual" ? `${n.firstName} ${n.lastName}`.trim() : n.company.trim();
   const [state, setState] = useState<{ busy?: boolean; error?: string }>({});
   useEffect(() => {
     if (tab !== "find") return;
@@ -623,7 +630,7 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
   }, [q, tab]);
   const create = async () => {
     setState({ busy: true });
-    const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ newCustomer: n }) }).catch(() => null);
+    const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ newCustomer: { ...n, state: stateCode } }) }).catch(() => null);
     const j = r ? ((await r.json()) as { ok?: boolean; error?: string; customer?: { id: string; name: string } }) : { error: "Couldn't reach the server" };
     if (!j.ok || !j.customer) return setState({ error: j.error ?? "Couldn't create the customer" });
     onPick({ id: j.customer.id, name: j.customer.name, email: n.email, phone: n.phone || null, sector: n.sector, type: n.type, lastQuote: null, lastInvoice: null });
@@ -632,18 +639,18 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
     <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">{label}</span>
       <input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={n[k]} onChange={(e) => setN((x) => ({ ...x, [k]: e.target.value }))} {...extra} /></label>
   );
-  const pick = (k: "type" | "sector" | "state", label: React.ReactNode, opts: [string, string][], blank?: string) => (
+  const pick = (k: "type" | "sector" | "state" | "salutation", label: React.ReactNode, opts: [string, string][], blank?: string, locked?: boolean) => (
     <label className="block"><span className="text-[12.5px] font-bold uppercase tracking-wide text-muted">{label}</span>
-      <select className={`select-chevron ${inputCls} mt-1 !h-10 text-[14.5px]`} value={n[k]} onChange={(e) => setN((x) => ({ ...x, [k]: e.target.value }))}>
+      <select className={`select-chevron ${inputCls} mt-1 !h-10 text-[14.5px] disabled:opacity-70`} value={k === "state" ? stateCode : n[k]} disabled={locked} onChange={(e) => setN((x) => ({ ...x, [k]: e.target.value }))}>
         {blank && <option value="" disabled>{blank}</option>}
         {opts.map(([v, name]) => <option key={v} value={v}>{name}</option>)}
       </select></label>
   );
   // Zoho refuses a customer without Type and Sector, and its CRM sync needs a last name (#151).
-  const ready = n.company.trim() && n.firstName.trim() && n.lastName.trim() && n.email.trim() && n.sector;
+  const ready = (n.kind === "individual" || n.company.trim()) && n.firstName.trim() && n.lastName.trim() && n.email.trim() && n.sector && (!n.gstin || gst?.state);
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={onClose}>
-      <div role="dialog" aria-label="New quotation" className="modal-in flex max-h-[94vh] w-full min-w-0 max-w-2xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label="New quotation" className="modal-in flex max-h-[94vh] w-full min-w-0 max-w-2xl lg:max-w-4xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 pt-5">
           <div>
             <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">New quotation</p>
@@ -669,18 +676,35 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
               <p className="mt-3 text-[13.5px] text-muted">Not in Zoho yet? <button className="font-semibold text-brand hover:underline" onClick={() => { setTab("new"); setN((x) => ({ ...x, company: x.company || q })); }}>Add them as a new customer</button>.</p>
             </>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">{field("company", "Company *", { autoFocus: true, maxLength: 200 })}</div>
+            // One screen with what Zoho's "New Customer" requires (#150 step 2); the rarely used fields behind "More".
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex gap-1 sm:col-span-2 lg:col-span-3" role="radiogroup" aria-label="Customer type">
+                {(["business", "individual"] as const).map((k) => <button key={k} role="radio" aria-checked={n.kind === k} className={`rounded-full px-3 py-1 text-[13.5px] font-medium ${n.kind === k ? "bg-ink text-surface" : "bg-surface-2 text-ink-2"}`} onClick={() => setN((x) => ({ ...x, kind: k }))}>{k === "business" ? "Business" : "Individual"}</button>)}
+              </div>
+              <div className="sm:col-span-2 lg:col-span-3">
+                {field("gstin", "GSTIN (if registered)", { maxLength: 15, placeholder: "27ABCDE1234F1Z5", autoFocus: true, onChange: (e) => setN((x) => ({ ...x, gstin: e.target.value.toUpperCase().replace(/\s/g, "") })) })}
+                {n.gstin && <p className={`mt-1 text-[13px] ${gst?.state ? "text-muted" : "text-high"}`}>{!gst ? "A GSTIN has 15 characters, like 27ABCDE1234F1Z5" : !gst.state ? "Its first two digits aren't a state code" : `${res.states.find(([c]) => c === gst.state)?.[1]} · PAN ${gst.pan}`}</p>}
+              </div>
+              {n.kind === "business" && field("company", "Company *", { maxLength: 200 })}
+              {field("displayName", "Display name *", { maxLength: 200, placeholder: displayDefault || "As it shows in Zoho" })}
               {field("firstName", "Contact first name *", { maxLength: 100 })}
               {field("lastName", "Last name *", { maxLength: 100 })}
               {field("email", "Email *", { type: "email", maxLength: 200 })}
               {field("phone", "Mobile", { type: "tel", maxLength: 30 })}
               {pick("type", "Type *", res.customerTypes.map((t) => [t, t]))}
               {pick("sector", "Sector *", res.customerSectors.map((t) => [t, t]), "Pick the sector…")}
-              {pick("state", <>State * <span className="normal-case tracking-normal">(decides the GST)</span></>, res.states)}
+              {pick("state", <>State * <span className="normal-case tracking-normal">{gst?.state ? "(from the GSTIN)" : "(decides the GST)"}</span></>, res.states, undefined, Boolean(gst?.state))}
               {field("city", "City", { maxLength: 100 })}
-              <div className="sm:col-span-2">{field("gstin", "GSTIN (if registered)", { maxLength: 15, placeholder: "27ABCDE1234F1Z5" })}</div>
-              <p className="text-[13px] text-muted sm:col-span-2">The customer is created in Zoho Books with this contact as primary, then the quotation opens.{res.connected && !res.connected.newCustomers && <b className="text-medium"> Zoho Books needs one more permission for this — Admin: Reconnect on this page first.</b>}</p>
+              {more ? (
+                <>
+                  {pick("salutation", "Salutation", [["", "—"], ...["Mr.", "Mrs.", "Ms.", "Miss", "Dr."].map((x): [string, string] => [x, x])])}
+                  {field("workPhone", "Work phone", { type: "tel", maxLength: 30 })}
+                  {field("street", "Street address", { maxLength: 200 })}
+                  {field("zip", "PIN code", { inputMode: "numeric", maxLength: 6 })}
+                </>
+              ) : <button className="justify-self-start text-[13.5px] font-semibold text-brand hover:underline sm:col-span-2 lg:col-span-3" onClick={() => setMore(true)}>More: salutation, work phone, address ▾</button>}
+              <p className="text-[13px] text-muted sm:col-span-2 lg:col-span-3">GST treatment: <b className="font-semibold text-ink-2">{GST_LABEL[treatment]}</b> · Tax: Taxable · Display name: <b className="font-semibold text-ink-2">{n.displayName.trim() || displayDefault || "—"}</b></p>
+              <p className="text-[13px] text-muted sm:col-span-2 lg:col-span-3">The customer is created in Zoho Books with this contact as primary, then the quotation opens.{res.connected && !res.connected.newCustomers && <b className="text-medium"> Zoho Books needs one more permission for this — Admin: Reconnect on this page first.</b>}</p>
             </div>
           )}
         </div>

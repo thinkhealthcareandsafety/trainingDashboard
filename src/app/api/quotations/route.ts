@@ -5,6 +5,7 @@ import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, itemGst, itemImage, zohoGet } from "@/lib/zoho";
+import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, quotesInfo } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 
@@ -262,23 +263,34 @@ export async function POST(request: Request) {
 /** "New quotation" → a new customer in Zoho Books (checked here; one already in Zoho by that name is refused). */
 async function newCustomer(n: Partial<NewCustomer>): Promise<Response> {
   const s = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
-  const company = s(n.company, 200), firstName = s(n.firstName, 100), lastName = s(n.lastName, 100), email = s(n.email, 200).toLowerCase(), gstin = s(n.gstin, 15).toUpperCase();
-  const state = INDIA_STATES.find(([code]) => code === n.state);
+  const kind = n.kind === "individual" ? "individual" : "business";
+  const firstName = s(n.firstName, 100), lastName = s(n.lastName, 100), email = s(n.email, 200).toLowerCase(), gstin = s(n.gstin, 15).toUpperCase();
+  // A person's display name is their own unless one is typed; a business's is its company name (Zoho: Display Name*).
+  const company = s(n.company, 200), displayName = s(n.displayName, 200) || (kind === "individual" ? `${firstName} ${lastName}`.trim() : company);
+  // With a GSTIN its first two digits are the state (and decide the GST), whatever was picked.
+  const state = INDIA_STATES.find(([code]) => code === (gstin ? fromGstin(gstin).state : n.state));
   // Zoho's mandatory Type (default New Customer) and Sector, and the Last Name its CRM sync needs (#151).
   const type = (CUSTOMER_FIELDS.type.options as readonly string[]).includes(n.type ?? "") ? n.type! : "New Customer";
   const sector = (CUSTOMER_FIELDS.sector.options as readonly string[]).find((x) => x === n.sector);
-  if (company.length < 2) return Response.json({ error: "Type the company's name" }, { status: 400 });
+  const salutation = ["Mr.", "Mrs.", "Ms.", "Miss", "Dr."].includes(n.salutation ?? "") ? n.salutation : undefined;
+  if (kind === "business" && company.length < 2) return Response.json({ error: "Type the company's name" }, { status: 400 });
   if (!firstName) return Response.json({ error: "Type the contact person's name" }, { status: 400 });
   if (!lastName) return Response.json({ error: "Type the contact's last name (Zoho needs it to sync with CRM)" }, { status: 400 });
+  if (displayName.length < 2) return Response.json({ error: "Type the display name" }, { status: 400 });
   if (!sector) return Response.json({ error: "Pick the sector" }, { status: 400 });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "That email doesn't look right" }, { status: 400 });
-  if (!state) return Response.json({ error: "Pick the state (it decides the GST)" }, { status: 400 });
-  if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/.test(gstin)) return Response.json({ error: "That GSTIN doesn't look right (15 characters)" }, { status: 400 });
+  if (gstin && !GSTIN_RE.test(gstin)) return Response.json({ error: "That GSTIN doesn't look right (15 characters)" }, { status: 400 });
+  if (!state) return Response.json({ error: gstin ? "That GSTIN's state code (its first two digits) isn't a state" : "Pick the state (it decides the GST)" }, { status: 400 });
+  const zip = s(n.zip, 6);
+  if (zip && !/^\d{6}$/.test(zip)) return Response.json({ error: "The PIN code has 6 digits" }, { status: 400 });
   try {
     const { docs } = await readAll<ZohoLead>("zohoCustomers");
-    const same = docs.find((c) => nameKey(c.name) === nameKey(company));
+    const same = docs.find((c) => nameKey(c.name) === nameKey(displayName));
     if (same) return Response.json({ error: `${same.name} is already in Zoho Books — pick it from the list`, existing: same.contactId }, { status: 409 });
-    const made = await createCustomer({ company, firstName, lastName, email, phone: s(n.phone, 30), state: state[0], stateName: state[1], city: s(n.city, 100), gstin: gstin || undefined, type, sector });
+    const made = await createCustomer({
+      kind, company, displayName, salutation, firstName, lastName, email, phone: s(n.phone, 30), workPhone: s(n.workPhone, 30),
+      state: state[0], stateName: state[1], street: s(n.street, 200), city: s(n.city, 100), zip, gstin: gstin || undefined, type, sector,
+    });
     return Response.json({ ok: true, customer: made });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't create the customer" }, { status: 502 });

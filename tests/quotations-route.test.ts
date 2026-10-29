@@ -31,3 +31,10 @@ test("with everything Zoho needs it goes on to Zoho (here: not connected, so not
   assert.equal(r.s, 502);
   assert.match(r.j.error, /isn't connected/);
 });
+
+test("an individual needs no company; a bad GSTIN state or PIN is refused", async () => {
+  assert.equal((await create({ ...good, kind: "individual", company: "" })).s, 502); // passed the checks
+  assert.equal((await create({ ...good, company: "" })).s, 400); // a business does
+  assert.match((await create({ ...good, gstin: "99ABCDE1234F1Z5" })).j.error, /state code/);
+  assert.match((await create({ ...good, zip: "4000" })).j.error, /PIN/);
+});
