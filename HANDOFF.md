@@ -1,11 +1,11 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Wed 28 Oct 2026, end of session 16. **Live = `207d0d5`** (both addresses) — **everything is pushed**;
+_Last updated: Thu 29 Oct 2026, end of session 17. **Live = `a3275dd`** (both addresses) — **everything is pushed**;
 the only commit after it is this docs update. Written for the next Claude Code session (and the owner,
 sshah@thinkhealth.in)._
 
 Read this end to end before touching code. It records:
-- what the owner asked for (every prompt, all sixteen sessions — §5);
+- what the owner asked for (every prompt, all seventeen sessions — §5);
 - the business rules that came out of it, and how the code works **now**;
 - what was verified, and what is still open.
 
@@ -13,44 +13,63 @@ Read this end to end before touching code. It records:
 
 Plans:
 - `ANALYTICS-PLAN.md` — Reports. **§11 = the advanced-reports plan** (27 report ideas, the owner's decisions, build
-  order, status line at the top). **All of §11 is built and live** except the three ⚠ reports (#25 margin, #26 freight,
-  #27 stock — need new Zoho Analytics tables; questions in §10 #143). §3 "Reports — session 15" and "Reports +
+  order, status line at the top). **All of §11 is built and live**, the three ⚠ reports too (#25 margin, #26 freight,
+  #27 stock — built in session 17 from new Zoho Analytics tables). §3 "Reports — session 15" and "Reports +
   database — session 16" describe the code.
 - `ANALYTICS-SCHEMA.md` — every Zoho Analytics table / column.
 - `PROGRESS-TRACKER-PLAN.md` — the Progress tracker, built in session 14 (§3 "Progress tracker").
 - `MONDAY-PLAN.md` — the older backlog; "My day" is now largely covered by the tracker's Everyone's to-do, and renewals
   are still waiting.
 
-**Start of the next session — do these first (details in §3 "Reports + database — session 16" and §10 #141–#149):**
-1. **`git status` / `git log -3` / `git ls-remote origin master`.** Expected: GitHub = live = `207d0d5` (or the docs
-   commit right after it, if the owner said "push"); nothing else local except this session's scratch files.
-2. **Database health first (new, session 16).** The Atlas cluster (Cluster0) is the **free M0 tier: 10 GB out per
-   rolling 7 days**, then Atlas slows it to **~90 KB/s** and pauses each new connection. On 27 Oct it was throttled —
-   Reports took 2 min / timed out, boards were slow. Session 16 cut the traffic (§3 "Reports + database"); by
-   **28 Oct 08:30 it was back to 4–8 MB/s** and live Reports answered in ~4.7 s cold / < 1 s warm.
-   - Check read speed with the §9 #18 script (`speed.cjs`): 4–8 MB/s = fine; ~90 KB/s = throttled again.
-   - If throttled again: something new is re-reading whole collections — find it (bytes per call × how often) before
-     anything else. Never add a poll that reads a whole collection; use `readAll` (`src/lib/cachedRead.ts`).
-3. **Morning checks as usual** (git, live JS, Progress tracker, Sync log, Reports copy). 28 Oct: Sync log clean (last
-   evening 6:13 pm manual full sync ok, 8:28 am today ok); 1 tracker request (resolved); 936 change-log entries;
-   `reportPrefs` 0 docs (nobody has customised My dashboard yet), 0 saved reports.
-4. **The goal is now ₹60 L** (kv `reports_goal.monthly` = 6000000, set by Admin on the evening of 27 Oct — the
-   owner's own ✎ most likely). Mention it in one line; don't change it.
-5. **Waiting on the owner (ask, with the defaults already proposed):**
-   - The three ⚠ reports (ANALYTICS-PLAN §11 #25–#27) — the question list is in §10 #143. "yessir" = all defaults.
-   - ₹11 Cr of quotes over 90 days old still "open" in Zoho (#132); ₹30 L of the overdue on Sumit's accounts (#133);
-     the segment rules are my proposal (#136); count customers by `nameKey` (#131).
-   - Feedback on My dashboard and the new **pages** in Reports (both live since 27 Oct evening).
-6. **Pushing:** from the **Bash tool (Git Bash)**: `timeout 170 git push origin master` (PowerShell can't sign in).
-   The auto-mode classifier **refuses a push the owner didn't ask for in their latest message** ("Production Deploy")
-   — a "push it" covers the commits that existed when they said it; a fix made afterwards needs a new "push it".
-   Commit messages go in a file (`git commit -F`). §11 checklist every time.
-7. **Older items still open** (check only if relevant): Tata Motors Pune AED marked "Training not required" by
-   Priyanka on 26 Oct (unconfirmed whether intended); Diana Builwell W Goa (21 Oct) / Sierragold Heights (22 Oct)
-   were still "Mark completed or postpone" on 27 Oct; Zoho Analytics → Books sync interval; Progress tracker is a
-   "separate idea that may be removed later" (§10 #119 has the revert order).
-8. **Still owner-side:** `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic Citi test rows in the master sheet,
-   Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41).
+**Start of the next session (18) — do these first:**
+1. **`git status` / `git log -3` / `git ls-remote origin master`.** Expected: GitHub = live = `a3275dd` (or the docs
+   commit right after it, if the owner said "push"); nothing else local except scratch files.
+2. **Database speed** with the §9 #18 script (`speed.cjs`): 4–8 MB/s = fine; ~90 KB/s = Atlas throttled again (§3
+   "Reports + database — session 16").
+3. **Sync log** — the first scheduled syncs since the functions moved to **Mumbai (`bom1`, `vercel.json`, 28 Oct)**:
+   the 9 am and 2 pm full syncs on 29 Oct should be "ok". If a cron failed, check Vercel's cron logs first (region
+   change), then the Sync log row.
+4. **Two connections Admin may still have to redo** (both owner-side, both have buttons now):
+   - **Quotations → Reconnect** with the new scope line (it now ends in `ZohoBooks.contacts.CREATE`). Check:
+     `GET /api/quotations` → `connected.newCustomers` must be `true` before "New customer" can work.
+   - **Master certificate sheet** — Zoho refused its 12 Oct sign-in on 28 Oct ("invalid_code" on refresh). Check:
+     `GET /api/sheet?check=1` → an `error` field = still broken. Fix: Generate certificates → "Reconnect sheet"
+     (beside "Replace designs", Admin) → new code as digital@thinkhealth.in, scope `ZohoSheet.dataAPI.READ,ZohoSheet.dataAPI.UPDATE`.
+5. **Has a real quotation been made from the page yet?** Read `quotationsSent` (read-only). If one exists, open it in
+   Zoho (Books connector `get_estimate`) and check: Send to CRM / Reminder Frequency / Reminder Date / Product Type /
+   Deal Name landed, GST and total match the popup, notes + terms present, sales person right. Nobody had made one by
+   the end of 28 Oct (Vaibhav was trying the popup on "Test By Vaibhav").
+6. **The owner's next task is §10 #150** (quotation flow "like Zoho Books but better": customer creation with Zoho's
+   mandatory fields → quote right after; download the PDF; an email step with the PDF attached + extra attachments).
+   The owner will paste the Zoho "New Customer" screenshot again. **Restate #150 in numbered steps with the defaults
+   written there, wait for "yeah", then build** (§11 #2). **#151 (new customers are missing Zoho's two mandatory
+   custom fields) is a real bug in what's live — fix it as step 1 of #150.**
+7. **Pushing:** from the **Bash tool (Git Bash)**: `git push origin master` (PowerShell can't sign in). Push only when
+   the owner's latest message says so ("push it to github"); a fix made after their "push it" needs a new one.
+   Commit messages via `git commit -F` / `-m`. §11 checklist every time (tsc, `next build`, `scan.cjs`, browser check).
+   The owner is short on credits: when they say "push it … immediately", do build + scan + push in one step and
+   report in a few lines.
+8. **Waiting on the owner** (ask only if relevant): which Reports filter "didn't change the reports" (§10 #159 —
+   verified working on the server); the two accepted-but-unbuilt defaults (#160); Tata Motors Pune AED "Training not
+   required" (26 Oct); Diana Builwell W Goa / Sierragold Heights still "Mark completed or postpone".
+9. **Still owner-side:** `CRON_SECRET` GitHub secret, reconnect **hello@**, 4 Classic Citi test rows in the master
+   sheet, Zoho Mail forwarding filter (#25), real gratitude wording (#29), JW Sahar's 20 rows (#41).
+
+**Session 17 in one paragraph (28 Oct, one long day):**
+- **Reports:** the three ⚠ reports are built and live — Stock now (Products tab), Freight and Gross margin (new Margin
+  tab, Admin only); the Zoho Analytics refresh copies tables in turns (fits Vercel's 120 s); bigger text and charts
+  in the page's font (they were drawing at 10 px); an answer cache (browser 10 min, server); Key numbers now also
+  shows the tab's first two charts.
+- **Speed:** Vercel functions moved from Washington (iad1) to **Mumbai (bom1)** next to Atlas and Zoho — warm calls
+  650 → 78 ms. Every page uses the whole window when zoomed out.
+- **AedSmartx:** "Mark email sent" for Priyanka's emails sent from Zoho Mail directly (counts +1, Undo).
+- **Quotations (new page, under Overview; Admin, Ashish, Shikha, Sumit):** every Zoho customer; a popup like Zoho's
+  quote form (mandatory Send to CRM + Reminder Frequency, sales person, product type from the items, deal name,
+  stock + GST per item, totals worked out like Zoho, notes + terms); "Browse items" catalogue with Zoho's item
+  pictures; "+ New quotation" (from scratch, or a new customer created in Zoho first). Its own Zoho connection
+  (the only one that writes to Zoho Books). **Not one real quote made through it yet.**
+- **Certificates:** a Reconnect path for the master sheet when Zoho drops its sign-in.
+- **Overview:** bars and lines in the theme's Reports colours.
 
 **Session 16 in one paragraph (27–28 Oct):**
 - **Checks:** clean (GitHub = live `7814162`; Sync log ok; 0 open tracker requests).
@@ -817,6 +836,47 @@ Generate popup + flower loader, Connect sheet popup, Upload designs popup), `Ful
     out" on that server); `serverSelectionTimeoutMS` 20 s, `maxPoolSize` 10.
   - Wire compression (`compressors: ["zlib"]`) was tried: no effect on M0 — don't bother.
   - Result: 28 Oct 08:30 reads 4–8 MB/s again; live Reports 4.7 s cold, < 1 s warm, trainings 3.8 s.
+
+### Quotations (session 17, 28 Oct) — `src/app/quotations/page.tsx`, `src/components/Quotations.tsx`, `src/app/api/quotations/route.ts`, `src/lib/quotations.ts`
+Owner: "all of our contacts are here, we need to click one time and a quotation is sent through zoho books" — then
+"make it like the Zoho quote form", "bigger", "prefill from the items", "item images", "from scratch".
+- **Who:** Admin, Ashish, Shikha, Sumit (`hasFullAccess`). Nav entry right after Overview.
+- **Its own Zoho connection** (kv `zoho_books:quotes`, Admin connects once from the page with a Self Client code;
+  scope `QUOTE_SCOPES` = estimates CREATE/UPDATE + contacts READ/CREATE). The everyday sync token stays read-only;
+  the popup's *reads* (contact, last estimate, item description, item picture, notes/terms) use the sync token
+  (`zohoGet`, `itemImage` in `src/lib/zoho.ts`). The connection doc records `scopes`; older ones without
+  `contacts.CREATE` show `connected.newCustomers: false`.
+- **Writes only from production** (`VERCEL_ENV === "production"`, else 409) — a local server can never create a quote
+  or a customer. A second quote for the same customer within 2 minutes is refused (double click / two people).
+  Every quote made is logged in `quotationsSent` (who, when, number, total).
+- **List** (`GET /api/quotations`): customers from the Zoho copy (`zohoCustomers` via `readAll`), last quote / last
+  invoice from the Reports copy (`za_tables`) plus `quotationsSent`; search name / email / phone, sector, type;
+  newest activity first; 50 a page.
+- **Popup** (`GET ?customer=`): contact persons (primary ticked), GSTIN / state → CGST+SGST (Maharashtra, `ORG_STATE`)
+  or IGST or none (overseas); their last estimate (lines + custom fields + sales person); "quoted within 15 days"
+  warning; sales people = those on quotes in the last year (one spelling each); `QUOTE_FIELDS` options; Zoho's
+  default notes + terms taken from the newest quote (6 h cache — so a bank-detail change in Zoho shows up).
+  - **Quote** from the list starts from their last quotation; **+ New quotation** starts from scratch (`fresh`) with
+    a "copy Quotation-…" link.
+  - **Product type** follows the main item (`PT_RULES` regexes on name + Zoho group + category; packing / shipping
+    lines ignored) until someone picks one; **Lead source** = last quote's or "Direct "; **Deal name** = product type
+    + main item's quantity + city (the team's pattern, e.g. "pads 2 Bengaluru Urban") until typed over.
+  - **Items:** type-to-search picker or **▦ Browse items** (catalogue: group dropdown, search, cards with Zoho's
+    picture, price, GST, stock; click = add, click again = +1; no-picture items last). Picking an item reads its
+    description live (`GET ?item=`). Stock = on hand from the stock copy (`onHandByItem`) + Zoho's "Stock Status"
+    field; GST % from the item (`itemGst`). `zoho_items` (kv) gains gst / unit / stock / service / category / image
+    on each full sync.
+  - **Totals** (`totals()` in the component): discount before tax shared over lines, GST per rate, shipping,
+    adjustment — the done screen compares Zoho's total and warns if they differ by more than ₹1.
+  - **POST** sends `custom_fields` by `customfield_id` (ids in `QUOTE_FIELDS`, Zoho's exact option spellings — some
+    end in a space), `salesperson_name`, discount / shipping / adjustment only when used, notes, terms;
+    `?send=true` = Zoho emails its standard quotation email + PDF; Save as draft = `send=false`.
+- **New customer** (`POST {newCustomer}` → `createCustomer`): company, contact first/last, email, mobile, state
+  (`INDIA_STATES`, Zoho place-of-supply codes), city, GSTIN (→ `business_gst`, else `business_none`). A name already
+  in the copy is refused (409 + its id). The quote popup then opens for it; a customer not yet in the copy is checked
+  with Zoho on POST. **Missing Zoho's mandatory Type + Sector → #151.**
+- **Popups** lock the page's scroll (`useNoPageScroll`), are portals, fit 1728×958 without inner scroll for 1–2
+  lines; dropdowns use `.select-chevron` (globals.css).
 
 ### Progress tracker (session 14) — see `PROGRESS-TRACKER-PLAN.md` (top "Status" blocks = what's built)
 - **Where:** `/reports/progress-tracker`, sidebar **Progress tracker** (in line with the other items, below Reports,
@@ -1601,9 +1661,55 @@ with a 16 px margin; no page or modal scrolling at the owner's 1728×958; hidden
 | 313 | "push it to github" | `207d0d5` pushed; live Reports all 200, ~10 s cold while throttled. |
 | 314 | "update the handoff prepare for next session" | This update (throttle gone by 28 Oct 08:30; Reports 4.7 s cold). |
 
+### Session 17 (28 Oct 2026) — the ⚠ reports, Mumbai region, Quotations page
+| # | Prompt (paraphrased) | Result / commit |
+|---|---|---|
+| 315 | Brief: read HANDOFF; rules; checks; ask about the three ⚠ reports + open questions | Checks clean; asked with defaults. |
+| 316 | "yessir but before that, add an option to mark email sent and raise the email counter +1 for Priyanka" | AedSmartx "Mark email sent" (`2865e2f`). |
+| 317 | "yessir" | Stock (`459ba9f`), Freight (`c8bb7e4`), Margin (`1577164`); refresh in turns (`987d392`). |
+| 318 | "push it to github" | Pushed. |
+| 319 | "implement cache memory … then see if it fixes anything; increase the size of the fonts of the reports" | Bigger text + charts in the page font (`de87578`), answer caches (`264c7b7`), functions to Mumbai (`af0231c`). |
+| 320 | "push it" / "if i zoom out, the website should get wide with it" / "push it" | Full-width pages (`408c89f`); pushed. |
+| 321 | "need to make a Quotation Master Page under Overview … click one time and a quotation is sent through zoho books" + answers (build something now; one click + a check; Admin/Ashish/Shikha/Sumit; separate connection; primary contact; tell me all steps) | Quotations page (`964b0d6`); steps given. |
+| 322 | "push it to github" | Pushed. |
+| 323 | Screenshots of the popup and Zoho's quote form: "very small … check how a zoho quote looks … what we can implement" | Found Zoho's mandatory quote fields; proposed the Zoho-like popup. |
+| 324 | "yeah" | Mandatory fields + details (`9f703a5`), Zoho-like popup (`a319c63`). |
+| 325 | Certificates: "Zoho Sheet sign-in failed … need to reconnect to the api console" / "push it immediately, no credits left" | Reconnect path (`32da8bb`); pushed. |
+| 326 | "no option for reconnect sheet" | It was deploying; told to Ctrl+Shift+R (Generate certificates → Reconnect sheet). |
+| 327 | "a bit more bigger … pre fill from the items … create quotation from scratch … adding items easier … item images from zoho books" → "go ahead" | `2bef444`, `171cfa2`; pushed. |
+| 328 | "the background is scrollable" / Browse items button + filter dropdown + no-picture items last | `7de1e6d`, `1ce7425`; pushed. |
+| 329 | Overview colours, "reports along with the KPIs", "filters don't change the reports", New quotation shows previous values | `b3dd0f0`, `5aa1cfb`, `c6e0a14` (filters checked — work); pushed. |
+| 330 | "align these arrows" | `a3275dd`; pushed. |
+| 331 | Zoho's New Customer screenshot: "write a handoff … tips, issues … make it work like Zoho Books quotation but better … new customer then quote right after … download the PDF, attach to email, add attachments … explain what you understand" | This update; the task is §10 #150. |
+
 ---
 
 ## 6. Zoho facts learned the hard way
+
+- **Quotes (estimates) have two mandatory custom fields** (28 Oct): "Send to CRM" (`cf_send_to_crm`, id
+  `982417000013838167`, Yes/No) and "Reminder Frequency" (`cf_reminder_frequency`, id `982417000021649418`: None,
+  15 days, interval of 2 days, " on each Wednesday", on each Monday). Others: Reminder Date (`cf_last_reminder_date`,
+  = quote date), Product Type (`cf_category`), Deal Name (`cf_deal_name`, the team writes "product qty city" — it
+  becomes the CRM deal), Lead Source (`cf_lead_source`). **Option values keep Zoho's spelling, some with a leading or
+  trailing space ("Training ", "Direct ")** — send them exactly. All in `QUOTE_FIELDS`.
+- **Contacts (customers) have two mandatory custom fields**: Type (`cf_type`, id `982417000008274205`: New Customer,
+  Old Customer, New Reseller, Old Reseller, Old Vendor, New Vendor) and Sector (`cf_sector`, id `982417000011023041`,
+  19 options from Traders to NGO). Zoho's form also requires Display Name, GST Treatment, Place of Supply, Tax
+  Preference, and says **Last Name is mandatory to sync the contact with Zoho CRM**. Optional: Special Identifier
+  (hotel chains), Accounts Email Id.
+- **Self Client refresh tokens can die without anyone revoking them**: the master sheet's token from 12 Oct was refused
+  on 28 Oct (`invalid_code` on the refresh). Most likely Zoho's cap on refresh tokens per user per client (the oldest
+  is dropped when new ones are made — session 17 made several). Keep the number of connects low, and give every
+  connection a Reconnect button that keeps its settings.
+- **Items list** (`GET /items`) already carries `item_tax_preferences` (intra GST group + inter IGST, same %),
+  `cf_stock_status` ("In Stock" / "Back order"), `category_name`, `image_name`, `unit`, `product_type`; descriptions
+  are long (read one item when needed). **`GET /items/{id}/image`** returns the picture bytes with the sync token.
+- **GST:** Think Health's place of supply is Maharashtra (MH): customers in MH get CGST + SGST (half each), other
+  states IGST, overseas none. A contact's state is `place_of_contact` (two-letter codes).
+- **Quote PDF / email** (for #150): `GET /estimates/{id}?accept=pdf`; `GET /estimates/{id}/email` (the template);
+  `POST /estimates/{id}/email` (send, with attachments) — verify limits and scope before relying on them.
+- **Default notes and terms** (bank details) — taken from the newest quote; quotes made through the API carry them only
+  if sent.
 - `contact_type=customer&filter_by=Status.Active` **also returns vendors** → filter rows (`isCustomer`).
 - Customer Type = `cf_type`, Sector = `cf_sector`; item category = `cf_item_identifier` (*Training Services*, *All AEDs*, …).
 - Sales orders = the org's PIs. Quote contacts: `contact_persons_details`; SO contacts: `contact_person_details`.
@@ -1937,6 +2043,28 @@ No test suite. Pattern used throughout:
       esbuild from there.
     - **Map outline**: `npm i mapshaper@0.6` in a scratch `tools/` folder; `mapshaper Admin2.shp -filter-fields ST_NM
       -simplify 0.7% keep-shapes -o format=geojson precision=0.001`.
+
+**Session 17 tools and traps (scratchpad scripts; copy what you need):**
+- **Fake-Zoho route tests:** `mark/buildq.mjs` bundles `src/app/api/quotations/route.ts` with fakes (`mark/mq/db.ts`,
+  `auth.ts`, `fakes.ts`); `mark/qt.cjs` records every Zoho call and checks the bodies (36 checks). Pattern for any
+  route that writes to Zoho.
+- **Read-only browser checks:** `quotes-ui.cjs W H theme [add]` (list, search, popup, add an item; a browser-only fake
+  "connected" answer — it must not catch `?image=` / `?item=` requests); `cat-ui.cjs` (catalogue + New quotation);
+  `ov.cjs bg` (Overview + Reports Quotes); `certs-ui.cjs` (Generate certificates → reconnect). All abort non-GET
+  `/api/*` (Reports' read-only `POST /api/analytics` allowed).
+- **Long scripts:** a long `node -e` / heredoc inside Bash breaks on quotes and backticks — write the script with the
+  Write tool and run `node file`. **`\b` written through a JS template string became a backspace character (0x08)** in
+  a regex once — check with `grep -P '\x08' file`. Python isn't installed. `sed` can't insert text containing `\n`
+  reliably — use the Edit tool.
+- **React dev mode runs effects twice:** a second (late) answer reset lines someone had just edited — guard loads with
+  a `current` flag in the effect's cleanup (done in the quote popup).
+- **`overflow-x-auto` clips absolute dropdowns** (also vertically) — don't wrap a table with pickers in it; stack rows
+  on phones instead. **A long unbreakable word (an email) widens a popup past the phone screen** — `min-w-0` on the
+  dialog / chip and `truncate` on the text.
+- **Puppeteer:** prefer a real `handle.click()` over `el.click()` inside `evaluate` for pickers that use
+  `onMouseDown preventDefault`; check what's at the click point with `document.elementFromPoint`.
+- **Local dev server:** an old `npm run dev` may still hold port 3000 (a new one fails on 3001's lock) — reuse it.
+- **`next build` while the dev server runs is fine** (separate output); run it before every push.
 
 ---
 
@@ -2334,6 +2462,84 @@ No test suite. Pattern used throughout:
      keep the "only what the page needs" rule (`datasetRows(today, withTrainings)`) rather than raising the limit.
 149. **Local dev server = live database.** Every local browser test reads the shared cluster too (session 16's tests
      added to the 27 Oct traffic) — keep test runs few and short, and don't leave local tabs open.
+150. **NEXT TASK (owner, 28 Oct, end of session 17) — the quotation flow "like Zoho Books but better: less annoyance,
+     faster, smoother, cleaner, user friendly".** The owner will paste the Zoho "New Customer" screenshot again.
+     Owner's words: *"when adding a new customer, right after a customer is added, let user create the quote
+     immediately after … check how the customer creation in the zoho books work then see the mandatory fields. also at
+     the email sending phase after the quotation is created, actually the user will download the quotation as pdf then
+     attach it to the email and send it. now i want an option to download that quotation directly from our quotation
+     creation, it should create and attach to email, also give option to add attachments."*
+     **What I understood (restate this, with the defaults, and wait for "yeah"):**
+     - **A. New customer like Zoho's form, but one short screen.** Zoho's "New Customer" (screenshot): Customer Type
+       (Business / Individual), Primary Contact (Salutation, First Name, **Last Name — "mandatory to sync this contact
+       with Zoho CRM"**), Company Name, **Display Name\***, Email, Work Phone + Mobile (+91), Customer Language,
+       Communication Channels (Email / SMS / WhatsApp); tabs Other Details (**GST Treatment\***, **Place of
+       Supply\***, PAN, **Tax Preference\*** Taxable / Tax Exempt), Address, Contact Persons, **Custom Fields\***
+       (= **Type\*** and **Sector\***, see §6), Reporting Tags, Remarks. "Prefill from the GST portal using the
+       customer's GSTIN" sits at the top. *Default:* one screen — Business/Individual toggle; contact (salutation,
+       first, **last required**), company (Display Name = company, editable), email, mobile + work phone; **GSTIN
+       first**: when typed, fill the state (its first 2 digits = GST state code) and PAN (characters 3–12) and set
+       GST treatment "Registered business – regular"; without GSTIN → "Unregistered business" (Individual →
+       "Consumer"); place of supply = state; tax preference Taxable (Exempt asks for the reason Zoho needs); **Type**
+       (default "New Customer") and **Sector** (required, Zoho's 19 options); billing address (street, city, PIN —
+       optional). Everything Zoho marks required is required here, with the same names.
+     - **B. Quote right after.** On "Create customer" the quote popup opens on the same screen with that customer and
+       contact already in "To" (today it already opens — make it seamless: no second search, no re-entering, the
+       new contact ticked, product type / lead source defaults).
+     - **C. PDF + email step after the quote is created** (today `send=true` lets Zoho send its own standard email):
+       after Save, a **done screen** with **Download PDF** (`GET /estimates/{id}?accept=pdf` through our server) and
+       **Email it**: To (contact persons, ticked), Cc, Subject + Body prefilled from Zoho's own quote email template
+       (`GET /estimates/{id}/email`), **the quotation PDF attached automatically**, **+ Add attachments** (files from
+       the computer: brochures, certificates), then **Send** → Zoho Books' estimate email API
+       (`POST /estimates/{id}/email`, attachments as multipart) — Zoho marks the quote **Sent** and keeps it in the
+       quote's history. *Default:* the popup's buttons become "Save as draft" and "Save and email…" (the email step
+       opens with everything filled — one more click to send); "Download PDF" is always on the done screen.
+     - **D. "Better than Zoho":** fewer fields on screen (defaults filled, rarely-used ones behind "More"), keyboard
+       friendly (Enter adds the item, Tab order), no page reloads, remembers the last sales person, clear errors in
+       plain words, totals always visible, everything Zoho needs filled so Zoho never refuses.
+     **Check before building (read-only):** the email endpoint's attachment limits and whether `ZohoBooks.estimates.UPDATE`
+     (or `CREATE`) covers emailing (else the scope line grows again → Admin reconnects once more);
+     `contacts` POST body for `custom_fields` (Type / Sector by `customfield_id`), `gst_treatment` values
+     (`business_gst`, `business_none`, `consumer`, `overseas`, `business_sez`, …), `tax_exemption_id` for Exempt.
+     **Traps:** Vercel's request body limit is **4.5 MB** — attachments uploaded through our API must stay under it
+     (say so on screen; or upload each file separately); never send a real email in testing (the email route must be
+     production-only like quotes; test with the owner's own test customer + sshah@thinkhealth.in); the PDF is Zoho's
+     ("Spreadsheet Template 2025"), don't make our own.
+     **Open questions to ask with defaults:** send the email from Zoho Books (default; marks Sent, org address) or from
+     the person's own Zoho Mail mailbox (the app already has Mail connections — replies come to them)? Keep Zoho's
+     standard email as a one-click "Send with Zoho's standard email"? Attachment size cap (default 4 MB total)?
+151. **Bug in what's live: new customers miss Zoho's mandatory custom fields.** `createCustomer` (`src/lib/quotations.ts`)
+     sends no `custom_fields`, but Zoho's contact fields **Type** (`cf_type`, id `982417000008274205`) and **Sector**
+     (`cf_sector`, id `982417000011023041`) are `is_mandatory: true` → Zoho will most likely refuse "Create in Zoho
+     and quote". Also Last Name is optional in our form but needed for the Zoho CRM sync. Fix as step 1 of #150
+     (Type default "New Customer"; Sector required; Last Name required).
+152. **No real quote or customer made through the page yet** (as of 28 Oct evening). First live test (owner): a test
+     customer with their own email → Save as draft → check in Zoho → Send → delete / decline the test quotes. Things
+     only a real call proves: custom fields by `customfield_id` accepted; Zoho applies each item's tax when `tax_id`
+     is omitted; notes/terms as sent; salesperson by name.
+153. **State codes** in `INDIA_STATES`: the big states are certain; OR (Odisha), UK (Uttarakhand), CG, DN, LD, AN
+     are Zoho's codes as far as I know but unverified — the first new customer from one of them will tell (Zoho's
+     error shows in the form).
+154. **Item pictures:** each picture's first view is one Zoho API call (`GET /items/{id}/image`); kept in the server's
+     memory (400) and a week in the browser. `zoho_items.image` is known only after a full sync; until then every
+     item is tried and the ones that fail go to the end of the catalogue.
+155. **The popup's GST / total is an estimate** of Zoho's; the done screen shows Zoho's figure and warns if they differ.
+156. **Overview colours:** the Overview's meters, bars, lines and legends use `--chart-1` / `--chart-2`, set from the
+     theme's Reports palette by `useChartColors()` (`reports/Chart.tsx`). The "Behind" warning stays on the label only
+     (owner OK'd, 28 Oct).
+157. **Reports Key numbers:** a numbers-only first page also shows the first two charts of the following sections,
+     half width in one row (`pagesOf` → `half`; grouped as "with the numbers"); they stay on their own pages too.
+158. **Region:** functions run in `bom1` (Mumbai) since 28 Oct (`vercel.json`). If Vercel crons or anything
+     region-bound misbehave, that's the first suspect; reverting = remove `"regions"`.
+159. **Reports filters:** owner said (28 Oct) "if I use the filters I don't think the reports are changing" — checked:
+     on the server every Quotes and Sales tile changes with Sector = Healthcare (31/31); filters skip only tiles whose
+     data lacks the field (stock: no customer/sales person; freight: no item; margin: no courier). Not reproduced —
+     ask which tab / filter when it comes up.
+160. **Accepted (session 17 "yessir") but not built:** quotes older than 90 days count as expired in Reports (#132);
+     count customers by `nameKey` (#131).
+161. **Answer caches** (session 17): Reports answers kept 10 min in the browser (trainings 1 min) and cleared on a new
+     copy / Refresh now; server caches `signedInMember` names 60 s and `dataState` 20 s. If a change "doesn't show",
+     these are why — Refresh now clears the browser one.
 
 ---
 
