@@ -127,7 +127,9 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   useEffect(() => { setPeriod(def.period); setFilters({ ...def.start }); setCompare("lastYear"); setGrain(def.grains); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
 
-  const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, compare, tweaks[t.id], grain)), [def, today, period, filters, pick, compare, tweaks, grain]);
+  // "All time" has no period before it — comparing would quietly do nothing, so it's off (and the menu hidden).
+  const cmpMode: CompareMode = period === "all" ? "none" : compare;
+  const specs = useMemo(() => def.tiles.map((t) => compose(t, today, period, filters, pick, cmpMode, tweaks[t.id], grain)), [def, today, period, filters, pick, cmpMode, tweaks, grain]);
   const keys = useMemo(() => specs.map((s) => JSON.stringify(s)), [specs]);
   // Only the open page asks the server, and only for tiles whose query changed (period, filters, a picked bar…).
   useEffect(() => {
@@ -188,9 +190,17 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
     const date = !isError(a) && a?.by[0]?.date;
     setPick({ tileId: t.id, field, value, grain: s.grain, label: labelOf(value, Boolean(date), s.grain ?? "month", true) });
   };
-  const footnote = compare === "none" ? null
-    : typeof compare === "object" ? `▲ ▼ ${groupLabel(compare.a)} against ${groupLabel(compare.b)} — same dates; charts show both.`
-    : `▲ ▼ against the same days ${compare === "lastYear" ? "last year" : "of the period before"} (grey on the charts) — hover a number for the dates.`;
+  const footnote = cmpMode === "none" ? null
+    : typeof cmpMode === "object" ? `▲ ▼ ${groupLabel(cmpMode.a)} against ${groupLabel(cmpMode.b)} — same dates; charts show both.`
+    : `▲ ▼ against the same days ${cmpMode === "lastYear" ? "last year" : "of the period before"} (grey on the charts) — hover a number for the dates.`;
+  // Filters this tile's data doesn't have (owner, 28 Oct: "if I use the filters I don't think the reports are
+  // changing" — they skipped such tiles silently). Named on the tile instead.
+  const skippedOf = (t: Tile) => {
+    const d = datasetOf(t.spec.dataset)!;
+    const out = def.filters.filter((f) => fActive(filters[f.field]) && !fieldOf(d, f.field) && !(f.range && d.ranges?.some((r) => r.key === f.field))).map((f) => f.label);
+    if (pick && pick.tileId !== t.id && pick.field !== "date" && !fieldOf(d, pick.field)) out.push(`“${pick.label}”`);
+    return out;
+  };
   const viewState: ViewState = { period, filters, compare };
 
   return (
@@ -198,7 +208,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
       <div className="relative flex flex-wrap items-center gap-2">
         <PeriodSelect today={today} value={period} onChange={setPeriod} />
         {/* A dashboard that never compares (Defibtech) doesn't offer it. */}
-        {def.tiles.some((t) => !t.noCompare) && <CompareControl def={def} value={compare} onChange={setCompare} datasetOf={firstDatasetWith} />}
+        {def.tiles.some((t) => !t.noCompare) && period !== "all" && <CompareControl def={def} value={compare} onChange={setCompare} datasetOf={firstDatasetWith} />}
         {def.grains && grain && <GrainSwitch value={grain} onChange={(g) => { setGrain(g); setPick(null); }} />}
         <FiltersButton count={chosen.length}>
           {def.filters.map((f) => f.range
@@ -238,7 +248,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
             const top = gi === 0 && ri === 0;
             if (run.kpi) return (
               <Fragment key={ri}>
-                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} className={top ? "mt-5" : "mt-4"} />
+                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} skippedOf={skippedOf} className={top ? "mt-5" : "mt-4"} />
                 {/* Not under numbers that are never compared (stock: today's). */}
                 {gi === 0 && ri === 0 && footnote && run.tiles.some((t) => !t.noCompare) && <p className="mt-2 text-[14.5px] text-faint">{footnote}</p>}
               </Fragment>
@@ -249,7 +259,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
                   <TileCard key={t.id} tile={pages[at]?.half?.has(t.id) ? { ...t, w: 6, tall: false } : t} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                     picked={pick?.tileId === t.id ? pick.value : null} onPick={pickFrom(t)}
                     target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
-                    tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />
+                    skipped={skippedOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />
                 ))}
               </div>
             );
@@ -425,7 +435,7 @@ function ViewsButton({ dash, current, onApply }: { dash: string; current: ViewSt
 const BAND_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-1 sm:grid-cols-3", 4: "grid-cols-2 xl:grid-cols-4", 6: "grid-cols-2 xl:grid-cols-3", 8: "grid-cols-2 xl:grid-cols-4" };
 
 /** Numbers side by side in one card, parted by hairlines (the grid's 1 px gaps over the line colour). */
-function KpiBand({ tiles, specOf, answers, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; className?: string }) {
+function KpiBand({ tiles, specOf, answers, skippedOf, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; skippedOf?: (t: Tile) => string[]; className?: string }) {
   return (
     <section className={`card overflow-hidden ${className}`} aria-label="Key numbers">
       <div className={`grid gap-px bg-line ${BAND_COLS[tiles.length] ?? "grid-cols-2 xl:grid-cols-4"}`}>
@@ -440,12 +450,20 @@ function KpiBand({ tiles, specOf, answers, className = "" }: { tiles: Tile[]; sp
                   : isError(a) ? <p className="text-[15px] text-high">{a.error}</p>
                   : <Kpi result={a} compact />}
               </div>
+              <Skipped labels={skippedOf?.(t)} />
             </div>
           );
         })}
       </div>
     </section>
   );
+}
+
+/** "Not filtered by Sector" — a filter that can't reach this tile's data. */
+function Skipped({ labels }: { labels?: string[] }) {
+  if (!labels?.length) return null;
+  const list = labels.join(", ");
+  return <p className="mt-1 truncate text-[14px] text-faint" title={`This report's data has no ${list} — it shows everything for that.`}>Not filtered by {list}</p>;
 }
 
 function Chip({ children, onClear, title }: { children: React.ReactNode; onClear: () => void; title?: string }) {
@@ -502,12 +520,14 @@ const SPAN: Record<Tile["w"], string> = { 3: "col-span-12 sm:col-span-6 xl:col-s
 
 export type MenuItem = { label: string; onClick: () => void; danger?: boolean };
 
-export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, accent, tweak, onTweak, target }: {
+export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, accent, tweak, onTweak, target, skipped }: {
   tile: Tile; spec: Spec; answer?: Answer; picked?: string | null; onPick?: (value: string) => void;
   /** "Change this chart" (dashboards): what's changed on this tile, and how to change / reset it. */
   tweak?: Tweak; onTweak?: (t: Tweak | null) => void;
   /** Goal line (months against the goal). */
   target?: number;
+  /** Active filters this tile's data can't take. */
+  skipped?: string[];
   /** Extra ⋯ menu items (Edit / Delete on saved reports) — on every kind of tile, single numbers and failed ones too. */
   menu?: MenuItem[];
   /** A quiet line under the title (who saved it). */
@@ -538,6 +558,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[16.5px] text-ink-2" : "text-[18.5px]"}`} title={title}>{title}</h3>
+          <Skipped labels={skipped} />
           {sub && <p className="truncate text-[15px] text-muted">{sub}{tweak && onTweak && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={() => onTweak(null)}>Reset</button></>}</p>}
         </div>
         {items.length > 0 && <TileMenu items={items} label={`${title || "Report"} options`} />}
