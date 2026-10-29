@@ -54,6 +54,8 @@ export async function runSpecs(specs: Spec[]): Promise<{ results: Answer[]; stat
 export function withPeriod(spec: Spec, today: string, periodKey?: string): Spec {
   const key = periodKey ?? spec.period;
   if (!key) return spec;
+  const own = rangeOfPeriod(key);
+  if (own) return { ...spec, ...own };
   const p = periods(today).find((x) => x.key === key);
   return { ...spec, from: p?.from, to: p?.to };
 }
@@ -188,17 +190,37 @@ export function MultiSelect({ label, values, selected, onChange, loading, wide, 
   );
 }
 
+/** Your own dates (owner, 29 Oct: "date filters"): the period key "range:2026-04-01:2026-06-30". */
+export function rangeOfPeriod(key: string): { from: string; to: string } | null {
+  const m = /^range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(key);
+  return m ? (m[1] <= m[2] ? { from: m[1], to: m[2] } : { from: m[2], to: m[1] }) : null;
+}
+const dmy = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" });
+
 export function PeriodSelect({ today, value, onChange }: { today: string; value: string; onChange: (v: string) => void }) {
   const list: Period[] = periods(today);
+  const own = rangeOfPeriod(value);
+  const dateCls = "h-10 rounded-full border border-line bg-surface px-3.5 text-[15.5px] text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
   return (
-    // Our own arrow (the browser's can't be moved): `right-4` sets where it sits, `pr-10` keeps the text clear of it.
-    <label className="relative inline-flex items-center">
-      <span className="sr-only">Period</span>
-      <select className="h-10 appearance-none rounded-full border border-line bg-surface pl-5 pr-10 text-[16px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={value} onChange={(e) => onChange(e.target.value)}>
-        {list.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-      </select>
-      <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-4 size-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
-    </label>
+    <span className="inline-flex flex-wrap items-center gap-2">
+      {/* Our own arrow (the browser's can't be moved): `right-4` sets where it sits, `pr-10` keeps the text clear of it. */}
+      <label className="relative inline-flex items-center">
+        <span className="sr-only">Period</span>
+        <select className="h-10 appearance-none rounded-full border border-line bg-surface pl-5 pr-10 text-[16px] font-medium text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" value={own ? "custom" : value}
+          onChange={(e) => onChange(e.target.value === "custom" ? `range:${today.slice(0, 8)}01:${today}` : e.target.value)}>
+          {list.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          <option value="custom">{own ? `${dmy(own.from)} – ${dmy(own.to)}` : "Your own dates…"}</option>
+        </select>
+        <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-4 size-3.5 text-muted" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 8l4 4 4-4" /></svg>
+      </label>
+      {own && (
+        <>
+          <input type="date" aria-label="From" className={dateCls} value={own.from} max={own.to} onChange={(e) => e.target.value && onChange(`range:${e.target.value}:${own.to}`)} />
+          <span className="text-muted">to</span>
+          <input type="date" aria-label="To" className={dateCls} value={own.to} min={own.from} onChange={(e) => e.target.value && onChange(`range:${own.from}:${e.target.value}`)} />
+        </>
+      )}
+    </span>
   );
 }
 

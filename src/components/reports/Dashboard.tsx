@@ -49,7 +49,7 @@ export function compose(tile: Tile, today: string, periodKey: string, filters: R
   // Show-by (owner, 29 Oct) reaches every time chart but the goal ones (the goal is monthly) — and the title follows it.
   if (grain && !tile.fixedGrain && !tile.goalLine && base.by?.[0] === d.dateField && grain !== base.grain) {
     const word = { day: "day", week: "week", month: "month", quarter: "quarter", fy: "year" }[grain];
-    base = { ...base, grain, title: base.title?.includes("{grain}") ? base.title : base.title?.replace(/(month|quarter)/, word) };
+    base = { ...base, grain, title: base.title?.includes("{grain}") ? base.title : base.title?.replace(/\b(month|quarter)\b/, word) };
   }
   if (base.title?.includes("{grain}")) base = { ...base, title: titleOf(base) };
   const has = (f: string) => Boolean(fieldOf(d, f));
