@@ -25,9 +25,7 @@ export type DashFilter = { field: string; label: string; range?: boolean };
 /** `pages`: set by hand (the team's dashboards — custom.ts): each page's tile ids, in order; else pages come from `section`.
  *  `custom`: the stored dashboard it was built from (for Edit). */
 export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain; start?: Record<string, { values: string[]; exclude?: boolean }>;
-  pages?: { name: string; tiles: string[] }[]; custom?: import("./custom").CustomDash;
-  /** Laid out in rooms (custom.ts) — the team's dashboards. */
-  rooms?: boolean };
+  pages?: { name: string; tiles: string[]; boxes?: Record<string, import("./custom").Box> }[]; custom?: import("./custom").CustomDash };
 
 /** "{grain}" in a title follows the chart's grouping (owner, 29 Oct: on Month it still said "quarter by quarter"). */
 export const titleOf = (spec: Spec) => (spec.title ?? "").replaceAll("{grain}", { day: "day", week: "week", month: "month", quarter: "quarter", fy: "year" }[spec.grain ?? "month"]);

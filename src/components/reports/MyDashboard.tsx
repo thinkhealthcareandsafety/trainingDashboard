@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DashboardDef } from "@/lib/analytics/dashboards";
-import { type CustomDash, type Item, type SavedRef, itemOf, paginate, tileOf, toDef } from "@/lib/analytics/custom";
+import { type CustomDash, type Ref, type SavedRef, paginate, tileOf, toDef } from "@/lib/analytics/custom";
+import type { Tile } from "@/lib/analytics/dashboards";
 import { type LayoutEntry, START } from "@/lib/analytics/layout";
 import { btn } from "../ui";
 import { DashboardView } from "./Dashboard";
@@ -21,15 +22,15 @@ export type SavedReport = SavedRef;
 export type Prefs = { layout: LayoutEntry[] | null; starting: LayoutEntry[] | null; startingBy?: string; hidden: string[] };
 export type TabChoice = { id: string; label: string };
 
-/** The list from before pages (27–29 Oct) → pages of 8 rooms; "large" charts wide. */
+/** The list from before pages (27–29 Oct) → the canvas, in order; "large" charts wide. */
 function fromEntries(entries: LayoutEntry[], builtIns: DashboardDef[], saved: SavedRef[]): CustomDash {
-  const items: Item[] = [];
+  const tiles: { ref: Ref; tile: Tile; wide: boolean }[] = [];
   for (const e of entries) {
     const ref = { dash: e.dash, tile: e.tile };
     const t = tileOf(ref, builtIns, saved);
-    if (t) items.push(itemOf(ref, t, e.size === "l" || (!e.size && t.w === 12)));
+    if (t) tiles.push({ ref, tile: t, wide: e.size === "l" || (!e.size && t.w === 12) });
   }
-  return { id: "mine", title: "My dashboard", shared: false, pages: paginate([{ name: "Page 1", items }]) };
+  return { id: "mine", title: "My dashboard", shared: false, pages: paginate([{ name: "Page 1", tiles }]) };
 }
 
 export function MyDashboard({ today, admin, builtIns, saved, prefs, mine, start, tabs, deleted, onPrefs, onEdit, onUnhide }: {

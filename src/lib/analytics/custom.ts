@@ -7,17 +7,19 @@ import type { Spec } from "./query";
  * Mongo `reportDashboards`; pure — the route checks what it stores with `cleanDashboard`, the page builds its tabs from
  * the same shapes and edits them with the functions at the bottom.
  *
- * Rooms (owner, 29 Oct, second go: "kpis are all individual, 4 kpi 2 top 2 bottom make 1 room for a medium sized
- * report … a page will have max 8 medium sized reports space"): a room is half the width and one chart high, 2 across.
- * A medium chart takes 1 room, a wide one 2; numbers are items of their own — numbers next to each other share rooms,
- * 4 to a room (2 on top, 2 below). A page holds 8 rooms.
+ * The canvas (owner, 29 Oct, third go: "a big box container … i can place my report anywhere in that container,
+ * reports or kpis anything anywhere … increase size of that report by holding on its edge … a kpi could be 4x2 too"):
+ * each page is a grid COLS wide and ROWS high; every report — a chart or a single number — sits at x, y with a width and
+ * height of its own, anywhere in it, gaps allowed. A medium chart starts 6×4 and a number 3×2 (4 numbers = a medium
+ * chart), so a page holds 8 medium charts' worth. Nothing may stick out of the page or overlap.
  * A report is referred to like on My dashboard: `{dash, tile}` — a built-in tab's tile, or `{dash: "saved", tile: id}`.
  * An edited built-in tab is stored under its own id (`base`), so "Restore original" = delete that document.
  */
 
 export type Ref = { dash: string; tile: string };
-/** One report on a page. `kpi`: a single number (¼ room); `wide`: a chart the whole width (2 rooms). */
-export type Item = { id: string; ref: Ref; kpi?: boolean; wide?: boolean };
+export type Box = { x: number; y: number; w: number; h: number };
+/** One report on a page, where it sits. `kpi`: a single number (sizes differ). */
+export type Item = Box & { id: string; ref: Ref; kpi?: boolean };
 export type Page = { id: string; name: string; items: Item[] };
 export type CustomDash = {
   id: string; title: string; pages: Page[];
@@ -30,26 +32,29 @@ export type CustomDash = {
   owner?: string; ownerName?: string; updatedAt?: string; updatedBy?: string;
 };
 
-export const ROOMS = 8;
-export const KPIS_PER_ROOM = 4;
+export const COLS = 12;
+export const ROWS = 16;
 export const MAX_PAGES = 20;
+export const MAX_ITEMS = 64;
+/** Starting sizes: a number, a medium chart, a wide chart; and the smallest each may be made. */
+export const SIZE = { kpi: { w: 3, h: 2 }, chart: { w: 6, h: 4 }, wide: { w: 12, h: 4 } };
+export const MIN = { kpi: { w: 2, h: 2 }, chart: { w: 3, h: 3 } };
 export const refKey = (r: Ref) => `${r.dash}.${r.tile}`;
 
-/** How the items fill rooms, in order: numbers next to each other share a room (4 at most); a chart has its own. */
-export function roomsOf(items: Item[]): Item[][] {
-  const rooms: Item[][] = [];
-  for (const it of items) {
-    const last = rooms.at(-1);
-    if (it.kpi && last?.[0]?.kpi && last.length < KPIS_PER_ROOM) last.push(it);
-    else rooms.push([it]);
-  }
-  return rooms;
+const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+const inside = (b: Box) => b.x >= 0 && b.y >= 0 && b.w >= 1 && b.h >= 1 && b.x + b.w <= COLS && b.y + b.h <= ROWS;
+/** How full a page is, 0–100 (its area). */
+export const fullness = (p: Page) => Math.round((p.items.reduce((n, it) => n + it.w * it.h, 0) / (COLS * ROWS)) * 100);
+/** The first free place for a w×h box, reading left to right, top to bottom — or null if the page has none. */
+export function freeSpot(items: Box[], w: number, h: number): { x: number; y: number } | null {
+  for (let y = 0; y + h <= ROWS; y++) for (let x = 0; x + w <= COLS; x++) if (!items.some((b) => overlaps(b, { x, y, w, h }))) return { x, y };
+  return null;
 }
-export const roomsUsed = (p: Page) => roomsOf(p.items).reduce((n, r) => n + (r[0].wide ? 2 : 1), 0);
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const DASH = /^[a-z0-9-]{1,40}$/;
 const text = (x: unknown, max: number) => (typeof x === "string" ? x.trim().slice(0, max) : "");
+const int = (x: unknown) => (typeof x === "number" && Number.isInteger(x) ? x : NaN);
 
 /** A dashboard as sent by a browser → a clean one, or an error in plain words. */
 export function cleanDashboard(x: unknown): CustomDash | { error: string } {
@@ -66,16 +71,17 @@ export function cleanDashboard(x: unknown): CustomDash | { error: string } {
     if (typeof p?.id !== "string" || !ID.test(p.id) || pageIds.has(p.id)) return { error: "Bad page" };
     pageIds.add(p.id);
     const name = text(p.name, 30) || `Page ${pages.length + 1}`;
-    if (!Array.isArray(p.items) || p.items.length > ROOMS * KPIS_PER_ROOM) return { error: `“${name}”: bad reports` };
+    if (!Array.isArray(p.items) || p.items.length > MAX_ITEMS) return { error: `“${name}”: bad reports` };
     const items: Item[] = [];
     for (const it of p.items as Partial<Item>[]) {
       const ref = { dash: String(it?.ref?.dash ?? ""), tile: String(it?.ref?.tile ?? "") };
+      const box = { x: int(it?.x), y: int(it?.y), w: int(it?.w), h: int(it?.h) };
       if (typeof it?.id !== "string" || !ID.test(it.id) || !DASH.test(ref.dash) || !ID.test(ref.tile)) return { error: `“${name}”: bad report` };
-      items.push({ id: it.id, ref, ...(it.kpi ? { kpi: true } : it.wide ? { wide: true } : {}) });
+      if (!inside(box)) return { error: `“${name}”: a report sticks out of the page — make room or add a page` };
+      if (items.some((o) => overlaps(o, box))) return { error: `“${name}”: two reports overlap` };
+      items.push({ id: it.id, ref, ...box, ...(it.kpi ? { kpi: true } : {}) });
     }
-    const page = { id: p.id, name, items };
-    if (roomsUsed(page) > ROOMS) return { error: `“${name}” is full — ${ROOMS} rooms a page; add a page` };
-    pages.push(page);
+    pages.push({ id: p.id, name, items });
   }
   const scope: CustomDash["scope"] = {};
   for (const [k, v] of Object.entries(d.scope ?? {})) {
@@ -101,19 +107,21 @@ export function tileOf(ref: Ref, builtIns: DashboardDef[], saved: SavedRef[]): T
 
 const COMMON: DashFilter[] = [{ field: "customerType", label: "Customer type" }, { field: "sector", label: "Sector" }, { field: "salesperson", label: "Sales person" }];
 
-/** A stored dashboard → the page's dashboard: one tile per item (its id = the item's), each page as arranged. */
+/** A stored dashboard → the page's dashboard: one tile per item (its id = the item's), each page with where they sit. */
 export function toDef(c: CustomDash, builtIns: DashboardDef[], saved: SavedRef[]): DashboardDef {
   const base = c.base ? builtIns.find((d) => d.id === c.base) : undefined;
   const tiles: Tile[] = [];
   const pages = c.pages.map((p) => {
     const ids: string[] = [];
+    const boxes: Record<string, Box> = {};
     for (const it of p.items) {
       const t = tileOf(it.ref, builtIns, saved);
       if (!t) continue;
-      tiles.push({ ...t, id: it.id, section: undefined, w: isKpiTile(t) ? 3 : it.wide ? 12 : 6, tall: false });
+      tiles.push({ ...t, id: it.id, section: undefined, tall: false });
       ids.push(it.id);
+      boxes[it.id] = { x: it.x, y: it.y, w: it.w, h: it.h };
     }
-    return { name: p.name, tiles: ids };
+    return { name: p.name, tiles: ids, boxes };
   });
   // Filters: those of every tab its reports come from (and the usual three), once each.
   const from = new Set(c.pages.flatMap((p) => p.items.map((it) => it.ref.dash)));
@@ -121,32 +129,34 @@ export function toDef(c: CustomDash, builtIns: DashboardDef[], saved: SavedRef[]
   for (const f of [...(base?.filters ?? []), ...builtIns.filter((d) => from.has(d.id)).flatMap((d) => d.filters), ...COMMON]) if (!filters.some((x) => x.field === f.field)) filters.push(f);
   return {
     id: c.id, title: c.title, desc: base?.desc ?? (c.ownerName ? `Made by ${c.ownerName.split(" ")[0]}${c.shared ? "" : " · only you see it"}` : ""),
-    tiles, pages, filters, period: base?.period ?? "fy", grains: base?.grains, start: c.scope ?? base?.start, custom: c, rooms: true,
+    tiles, pages, filters, period: base?.period ?? "fy", grains: base?.grains, start: c.scope ?? base?.start, custom: c,
   };
 }
 
 let seq = 0;
 export const newId = (p: string) => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
-export const itemOf = (ref: Ref, t: Tile, wide = false): Item => ({ id: newId("i"), ref, ...(isKpiTile(t) ? { kpi: true } : wide ? { wide: true } : {}) });
+const sizeFor = (t: Tile, wide = false) => (isKpiTile(t) ? SIZE.kpi : wide ? SIZE.wide : SIZE.chart);
 
-/** Reports in order → pages of 8 rooms; a page that would overflow carries on in "<name> (2)". */
-export function paginate(list: { name: string; items: Item[] }[]): Page[] {
+/** Reports in order → pages, each report at the first free place at its starting size; a full page carries on. */
+export function paginate(list: { name: string; tiles: { ref: Ref; tile: Tile; wide?: boolean }[] }[]): Page[] {
   const pages: Page[] = [];
   for (const p of list) {
     let cur: Page = { id: newId("p"), name: p.name, items: [] };
     let n = 1;
-    for (const it of p.items) {
-      if (roomsUsed({ ...cur, items: [...cur.items, it] }) > ROOMS) { pages.push(cur); cur = { id: newId("p"), name: `${p.name} (${++n})`, items: [] }; }
-      cur.items.push(it);
+    for (const x of p.tiles) {
+      const s = sizeFor(x.tile, x.wide);
+      let at = freeSpot(cur.items, s.w, s.h);
+      if (!at) { pages.push(cur); cur = { id: newId("p"), name: `${p.name} (${++n})`, items: [] }; at = { x: 0, y: 0 }; }
+      cur.items.push({ id: newId("i"), ref: x.ref, ...at, ...s, ...(isKpiTile(x.tile) ? { kpi: true } : {}) });
     }
     pages.push(cur);
   }
   return pages.filter((p, i) => p.items.length || i === 0);
 }
 
-/** A built-in tab → a stored dashboard to edit: its pages as they are (a page over 8 rooms carries on in a second). */
+/** A built-in tab → a stored dashboard to edit: its pages as they are (a page that overflows carries on in a second). */
 export function fromDef(def: DashboardDef, pageList: { name: string; tiles: Tile[] }[]): CustomDash {
-  const pages = paginate(pageList.map((p) => ({ name: p.name, items: p.tiles.map((t) => itemOf({ dash: def.id, tile: t.id }, t, t.w === 12)) })));
+  const pages = paginate(pageList.map((p) => ({ name: p.name, tiles: p.tiles.map((t) => ({ ref: { dash: def.id, tile: t.id }, tile: t, wide: t.w === 12 })) })));
   return { id: def.id, base: def.id, title: def.title, pages, shared: true, ...(def.start ? { scope: def.start } : {}) };
 }
 
@@ -154,40 +164,48 @@ export function fromDef(def: DashboardDef, pageList: { name: string; tiles: Tile
 
 type Edit = CustomDash | { error: string };
 const copy = (d: CustomDash): CustomDash => structuredClone(d);
-const fits = (d: CustomDash, pi: number): Edit => (roomsUsed(d.pages[pi]) > ROOMS ? { error: `“${d.pages[pi].name}” is full — ${ROOMS} rooms a page. Add a page.` } : d);
-const findItem = (d: CustomDash, id: string) => { for (const [pi, p] of d.pages.entries()) { const ii = p.items.findIndex((x) => x.id === id); if (ii >= 0) return { pi, ii }; } return null; };
+const full = (name: string) => ({ error: `No room on “${name}” — make room, or add a page.` });
 
-/** Move an item before another (same or other page), or to the end of a page. */
-export function moveItem(d0: CustomDash, id: string, toPage: number, before?: string): Edit {
+/** The page's new arrangement after a drag or a resize (the grid gives every item's box). */
+export function arrange(d0: CustomDash, pi: number, boxes: (Box & { i: string })[]): Edit {
   const d = copy(d0);
-  const w = findItem(d, id);
-  if (!w || !d.pages[toPage]) return d0;
-  const [it] = d.pages[w.pi].items.splice(w.ii, 1);
-  const list = d.pages[toPage].items;
-  const bi = before ? list.findIndex((x) => x.id === before) : -1;
-  list.splice(bi >= 0 ? bi : list.length, 0, it);
-  const ok = fits(d, toPage);
-  return "error" in ok ? ok : fits(d, w.pi);
+  const page = d.pages[pi];
+  for (const b of boxes) {
+    const it = page.items.find((x) => x.id === b.i);
+    if (!it) continue;
+    if (!inside(b)) return full(page.name);
+    Object.assign(it, { x: b.x, y: b.y, w: b.w, h: b.h });
+  }
+  return d;
+}
+/** A report onto a page, at the first free place at its starting size. */
+export function addItem(d0: CustomDash, pi: number, ref: Ref, t: Tile, at?: { x: number; y: number }): Edit {
+  if (d0.pages.some((p) => p.items.some((x) => refKey(x.ref) === refKey(ref)))) return { error: "That report is already on this dashboard." };
+  const d = copy(d0);
+  const page = d.pages[pi];
+  const s = sizeFor(t);
+  const spot = at && inside({ ...at, ...s }) && !page.items.some((b) => overlaps(b, { ...at, ...s })) ? at : freeSpot(page.items, s.w, s.h);
+  if (!spot) return full(page.name);
+  page.items.push({ id: newId("i"), ref, ...spot, ...s, ...(isKpiTile(t) ? { kpi: true } : {}) });
+  return d;
+}
+/** To another page, at its first free place (same size). */
+export function moveToPage(d0: CustomDash, id: string, to: number): Edit {
+  const d = copy(d0);
+  const from = d.pages.find((p) => p.items.some((x) => x.id === id));
+  const target = d.pages[to];
+  if (!from || !target || from === target) return d0;
+  const it = from.items.find((x) => x.id === id)!;
+  const spot = freeSpot(target.items, it.w, it.h);
+  if (!spot) return full(target.name);
+  from.items = from.items.filter((x) => x.id !== id);
+  target.items.push({ ...it, ...spot });
+  return d;
 }
 export function removeItem(d0: CustomDash, id: string): CustomDash {
   const d = copy(d0);
   for (const p of d.pages) p.items = p.items.filter((x) => x.id !== id);
   return d;
-}
-export function toggleWide(d0: CustomDash, id: string): Edit {
-  const d = copy(d0);
-  const w = findItem(d, id);
-  if (!w) return d0;
-  const it = d.pages[w.pi].items[w.ii];
-  if (it.kpi) return d0;
-  if (it.wide) delete it.wide; else it.wide = true;
-  return fits(d, w.pi);
-}
-export function addItem(d0: CustomDash, pi: number, it: Item): Edit {
-  if (d0.pages.some((p) => p.items.some((x) => refKey(x.ref) === refKey(it.ref)))) return { error: "That report is already on this dashboard." };
-  const d = copy(d0);
-  d.pages[pi].items.push(it);
-  return fits(d, pi);
 }
 export function addPage(d0: CustomDash): CustomDash {
   const d = copy(d0);

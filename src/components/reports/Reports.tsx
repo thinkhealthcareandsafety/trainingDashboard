@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { DASHBOARDS, type DashboardDef, type Tile } from "@/lib/analytics/dashboards";
-import { type CustomDash, type Item, ROOMS, addItem, addPage, fromDef, newId, roomsUsed, toDef } from "@/lib/analytics/custom";
+import { type CustomDash, addItem, addPage, fromDef, fullness, newId, savedTile, toDef } from "@/lib/analytics/custom";
 import type { Target } from "./Builder";
 import { EditBar } from "./Editor";
 import { datasetOf } from "@/lib/analytics/model";
@@ -66,7 +66,7 @@ export function Reports() {
   const current = dashboards.find((d) => d.id === shown);
   // A dashboard as it would be edited (the team's version, or a built-in tab in places of 4).
   const editable = useCallback((def: DashboardDef): CustomDash => (def.custom ? structuredClone(def.custom) : fromDef(def, pagesOf(def, false))), []);
-  const targets = useMemo(() => (team.canEdit ? dashboards.map((d) => ({ id: d.id, title: d.title, pages: editable(d).pages.map((p) => ({ name: p.name, free: ROOMS - roomsUsed(p) })) })) : []), [team.canEdit, dashboards, editable]);
+  const targets = useMemo(() => (team.canEdit ? dashboards.map((d) => ({ id: d.id, title: d.title, pages: editable(d).pages.map((p) => ({ name: p.name, free: 100 - fullness(p) })) })) : []), [team.canEdit, dashboards, editable]);
   // A new report on the dashboard picked in the builder: a number joins a place of numbers with room, a chart takes a
   // place; a full page (or "+ New page") gets a new page after the last one.
   const place = async (id: string | undefined, to: Target, spec: Spec) => {
@@ -75,10 +75,10 @@ export function Reports() {
     const def = dashboards.find((d) => d.id === to.dash);
     let draft: CustomDash = def ? editable(def) : { id: newId("d-"), title: to.newTitle?.trim() || "New dashboard", shared: true, pages: [] };
     const ref = { dash: "saved", tile: id };
-    const it: Item = { id: newId("i"), ref, ...(spec.chart === "kpi" ? { kpi: true } : {}) };
-    // On the page picked; a full page (or "+ New page") → a new page at the end.
-    let tried = to.page >= 0 && draft.pages[to.page] ? addItem(draft, to.page, it) : { error: "new page" };
-    if ("error" in tried) { draft = addPage(draft); tried = addItem(draft, draft.pages.length - 1, it); }
+    const t = savedTile({ id, spec, by: "" });
+    // On the page picked, at its first free place; no room (or "+ New page") → a new page at the end.
+    let tried = to.page >= 0 && draft.pages[to.page] ? addItem(draft, to.page, ref, t) : { error: "new page" };
+    if ("error" in tried) { draft = addPage(draft); tried = addItem(draft, draft.pages.length - 1, ref, t); }
     if ("error" in tried) { alert(`Saved in Saved reports, but not put on the dashboard: ${tried.error}`); setTab("saved"); return; }
     const r = await fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dashboard: tried }) }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };

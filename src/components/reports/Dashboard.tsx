@@ -3,7 +3,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { type Grain, datasetOf, fieldOf, measureOf } from "@/lib/analytics/model";
 import { DASHBOARDS, type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
-import { type CustomDash, KPIS_PER_ROOM, ROOMS, type Ref, type SavedRef, addItem, addPage, deletePage, itemOf, moveItem, movePage, refKey, removeItem, renamePage, roomsUsed, tileOf, toggleWide } from "@/lib/analytics/custom";
+import { type CustomDash, type Ref, SIZE, type SavedRef, addItem, addPage, arrange, deletePage, fullness, movePage, moveToPage, refKey, removeItem, renamePage, tileOf } from "@/lib/analytics/custom";
+import { Canvas, heightOf } from "./Canvas";
 import { Library } from "./Editor";
 import { btn } from "../ui";
 import type { Compare, Filter, Spec } from "@/lib/analytics/query";
@@ -189,51 +190,42 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
   }, [pages, at, def, specs, keys, got]);
   const loading = busy > 0;
 
-  // Editing in place (owner, 29 Oct: "when i click edit dashboard it should allow me to directly move charts from here
-  // to anywhere"): every number and chart can be dragged onto another (it goes there) or onto a page's name.
+  // Editing in place (owner, 29 Oct: "a big box container … place my report anywhere … increase size of that report by
+  // holding on its edge"): the page is a Canvas; drags and resizes come back as boxes (custom.ts `arrange`).
   const [drag, setDrag] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState("");
+  // Bumped when a move is refused, so the grid redraws from the dashboard (not from where the drag left it).
+  const [rev, setRev] = useState(0);
   const apply = (r: CustomDash | { error: string }) => { if ("error" in r) setNote(r.error); else { setNote(""); edit!.onChange(r); } };
   const NEW = "new:";
-  const dropOn = (toPage: number, before?: string) => {
-    if (!edit || !drag) return;
-    if (drag.startsWith(NEW)) {
-      const ref = JSON.parse(drag.slice(NEW.length)) as Ref;
-      const t = tileOf(ref, edit.builtIns, edit.saved);
-      if (t) {
-        const it = itemOf(ref, t);
-        const added = addItem(edit.draft, toPage, it);
-        apply("error" in added || !before ? added : moveItem(added, it.id, toPage, before));
-      }
-    } else if (drag !== before) apply(moveItem(edit.draft, drag, toPage, before));
+  const newRef = (): Ref | null => (drag?.startsWith(NEW) ? (JSON.parse(drag.slice(NEW.length)) as Ref) : null);
+  const newTile = () => { const r = newRef(); return r && edit ? tileOf(r, edit.builtIns, edit.saved) : undefined; };
+  const dropSize = newTile() ? (newTile()!.spec.chart === "kpi" ? SIZE.kpi : SIZE.chart) : undefined;
+  // A report from the list let go on the page (at x, y) or on a page's name (its first free place).
+  const dropNew = (toPage: number, pos?: { x: number; y: number }) => {
+    const r = newRef(), t = newTile();
+    if (edit && r && t) apply(addItem(edit.draft, toPage, r, t, pos));
     setDrag(null);
   };
-  const movable = (t: Tile, child: React.ReactNode, className = "") => {
-    if (!edit) return <div key={t.id} className={`min-w-0 ${className}`}>{child}</div>;
-    const list = edit.draft.pages[at]?.items ?? [];
-    const i = list.findIndex((x) => x.id === t.id);
-    const it = list[i];
-    const ctl = "grid h-7 min-w-7 place-items-center rounded-full px-1.5 text-[14px] text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-30";
+  const dropOn = (toPage: number) => dropNew(toPage);
+  // In edit mode each report wears a small bar (move to another page, take off); the report itself doesn't take
+  // clicks, so a drag can start anywhere on it.
+  const framed = (t: Tile, child: React.ReactNode) => {
+    if (!edit) return <div className="h-full">{child}</div>;
     return (
-      <div key={t.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setDrag(t.id); }} onDragEnd={() => setDrag(null)}
-        onDragOver={(e) => { if (drag && drag !== t.id) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); dropOn(at, t.id); }}
-        className={`min-w-0 cursor-grab rounded-2xl outline-2 outline-offset-2 active:cursor-grabbing ${drag === t.id ? "opacity-40" : ""} ${drag && drag !== t.id ? "outline-dashed outline-brand/60" : "outline-dashed outline-line"} ${className}`}>
-        <div className="mb-1 flex items-center gap-0.5 px-1">
-          <span aria-hidden className="mr-auto select-none text-[15px] text-faint" title="Drag to move">⠿ drag</span>
-          {it && !it.kpi && <button type="button" className={ctl} onClick={() => apply(toggleWide(edit.draft, it.id))}>{it.wide ? "Medium" : "Wide"}</button>}
-          <button type="button" className={ctl} aria-label="Move earlier" disabled={i <= 0} onClick={() => apply(moveItem(edit.draft, t.id, at, list[i - 1]?.id))}>↑</button>
-          <button type="button" className={ctl} aria-label="Move later" disabled={i < 0 || i >= list.length - 1} onClick={() => apply(moveItem(edit.draft, t.id, at, list[i + 2]?.id))}>↓</button>
+      <div className="group relative h-full cursor-grab rounded-2xl outline-1 outline-offset-2 outline-dashed outline-brand/50 active:cursor-grabbing">
+        <div className="no-drag absolute right-2 top-2 z-20 flex items-center gap-1 rounded-full border border-line bg-surface px-1 py-0.5 opacity-0 shadow-pop transition group-hover:opacity-100 focus-within:opacity-100">
           {edit.draft.pages.length > 1 && (
             <select aria-label="Move to page" className="h-7 max-w-[7rem] rounded-full border border-line bg-surface px-1.5 text-[13.5px] text-muted" value=""
-              onChange={(e) => { if (e.target.value !== "") apply(moveItem(edit.draft, t.id, Number(e.target.value))); }}>
+              onChange={(e) => { if (e.target.value !== "") apply(moveToPage(edit.draft, t.id, Number(e.target.value))); }}>
               <option value="">Move to…</option>
               {edit.draft.pages.map((p, pi) => (pi === at ? null : <option key={p.id} value={pi}>{p.name}</option>))}
             </select>
           )}
-          <button type="button" className={`${ctl} hover:text-high`} aria-label="Take off this dashboard" onClick={() => apply(removeItem(edit.draft, t.id))}>×</button>
+          <button type="button" className="grid h-7 min-w-7 place-items-center rounded-full text-[14px] text-muted hover:bg-surface-2 hover:text-high" aria-label="Take off this dashboard" onClick={() => apply(removeItem(edit.draft, t.id))}>×</button>
         </div>
-        {child}
+        <div className="pointer-events-none h-full">{child}</div>
       </div>
     );
   };
@@ -343,12 +335,12 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
             {edit.bar}
             <button type="button" className={btn.primary} onClick={() => setAdding((x) => !x)}>{adding ? "Done adding" : "+ Add report"}</button>
           </div>
-          <p className="mt-1.5 text-[15px] text-muted">{note || `Drag any chart or number onto another to move it there, or onto a page's name. A page holds ${ROOMS} rooms: a chart is 1 (wide 2), 4 numbers share 1.`}</p>
+          <p className="mt-1.5 text-[15px] text-muted">{note || "Drag any chart or number anywhere in the page box — the others move out of its way. Pull any edge or corner to resize. Drag a report from + Add report onto the box, or onto a page's name."}</p>
           {adding && (
             <div className="mt-2">
               <Library builtIns={edit.builtIns} saved={edit.saved} on={new Set(edit.draft.pages.flatMap((p) => p.items.map((x) => refKey(x.ref))))}
                 onDrag={(ref) => setDrag(NEW + JSON.stringify(ref))}
-                onPick={(ref) => { const t = tileOf(ref, edit.builtIns, edit.saved); if (t) apply(addItem(edit.draft, at, itemOf(ref, t))); }} />
+                onPick={(ref) => { const t = tileOf(ref, edit.builtIns, edit.saved); if (t) apply(addItem(edit.draft, at, ref, t)); }} />
             </div>
           )}
         </div>
@@ -362,7 +354,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
               {i === at
                 ? <input aria-label="Page name" value={p.name} onChange={(e) => apply(renamePage(edit.draft, i, e.target.value))} className="h-9 w-40 rounded-full bg-transparent px-3.5 text-[15.5px] font-medium text-ink focus:outline-none" />
                 : <button type="button" onClick={() => goTo(i)} className="h-9 px-3.5 text-[15.5px] font-medium text-ink-2">{p.name}</button>}
-              <span className="pr-2 text-[14px] text-faint">{roomsUsed(p)}/{ROOMS}</span>
+              <span className="pr-2 text-[14px] text-faint">{fullness(p)}% full</span>
               {i === at && (
                 <>
                   <button type="button" className="grid size-7 place-items-center rounded-full text-muted hover:text-ink disabled:opacity-30" disabled={i === 0} aria-label="Move page left" onClick={() => { apply(movePage(edit.draft, i, -1)); setPage(i - 1); }}>‹</button>
@@ -385,28 +377,20 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
       )}
 
       <div ref={pageTop} className="scroll-mt-4">
-      {def.rooms ? (
-        // Rooms (custom.ts): 2 across; a chart fills one (wide: two), numbers 4 to a room — 2 on top, 2 below.
+      {def.custom ? (
+        // The page as one box (Canvas.tsx): every report where it was put, at its own size.
         <>
           {footnote && (pages[at]?.tiles ?? []).some((t) => t.spec.chart === "kpi" && !t.noCompare) && <p className="mt-3 text-[14.5px] text-faint">{footnote}</p>}
-          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {roomsOfTiles(pages[at]?.tiles ?? []).map((room) => room[0].spec.chart === "kpi" ? (
-              <div key={room[0].id} className="grid grid-cols-2 content-start gap-3">
-                {room.map((t) => movable(t, <KpiCell title={specOf(t).title ?? ""} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} />))}
-              </div>
-            ) : movable(room[0], (
-              <TileCard tile={{ ...room[0], w: 12 }} spec={specOf(room[0])} answer={answers[room[0].id]} accent={def.tiles.indexOf(room[0])}
-                picked={pick?.tileId === room[0].id ? pick.value : null} onPick={edit ? undefined : pickFrom(room[0])}
-                target={room[0].goalLine && (specOf(room[0]).grain ?? "month") === "month" ? goal : undefined}
-                skipped={skippedOf(room[0])} tweak={tweaks[room[0].id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[room[0].id] = tw; else delete n[room[0].id]; return n; }); }} />
-            ), room[0].w === 12 ? "lg:col-span-2" : ""))}
-            {edit && !(pages[at]?.tiles.length) && (
-              <div className="rounded-2xl border-2 border-dashed border-line p-10 text-center text-[16px] text-muted lg:col-span-2"
-                onDragOver={(e) => { if (drag) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); dropOn(at); }}>
-                An empty page — + Add report, or drag a report here.
-              </div>
-            )}
-          </div>
+          <Canvas key={`${def.id}-${at}-${rev}`} tiles={pages[at]?.tiles ?? []} boxes={def.pages?.[at]?.boxes ?? {}} edit={Boolean(edit)}
+            onArrange={(b) => { const r = arrange(edit!.draft, at, b); if ("error" in r) { setNote(r.error); setRev((x) => x + 1); } else apply(r); }}
+            onDropNew={(pos) => dropNew(at, pos)} dropSize={dropSize}
+            render={(t, box) => framed(t, t.spec.chart === "kpi"
+              ? <KpiCell title={specOf(t).title ?? ""} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} />
+              : <TileCard tile={{ ...t, w: 12 }} fill={heightOf(box.h)} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
+                  picked={pick?.tileId === t.id ? pick.value : null} onPick={edit ? undefined : pickFrom(t)}
+                  target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
+                  skipped={skippedOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />)} />
+          {edit && !(pages[at]?.tiles.length) && <p className="mt-2 text-center text-[15.5px] text-muted">An empty page — + Add report, then drag it anywhere in the box.</p>}
         </>
       ) : groups.map((g, gi) => (
 
@@ -626,21 +610,10 @@ function KpiBand({ tiles, specOf, answers, skippedOf, className = "" }: { tiles:
   );
 }
 
-/** Tiles in order → rooms: numbers next to each other share one (4 at most), a chart has its own (custom.ts). */
-function roomsOfTiles(tiles: Tile[]): Tile[][] {
-  const rooms: Tile[][] = [];
-  for (const t of tiles) {
-    const last = rooms.at(-1);
-    if (t.spec.chart === "kpi" && last?.[0]?.spec.chart === "kpi" && last.length < KPIS_PER_ROOM) last.push(t);
-    else rooms.push([t]);
-  }
-  return rooms;
-}
-
-/** One number in a room (a quarter of it: 2 on top, 2 below — about half a chart's height). */
+/** One number on the canvas — it fills the box it was given. */
 function KpiCell({ title, def, answer, skipped }: { title: string; def?: string; answer?: Answer; skipped?: string[] }) {
   return (
-    <section className="card flex min-h-[176px] min-w-0 flex-col px-5 py-4" aria-label={title}>
+    <section className="card flex h-full min-w-0 flex-col overflow-hidden px-5 py-4" aria-label={title}>
       <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${title} — ${def}` : title}>{title}</h3>
       <div className="mt-1.5">
         {!answer ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
@@ -715,7 +688,7 @@ const SPAN: Record<Tile["w"], string> = { 3: "col-span-12 sm:col-span-6 xl:col-s
 
 export type MenuItem = { label: string; onClick: () => void; danger?: boolean };
 
-export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, accent, tweak, onTweak, target, skipped }: {
+export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, accent, tweak, onTweak, target, skipped, fill }: {
   tile: Tile; spec: Spec; answer?: Answer; picked?: string | null; onPick?: (value: string) => void;
   /** "Change this chart" (dashboards): what's changed on this tile, and how to change / reset it. */
   tweak?: Tweak; onTweak?: (t: Tweak | null) => void;
@@ -723,6 +696,8 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
   target?: number;
   /** Active filters this tile's data can't take. */
   skipped?: string[];
+  /** On the canvas: the box's height in px — the card fills it and the chart takes what the title leaves. */
+  fill?: number;
   /** Extra ⋯ menu items (Edit / Delete on saved reports) — on every kind of tile, single numbers and failed ones too. */
   menu?: MenuItem[];
   /** A quiet line under the title (who saved it). */
@@ -749,7 +724,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
   ];
   const sub = meta ?? (tweak ? `Changed from “${titleOf(tile.spec)}”` : !isKpi ? tile.note : undefined);
   return (
-    <section className={`card flex min-w-0 flex-col p-5 ${SPAN[tile.w]}`} aria-label={spec.title}>
+    <section className={`card flex min-w-0 flex-col p-5 ${fill ? "h-full overflow-hidden" : SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[16.5px] text-ink-2" : "text-[18.5px]"}`} title={title}>{title}</h3>
@@ -764,7 +739,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
           // Nothing to draw: say so, not empty axes at ₹0 (29 Oct).
           : !isKpi && answer.rows.every((r) => r.values.every((v) => !v) && !r.prev?.some((v) => v)) ? <p className="grid h-[200px] place-items-center rounded-lg bg-surface-2/60 px-4 text-center text-[15.5px] text-muted">Nothing here for these dates and filters</p>
-          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} />}
+          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} />}
       </div>
     </section>
   );

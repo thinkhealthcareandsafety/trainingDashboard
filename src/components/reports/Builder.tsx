@@ -195,7 +195,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               {where?.dash === "new" && <input aria-label="New dashboard name" placeholder="Its name" className={`${selectCls} w-44`} value={where.newTitle ?? ""} onChange={(e) => setWhere({ ...where, newTitle: e.target.value.slice(0, 40) })} />}
               {target && (
                 <select aria-label="Page" className={`${selectCls} w-auto`} value={where!.page} onChange={(e) => setWhere({ ...where!, page: Number(e.target.value) })}>
-                  {target.pages.map((p, i) => <option key={i} value={i}>{p.name}{p.free > 0 ? ` · ${p.free} free` : " · full"}</option>)}
+                  {target.pages.map((p, i) => <option key={i} value={i}>{p.name}{p.free > 0 ? ` · ${p.free}% free` : " · full"}</option>)}
                   <option value={-1}>+ New page</option>
                 </select>
               )}
