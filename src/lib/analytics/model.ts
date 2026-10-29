@@ -244,9 +244,9 @@ export const DATASETS: Dataset[] = [
       // Owner, 29 Oct ("price change between sales and purchase and its average" — the Defibtech tab): per unit,
       // weighted by units, over lines with a cost only, so sale price − purchase price = margin per unit exactly.
       { key: "costedUnits", label: "Units (with a cost)", format: "count", agg: "sum", field: "costedQty", def: "Units sold on lines whose cost Zoho has (kit parts listed at ₹0 left out)." },
-      { key: "avgSale", label: "Sale price", format: "inr", agg: "ratio", num: "costedRevenue", den: "costedUnits", def: "What we sold a unit for, on average: revenue ÷ units (after discounts, before tax), lines with a cost only." },
+      { key: "avgSale", label: "Selling price", format: "inr", agg: "ratio", num: "costedRevenue", den: "costedUnits", def: "What we sold a unit for, on average: revenue ÷ units (after discounts, before tax), lines with a cost only." },
       { key: "avgCost", label: "Purchase price", format: "inr", agg: "ratio", num: "cost", den: "costedUnits", def: "What a unit sold cost us, on average: Zoho's FIFO cost of the units sold (else the average bill price) ÷ units, before tax." },
-      { key: "diffPerUnit", label: "Difference per unit", format: "inr", agg: "ratio", num: "profit", den: "costedUnits", def: "Average sale price − average purchase price: what we make on one unit." },
+      { key: "diffPerUnit", label: "Profit per unit", format: "inr", agg: "ratio", num: "profit", den: "costedUnits", def: "Average selling price − average purchase price: what we make on one unit." },
       { key: "markupPct", label: "Markup %", format: "pct", agg: "ratio", num: "profit", den: "cost", scale: 100, def: "Difference ÷ purchase price: how much above cost we sell." },
     ],
   },

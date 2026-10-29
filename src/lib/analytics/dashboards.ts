@@ -300,40 +300,44 @@ export const DASHBOARDS: DashboardDef[] = [
 ];
 
 /** Owner, 29 Oct: "a report of defibtech aeds, pads, battery, their price change between sales and purchase and its
- *  average". Built on the margin data (each sale with what its units cost us), so it's Admin only like Margin. All
- *  time by default — a few dozen units a year. */
+ *  average" — then, the same day: "i have 3 items … i want to see all about it … the charts and tables confuse me, make
+ *  them easier". So: never one average over all three (an AED and a pad don't average), plain words, no comparisons;
+ *  an Overview with each product's four numbers side by side, then a page per product. Built on the margin data (each
+ *  sale with what its units cost us), so it's Admin only like Margin. All time by default — a few dozen units a year. */
 function defibtech(): DashboardDef {
   const brand = { field: "brand", values: ["Defibtech"] };
-  const per = ["costedUnits", "avgSale", "avgCost", "diffPerUnit", "markupPct"];
-  const kpiD = (id: string, measure: string, title: string): Tile =>
-    ({ id, w: 3, spec: { dataset: "margin", measures: [measure], chart: "kpi", compare: true, filters: [brand], title } });
-  const overTime = (kind: string, title: string): Tile =>
-    ({ id: `price${kind}`, section: "Price over time", w: 4, noCompare: true, spec: { dataset: "margin", measures: ["avgSale", "avgCost"], by: ["date"], grain: "quarter", chart: "line", filters: [brand, { field: "kind", values: [kind] }], title } });
+  const products = [{ kind: "AED", name: "AED", page: "AEDs" }, { kind: "Pads", name: "Pads", page: "Pads" }, { kind: "Battery", name: "Battery", page: "Batteries" }];
+  const only = (kind: string) => [brand, { field: "kind", values: [kind] }];
+  // A product's four numbers: a row of the Overview, and again on top of its own page (its own ids).
+  const four = (p: (typeof products)[number], section: string, suffix = ""): Tile[] => ([
+    ["Sale", "avgSale", "average selling price"], ["Cost", "avgCost", "average purchase price"],
+    ["Profit", "diffPerUnit", "profit per unit"], ["Units", "costedUnits", "units sold"],
+  ] as const).map(([id, measure, what]) => ({ id: `d${p.kind}${id}${suffix}`, section, w: 3, noCompare: true, spec: { dataset: "margin", measures: [measure], chart: "kpi", filters: only(p.kind), title: `${p.name} · ${what}` } }));
+  const numbers = products.flatMap((p) => four(p, "Overview"));
+  const page = (p: (typeof products)[number]): Tile[] => [
+    ...four(p, p.page, "P"),
+    { id: `d${p.kind}Price`, section: p.page, w: 12, noCompare: true, note: "The gap between the two lines is what we make on each unit · hover a point for the numbers", spec: { dataset: "margin", measures: ["avgSale", "avgCost"], by: ["date"], grain: "quarter", chart: "line", filters: only(p.kind), title: `${p.name}: selling price vs purchase price, quarter by quarter` } },
+    { id: `d${p.kind}Qty`, section: p.page, w: 6, noCompare: true, note: "Click a quarter to see only its sales on this page", spec: { dataset: "margin", measures: ["costedUnits"], by: ["date"], grain: "quarter", chart: "column", filters: only(p.kind), title: "Units sold each quarter" } },
+    { id: `d${p.kind}Who`, section: p.page, w: 6, noCompare: true, note: "Click a customer to see their prices", spec: { dataset: "margin", measures: ["costedUnits"], by: ["customer"], limit: 8, chart: "bar", filters: only(p.kind), title: "Who buys the most (units)" } },
+    { id: `d${p.kind}Type`, section: p.page, w: 6, noCompare: true, spec: { dataset: "margin", measures: ["avgSale"], by: ["customerType"], limit: 6, chart: "bar", filters: only(p.kind), title: "Average selling price, by customer type" } },
+    { id: `d${p.kind}Person`, section: p.page, w: 6, noCompare: true, spec: { dataset: "margin", measures: ["avgSale"], by: ["salesperson"], limit: 6, chart: "bar", filters: only(p.kind), title: "Average selling price, by sales person" } },
+  ];
   return {
     id: "defibtech",
     title: "Defibtech",
-    desc: "Admin only — Defibtech AEDs, pads and batteries: what we sell a unit for, what it cost us, and the difference, on average.",
+    desc: "Admin only — Defibtech AEDs, pads and batteries: what we sell one for, what it cost us, and what we make on each, on average (before tax).",
     period: "all",
     filters: [
-      { field: "kind", label: "AED / pads / battery" },
-      { field: "item", label: "Item" },
       { field: "customerType", label: "Customer type" },
       { field: "sector", label: "Sector" },
       { field: "salesperson", label: "Sales person" },
       { field: "state", label: "State" },
     ],
     tiles: [
-      kpiD("dUnits", "costedUnits", "Units sold"),
-      kpiD("dSale", "avgSale", "Average sale price"),
-      kpiD("dCost", "avgCost", "Average purchase price"),
-      kpiD("dDiff", "diffPerUnit", "Average difference per unit"),
-      { id: "dKinds", section: "AED, pads, battery", w: 12, noCompare: true, note: "Per unit, before tax, weighted by units · markup = difference ÷ purchase price", spec: { dataset: "margin", measures: per, by: ["kind"], sort: "label", chart: "table", filters: [brand], title: "Sale vs purchase price, on average" } },
-      { id: "dDiffTime", section: "AED, pads, battery", w: 12, noCompare: true, spec: { dataset: "margin", measures: ["diffPerUnit"], by: ["date", "kind"], grain: "quarter", chart: "line", filters: [brand], title: "Difference per unit, by quarter" } },
-      overTime("AED", "AEDs: sale vs purchase price"),
-      overTime("Pads", "Pads: sale vs purchase price"),
-      overTime("Battery", "Batteries: sale vs purchase price"),
-      { id: "dItems", section: "Items", w: 12, noCompare: true, spec: { dataset: "margin", measures: per, by: ["item"], limit: 25, chart: "table", filters: [brand], title: "Item by item" } },
-      { id: "dCustomers", section: "Items", w: 12, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits", "avgSale", "diffPerUnit", "markupPct"], by: ["customer"], limit: 15, chart: "table", filters: [brand], title: "Customers who bought the most" } },
+      ...numbers,
+      { id: "dRevenue", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["revenue"], by: ["kind"], sort: "label", chart: "bar", filters: [brand, { field: "kind", values: ["AED", "Pads", "Battery"] }], title: "Sales of each, before tax" } },
+      { id: "dQtyAll", section: "Overview", w: 6, noCompare: true, spec: { dataset: "margin", measures: ["costedUnits"], by: ["date", "kind"], grain: "quarter", chart: "stacked", filters: [brand, { field: "kind", values: ["AED", "Pads", "Battery"] }], title: "Units sold each quarter" } },
+      ...products.flatMap(page),
     ],
   };
 }
