@@ -27,8 +27,14 @@ export function autoTitle(s: Spec): string {
   return `${m}${by.length ? ` by ${by.join(" and ")}` : ""}`;
 }
 
-export function Builder({ initial, datasets, today, canSave, savedId, onClose, onSaved }: {
-  initial?: Spec; datasets: string[]; today: string; canSave: boolean; savedId?: string; onClose: () => void; onSaved: () => void;
+/** Where a new report goes (owner, 29 Oct: "select what dashboard it goes in, or create a new dashboard"): a dashboard
+ *  and one of its pages (index; -1 = a new page), a new dashboard, or only Saved reports. */
+export type Target = { dash: string; page: number; newTitle?: string } | null;
+export type TargetChoice = { id: string; title: string; pages: { name: string; free: number }[] };
+
+export function Builder({ initial, datasets, today, canSave, savedId, onClose, onSaved, targets = [], defaultTarget }: {
+  initial?: Spec; datasets: string[]; today: string; canSave: boolean; savedId?: string; onClose: () => void; onSaved: (id: string | undefined, target: Target, spec: Spec) => void;
+  targets?: TargetChoice[]; defaultTarget?: string;
 }) {
   const allowed = DATASETS.filter((d) => datasets.includes(d.key));
   const [spec, setSpec] = useState<Spec>(() => initial ?? { dataset: allowed[0]?.key ?? "sales", measures: [allowed[0]?.measures[0].key ?? "revenue"], by: [], period: "fy", chart: "auto", limit: 10 });
@@ -69,12 +75,14 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   };
   const usesDate = (spec.by ?? []).includes(d.dateField);
 
+  const [where, setWhere] = useState<Target>(() => (defaultTarget && targets.some((t) => t.id === defaultTarget) ? { dash: defaultTarget, page: 0 } : null));
+  const target = where && where.dash !== "new" ? targets.find((t) => t.id === where.dash) : undefined;
   const save = async () => {
     setSaving({ busy: true });
     const body = { id: savedId, spec: { ...spec, from: undefined, to: undefined, title: title.trim() || autoTitle(spec) } };
     const r = await fetch("/api/analytics/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
-    if (j.ok) { onSaved(); onClose(); } else setSaving({ error: j.error ?? "Couldn't save" });
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; id?: string }) : { error: "Couldn't reach the server" };
+    if (j.ok) { onSaved(j.id, savedId ? null : where, body.spec); onClose(); } else setSaving({ error: j.error ?? "Couldn't save" });
   };
 
   const field = (label: string, children: React.ReactNode, hint?: string) => (
@@ -175,6 +183,24 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3.5">
           {saving.error && <span className="mr-auto text-[16px] font-medium text-high">{saving.error}</span>}
           {!canSave && <span className="mr-auto text-[15.5px] text-muted">Admin, Ashish, Shikha and Sumit can save reports for the team.</span>}
+          {canSave && !savedId && targets.length > 0 && (
+            <div className="mr-auto flex flex-wrap items-center gap-2 text-[15.5px] text-ink-2">
+              <span>Put it on</span>
+              <select aria-label="Dashboard" className={`${selectCls} w-auto`} value={where ? where.dash : ""}
+                onChange={(e) => setWhere(e.target.value === "" ? null : { dash: e.target.value, page: 0, ...(e.target.value === "new" ? { newTitle: "" } : {}) })}>
+                <option value="">Saved reports only</option>
+                {targets.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+                <option value="new">+ New dashboard…</option>
+              </select>
+              {where?.dash === "new" && <input aria-label="New dashboard name" placeholder="Its name" className={`${selectCls} w-44`} value={where.newTitle ?? ""} onChange={(e) => setWhere({ ...where, newTitle: e.target.value.slice(0, 40) })} />}
+              {target && (
+                <select aria-label="Page" className={`${selectCls} w-auto`} value={where!.page} onChange={(e) => setWhere({ ...where!, page: Number(e.target.value) })}>
+                  {target.pages.map((p, i) => <option key={i} value={i}>{p.name}{p.free > 0 ? ` · ${p.free} free` : " · full"}</option>)}
+                  <option value={-1}>+ New page</option>
+                </select>
+              )}
+            </div>
+          )}
           <button className={btn.ghost} onClick={onClose}>Close</button>
           {canSave && <button className={btn.primary} disabled={saving.busy || !answer || isError(answer)} onClick={save}>{saving.busy ? "Saving…" : savedId ? "Save changes" : "Save report"}</button>}
         </div>

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { DASHBOARDS, type DashboardDef, type Tile } from "@/lib/analytics/dashboards";
-import { type CustomDash, fromDef, newId, toDef } from "@/lib/analytics/custom";
+import { type CustomDash, MAX_KPIS, PLACES, fromDef, newId, placesUsed, toDef } from "@/lib/analytics/custom";
+import type { Target } from "./Builder";
 import { Editor } from "./Editor";
 import { datasetOf } from "@/lib/analytics/model";
 import type { Spec } from "@/lib/analytics/query";
@@ -62,6 +63,28 @@ export function Reports() {
   const hidden = prefs?.hidden ?? [];
   const shown = hidden.includes(tab) ? "mine" : tab; // a hidden tab that was open falls back to My dashboard
   const current = dashboards.find((d) => d.id === shown);
+  // A dashboard as it would be edited (the team's version, or a built-in tab in places of 4).
+  const editable = useCallback((def: DashboardDef): CustomDash => (def.custom ? structuredClone(def.custom) : fromDef(def, pagesOf(def, false))), []);
+  const targets = useMemo(() => (team.canEdit ? dashboards.map((d) => ({ id: d.id, title: d.title, pages: editable(d).pages.map((p) => ({ name: p.name, free: PLACES - placesUsed(p) })) })) : []), [team.canEdit, dashboards, editable]);
+  // A new report on the dashboard picked in the builder: a number joins a place of numbers with room, a chart takes a
+  // place; a full page (or "+ New page") gets a new page after the last one.
+  const place = async (id: string | undefined, to: Target, spec: Spec) => {
+    loadSaved();
+    if (!id || !to) { setTab("saved"); return; }
+    const def = dashboards.find((d) => d.id === to.dash);
+    const draft: CustomDash = def ? editable(def) : { id: newId("d-"), title: to.newTitle?.trim() || "New dashboard", shared: true, pages: [] };
+    const kpi = spec.chart === "kpi";
+    let page = to.page >= 0 ? draft.pages[to.page] : undefined;
+    const room = kpi ? page?.slots.find((s) => s.kpis && s.refs.length < MAX_KPIS) : undefined;
+    if (!page || (!room && placesUsed(page) >= PLACES)) { page = { id: newId("p"), name: `Page ${draft.pages.length + 1}`, slots: [] }; draft.pages.push(page); }
+    if (room) room.refs.push({ dash: "saved", tile: id });
+    else page.slots.push({ id: newId("s"), refs: [{ dash: "saved", tile: id }], ...(kpi ? { kpis: true } : {}) });
+    const r = await fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dashboard: draft }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
+    if (j.error) { alert(`Saved in Saved reports, but not put on the dashboard: ${j.error}`); setTab("saved"); return; }
+    await loadTeam();
+    setTab(draft.id);
+  };
   const allTabs = [...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }];
 
   const refresh = async () => {
@@ -114,7 +137,7 @@ export function Reports() {
       {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
       {editing && <Editor draft={editing.draft} fresh={editing.fresh} builtIns={builtIns} saved={saved?.reports ?? []} admin={team.admin}
         onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); loadTeam(); setTab(id); }} />}
-      {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={() => { loadSaved(); setTab("saved"); }} />, document.body)}
+      {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={place} targets={targets} defaultTarget={current?.id} />, document.body)}
     </div>
   );
 }
