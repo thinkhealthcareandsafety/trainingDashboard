@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { DASHBOARDS, type Tile } from "@/lib/analytics/dashboards";
+import { DASHBOARDS, type DashboardDef, type Tile } from "@/lib/analytics/dashboards";
+import { type CustomDash, toDef } from "@/lib/analytics/custom";
 import { datasetOf } from "@/lib/analytics/model";
 import type { Spec } from "@/lib/analytics/query";
 import { btn } from "../ui";
@@ -34,15 +35,27 @@ export function Reports() {
   const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json()).then(setSaved).catch(() => {}), []);
   // My dashboard's list + the tabs this person hid ("Select Dashboards to display", owner 29 Oct) — per person, server.
   const [prefs, setPrefs] = useState<Prefs | null>(null);
+  // The team's dashboards and edited tabs (owner, 29 Oct), and the built-in tabs Admin deleted.
+  const [team, setTeam] = useState<{ dashboards: CustomDash[]; hidden: string[]; canEdit: boolean; admin: boolean }>({ dashboards: [], hidden: [], canEdit: false, admin: false });
+  const loadTeam = useCallback(() => fetch("/api/analytics/dashboards").then((r) => r.json()).then((j) => { if (Array.isArray(j.dashboards)) setTeam(j); }).catch(() => {}), []);
   useEffect(() => {
-    loadMeta(); loadSaved();
+    loadMeta(); loadSaved(); loadTeam();
     fetch("/api/analytics/prefs").then((r) => r.json())
       .then((j) => setPrefs({ layout: j.layout ?? null, starting: j.starting ?? null, startingBy: j.startingBy, hidden: j.hidden ?? [] }))
       .catch(() => setPrefs({ layout: null, starting: null, hidden: [] }));
-  }, [loadMeta, loadSaved]);
+  }, [loadMeta, loadSaved, loadTeam]);
   useEffect(() => { try { localStorage.setItem("th.reports.tab", tab); localStorage.setItem("th.reports.mine", "1"); } catch {} }, [tab]);
 
-  const dashboards = useMemo(() => DASHBOARDS.filter((d) => meta && d.tiles.every((t) => meta.datasets.includes(t.spec.dataset))), [meta]);
+  const builtIns = useMemo(() => DASHBOARDS.filter((d) => meta && d.tiles.every((t) => meta.datasets.includes(t.spec.dataset))), [meta]);
+  // The tabs: each built-in one (or the team's version of it), then the dashboards the team made.
+  const dashboards = useMemo<DashboardDef[]>(() => {
+    const savedList = saved?.reports ?? [];
+    const own = (id: string) => team.dashboards.find((c) => c.base === id);
+    return [
+      ...builtIns.filter((d) => !team.hidden.includes(d.id)).map((d) => { const c = own(d.id); return c ? toDef(c, builtIns, savedList) : d; }),
+      ...team.dashboards.filter((c) => !c.base).map((c) => toDef(c, builtIns, savedList)),
+    ];
+  }, [builtIns, team, saved]);
   const hidden = prefs?.hidden ?? [];
   const shown = hidden.includes(tab) ? "mine" : tab; // a hidden tab that was open falls back to My dashboard
   const current = dashboards.find((d) => d.id === shown);
@@ -81,7 +94,7 @@ export function Reports() {
         <button className={`${btn.primary} ml-auto`} onClick={() => setBuilder({})} title="New report">+ New</button>
       </div>
       <div className="mt-4">
-        {shown === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={dashboards} saved={saved ? saved.reports : null}
+        {shown === "mine" ? <MyDashboard today={meta.today} admin={meta.admin} dashboards={builtIns} saved={saved ? saved.reports : null}
             prefs={prefs} tabs={allTabs.map((t) => ({ id: t.id, label: t.label.replace(/ \(\d+\)$/, "") }))} onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))} />
           : current ? <DashboardView def={current} today={meta.today} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}

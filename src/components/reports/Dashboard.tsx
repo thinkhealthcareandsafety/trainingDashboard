@@ -79,7 +79,10 @@ const readTweaks = (id: string): Record<string, Tweak> => { try { return JSON.pa
  * into pages of about six charts — a band of numbers counts as one.
  */
 type Page = { name: string; tiles: Tile[]; half?: Set<string> };
-function pagesOf(tiles: Tile[]): Page[] {
+function pagesOf(def: DashboardDef): Page[] {
+  const tiles = def.tiles;
+  // Pages set by hand (the team's dashboards): as they were arranged, nothing added.
+  if (def.pages) return def.pages.map((p) => ({ name: p.name, tiles: p.tiles.map((id) => tiles.find((t) => t.id === id)).filter((t): t is Tile => Boolean(t)) }));
   if (tiles.some((t) => t.section)) {
     const pages: Page[] = [];
     for (const t of tiles) {
@@ -148,7 +151,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const [got, setGot] = useState<Record<string, { key: string; a: Answer }>>({});
   const asking = useRef(new Set<string>());
   const [busy, setBusy] = useState(0);
-  const pages = useMemo(() => pagesOf(def.tiles), [def]);
+  const pages = useMemo(() => pagesOf(def), [def]);
   const [page, setPageRaw] = useState(() => readPage(def.id));
   const at = Math.min(page, pages.length - 1);
   const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
@@ -279,7 +282,7 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
       {pages.length > 1 && (
         <nav className="mt-4 flex flex-wrap items-center gap-1" aria-label="Pages of this dashboard">
           {pages.map((p, i) => (
-            <button key={p.name} type="button" aria-current={i === at ? "page" : undefined} onClick={() => goTo(i)}
+            <button key={`${i}-${p.name}`} type="button" aria-current={i === at ? "page" : undefined} onClick={() => goTo(i)}
               className={`rounded-full px-3.5 py-1.5 text-[15.5px] font-medium transition ${i === at ? "bg-brand-soft text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>{p.name}</button>
           ))}
         </nav>

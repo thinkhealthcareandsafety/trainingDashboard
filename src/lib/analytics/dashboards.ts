@@ -22,7 +22,10 @@ export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: bo
 export type DashFilter = { field: string; label: string; range?: boolean };
 /** `grains`: a "Show by Week / Month / Quarter / Year" switch for every time chart (owner, 29 Oct), starting on this one. */
 /** `start`: filters already set when the tab opens, removable like any other (Defibtech: Brand = Defibtech). */
-export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain; start?: Record<string, { values: string[]; exclude?: boolean }> };
+/** `pages`: set by hand (the team's dashboards — custom.ts): each page's tile ids, in order; else pages come from `section`.
+ *  `custom`: the stored dashboard it was built from (for Edit). */
+export type DashboardDef = { id: string; title: string; desc: string; tiles: Tile[]; filters: DashFilter[]; period: string; grains?: Grain; start?: Record<string, { values: string[]; exclude?: boolean }>;
+  pages?: { name: string; tiles: string[] }[]; custom?: import("./custom").CustomDash };
 
 /** "{grain}" in a title follows the chart's grouping (owner, 29 Oct: on Month it still said "quarter by quarter"). */
 export const titleOf = (spec: Spec) => (spec.title ?? "").replaceAll("{grain}", { day: "day", week: "week", month: "month", quarter: "quarter", fy: "year" }[spec.grain ?? "month"]);

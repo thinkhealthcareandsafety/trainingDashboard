@@ -1,3 +1,6 @@
+import type { DashboardDef, DashFilter, Tile } from "./dashboards";
+import type { Spec } from "./query";
+
 /*
  * Dashboards the team makes and edits (owner, 29 Oct: "select what dashboard it goes in, or create a new dashboard …
  * create pages … decide which report goes in which page … a total of 4 reports on one page, 1 report = 4 kpis space …
@@ -72,4 +75,70 @@ export function cleanDashboard(x: unknown): CustomDash | { error: string } {
   }
   const base = typeof d.base === "string" && DASH.test(d.base) ? d.base : undefined;
   return { id: d.id, title, pages, shared: d.shared !== false, ...(base ? { base } : {}), ...(Object.keys(scope).length ? { scope } : {}) };
+}
+
+/* ---------------- Between stored dashboards and what the page draws ---------------- */
+
+export type SavedRef = { id: string; spec: Spec; by: string };
+/** A saved report as a tile (keeps its own period, as on the Saved reports tab). */
+export const savedTile = (r: SavedRef): Tile => ({ id: r.id, spec: r.spec, w: r.spec.by?.length ? 6 : 3, fixedPeriod: true, note: `Saved report · ${r.by.split(" ")[0]}` });
+const isKpi = (t: Tile) => t.spec.chart === "kpi";
+
+/** The report a ref points to, or undefined (a deleted saved report, a tab this member can't see). */
+export function tileOf(ref: Ref, builtIns: DashboardDef[], saved: SavedRef[]): Tile | undefined {
+  if (ref.dash === "saved") { const r = saved.find((x) => x.id === ref.tile); return r ? savedTile(r) : undefined; }
+  return builtIns.find((d) => d.id === ref.dash)?.tiles.find((t) => t.id === ref.tile);
+}
+
+const COMMON: DashFilter[] = [{ field: "customerType", label: "Customer type" }, { field: "sector", label: "Sector" }, { field: "salesperson", label: "Sales person" }];
+
+/** A stored dashboard → the page's dashboard: tiles in page order, each page as arranged. */
+export function toDef(c: CustomDash, builtIns: DashboardDef[], saved: SavedRef[]): DashboardDef {
+  const base = c.base ? builtIns.find((d) => d.id === c.base) : undefined;
+  const tiles: Tile[] = [];
+  const pages = c.pages.map((p) => {
+    const ids: string[] = [];
+    for (const s of p.slots) for (const r of s.refs) {
+      const t = tileOf(r, builtIns, saved);
+      if (!t) continue;
+      const id = `${s.id}~${refKey(r)}`;
+      tiles.push({ ...t, id, section: undefined, w: isKpi(t) ? 3 : s.wide ? 12 : 6, tall: false });
+      ids.push(id);
+    }
+    return { name: p.name, tiles: ids };
+  });
+  // Filters: those of every tab its reports come from (and the usual three), once each.
+  const from = new Set(c.pages.flatMap((p) => p.slots.flatMap((s) => s.refs.map((r) => r.dash))));
+  const filters: DashFilter[] = [];
+  for (const f of [...(base?.filters ?? []), ...builtIns.filter((d) => from.has(d.id)).flatMap((d) => d.filters), ...COMMON]) if (!filters.some((x) => x.field === f.field)) filters.push(f);
+  return {
+    id: c.id, title: c.title, desc: base?.desc ?? (c.ownerName ? `Made by ${c.ownerName.split(" ")[0]}${c.shared ? "" : " · only you see it"}` : ""),
+    tiles, pages, filters, period: base?.period ?? "fy", grains: base?.grains, start: c.scope ?? base?.start, custom: c,
+  };
+}
+
+let seq = 0;
+export const newId = (p: string) => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
+
+/** A built-in tab → a stored dashboard to edit: its pages, numbers in places of 4, a page that's too full split in two. */
+export function fromDef(def: DashboardDef, pageList: { name: string; tiles: Tile[] }[]): CustomDash {
+  const pages: Page[] = [];
+  for (const p of pageList) {
+    let cur: Page = { id: newId("p"), name: p.name, slots: [] };
+    const push = (s: Slot) => {
+      if (placesUsed(cur) + placesOf(s) > PLACES) { pages.push(cur); cur = { id: newId("p"), name: `${p.name} (${pages.filter((x) => x.name.startsWith(p.name)).length + 1})`, slots: [] }; }
+      cur.slots.push(s);
+    };
+    let nums: Ref[] = [];
+    const flush = () => { if (nums.length) push({ id: newId("s"), kpis: true, refs: nums }); nums = []; };
+    for (const t of p.tiles) {
+      const ref = { dash: def.id, tile: t.id };
+      if (isKpi(t)) { nums.push(ref); if (nums.length === MAX_KPIS) flush(); continue; }
+      flush();
+      push({ id: newId("s"), refs: [ref], ...(t.w === 12 ? { wide: true } : {}) });
+    }
+    flush();
+    pages.push(cur);
+  }
+  return { id: def.id, base: def.id, title: def.title, pages: pages.filter((p) => p.slots.length), shared: true, ...(def.start ? { scope: def.start } : {}) };
 }

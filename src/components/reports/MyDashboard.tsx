@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
+import { savedTile } from "@/lib/analytics/custom";
 import { type LayoutEntry, type Size, SIZE_W, START, entryKey, sizeOfW } from "@/lib/analytics/layout";
 import type { Spec } from "@/lib/analytics/query";
 import { btn } from "../ui";
@@ -32,7 +33,6 @@ const FILTERS: DashFilter[] = [
 
 const isKpi = (t: Tile) => t.spec.chart === "kpi";
 // A saved report keeps its own period, as on the Saved reports tab.
-const savedTile = (r: SavedReport): Tile => ({ id: r.id, spec: r.spec, w: r.spec.by?.length ? 6 : 3, fixedPeriod: true, note: `Saved report · ${r.by.split(" ")[0]}` });
 
 /** Every tile one can pick, by tab: the dashboards this member sees, then the saved reports. */
 function sourcesOf(dashboards: DashboardDef[], saved: SavedReport[]): Source[] {
