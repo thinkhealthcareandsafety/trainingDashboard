@@ -114,6 +114,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                 ))}
               </div>
             ), measureOf(d, spec.measures[0])?.def)}
+            {mixedAverage(spec) && <p className="-mt-2 rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2">A price per unit over different items mixes them (an AED and a pad average to neither) — split by item, or filter to one item, group or kind.</p>}
             {field("3 · Split by", (
               <div className="space-y-2">
                 <select className={selectCls} value={by0} onChange={(e) => setBy(0, e.target.value)}>
@@ -190,7 +191,7 @@ function Filters({ dataset, filters, onChange }: { dataset: string; filters: Fil
     <div className="space-y-2">
       {filters.map((f, i) => (
         <div key={f.field} className="flex items-center gap-1.5">
-          <FilterValues dataset={dataset} field={f.field} selected={f.values} onChange={(values) => onChange(filters.map((x, j) => (j === i ? { ...x, values } : x)))} />
+          <FilterValues dataset={dataset} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />
           <button type="button" aria-label={`Remove the ${fieldOf(d, f.field)?.label} filter`} className="rounded-full px-2 text-muted hover:text-ink" onClick={() => onChange(filters.filter((_, j) => j !== i))}>×</button>
         </div>
       ))}
@@ -205,8 +206,19 @@ function Filters({ dataset, filters, onChange }: { dataset: string; filters: Fil
   );
 }
 
-function FilterValues({ dataset, field, selected, onChange }: { dataset: string; field: string; selected: string[]; onChange: (v: string[]) => void }) {
-  const values = useFieldValues(dataset, field);
-  const label = fieldOf(datasetOf(dataset)!, field)?.label ?? field;
-  return <MultiSelect label={label} values={values} selected={selected} onChange={onChange} loading={!values.length} />;
+/** Owner, 29 Oct: the builder's filters do what the dashboards' do — is / is not / everything containing. */
+function FilterValues({ dataset, filter, onChange }: { dataset: string; filter: Filter; onChange: (f: Filter) => void }) {
+  const values = useFieldValues(dataset, filter.field);
+  const label = fieldOf(datasetOf(dataset)!, filter.field)?.label ?? filter.field;
+  return <MultiSelect label={label} values={values} selected={filter.values} onChange={(v) => onChange({ ...filter, values: v })} loading={!values.length}
+    rule={{ exclude: filter.exclude, contains: filter.contains }} onRule={(r) => onChange({ ...filter, exclude: r.exclude || undefined, contains: r.contains?.trim() || undefined, values: r.contains?.trim() ? [] : filter.values })} />;
+}
+
+// Prices per unit (owner, 29 Oct: "average selling price" of AEDs, pads, batteries) only mean something for one item.
+const PER_UNIT = new Set(["avgPrice", "avgSale", "avgCost", "diffPerUnit", "paidPerUnit"]);
+const ITEMISH = ["item", "zohoItem", "kind", "itemGroup"];
+function mixedAverage(spec: Spec) {
+  if (!spec.measures.some((m) => PER_UNIT.has(m))) return false;
+  if ((spec.by ?? []).some((b) => ITEMISH.includes(b))) return false;
+  return !(spec.filters ?? []).some((f) => ITEMISH.includes(f.field) && !f.exclude && (f.values.length === 1 || f.field === "kind"));
 }
