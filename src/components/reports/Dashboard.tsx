@@ -3,6 +3,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { type Grain, datasetOf, fieldOf, measureOf } from "@/lib/analytics/model";
 import { DASHBOARDS, type DashboardDef, type DashFilter, type Tile, titleOf } from "@/lib/analytics/dashboards";
+import { type CustomDash, KPIS_PER_ROOM, ROOMS, type Ref, type SavedRef, addItem, addPage, deletePage, itemOf, moveItem, movePage, refKey, removeItem, renamePage, roomsUsed, tileOf, toggleWide } from "@/lib/analytics/custom";
+import { Library } from "./Editor";
+import { btn } from "../ui";
 import type { Compare, Filter, Spec } from "@/lib/analytics/query";
 import { Chart, Kpi, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
@@ -141,7 +144,10 @@ const writeState = (def: DashboardDef, st: ViewState) => {
 const filterLabel = (def: DashboardDef, field: string) => def.filters.find((f) => f.field === field)?.label ?? DASHBOARDS.flatMap((d) => d.filters).find((f) => f.field === field)?.label ?? field;
 
 /** `tools`: extra buttons at the right end of the toolbar (My dashboard: Customise). */
-export function DashboardView({ def, today, tools }: { def: DashboardDef; today: string; tools?: React.ReactNode }) {
+/** Editing a dashboard in place: its copy, what changes it, the bar (name, Save, Cancel…) and the reports to add. */
+export type EditCtl = { draft: CustomDash; onChange: (d: CustomDash) => void; bar: React.ReactNode; builtIns: DashboardDef[]; saved: SavedRef[] };
+
+export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; today: string; tools?: React.ReactNode; edit?: EditCtl }) {
   const [period, setPeriod] = useState(() => readState(def).period);
   const [filters, setFilters] = useState<Record<string, FState>>(() => readState(def).filters);
   const [compare, setCompare] = useState<CompareMode>(() => readState(def).compare);
@@ -158,7 +164,9 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
   const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
   const [goal, setGoal] = useState<number | undefined>();
   useEffect(() => { if (def.tiles.some((t) => t.goalLine)) fetch("/api/analytics/goal").then((r) => r.json()).then((g) => setGoal(typeof g.monthly === "number" ? g.monthly : undefined)).catch(() => {}); }, [def]);
-  useEffect(() => { const st = readState(def); setPeriod(st.period); setFilters(st.filters); setCompare(st.compare); setGrain(st.grain); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); }, [def]);
+  useEffect(() => { const st = readState(def); setPeriod(st.period); setFilters(st.filters); setCompare(st.compare); setGrain(st.grain); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def.id]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
 
   // "All time" has no period before it — comparing would quietly do nothing, so it's off (and the menu hidden).
@@ -180,6 +188,55 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
     });
   }, [pages, at, def, specs, keys, got]);
   const loading = busy > 0;
+
+  // Editing in place (owner, 29 Oct: "when i click edit dashboard it should allow me to directly move charts from here
+  // to anywhere"): every number and chart can be dragged onto another (it goes there) or onto a page's name.
+  const [drag, setDrag] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [note, setNote] = useState("");
+  const apply = (r: CustomDash | { error: string }) => { if ("error" in r) setNote(r.error); else { setNote(""); edit!.onChange(r); } };
+  const NEW = "new:";
+  const dropOn = (toPage: number, before?: string) => {
+    if (!edit || !drag) return;
+    if (drag.startsWith(NEW)) {
+      const ref = JSON.parse(drag.slice(NEW.length)) as Ref;
+      const t = tileOf(ref, edit.builtIns, edit.saved);
+      if (t) {
+        const it = itemOf(ref, t);
+        const added = addItem(edit.draft, toPage, it);
+        apply("error" in added || !before ? added : moveItem(added, it.id, toPage, before));
+      }
+    } else if (drag !== before) apply(moveItem(edit.draft, drag, toPage, before));
+    setDrag(null);
+  };
+  const movable = (t: Tile, child: React.ReactNode, className = "") => {
+    if (!edit) return <div key={t.id} className={`min-w-0 ${className}`}>{child}</div>;
+    const list = edit.draft.pages[at]?.items ?? [];
+    const i = list.findIndex((x) => x.id === t.id);
+    const it = list[i];
+    const ctl = "grid h-7 min-w-7 place-items-center rounded-full px-1.5 text-[14px] text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-30";
+    return (
+      <div key={t.id} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setDrag(t.id); }} onDragEnd={() => setDrag(null)}
+        onDragOver={(e) => { if (drag && drag !== t.id) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); dropOn(at, t.id); }}
+        className={`min-w-0 cursor-grab rounded-2xl outline-2 outline-offset-2 active:cursor-grabbing ${drag === t.id ? "opacity-40" : ""} ${drag && drag !== t.id ? "outline-dashed outline-brand/60" : "outline-dashed outline-line"} ${className}`}>
+        <div className="mb-1 flex items-center gap-0.5 px-1">
+          <span aria-hidden className="mr-auto select-none text-[15px] text-faint" title="Drag to move">⠿ drag</span>
+          {it && !it.kpi && <button type="button" className={ctl} onClick={() => apply(toggleWide(edit.draft, it.id))}>{it.wide ? "Medium" : "Wide"}</button>}
+          <button type="button" className={ctl} aria-label="Move earlier" disabled={i <= 0} onClick={() => apply(moveItem(edit.draft, t.id, at, list[i - 1]?.id))}>↑</button>
+          <button type="button" className={ctl} aria-label="Move later" disabled={i < 0 || i >= list.length - 1} onClick={() => apply(moveItem(edit.draft, t.id, at, list[i + 2]?.id))}>↓</button>
+          {edit.draft.pages.length > 1 && (
+            <select aria-label="Move to page" className="h-7 max-w-[7rem] rounded-full border border-line bg-surface px-1.5 text-[13.5px] text-muted" value=""
+              onChange={(e) => { if (e.target.value !== "") apply(moveItem(edit.draft, t.id, Number(e.target.value))); }}>
+              <option value="">Move to…</option>
+              {edit.draft.pages.map((p, pi) => (pi === at ? null : <option key={p.id} value={pi}>{p.name}</option>))}
+            </select>
+          )}
+          <button type="button" className={`${ctl} hover:text-high`} aria-label="Take off this dashboard" onClick={() => apply(removeItem(edit.draft, t.id))}>×</button>
+        </div>
+        {child}
+      </div>
+    );
+  };
   const pageTop = useRef<HTMLDivElement>(null);
   // Opening a page asks for its tiles; clicking it again retries any that failed. From the bottom buttons, back to its top.
   const goTo = (i: number, scroll = false) => {
@@ -280,7 +337,45 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
         {tools && <div className="ml-auto flex items-center gap-2">{tools}</div>}
       </div>
 
-      {pages.length > 1 && (
+      {edit && (
+        <div className="sticky top-0 z-30 -mx-1 mb-3 rounded-2xl border border-brand/40 bg-surface/95 px-4 py-3 shadow-pop backdrop-blur">
+          <div className="flex flex-wrap items-center gap-2">
+            {edit.bar}
+            <button type="button" className={btn.primary} onClick={() => setAdding((x) => !x)}>{adding ? "Done adding" : "+ Add report"}</button>
+          </div>
+          <p className="mt-1.5 text-[15px] text-muted">{note || `Drag any chart or number onto another to move it there, or onto a page's name. A page holds ${ROOMS} rooms: a chart is 1 (wide 2), 4 numbers share 1.`}</p>
+          {adding && (
+            <div className="mt-2">
+              <Library builtIns={edit.builtIns} saved={edit.saved} on={new Set(edit.draft.pages.flatMap((p) => p.items.map((x) => refKey(x.ref))))}
+                onDrag={(ref) => setDrag(NEW + JSON.stringify(ref))}
+                onPick={(ref) => { const t = tileOf(ref, edit.builtIns, edit.saved); if (t) apply(addItem(edit.draft, at, itemOf(ref, t))); }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {edit ? (
+        <nav className="mt-4 flex flex-wrap items-center gap-1.5" aria-label="Pages of this dashboard">
+          {edit.draft.pages.map((p, i) => (
+            <div key={p.id} onDragOver={(e) => { if (drag) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); dropOn(i); }}
+              className={`flex items-center rounded-full border ${i === at ? "border-brand bg-brand-soft" : "border-line"} ${drag && i !== at ? "border-dashed border-brand" : ""}`}>
+              {i === at
+                ? <input aria-label="Page name" value={p.name} onChange={(e) => apply(renamePage(edit.draft, i, e.target.value))} className="h-9 w-40 rounded-full bg-transparent px-3.5 text-[15.5px] font-medium text-ink focus:outline-none" />
+                : <button type="button" onClick={() => goTo(i)} className="h-9 px-3.5 text-[15.5px] font-medium text-ink-2">{p.name}</button>}
+              <span className="pr-2 text-[14px] text-faint">{roomsUsed(p)}/{ROOMS}</span>
+              {i === at && (
+                <>
+                  <button type="button" className="grid size-7 place-items-center rounded-full text-muted hover:text-ink disabled:opacity-30" disabled={i === 0} aria-label="Move page left" onClick={() => { apply(movePage(edit.draft, i, -1)); setPage(i - 1); }}>‹</button>
+                  <button type="button" className="grid size-7 place-items-center rounded-full text-muted hover:text-ink disabled:opacity-30" disabled={i === edit.draft.pages.length - 1} aria-label="Move page right" onClick={() => { apply(movePage(edit.draft, i, 1)); setPage(i + 1); }}>›</button>
+                  <button type="button" className="mr-1 grid size-7 place-items-center rounded-full text-muted hover:text-high" aria-label={`Delete page ${p.name}`}
+                    onClick={() => { if (!p.items.length || confirm(`Delete the page “${p.name}” and take its ${p.items.length} report(s) off this dashboard?`)) { apply(deletePage(edit.draft, i)); setPage(Math.max(0, i - 1)); } }}>×</button>
+                </>
+              )}
+            </div>
+          ))}
+          <button type="button" className="h-9 rounded-full px-3.5 text-[15.5px] font-medium text-brand hover:bg-brand-soft" onClick={() => { apply(addPage(edit.draft)); setPage(edit.draft.pages.length); }}>+ Page</button>
+        </nav>
+      ) : pages.length > 1 && (
         <nav className="mt-4 flex flex-wrap items-center gap-1" aria-label="Pages of this dashboard">
           {pages.map((p, i) => (
             <button key={`${i}-${p.name}`} type="button" aria-current={i === at ? "page" : undefined} onClick={() => goTo(i)}
@@ -290,7 +385,31 @@ export function DashboardView({ def, today, tools }: { def: DashboardDef; today:
       )}
 
       <div ref={pageTop} className="scroll-mt-4">
-      {groups.map((g, gi) => (
+      {def.rooms ? (
+        // Rooms (custom.ts): 2 across; a chart fills one (wide: two), numbers 4 to a room — 2 on top, 2 below.
+        <>
+          {footnote && (pages[at]?.tiles ?? []).some((t) => t.spec.chart === "kpi" && !t.noCompare) && <p className="mt-3 text-[14.5px] text-faint">{footnote}</p>}
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {roomsOfTiles(pages[at]?.tiles ?? []).map((room) => room[0].spec.chart === "kpi" ? (
+              <div key={room[0].id} className="grid grid-cols-2 content-start gap-3">
+                {room.map((t) => movable(t, <KpiCell title={specOf(t).title ?? ""} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} />))}
+              </div>
+            ) : movable(room[0], (
+              <TileCard tile={{ ...room[0], w: 12 }} spec={specOf(room[0])} answer={answers[room[0].id]} accent={def.tiles.indexOf(room[0])}
+                picked={pick?.tileId === room[0].id ? pick.value : null} onPick={edit ? undefined : pickFrom(room[0])}
+                target={room[0].goalLine && (specOf(room[0]).grain ?? "month") === "month" ? goal : undefined}
+                skipped={skippedOf(room[0])} tweak={tweaks[room[0].id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[room[0].id] = tw; else delete n[room[0].id]; return n; }); }} />
+            ), room[0].w === 12 ? "lg:col-span-2" : ""))}
+            {edit && !(pages[at]?.tiles.length) && (
+              <div className="rounded-2xl border-2 border-dashed border-line p-10 text-center text-[16px] text-muted lg:col-span-2"
+                onDragOver={(e) => { if (drag) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); dropOn(at); }}>
+                An empty page — + Add report, or drag a report here.
+              </div>
+            )}
+          </div>
+        </>
+      ) : groups.map((g, gi) => (
+
         <Fragment key={`${g.section ?? ""}-${gi}`}>
           {g.runs.map((run, ri) => {
             const top = gi === 0 && ri === 0;
@@ -503,6 +622,32 @@ function KpiBand({ tiles, specOf, answers, skippedOf, className = "" }: { tiles:
           );
         })}
       </div>
+    </section>
+  );
+}
+
+/** Tiles in order → rooms: numbers next to each other share one (4 at most), a chart has its own (custom.ts). */
+function roomsOfTiles(tiles: Tile[]): Tile[][] {
+  const rooms: Tile[][] = [];
+  for (const t of tiles) {
+    const last = rooms.at(-1);
+    if (t.spec.chart === "kpi" && last?.[0]?.spec.chart === "kpi" && last.length < KPIS_PER_ROOM) last.push(t);
+    else rooms.push([t]);
+  }
+  return rooms;
+}
+
+/** One number in a room (a quarter of it: 2 on top, 2 below — about half a chart's height). */
+function KpiCell({ title, def, answer, skipped }: { title: string; def?: string; answer?: Answer; skipped?: string[] }) {
+  return (
+    <section className="card flex min-h-[176px] min-w-0 flex-col px-5 py-4" aria-label={title}>
+      <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${title} — ${def}` : title}>{title}</h3>
+      <div className="mt-1.5">
+        {!answer ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
+          : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
+          : <Kpi result={answer} compact />}
+      </div>
+      <Skipped labels={skipped} />
     </section>
   );
 }

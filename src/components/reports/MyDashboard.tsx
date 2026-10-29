@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DashboardDef } from "@/lib/analytics/dashboards";
-import { type CustomDash, MAX_KPIS, type Page, PLACES, type SavedRef, newId, placesOf, placesUsed, tileOf, toDef } from "@/lib/analytics/custom";
+import { type CustomDash, type Item, type SavedRef, itemOf, paginate, tileOf, toDef } from "@/lib/analytics/custom";
 import { type LayoutEntry, START } from "@/lib/analytics/layout";
 import { btn } from "../ui";
 import { DashboardView } from "./Dashboard";
@@ -21,26 +21,15 @@ export type SavedReport = SavedRef;
 export type Prefs = { layout: LayoutEntry[] | null; starting: LayoutEntry[] | null; startingBy?: string; hidden: string[] };
 export type TabChoice = { id: string; label: string };
 
-/** The list from before pages (27–29 Oct) → pages of 4 places: numbers 4 to a place, "large" charts wide. */
+/** The list from before pages (27–29 Oct) → pages of 8 rooms; "large" charts wide. */
 function fromEntries(entries: LayoutEntry[], builtIns: DashboardDef[], saved: SavedRef[]): CustomDash {
-  const pages: Page[] = [];
-  let cur: Page = { id: newId("p"), name: "Page 1", slots: [] };
-  const push = (slot: Page["slots"][number]) => {
-    if (placesUsed(cur) + placesOf(slot) > PLACES) { pages.push(cur); cur = { id: newId("p"), name: `Page ${pages.length + 1}`, slots: [] }; }
-    cur.slots.push(slot);
-  };
+  const items: Item[] = [];
   for (const e of entries) {
     const ref = { dash: e.dash, tile: e.tile };
     const t = tileOf(ref, builtIns, saved);
-    if (!t) continue;
-    if (t.spec.chart === "kpi") {
-      const last = cur.slots.at(-1);
-      if (last?.kpis && last.refs.length < MAX_KPIS) last.refs.push(ref);
-      else push({ id: newId("s"), kpis: true, refs: [ref] });
-    } else push({ id: newId("s"), refs: [ref], ...(e.size === "l" || (!e.size && t.w === 12) ? { wide: true } : {}) });
+    if (t) items.push(itemOf(ref, t, e.size === "l" || (!e.size && t.w === 12)));
   }
-  pages.push(cur);
-  return { id: "mine", title: "My dashboard", shared: false, pages };
+  return { id: "mine", title: "My dashboard", shared: false, pages: paginate([{ name: "Page 1", items }]) };
 }
 
 export function MyDashboard({ today, admin, builtIns, saved, prefs, mine, start, tabs, deleted, onPrefs, onEdit, onUnhide }: {
@@ -62,7 +51,7 @@ export function MyDashboard({ today, admin, builtIns, saved, prefs, mine, start,
   }, [base, builtIns, saved]);
 
   // Wait for the saved reports too when it has some — else the page would draw twice.
-  const needsSaved = base?.pages.some((p) => p.slots.some((s) => s.refs.some((r) => r.dash === "saved")));
+  const needsSaved = base?.pages.some((p) => p.items.some((it) => it.ref.dash === "saved"));
   if (!def || !base || (saved === null && needsSaved)) return <div className="h-40 animate-pulse rounded-2xl bg-surface-2" />;
 
   const tools = (

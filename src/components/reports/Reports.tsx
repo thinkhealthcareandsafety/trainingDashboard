@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { DASHBOARDS, type DashboardDef, type Tile } from "@/lib/analytics/dashboards";
-import { type CustomDash, MAX_KPIS, PLACES, fromDef, newId, placesUsed, toDef } from "@/lib/analytics/custom";
+import { type CustomDash, type Item, ROOMS, addItem, addPage, fromDef, newId, roomsUsed, toDef } from "@/lib/analytics/custom";
 import type { Target } from "./Builder";
-import { Editor } from "./Editor";
+import { EditBar } from "./Editor";
 import { datasetOf } from "@/lib/analytics/model";
 import type { Spec } from "@/lib/analytics/query";
 import { btn } from "../ui";
@@ -66,26 +66,27 @@ export function Reports() {
   const current = dashboards.find((d) => d.id === shown);
   // A dashboard as it would be edited (the team's version, or a built-in tab in places of 4).
   const editable = useCallback((def: DashboardDef): CustomDash => (def.custom ? structuredClone(def.custom) : fromDef(def, pagesOf(def, false))), []);
-  const targets = useMemo(() => (team.canEdit ? dashboards.map((d) => ({ id: d.id, title: d.title, pages: editable(d).pages.map((p) => ({ name: p.name, free: PLACES - placesUsed(p) })) })) : []), [team.canEdit, dashboards, editable]);
+  const targets = useMemo(() => (team.canEdit ? dashboards.map((d) => ({ id: d.id, title: d.title, pages: editable(d).pages.map((p) => ({ name: p.name, free: ROOMS - roomsUsed(p) })) })) : []), [team.canEdit, dashboards, editable]);
   // A new report on the dashboard picked in the builder: a number joins a place of numbers with room, a chart takes a
   // place; a full page (or "+ New page") gets a new page after the last one.
   const place = async (id: string | undefined, to: Target, spec: Spec) => {
     loadSaved();
     if (!id || !to) { setTab("saved"); return; }
     const def = dashboards.find((d) => d.id === to.dash);
-    const draft: CustomDash = def ? editable(def) : { id: newId("d-"), title: to.newTitle?.trim() || "New dashboard", shared: true, pages: [] };
-    const kpi = spec.chart === "kpi";
-    let page = to.page >= 0 ? draft.pages[to.page] : undefined;
-    const room = kpi ? page?.slots.find((s) => s.kpis && s.refs.length < MAX_KPIS) : undefined;
-    if (!page || (!room && placesUsed(page) >= PLACES)) { page = { id: newId("p"), name: `Page ${draft.pages.length + 1}`, slots: [] }; draft.pages.push(page); }
-    if (room) room.refs.push({ dash: "saved", tile: id });
-    else page.slots.push({ id: newId("s"), refs: [{ dash: "saved", tile: id }], ...(kpi ? { kpis: true } : {}) });
-    const r = await fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dashboard: draft }) }).catch(() => null);
+    let draft: CustomDash = def ? editable(def) : { id: newId("d-"), title: to.newTitle?.trim() || "New dashboard", shared: true, pages: [] };
+    const ref = { dash: "saved", tile: id };
+    const it: Item = { id: newId("i"), ref, ...(spec.chart === "kpi" ? { kpi: true } : {}) };
+    // On the page picked; a full page (or "+ New page") → a new page at the end.
+    let tried = to.page >= 0 && draft.pages[to.page] ? addItem(draft, to.page, it) : { error: "new page" };
+    if ("error" in tried) { draft = addPage(draft); tried = addItem(draft, draft.pages.length - 1, it); }
+    if ("error" in tried) { alert(`Saved in Saved reports, but not put on the dashboard: ${tried.error}`); setTab("saved"); return; }
+    const r = await fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dashboard: tried }) }).catch(() => null);
     const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
     if (j.error) { alert(`Saved in Saved reports, but not put on the dashboard: ${j.error}`); setTab("saved"); return; }
     await loadTeam();
-    setTab(draft.id);
+    setTab(tried.id);
   };
+  const editDef = useMemo(() => (editing ? toDef(editing.draft, builtIns, saved?.reports ?? []) : null), [editing, builtIns, saved]);
   const allTabs = [...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }];
 
   const refresh = async () => {
@@ -118,11 +119,19 @@ export function Reports() {
               className={`rounded-full px-3 py-1.5 text-[15px] font-medium transition ${shown === t.id ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>
-        {team.canEdit && <button className={`${btn.ghost} ml-auto`} onClick={() => setEditing({ fresh: true, draft: { id: newId("d-"), title: "New dashboard", shared: true, pages: [{ id: newId("p"), name: "Page 1", slots: [] }] } })}>+ New dashboard</button>}
+        {team.canEdit && <button className={`${btn.ghost} ml-auto`} onClick={() => setEditing({ fresh: true, draft: { id: newId("d-"), title: "New dashboard", shared: true, pages: [{ id: newId("p"), name: "Page 1", items: [] }] } })}>+ New dashboard</button>}
         <button className={`${btn.primary} ${team.canEdit ? "" : "ml-auto"}`} onClick={() => setBuilder({})} title="New report">+ New report</button>
       </div>
       <div className="mt-4">
-        {shown === "mine" ? <MyDashboard today={meta.today} admin={team.admin} builtIns={builtIns} saved={saved ? saved.reports : null} prefs={prefs}
+        {editing ? (
+          // Editing in place (owner, 29 Oct): the dashboard itself, with the bar on top.
+          <DashboardView def={editDef!} today={meta.today} edit={{
+            draft: editing.draft, builtIns, saved: saved?.reports ?? [],
+            onChange: (draft) => setEditing({ ...editing, draft }),
+            bar: <EditBar draft={editing.draft} fresh={editing.fresh} mine={editing.mine} admin={team.admin} onChange={(draft) => setEditing({ ...editing, draft })}
+              onCancel={() => setEditing(null)} onDone={(id) => { setEditing(null); loadTeam(); setTab(id); }} />,
+          }} />
+        ) : shown === "mine" ? <MyDashboard today={meta.today} admin={team.admin} builtIns={builtIns} saved={saved ? saved.reports : null} prefs={prefs}
             mine={team.dashboards.find((c) => c.id === "mine")} start={team.dashboards.find((c) => c.id === "my-start")}
             tabs={allTabs.map((t) => ({ id: t.id, label: t.label.replace(/ \(\d+\)$/, "") }))}
             deleted={builtIns.filter((d) => team.hidden.includes(d.id)).map((d) => ({ id: d.id, label: d.title }))}
@@ -141,8 +150,6 @@ export function Reports() {
       </p>
     </div>
       {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
-      {editing && <Editor draft={editing.draft} fresh={editing.fresh} mine={editing.mine} builtIns={builtIns} saved={saved?.reports ?? []} admin={team.admin}
-        onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); loadTeam(); setTab(id); }} />}
       {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={place} targets={targets} defaultTarget={current?.id} />, document.body)}
     </div>
   );

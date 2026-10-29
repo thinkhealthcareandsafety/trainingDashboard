@@ -3,19 +3,22 @@ import type { Spec } from "./query";
 
 /*
  * Dashboards the team makes and edits (owner, 29 Oct: "select what dashboard it goes in, or create a new dashboard …
- * create pages … decide which report goes in which page … a total of 4 reports on one page, 1 report = 4 kpis space …
- * movable … delete the dashboard and the reports"). Kept in Mongo `reportDashboards`; pure — the route checks what it
- * stores with `cleanDashboard`, the page builds its tabs from the same shapes.
+ * create pages … decide which report goes in which page … movable … delete the dashboard and the reports"). Kept in
+ * Mongo `reportDashboards`; pure — the route checks what it stores with `cleanDashboard`, the page builds its tabs from
+ * the same shapes and edits them with the functions at the bottom.
  *
- * A page has 4 places. A chart takes 1 (half the width) or 2 when wide; a group of up to 4 single numbers takes 1.
+ * Rooms (owner, 29 Oct, second go: "kpis are all individual, 4 kpi 2 top 2 bottom make 1 room for a medium sized
+ * report … a page will have max 8 medium sized reports space"): a room is half the width and one chart high, 2 across.
+ * A medium chart takes 1 room, a wide one 2; numbers are items of their own — numbers next to each other share rooms,
+ * 4 to a room (2 on top, 2 below). A page holds 8 rooms.
  * A report is referred to like on My dashboard: `{dash, tile}` — a built-in tab's tile, or `{dash: "saved", tile: id}`.
  * An edited built-in tab is stored under its own id (`base`), so "Restore original" = delete that document.
  */
 
 export type Ref = { dash: string; tile: string };
-/** One place on a page: one chart (`wide` = the whole width, 2 places) or up to 4 numbers. */
-export type Slot = { id: string; refs: Ref[]; wide?: boolean; kpis?: boolean };
-export type Page = { id: string; name: string; slots: Slot[] };
+/** One report on a page. `kpi`: a single number (¼ room); `wide`: a chart the whole width (2 rooms). */
+export type Item = { id: string; ref: Ref; kpi?: boolean; wide?: boolean };
+export type Page = { id: string; name: string; items: Item[] };
 export type CustomDash = {
   id: string; title: string; pages: Page[];
   /** The built-in tab this is the team's version of (its id = that tab's). */
@@ -27,12 +30,22 @@ export type CustomDash = {
   owner?: string; ownerName?: string; updatedAt?: string; updatedBy?: string;
 };
 
-export const PLACES = 4;
-export const MAX_KPIS = 4;
+export const ROOMS = 8;
+export const KPIS_PER_ROOM = 4;
 export const MAX_PAGES = 20;
-export const placesOf = (s: Slot) => (s.kpis ? 1 : s.wide ? 2 : 1);
-export const placesUsed = (p: Page) => p.slots.reduce((n, s) => n + placesOf(s), 0);
 export const refKey = (r: Ref) => `${r.dash}.${r.tile}`;
+
+/** How the items fill rooms, in order: numbers next to each other share a room (4 at most); a chart has its own. */
+export function roomsOf(items: Item[]): Item[][] {
+  const rooms: Item[][] = [];
+  for (const it of items) {
+    const last = rooms.at(-1);
+    if (it.kpi && last?.[0]?.kpi && last.length < KPIS_PER_ROOM) last.push(it);
+    else rooms.push([it]);
+  }
+  return rooms;
+}
+export const roomsUsed = (p: Page) => roomsOf(p.items).reduce((n, r) => n + (r[0].wide ? 2 : 1), 0);
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const DASH = /^[a-z0-9-]{1,40}$/;
@@ -53,19 +66,15 @@ export function cleanDashboard(x: unknown): CustomDash | { error: string } {
     if (typeof p?.id !== "string" || !ID.test(p.id) || pageIds.has(p.id)) return { error: "Bad page" };
     pageIds.add(p.id);
     const name = text(p.name, 30) || `Page ${pages.length + 1}`;
-    if (!Array.isArray(p.slots)) return { error: `“${name}”: bad places` };
-    const slots: Slot[] = [];
-    for (const s of p.slots as Partial<Slot>[]) {
-      if (typeof s?.id !== "string" || !ID.test(s.id) || !Array.isArray(s.refs) || !s.refs.length) return { error: `“${name}”: bad place` };
-      const refs = (s.refs as Partial<Ref>[]).map((r) => ({ dash: String(r?.dash ?? ""), tile: String(r?.tile ?? "") }));
-      if (refs.some((r) => !DASH.test(r.dash) || !ID.test(r.tile))) return { error: `“${name}”: bad report` };
-      const kpis = Boolean(s.kpis);
-      if (!kpis && refs.length !== 1) return { error: `“${name}”: a chart place holds one report` };
-      if (kpis && refs.length > MAX_KPIS) return { error: `“${name}”: at most ${MAX_KPIS} numbers in one place` };
-      slots.push({ id: s.id, refs, ...(kpis ? { kpis: true } : s.wide ? { wide: true } : {}) });
+    if (!Array.isArray(p.items) || p.items.length > ROOMS * KPIS_PER_ROOM) return { error: `“${name}”: bad reports` };
+    const items: Item[] = [];
+    for (const it of p.items as Partial<Item>[]) {
+      const ref = { dash: String(it?.ref?.dash ?? ""), tile: String(it?.ref?.tile ?? "") };
+      if (typeof it?.id !== "string" || !ID.test(it.id) || !DASH.test(ref.dash) || !ID.test(ref.tile)) return { error: `“${name}”: bad report` };
+      items.push({ id: it.id, ref, ...(it.kpi ? { kpi: true } : it.wide ? { wide: true } : {}) });
     }
-    const page = { id: p.id, name, slots };
-    if (placesUsed(page) > PLACES) return { error: `“${name}” is full — ${PLACES} places a page (a wide chart takes 2)` };
+    const page = { id: p.id, name, items };
+    if (roomsUsed(page) > ROOMS) return { error: `“${name}” is full — ${ROOMS} rooms a page; add a page` };
     pages.push(page);
   }
   const scope: CustomDash["scope"] = {};
@@ -82,7 +91,7 @@ export function cleanDashboard(x: unknown): CustomDash | { error: string } {
 export type SavedRef = { id: string; spec: Spec; by: string };
 /** A saved report as a tile (keeps its own period, as on the Saved reports tab). */
 export const savedTile = (r: SavedRef): Tile => ({ id: r.id, spec: r.spec, w: r.spec.by?.length ? 6 : 3, fixedPeriod: true, note: `Saved report · ${r.by.split(" ")[0]}` });
-const isKpi = (t: Tile) => t.spec.chart === "kpi";
+export const isKpiTile = (t: Tile) => t.spec.chart === "kpi";
 
 /** The report a ref points to, or undefined (a deleted saved report, a tab this member can't see). */
 export function tileOf(ref: Ref, builtIns: DashboardDef[], saved: SavedRef[]): Tile | undefined {
@@ -92,53 +101,114 @@ export function tileOf(ref: Ref, builtIns: DashboardDef[], saved: SavedRef[]): T
 
 const COMMON: DashFilter[] = [{ field: "customerType", label: "Customer type" }, { field: "sector", label: "Sector" }, { field: "salesperson", label: "Sales person" }];
 
-/** A stored dashboard → the page's dashboard: tiles in page order, each page as arranged. */
+/** A stored dashboard → the page's dashboard: one tile per item (its id = the item's), each page as arranged. */
 export function toDef(c: CustomDash, builtIns: DashboardDef[], saved: SavedRef[]): DashboardDef {
   const base = c.base ? builtIns.find((d) => d.id === c.base) : undefined;
   const tiles: Tile[] = [];
   const pages = c.pages.map((p) => {
     const ids: string[] = [];
-    for (const s of p.slots) for (const r of s.refs) {
-      const t = tileOf(r, builtIns, saved);
+    for (const it of p.items) {
+      const t = tileOf(it.ref, builtIns, saved);
       if (!t) continue;
-      const id = `${s.id}~${refKey(r)}`;
-      tiles.push({ ...t, id, section: undefined, w: isKpi(t) ? 3 : s.wide ? 12 : 6, tall: false });
-      ids.push(id);
+      tiles.push({ ...t, id: it.id, section: undefined, w: isKpiTile(t) ? 3 : it.wide ? 12 : 6, tall: false });
+      ids.push(it.id);
     }
     return { name: p.name, tiles: ids };
   });
   // Filters: those of every tab its reports come from (and the usual three), once each.
-  const from = new Set(c.pages.flatMap((p) => p.slots.flatMap((s) => s.refs.map((r) => r.dash))));
+  const from = new Set(c.pages.flatMap((p) => p.items.map((it) => it.ref.dash)));
   const filters: DashFilter[] = [];
   for (const f of [...(base?.filters ?? []), ...builtIns.filter((d) => from.has(d.id)).flatMap((d) => d.filters), ...COMMON]) if (!filters.some((x) => x.field === f.field)) filters.push(f);
   return {
     id: c.id, title: c.title, desc: base?.desc ?? (c.ownerName ? `Made by ${c.ownerName.split(" ")[0]}${c.shared ? "" : " · only you see it"}` : ""),
-    tiles, pages, filters, period: base?.period ?? "fy", grains: base?.grains, start: c.scope ?? base?.start, custom: c,
+    tiles, pages, filters, period: base?.period ?? "fy", grains: base?.grains, start: c.scope ?? base?.start, custom: c, rooms: true,
   };
 }
 
 let seq = 0;
 export const newId = (p: string) => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
+export const itemOf = (ref: Ref, t: Tile, wide = false): Item => ({ id: newId("i"), ref, ...(isKpiTile(t) ? { kpi: true } : wide ? { wide: true } : {}) });
 
-/** A built-in tab → a stored dashboard to edit: its pages, numbers in places of 4, a page that's too full split in two. */
-export function fromDef(def: DashboardDef, pageList: { name: string; tiles: Tile[] }[]): CustomDash {
+/** Reports in order → pages of 8 rooms; a page that would overflow carries on in "<name> (2)". */
+export function paginate(list: { name: string; items: Item[] }[]): Page[] {
   const pages: Page[] = [];
-  for (const p of pageList) {
-    let cur: Page = { id: newId("p"), name: p.name, slots: [] };
-    const push = (s: Slot) => {
-      if (placesUsed(cur) + placesOf(s) > PLACES) { pages.push(cur); cur = { id: newId("p"), name: `${p.name} (${pages.filter((x) => x.name.startsWith(p.name)).length + 1})`, slots: [] }; }
-      cur.slots.push(s);
-    };
-    let nums: Ref[] = [];
-    const flush = () => { if (nums.length) push({ id: newId("s"), kpis: true, refs: nums }); nums = []; };
-    for (const t of p.tiles) {
-      const ref = { dash: def.id, tile: t.id };
-      if (isKpi(t)) { nums.push(ref); if (nums.length === MAX_KPIS) flush(); continue; }
-      flush();
-      push({ id: newId("s"), refs: [ref], ...(t.w === 12 ? { wide: true } : {}) });
+  for (const p of list) {
+    let cur: Page = { id: newId("p"), name: p.name, items: [] };
+    let n = 1;
+    for (const it of p.items) {
+      if (roomsUsed({ ...cur, items: [...cur.items, it] }) > ROOMS) { pages.push(cur); cur = { id: newId("p"), name: `${p.name} (${++n})`, items: [] }; }
+      cur.items.push(it);
     }
-    flush();
     pages.push(cur);
   }
-  return { id: def.id, base: def.id, title: def.title, pages: pages.filter((p) => p.slots.length), shared: true, ...(def.start ? { scope: def.start } : {}) };
+  return pages.filter((p, i) => p.items.length || i === 0);
+}
+
+/** A built-in tab → a stored dashboard to edit: its pages as they are (a page over 8 rooms carries on in a second). */
+export function fromDef(def: DashboardDef, pageList: { name: string; tiles: Tile[] }[]): CustomDash {
+  const pages = paginate(pageList.map((p) => ({ name: p.name, items: p.tiles.map((t) => itemOf({ dash: def.id, tile: t.id }, t, t.w === 12)) })));
+  return { id: def.id, base: def.id, title: def.title, pages, shared: true, ...(def.start ? { scope: def.start } : {}) };
+}
+
+/* ---------------- Editing (pure: each returns the new dashboard, or why not) ---------------- */
+
+type Edit = CustomDash | { error: string };
+const copy = (d: CustomDash): CustomDash => structuredClone(d);
+const fits = (d: CustomDash, pi: number): Edit => (roomsUsed(d.pages[pi]) > ROOMS ? { error: `“${d.pages[pi].name}” is full — ${ROOMS} rooms a page. Add a page.` } : d);
+const findItem = (d: CustomDash, id: string) => { for (const [pi, p] of d.pages.entries()) { const ii = p.items.findIndex((x) => x.id === id); if (ii >= 0) return { pi, ii }; } return null; };
+
+/** Move an item before another (same or other page), or to the end of a page. */
+export function moveItem(d0: CustomDash, id: string, toPage: number, before?: string): Edit {
+  const d = copy(d0);
+  const w = findItem(d, id);
+  if (!w || !d.pages[toPage]) return d0;
+  const [it] = d.pages[w.pi].items.splice(w.ii, 1);
+  const list = d.pages[toPage].items;
+  const bi = before ? list.findIndex((x) => x.id === before) : -1;
+  list.splice(bi >= 0 ? bi : list.length, 0, it);
+  const ok = fits(d, toPage);
+  return "error" in ok ? ok : fits(d, w.pi);
+}
+export function removeItem(d0: CustomDash, id: string): CustomDash {
+  const d = copy(d0);
+  for (const p of d.pages) p.items = p.items.filter((x) => x.id !== id);
+  return d;
+}
+export function toggleWide(d0: CustomDash, id: string): Edit {
+  const d = copy(d0);
+  const w = findItem(d, id);
+  if (!w) return d0;
+  const it = d.pages[w.pi].items[w.ii];
+  if (it.kpi) return d0;
+  if (it.wide) delete it.wide; else it.wide = true;
+  return fits(d, w.pi);
+}
+export function addItem(d0: CustomDash, pi: number, it: Item): Edit {
+  if (d0.pages.some((p) => p.items.some((x) => refKey(x.ref) === refKey(it.ref)))) return { error: "That report is already on this dashboard." };
+  const d = copy(d0);
+  d.pages[pi].items.push(it);
+  return fits(d, pi);
+}
+export function addPage(d0: CustomDash): CustomDash {
+  const d = copy(d0);
+  d.pages.push({ id: newId("p"), name: `Page ${d.pages.length + 1}`, items: [] });
+  return d;
+}
+export function renamePage(d0: CustomDash, pi: number, name: string): CustomDash {
+  const d = copy(d0);
+  d.pages[pi].name = name.slice(0, 30);
+  return d;
+}
+export function deletePage(d0: CustomDash, pi: number): Edit {
+  if (d0.pages.length === 1) return { error: "A dashboard keeps at least one page." };
+  const d = copy(d0);
+  d.pages.splice(pi, 1);
+  return d;
+}
+export function movePage(d0: CustomDash, pi: number, by: -1 | 1): CustomDash {
+  const j = pi + by;
+  if (j < 0 || j >= d0.pages.length) return d0;
+  const d = copy(d0);
+  [d.pages[pi], d.pages[j]] = [d.pages[j], d.pages[pi]];
+  return d;
 }
