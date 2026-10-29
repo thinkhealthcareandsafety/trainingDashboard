@@ -405,7 +405,7 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
   // Price · volume · mix (by item): did revenue change because more units were sold, at other prices, or a different
   // mix of items? Items sold in both periods split into price + volume + mix; the rest is new / dropped items.
   if (spec.analysis === "pvm") {
-    const agg = (rs: Row[]) => { const g = new Map<string, { r: number; q: number }>(); for (const r of rs) { const k = String(r.item ?? BLANK); const x = g.get(k) ?? { r: 0, q: 0 }; x.r += Number(r.amount) || 0; x.q += Number(r.qty) || 0; g.set(k, x); } return g; };
+    const agg = (rs: Row[]) => { const g = new Map<string, { r: number; q: number }>(); for (const r of rs) { const k = String(r.zohoItem ?? r.item ?? BLANK); const x = g.get(k) ?? { r: 0, q: 0 }; x.r += Number(r.amount) || 0; x.q += Number(r.qty) || 0; g.set(k, x); } return g; };
     const a = agg(cur), b = agg(prev);
     let price = 0, volMix = 0, other = 0, q1 = 0, q0 = 0, r0both = 0;
     for (const [k, x] of a) {

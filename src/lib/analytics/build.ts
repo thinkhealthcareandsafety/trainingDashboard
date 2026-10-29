@@ -218,6 +218,8 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     sales.push({
       date: day(inv["Invoice Date"]), invoice: text(inv["Invoice Number"]), ...customerFields(inv["Customer ID"], inv["Address ID"]),
       salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
+      zohoItem: item?.name ?? text(li["Item Name"]), itemStatus: item?.status ?? null,
+      brand: brandOf(item?.brand ?? null, li["Item Name"]), kind: kindOf(item?.group ?? null, li["Item Name"]),
       productType: list(inv["Product Type"]), businessType: text(inv["Business Type"]), leadSource: text(inv["Lead Source"]), status: text(inv["Invoice Status"]),
       repeat: firstOf.get(custKey(inv["Customer ID"]))?.id === li["Invoice ID"] ? "First invoice" : "Repeat",
       segment: segmentOf.get(custKey(inv["Customer ID"])) ?? null,
@@ -532,6 +534,8 @@ function stockRows(t: RawTables, today: string): Row[] {
     return {
       date: x.lastSold, item: text(item?.["Item Name"]) ?? "(unknown item)", itemGroup: text(item?.["Item Identifier"]),
       itemStatus: text(item?.["Status"]),
+      zohoItem: text(item?.["Item Name"]) ?? "(unknown item)", brand: brandOf(text(item?.["Brand"]), item?.["Item Name"]),
+      kind: kindOf(text(item?.["Item Identifier"]), item?.["Item Name"]),
       stock: below ? "Sold more than bought" : onHand > 0 ? "In stock" : "Out of stock",
       cover: below ? "Below zero in Zoho" : cover === null ? (onHand > 0 ? "Not sold in 90 days" : "No stock, not selling")
         : available <= 0 ? "Out of stock, still selling" : cover < 30 ? "Under 30 days" : cover < 90 ? "30–90 days" : cover < 180 ? "90–180 days" : "Over 180 days",
