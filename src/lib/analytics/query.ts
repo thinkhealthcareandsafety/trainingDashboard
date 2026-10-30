@@ -8,7 +8,7 @@ import { type Dataset, type Format, type Grain, type Measure, type Row, datasetO
 /** matrix: two splits as a pivot table (with the comparison in each cell); waterfall: steps up and down (bridge);
  * diverging: rises right in green, falls left in red (what changed). */
 export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "stacked100" | "donut" | "table" | "matrix" | "heatmap" | "waterfall" | "diverging" | "map";
-export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup" | "renewals" | "dueMonths";
+export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup" | "renewals" | "dueMonths" | "priceAlerts";
 /**
  * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
  * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
@@ -84,9 +84,10 @@ export function checkSpec(spec: Spec): Dataset {
   for (const b of spec.by ?? []) if (!fieldOf(d, b)) throw new SpecError(`"${b}" isn't a field of ${d.label}`);
   const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
-  if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
+  if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && spec.analysis !== "priceAlerts" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
   if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell" || spec.analysis === "renewals" || spec.analysis === "dueMonths") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
   if (spec.analysis === "followup" && d.key !== "quotes") throw new SpecError("This analysis works on Quotes");
+  if (spec.analysis === "priceAlerts" && d.key !== "purchases") throw new SpecError("This analysis works on Purchases");
   const c = spec.compare;
   if (c && typeof c === "object" && !fieldOf(d, c.field)) throw new SpecError(`"${c.field}" isn't a field of ${d.label}`);
   return d;
@@ -338,6 +339,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
  * - followup: quotes with no answer yet, oldest first — who to chase (owner, 30 Oct — phase 5)
  * - renewals: customers whose last training's certificates (valid 2 years) run out within 90 days either side of today
  * - dueMonths: next 12 months — customers due certificates, AED pads (every 2 years) and batteries (every 4 years)
+ * - priceAlerts: items whose latest purchase price (last 12 months) moved 5%+ from the bill before
  */
 function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
   const m = spec.measures[0];
@@ -368,6 +370,38 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
       return { keys: [`${label} · ${total ? Math.round((v / total) * 100) : 0}%`], values: [v] as (number | null)[] };
     });
     return out(rows, [{ key: "band", label: "Customers", date: false }], { note: `${n(n80)} of ${n(per.length)} customers make 80% of it.` });
+  }
+  // Purchase-price alerts (owner, 30 Oct — phase 5): per Zoho item, the price per unit on its latest bill day against
+  // the bill day before; 5% or more either way (up to 3×), latest bill within 12 months, catalogue goods only. Filters
+  // apply, the period doesn't.
+  if (spec.analysis === "priceAlerts") {
+    const today = spec.asOf ?? new Date().toISOString().slice(0, 10);
+    const per = new Map<string, Map<string, { qty: number; amount: number }>>();
+    const brand = new Map<string, string>();
+    for (const r of keep(d, all, { filters: spec.filters })) {
+      const k = typeof r.zohoItem === "string" ? r.zohoItem : null; const dt = typeof r.date === "string" ? r.date : null;
+      const qty = Number(r.qty) || 0;
+      if (!k || !dt || qty <= 0 || typeof r.itemGroup !== "string" || !r.itemGroup) continue; // goods in the catalogue — not services or expenses
+      const days = per.get(k) ?? per.set(k, new Map()).get(k)!;
+      const x = days.get(dt) ?? { qty: 0, amount: 0 };
+      x.qty += qty; x.amount += Number(r.amount) || 0; days.set(dt, x);
+      if (typeof r.brand === "string") brand.set(k, r.brand);
+    }
+    const since = addMonths(today, -12);
+    const day = (x: string) => grainLabel(x, "day", true);
+    const moves = [...per].flatMap(([k, days]) => {
+      const [last, before] = [...days].sort((a, b) => b[0].localeCompare(a[0]));
+      if (!last || !before || last[0] < since) return [];
+      const p1 = last[1].amount / last[1].qty, p0 = before[1].amount / before[1].qty;
+      const ch = p0 > 0 ? ((p1 - p0) / p0) * 100 : null;
+      // Over 3× either way is nearly always a different pack size on the bill (300 swabs, then 1 box), not a price move.
+      return ch !== null && Math.abs(ch) >= 5 && p1 <= p0 * 3 && p1 >= p0 / 3 ? [{ k, p0, p1, ch, d0: before[0], d1: last[0] }] : [];
+    }).sort((a, b) => Math.abs(b.ch) - Math.abs(a.ch));
+    const lim = spec.limit || 25;
+    return out(moves.slice(0, lim).map((m) => ({ keys: [m.k, brand.get(m.k) ?? "—", day(m.d0), day(m.d1)], values: [m.p0, m.p1, m.ch] })),
+      [{ key: "item", label: "Item", date: false }, { key: "brand", label: "Brand", date: false }, { key: "before", label: "Bill before", date: false }, { key: "latest", label: "Latest bill", date: false }],
+      { measures: [{ key: "p0", label: "Price before", format: "inr" }, { key: "p1", label: "Latest price", format: "inr" }, { key: "ch", label: "Change %", format: "pct", better: "down" }], totals: [null, null, null],
+        note: `${n(moves.filter((m) => m.ch > 0).length)} items cost more on their latest bill, ${n(moves.filter((m) => m.ch < 0).length)} less (5% or more, latest bill in the last 12 months; moves over 3× left out — usually a different pack size)${moves.length > lim ? ` — the ${lim} biggest moves shown` : ""}.` });
   }
   // Quotes to chase: no answer yet (filters apply, the period doesn't), oldest first.
   if (spec.analysis === "followup") {

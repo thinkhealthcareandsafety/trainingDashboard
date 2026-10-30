@@ -331,6 +331,8 @@ const TABS: DashboardDef[] = [
       { id: "marginItems", section: "Items & customers", w: 12, spec: { dataset: "margin", measures: ["profit", "marginPct", "costedRevenue", "units"], by: ["zohoItem"], limit: 15, chart: "table", title: "Items that earn the most" } },
       { id: "marginCustomers", section: "Items & customers", w: 12, spec: { dataset: "margin", measures: ["profit", "marginPct", "costedRevenue"], by: ["customer"], limit: 10, chart: "table", title: "Customers that earn the most (goods)" } },
       { id: "marginPeople", section: "Items & customers", w: 12, spec: { dataset: "margin", measures: ["profit", "marginPct", "costedRevenue"], by: ["salesperson"], chart: "table", title: "By sales person (goods)" } },
+      // Purchase-price alerts (owner, 30 Oct — phase 5).
+      { id: "priceAlerts", section: "Purchase prices", w: 12, fixedPeriod: true, noCompare: true, note: "Price per unit on the latest bill against the bill before it, before tax", spec: { dataset: "purchases", measures: ["spent"], analysis: "priceAlerts", chart: "table", limit: 25, title: "Purchase prices that moved 5% or more" } },
       { id: "marginMissing", section: "Missing costs", w: 12, note: "Kits and bundles that aren't stock items and have no bill of their own — their parts never leave stock in Zoho, so they're left out of the margin", spec: { dataset: "margin", measures: ["noCost", "units"], by: ["item"], limit: 15, chart: "table", filters: [{ field: "costSource", values: ["No cost in Zoho"] }], title: "Goods sold with no cost in Zoho" } },
       kpi("freight", "freight", "freight", "Freight paid", { section: "Freight" }),
       kpi("freightPct", "freight", "freightPct", "Freight % of revenue", { section: "Freight" }),
