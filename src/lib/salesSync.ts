@@ -152,7 +152,8 @@ function toDetail(kind: Kind, d: ZDoc): SalesDetail {
   const cityZip = [str(a.city), str(a.zip)].filter(Boolean).join(" ");
   const lines = [str(a.address), str(a.street2), cityZip, [str(a.state), str(a.country)].filter(Boolean).join(", ")].filter((x): x is string => Boolean(x));
   return {
-    number: String(d.estimate_number ?? d.salesorder_number ?? d.invoice_number ?? ""),
+    // By kind: an invoice also carries the sales order it came from (salesorder_number).
+    number: String((kind === "invoices" ? d.invoice_number : kind === "salesorders" ? d.salesorder_number : d.estimate_number) ?? ""),
     date: String(d.date ?? ""),
     lines: ((d.line_items as ZDoc[]) ?? []).map((li) => ({
       name: String(li.name ?? ""), description: str(li.description), hsn: str(li.hsn_or_sac), qty: Number(li.quantity) || 0, unit: str(li.unit),
