@@ -166,6 +166,7 @@ export interface ZohoQuote {
   salesperson?: string;
   contacts: { name?: string; email?: string; phone?: string; mobile?: string }[];
   items: { name: string; qty: number }[]; // tracked training items only
+  total?: number; // incl. GST — the Sales board shows it (salesSync.ts)
 }
 
 /** A Zoho sales order — this org's Performa Invoice (numbered Performa-…) — with a tracked training item. */
@@ -181,6 +182,7 @@ export interface ZohoPI {
   reference?: string; // usually the quotation number it came from
   contacts: { name?: string; email?: string; phone?: string; mobile?: string }[];
   items: { name: string; qty: number }[];
+  total?: number; // incl. GST — the Sales board shows it (salesSync.ts)
 }
 
 /** A Zoho invoice with a tracked training item; its reference usually cites the PI it came from. */

@@ -363,7 +363,8 @@ export const quoteCardId = (estimateId: string) => `quote:${estimateId}`;
 export const piCardId = (salesorderId: string) => `pi:${salesorderId}`;
 export const invoiceCardId = (invoiceId: string) => `invoice:${invoiceId}`;
 export const paymentCardId = (paymentId: string) => `payment:${paymentId}`;
-export const kindOfId = (id: string): CardKind => id.split(":")[0] as CardKind;
+// Sales board cards (sales.ts) are "sale:<kind>:<id>".
+export const kindOfId = (id: string): CardKind => (id.startsWith("sale:") ? id.split(":")[1] : id.split(":")[0]) as CardKind;
 
 /** The quotation number a PI's Zoho reference cites ("Quotation-24-002530"), or undefined. */
 export function refQuoteNumber(p?: ZohoPI): string | undefined {
@@ -381,7 +382,7 @@ export const normEmail = (v: string) => v.trim().toLowerCase();
 /** Compare numbers by their last 10 digits so "+91 98765 43210" and "9876543210" match. */
 export const normPhone = (v: string) => v.replace(/\D/g, "").slice(-10);
 
-type Draft = {
+export type Draft = {
   name: string;
   aliases: string[];
   emails: Map<string, ContactEntry>;
@@ -398,7 +399,7 @@ function put(map: Map<string, ContactEntry>, key: string, entry: ContactEntry) {
   if (entry.at > cur.at) cur.at = entry.at;
 }
 
-function apply(d: Draft, events: CardEvent[]) {
+export function apply(d: Draft, events: CardEvent[]) {
   for (const e of events) {
     const v = e.value ?? "";
     switch (e.kind) {
@@ -592,7 +593,7 @@ function mergeEntries(list: ContactEntry[], changes: Map<string, ContactEntry | 
 }
 
 /** Give each card its customer's added / removed numbers and emails (and make them searchable). */
-function applyCustomerContacts(cards: Map<string, CardView>, contacts: CustomerContacts) {
+export function applyCustomerContacts(cards: Map<string, CardView>, contacts: CustomerContacts) {
   for (const c of cards.values()) {
     const s = contacts.get(c.customerId);
     if (!s) continue;
@@ -603,7 +604,7 @@ function applyCustomerContacts(cards: Map<string, CardView>, contacts: CustomerC
 }
 
 /** Give each card its customer's aliases (and make them searchable). */
-function applyCustomerAliases(cards: Map<string, CardView>, aliases: Map<string, string[]>) {
+export function applyCustomerAliases(cards: Map<string, CardView>, aliases: Map<string, string[]>) {
   for (const c of cards.values()) {
     const a = aliases.get(c.customerId);
     if (!a) continue;
@@ -613,7 +614,7 @@ function applyCustomerAliases(cards: Map<string, CardView>, aliases: Map<string,
 }
 
 /** The merged-in card carries the client's identity (name as in Leads), aliases and contacts forward. */
-function absorb(into: Draft, from: Draft) {
+export function absorb(into: Draft, from: Draft) {
   into.name = from.name;
   for (const a of from.aliases) if (!into.aliases.includes(a)) into.aliases.push(a);
   for (const [k, v] of from.emails) put(into.emails, k, v);
@@ -622,16 +623,16 @@ function absorb(into: Draft, from: Draft) {
   into.sector = from.sector ?? into.sector;
 }
 
-const sortEntries = (m: Map<string, ContactEntry>) => [...m.values()].sort((a, b) => b.at.localeCompare(a.at));
+export const sortEntries = (m: Map<string, ContactEntry>) => [...m.values()].sort((a, b) => b.at.localeCompare(a.at));
 
-function leadDraft(l: ZohoLead): Draft {
+export function leadDraft(l: ZohoLead): Draft {
   const d: Draft = { name: l.name, aliases: [], emails: new Map(), phones: new Map(), type: l.type, sector: l.sector };
   if (l.email) put(d.emails, normEmail(l.email), { value: l.email, phases: ["Lead"], at: l.createdAt });
   for (const p of [l.mobile, l.phone]) if (p) put(d.phones, normPhone(p), { value: p, phases: ["Lead"], at: l.createdAt });
   return d;
 }
 
-function docDraft(doc: ZohoQuote | ZohoPI | ZohoInvoice, phase: Phase, contact?: ZohoLead): Draft {
+export function docDraft(doc: ZohoQuote | ZohoPI | ZohoInvoice, phase: Phase, contact?: ZohoLead): Draft {
   const d: Draft = { name: doc.customerName, aliases: [], emails: new Map(), phones: new Map(), type: contact?.type, sector: contact?.sector };
   for (const c of doc.contacts) {
     if (c.email) put(d.emails, normEmail(c.email), { value: c.email, phases: [phase], at: doc.createdAt });

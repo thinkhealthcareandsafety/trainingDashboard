@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AedResponse, PipelineResponse } from "@/lib/types";
+import type { SalesResponse } from "@/lib/salesSync";
 import { buildAedBoard, buildBoard, buildFulfillmentBoard, cardCustomers, customerAliases, customerContacts, customerNameKeys } from "@/lib/pipeline";
 import { ZOHO_SYNCED, useStore } from "@/lib/store";
 import type { BoardOptions } from "./CardModal";
@@ -71,6 +72,31 @@ export function useAedInvoices(enabled: boolean) {
     };
   }, [enabled, load]);
   return { data, loading, refresh: () => load(true) };
+}
+
+/** The Sales board's Zoho data (salesSync.ts) — fetched only while the Sales board is showing. */
+export function useSalesData(enabled: boolean) {
+  const [data, setData] = useState<SalesResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const json = (await (await fetch("/api/sales", { cache: "no-store" })).json()) as SalesResponse;
+      setData((d) => (json.invoices?.length || !d ? json : { ...d, error: json.error ?? "Sync failed" }));
+    } catch (e) {
+      setData((d) => (d ? { ...d, error: String(e) } : null));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (!enabled) return;
+    load();
+    const t = setInterval(load, 5 * 60_000);
+    window.addEventListener(ZOHO_SYNCED, load);
+    return () => { clearInterval(t); window.removeEventListener(ZOHO_SYNCED, load); };
+  }, [enabled, load]);
+  return { data, loading };
 }
 
 /**

@@ -1440,7 +1440,7 @@ export function NotesPanel({ card, member, heading, oneLine, children }: { card:
 }
 
 /** Notes: what the board itself flags (PI missing, deal lost, not linked yet), then the team's own notes. */
-function NotesSection({ card, member, options }: { card: CardView; member: Member; options: BoardOptions }) {
+export function NotesSection({ card, member, options }: { card: CardView; member: Member; options: BoardOptions }) {
   const q = card.quote;
   const flagged = Boolean(card.piSkipped || card.piMissing || card.waitingOn || card.lost);
   return (
@@ -1756,7 +1756,7 @@ export function diff(card: CardView, d: Draft, by: string): Omit<CardEvent, "id"
   return out;
 }
 
-const flagText = (card: CardView, cards: Cards) => {
+export const flagText = (card: CardView, cards: Cards) => {
   const kinds = [...new Set(card.flaggedWith.map((id) => cards.get(id)?.kind).filter(Boolean))] as CardKind[];
   return kinds.map((k) => `${KIND_LABEL[k]}s`).join(" and ");
 };
@@ -2059,7 +2059,8 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   if (lp) actions.push({ label: `Merge ${who(intoPI)} → PI`, steps: intoPI.map((c): [CardView, CardView] => [c, pi!]), primary: !lq && !qp });
   // Step by step: the invoice joins its payment only after (or together with) its completed training.
   const invPay = linked(invoice, payment);
-  const invoiceReady = Boolean(invoice?.mergedFrom.some((id) => { const k = cards.get(id)?.kind; return k && !isCustomerCard(k); }));
+  // (The Sales board has no training step: its invoices merge with their payments as they are — sales.ts.)
+  const invoiceReady = Boolean(invoice && (invoice.id.startsWith("sale:") || invoice.mergedFrom.some((id) => { const k = cards.get(id)?.kind; return k && !isCustomerCard(k); })));
   // Several instalments: the invoice goes into the newest payment and the others come along.
   const prs = byKind.payment.filter((c) => c.payment?.invoiceId === invoice?.invoice?.invoiceId).length;
   const payLabel = prs > 1 ? `Payment Received (${prs} payments)` : "Payment Received";
@@ -2076,7 +2077,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
         : `Merge ${invoice.docNumber} with its completed training first — step by step, the invoice can only be merged with ${payment.docNumber} after that.`
       : `${payment.docNumber} is applied to invoice ${payment.payment?.invoiceNumber}, not ${invoice.docNumber} — only the invoice a payment is recorded against can be merged with it.`
     : pi && invoice && !linked(pi, invoice)
-    ? `${invoice.docNumber} references ${invoice.invoice?.reference || "no PI"}, not ${pi.docNumber} — only an invoice that references a PI (with completed training) can be merged with it.`
+    ? `${invoice.docNumber} references ${invoice.invoice?.reference || "no PI"}, not ${pi.docNumber} — only an invoice that references a PI${invoice.id.startsWith("sale:") ? "" : " (with completed training)"} can be merged with it.`
     : quote && pi && !qp ? `${pi.docNumber} references ${pi.pi?.reference || "no quotation"}, not ${quote.docNumber} — only a PI that references a quotation can be merged with it.` : "";
 
   const name = lead?.name ?? potential?.name ?? quote?.name ?? pi?.name ?? invoice?.name ?? payment?.name ?? "";

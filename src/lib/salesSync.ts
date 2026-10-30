@@ -20,7 +20,7 @@ import { type Kind, type ZDoc, type ZItem, KINDS, docIdOf, fetchDetail, fetchInv
  *    has it, else Zoho once, kept in `salesDetails` until the document changes.
  */
 
-const PAY_BATCH = 80;
+const PAY_BATCH = 150;
 /** List fields the board uses — the rest of Zoho's list row isn't kept (a whole row is ~1.5 KB; this is ~300 B). */
 const KEEP = ["estimate_id", "salesorder_id", "invoice_id", "estimate_number", "salesorder_number", "invoice_number", "date", "created_time", "last_modified_time",
   "status", "customer_id", "customer_name", "salesperson_name", "reference_number", "total", "balance", "due_date", "payment_made"];
@@ -125,8 +125,8 @@ export async function salesData(): Promise<SalesResponse> {
   const data: SalesResponse = {
     syncedAt: state.syncedAt ?? "",
     windowStart: since(),
-    quotes: of("estimates").map((r) => toQuote(r.row, none)),
-    pis: of("salesorders").map((r) => toPI(r.row, none)),
+    quotes: of("estimates").map((r) => ({ ...toQuote(r.row, none), total: Number(r.row.total) || 0 })),
+    pis: of("salesorders").map((r) => ({ ...toPI(r.row, none), total: Number(r.row.total) || 0 })),
     invoices,
     payments: invoices.flatMap((i) => toPayments(i, byInvoice.get(i.invoiceId) ?? [])),
     // Paid invoices whose payments aren't read yet (the first fill goes PAY_BATCH a sync).
