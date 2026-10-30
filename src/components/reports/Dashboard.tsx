@@ -17,6 +17,9 @@ import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey,
  * highlights it). What's active shows as chips (× removes one; Esc clears the picked bar). Layout (owner, 27 Oct: "it
  * feels too congested"): KPIs side by side share one band, the other tiles sit under section headings, each tile's
  * tools are in a ⋯ menu — incl. "Change this chart" (measure, split, top N, grouping: Power BI's field parameters).
+ * Owner, 30 Oct: "whenever I apply a filter … there should be a save option … if it is on a view then saving on the
+ * view" — once the filters differ from what's saved, Save / Discard show; on a dashboard they're my own saved filters
+ * (it opens with them), on a view they update that view.
  */
 
 type Pick = { tileId: string; field: string; value: string; label: string; grain?: Spec["grain"] };
@@ -34,6 +37,20 @@ type ViewState = { period: string; filters: Record<string, FState>; compare: Com
 type View = { name: string; state: ViewState };
 
 const fActive = (f?: FState) => Boolean(f && (f.values.length || f.contains?.trim() || f.min !== undefined || f.max !== undefined));
+/** The same filters, whatever order keys were written in and whatever empty filters are left over. */
+const sorted = (x: unknown): unknown => Array.isArray(x) ? x.map(sorted)
+  : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, sorted(v)])) : x;
+const sameState = (def: DashboardDef, a: ViewState, b: ViewState) => {
+  const key = (v: ViewState) => JSON.stringify(sorted({ period: v.period, compare: v.compare ?? "lastYear", grain: v.grain ?? def.grains ?? null, filters: Object.fromEntries(Object.entries(v.filters ?? {}).filter(([, f]) => fActive(f))) }));
+  return key(a) === key(b);
+};
+/** A dashboard as it starts, before anyone saved filters on it. */
+const startOf = (def: DashboardDef): ViewState => ({ period: def.period, compare: "lastYear", filters: { ...def.start } as Record<string, FState> });
+const postPrefs = async (body: object): Promise<{ error?: string; views?: View[]; saved?: ViewState | null }> => {
+  const r = await fetch("/api/analytics/prefs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
+  return !r?.ok && !j.error ? { error: "Couldn't save" } : j;
+};
 
 export function tweaked(tile: Tile, tweak?: Tweak): Spec {
   if (!tweak) return tile.spec;
@@ -128,9 +145,13 @@ const readPage = (id: string) => { try { return Number(localStorage.getItem(`th.
  */
 const GLOBAL = "th.reports.state";
 const scopeKey = (id: string) => `th.reports.scope.${id}`;
+/** My saved filters of a dashboard — a copy of the server's (`reportPrefs.saved`), so the tab opens with them at once. */
+const savedKey = (id: string) => `th.reports.saved.${id}`;
 const readJson = <T,>(key: string): T | null => { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; } };
 const readScope = (def: DashboardDef): Record<string, FState> => readJson<Record<string, FState>>(scopeKey(def.id)) ?? { ...def.start };
 const readState = (def: DashboardDef): ViewState => {
+  const mine = readJson<ViewState>(savedKey(def.id));
+  if (mine?.period) return { ...mine, compare: mine.compare ?? "lastYear", filters: mine.filters ?? {} };
   const g = readJson<Partial<ViewState>>(GLOBAL) ?? {};
   return { period: g.period ?? def.period, compare: g.compare ?? "lastYear", grain: g.grain, filters: { ...(g.filters ?? {}), ...readScope(def) } };
 };
@@ -373,6 +394,59 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
     return out;
   };
   const viewState: ViewState = { period, filters, compare, grain };
+  const applyState = (v: ViewState) => { setPeriod(v.period); setFilters(v.filters ?? {}); setCompare(v.compare ?? "lastYear"); setGrain(v.grain ?? def.grains); setPick(null); };
+  // Saving (owner, 30 Oct): my saved filters of this dashboard, my views of it, and the view I'm on (none = the dashboard).
+  const [views, setViews] = useState<View[] | null>(null);
+  const [saved, setSaved] = useState<ViewState | null>(null);
+  const [onView, setOnView] = useState<string | null>(null);
+  const [viewsOpen, setViewsOpen] = useState(false);
+  const [saveNote, setSaveNote] = useState("");
+  const live = useRef(viewState);
+  live.current = viewState;
+  useEffect(() => {
+    let gone = false;
+    const opened = readState(def);
+    setViews(null); setOnView(null); setSaveNote(""); setSaved(readJson<ViewState>(savedKey(def.id)));
+    fetch("/api/analytics/prefs").then((r) => r.json()).then((j) => {
+      if (gone) return;
+      setViews(j.views?.[def.id] ?? []);
+      const s: ViewState | null = j.saved?.[def.id] ?? null;
+      try { if (s) localStorage.setItem(savedKey(def.id), JSON.stringify(s)); else localStorage.removeItem(savedKey(def.id)); } catch {}
+      setSaved(s);
+      // Saved on another device: open with them — unless something was already changed here.
+      if (s && sameState(def, live.current, opened) && !sameState(def, s, opened)) applyState(s);
+    }).catch(() => { if (!gone) setViews([]); });
+    return () => { gone = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def.id]);
+  const viewOf = (name: string | null) => views?.find((v) => v.name === name) ?? null;
+  const baseline = viewOf(onView)?.state ?? saved ?? startOf(def);
+  const dirty = !sameState(def, viewState, baseline);
+  const keepSaved = (s: ViewState | null) => {
+    setSaved(s);
+    try { if (s) localStorage.setItem(savedKey(def.id), JSON.stringify(s)); else localStorage.removeItem(savedKey(def.id)); } catch {}
+  };
+  const saveViews = async (list: View[]) => {
+    const j = await postPrefs({ dash: def.id, views: list });
+    if (j.error) return setSaveNote(j.error), false;
+    setViews(j.views ?? list);
+    if (onView && !(j.views ?? list).some((v) => v.name === onView)) setOnView(null);
+    return true;
+  };
+  const saveNow = async () => {
+    setSaveNote("");
+    if (onView && views) return void saveViews(views.map((v) => (v.name === onView ? { ...v, state: viewState } : v)));
+    const j = await postPrefs({ dash: def.id, saved: viewState });
+    if (j.error) return setSaveNote(j.error);
+    keepSaved(viewState);
+  };
+  const resetSaved = async () => {
+    setSaveNote("");
+    const j = await postPrefs({ dash: def.id, saved: null });
+    if (j.error) return setSaveNote(j.error);
+    keepSaved(null);
+    applyState(startOf(def));
+  };
   // Not on the first render of a tab: its state was just read, and writing it back before the reset effect ran would
   // copy the last tab's filters into this one's scope.
   const shown = useRef<string | null>(null);
@@ -393,7 +467,28 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
             ? <RangeControl key={f.field} label={f.label} value={filters[f.field]} onChange={(min, max) => setF(f.field, { min, max })} />
             : <FilterControl key={f.field} dataset={firstDatasetWith(f.field)} field={f.field} label={f.label} state={filters[f.field]} others={othersFor(f.field)} onChange={(patch) => setF(f.field, patch)} />)}
         </FiltersButton>
-        <ViewsButton dash={def.id} current={viewState} onApply={(v) => { setPeriod(v.period); setFilters(v.filters ?? {}); setCompare(v.compare ?? "lastYear"); setGrain(v.grain ?? def.grains); setPick(null); }} />
+        <ViewsButton views={views} current={viewState} open={viewsOpen} setOpen={setViewsOpen} onSave={saveViews}
+          onApply={(v) => { applyState(v.state); setOnView(v.name); }} onAdded={setOnView} />
+        {onView && (
+          <Chip onClear={() => { setOnView(null); applyState(saved ?? startOf(def)); }} title="× goes back to the dashboard">
+            <span className="text-muted">View:</span> <b className="font-semibold">{onView}</b>
+          </Chip>
+        )}
+        {!edit && dirty && (
+          <span className="inline-flex flex-wrap items-center gap-1.5 [&>*]:whitespace-nowrap">
+            <span className="text-[15.5px] text-muted">Unsaved changes</span>
+            <button type="button" className={btn.primary} onClick={saveNow} title={onView ? `Save these filters on the view “${onView}”` : "Save these filters on this dashboard — only for you; it opens with them"}>{onView ? "Save view" : "Save"}</button>
+            {onView && <button type="button" className={btn.quiet} onClick={() => setViewsOpen(true)}>Save as new view…</button>}
+            <button type="button" className={btn.quiet} onClick={() => applyState(baseline)}>Discard</button>
+          </span>
+        )}
+        {!edit && !dirty && !onView && saved && (
+          <span className="inline-flex items-center gap-1">
+            <span className="text-[15.5px] text-muted">Your saved filters</span>
+            <button type="button" className={btn.quiet} onClick={resetSaved} title="Forget your saved filters — back to this dashboard's starting ones">Reset</button>
+          </span>
+        )}
+        {saveNote && <span className="text-[15px] text-high" role="alert">{saveNote}</span>}
         {/* What's active, one chip each — × removes it. */}
         {chosen.map((f) => (
           <Chip key={f.field} onClear={() => setFilters((s) => { const n = { ...s }; delete n[f.field]; return n; })} title={filters[f.field].values.join(", ")}>
@@ -607,32 +702,24 @@ function RangeControl({ label, value, onChange }: { label: string; value?: FStat
   );
 }
 
-/** "Views": save the period + filters + comparison under a name (per person, on the server) and bring them back. */
-function ViewsButton({ dash, current, onApply }: { dash: string; current: ViewState; onApply: (v: ViewState) => void }) {
-  const [open, setOpen] = useState(false);
-  const [views, setViews] = useState<View[] | null>(null);
+/** "Views": save the period + filters + comparison under a name (per person, on the server) and bring them back. The
+ * dashboard holds the list, whether it's open and which view is on (its Save updates that view). */
+function ViewsButton({ views, current, open, setOpen, onSave, onApply, onAdded }: {
+  views: View[] | null; current: ViewState; open: boolean; setOpen: (o: boolean | ((o: boolean) => boolean)) => void;
+  onSave: (list: View[]) => Promise<boolean>; onApply: (v: View) => void; onAdded: (name: string) => void;
+}) {
   const [name, setName] = useState("");
-  const [error, setError] = useState("");
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { fetch("/api/analytics/prefs").then((r) => r.json()).then((j) => setViews(j.views?.[dash] ?? [])).catch(() => setViews([])); }, [dash]);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [open]);
-  const save = async (list: View[]) => {
-    setError("");
-    const r = await fetch("/api/analytics/prefs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dash, views: list }) }).catch(() => null);
-    const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
-    if (!r?.ok || j.error) return setError(j.error ?? "Couldn't save"), false;
-    setViews(j.views);
-    return true;
-  };
+  }, [open, setOpen]);
   const add = async () => {
     const n = name.trim();
     if (!n) return;
-    if (await save([...(views ?? []).filter((v) => v.name !== n), { name: n, state: current }])) setName("");
+    if (await onSave([...(views ?? []).filter((v) => v.name !== n), { name: n, state: current }])) { setName(""); onAdded(n); setOpen(false); }
   };
   return (
     <div ref={box}>
@@ -648,8 +735,8 @@ function ViewsButton({ dash, current, onApply }: { dash: string; current: ViewSt
             {!views?.length && <p className="px-1 py-1.5 text-[15.5px] text-faint">None yet.</p>}
             {views?.map((v) => (
               <div key={v.name} className="flex items-center gap-1 rounded-lg hover:bg-surface-2">
-                <button type="button" className="min-w-0 flex-1 truncate px-2.5 py-2 text-left text-[16px] text-ink" onClick={() => { onApply(v.state); setOpen(false); }}>{v.name}</button>
-                <button type="button" aria-label={`Delete ${v.name}`} className="grid size-7 shrink-0 place-items-center rounded-full text-muted hover:bg-surface hover:text-high" onClick={() => save(views.filter((x) => x.name !== v.name))}>×</button>
+                <button type="button" className="min-w-0 flex-1 truncate px-2.5 py-2 text-left text-[16px] text-ink" onClick={() => { onApply(v); setOpen(false); }}>{v.name}</button>
+                <button type="button" aria-label={`Delete ${v.name}`} className="grid size-7 shrink-0 place-items-center rounded-full text-muted hover:bg-surface hover:text-high" onClick={() => onSave(views.filter((x) => x.name !== v.name))}>×</button>
               </div>
             ))}
           </div>
@@ -657,7 +744,6 @@ function ViewsButton({ dash, current, onApply }: { dash: string; current: ViewSt
             <input className="h-9 min-w-0 flex-1 rounded-full border border-line bg-surface px-3.5 text-[16px] text-ink placeholder:text-faint focus:border-brand focus:outline-none" placeholder="Name this view, e.g. Hotels vs last year" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
             <button type="button" disabled={!name.trim()} className="h-9 shrink-0 rounded-full bg-brand px-4 text-[15.5px] font-semibold text-brand-ink disabled:opacity-40" onClick={add}>Save</button>
           </div>
-          {error && <p className="mt-2 px-1 text-[15px] text-high">{error}</p>}
         </div>
       )}
     </div>

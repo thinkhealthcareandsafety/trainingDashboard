@@ -11,11 +11,13 @@ export const dynamic = "force-dynamic";
  * layout (kv `reports_layout`, Admin's). POST { dash, views } — replace my views on that dashboard; { layout } — my
  * dashboard (null = back to the starting layout); { starting } — Admin: the starting layout for everyone who hasn't
  * made their own (null = back to the built-in one). { hidden } — the Reports tabs I don't want to see (owner, 29 Oct:
- * "Select Dashboards to display"; may come with { layout }). Nobody reads or writes anyone else's.
+ * "Select Dashboards to display"; may come with { layout }). { dash, saved } — my saved filters of that dashboard
+ * (owner, 30 Oct: "whenever I apply a filter there should be a save option"; null = back to its starting filters; it
+ * opens with them). Nobody reads or writes anyone else's.
  */
 
 type View = { name: string; state: unknown };
-type Doc = { _id: string; views?: Record<string, View[]>; layout?: { tiles: LayoutEntry[]; updatedAt: string }; hidden?: string[]; updatedAt?: string };
+type Doc = { _id: string; views?: Record<string, View[]>; saved?: Record<string, unknown>; layout?: { tiles: LayoutEntry[]; updatedAt: string }; hidden?: string[]; updatedAt?: string };
 type Starting = { _id: string; tiles?: LayoutEntry[]; updatedAt?: string; updatedBy?: string };
 const col = async () => (await db()).collection<Doc>("reportPrefs");
 const kv = async () => (await db()).collection<Starting>("kv");
@@ -25,14 +27,14 @@ export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const [d, s] = await Promise.all([(await col()).findOne({ _id: me.id }), (await kv()).findOne({ _id: STARTING })]);
-  return Response.json({ views: d?.views ?? {}, layout: d?.layout?.tiles ?? null, starting: s?.tiles ?? null, startingBy: s?.tiles ? s.updatedBy : undefined, hidden: d?.hidden ?? [] });
+  return Response.json({ views: d?.views ?? {}, layout: d?.layout?.tiles ?? null, starting: s?.tiles ?? null, startingBy: s?.tiles ? s.updatedBy : undefined, hidden: d?.hidden ?? [], saved: d?.saved ?? {} });
 }
 
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { dash?: unknown; views?: unknown; layout?: unknown; starting?: unknown; hidden?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { dash?: unknown; views?: unknown; saved?: unknown; layout?: unknown; starting?: unknown; hidden?: unknown };
   const now = new Date().toISOString();
 
   if ("hidden" in body) {
@@ -67,6 +69,17 @@ export async function POST(request: Request) {
   }
 
   if (typeof body.dash !== "string" || !/^[a-z0-9-]{1,40}$/.test(body.dash)) return Response.json({ error: "Bad dashboard" }, { status: 400 });
+  if ("saved" in body) {
+    if (body.saved === null) {
+      await (await col()).updateOne({ _id: me.id }, { $unset: { [`saved.${body.dash}`]: "" }, $set: { updatedAt: now } });
+      return Response.json({ ok: true, saved: null });
+    }
+    const st = body.saved as { period?: unknown; filters?: unknown };
+    if (typeof st !== "object" || st === null || typeof st.period !== "string" || typeof st.filters !== "object" || st.filters === null) return Response.json({ error: "Those filters can't be saved" }, { status: 400 });
+    if (JSON.stringify(st).length > 20_000) return Response.json({ error: "Too much to save" }, { status: 400 });
+    await (await col()).updateOne({ _id: me.id }, { $set: { [`saved.${body.dash}`]: st, updatedAt: now } }, { upsert: true });
+    return Response.json({ ok: true, saved: st });
+  }
   if (!Array.isArray(body.views) || body.views.length > 30) return Response.json({ error: "At most 30 views" }, { status: 400 });
   const views: View[] = [];
   for (const v of body.views as { name?: unknown; state?: unknown }[]) {

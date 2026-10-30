@@ -1,5 +1,5 @@
 // In-memory stand-in for @/lib/db in tests (tests/register.mjs always maps it) — find / findOne / replaceOne /
-// updateOne / deleteOne / countDocuments, enough for the routes under test. Nothing here touches MongoDB.
+// updateOne ($set / $unset) / deleteOne / countDocuments, enough for the routes under test. Nothing here touches MongoDB.
 type Doc = { _id: string; [k: string]: unknown };
 const store: Record<string, Map<string, Doc>> = {};
 const coll = (name: string) => {
@@ -13,7 +13,14 @@ const coll = (name: string) => {
     aggregate: () => ({ toArray: async () => [] }),
     findOne: async (q: { _id: string }) => (m.has(q._id) ? structuredClone(m.get(q._id)!) : null),
     replaceOne: async (q: { _id: string }, doc: Doc) => { m.set(q._id, structuredClone(doc)); },
-    updateOne: async (q: { _id: string }, u: { $set?: Record<string, unknown> }) => { m.set(q._id, { ...(m.get(q._id) ?? {}), _id: q._id, ...(u.$set ?? {}) }); },
+    // $set / $unset with dotted paths ("views.sales"), like Mongo.
+    updateOne: async (q: { _id: string }, u: { $set?: Record<string, unknown>; $unset?: Record<string, unknown> }) => {
+      const d: Doc = structuredClone(m.get(q._id) ?? { _id: q._id });
+      const at = (path: string) => { const ks = path.split("."); let o = d as Record<string, unknown>; for (const k of ks.slice(0, -1)) o = (o[k] ??= {}) as Record<string, unknown>; return [o, ks.at(-1)!] as const; };
+      for (const [k, v] of Object.entries(u.$set ?? {})) { const [o, last] = at(k); o[last] = v; }
+      for (const k of Object.keys(u.$unset ?? {})) { const [o, last] = at(k); delete o[last]; }
+      m.set(q._id, d);
+    },
     deleteOne: async (q: { _id: string }) => { m.delete(q._id); },
     countDocuments: async () => m.size,
   };
