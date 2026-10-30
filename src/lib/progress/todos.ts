@@ -8,7 +8,8 @@ import { CATEGORIES, type Comment, type PtRequest, type Who, isAdminId, isSevere
  * Everyone's to-do (Progress tracker, owner 26 Oct: "I need to see what everyone needs to do or is going to do") —
  * read from the boards as they stand, nothing typed in, nothing saved. Pure: the route loads the data.
  *
- *   Shikha             PIs ready to schedule (merged, no training date yet) — "Schedule the training"
+ *   Shikha             flagged cards on the Training board — "Review & merge"; PIs ready to schedule (merged, no
+ *                      training date yet) — "Schedule the training"
  *   Trainers           trainings they give (today / next 7 days)
  *   Who scheduled it   a training whose date has passed and isn't marked completed → "Mark completed or postpone"
  *                      (owner: "pending to be marked complete or pushed if past training date"); an upcoming one with
@@ -82,7 +83,22 @@ export function buildTodos(today: string, team: Who[], b: Boards, entries: Calen
   // PIs merged and ready but with no training date yet → Shikha schedules them (owner, 30 Oct: "training scheduling is
   // shikha's work and should show in her tracker"). Waiting on her now (no date); oldest PI first.
   const ready = [...b.board.cards.values()].filter((c) => c.readyToSchedule && !c.mergedInto && !c.deleted && !c.lost).sort((x, y) => (x.docDate ?? "").localeCompare(y.docDate ?? ""));
-  for (const m of team.filter((x) => !isAdminId(x.id) && /^shikha\b/i.test(x.name))) {
+  // Flagged cards (same customer's documents in other columns, not merged yet) are hers to move on too (owner, 30 Oct:
+  // "moving any Flagged card in training dashboard is shikha's work") — one item per group, not one per card.
+  const live = (c?: CardView) => Boolean(c && !c.mergedInto && !c.deleted && !c.lost);
+  const flaggedGroups = new Map<string, CardView[]>();
+  for (const c of b.board.cards.values()) {
+    if (!live(c) || !c.flaggedWith.length) continue;
+    const group = [c, ...c.flaggedWith.map((id) => b.board.cards.get(id)).filter((x): x is CardView => live(x))];
+    if (group.length < 2) continue;
+    const key = group.map((x) => x.id).sort().join("|");
+    if (!flaggedGroups.has(key)) flaggedGroups.set(key, group);
+  }
+  const shikha = team.filter((x) => !isAdminId(x.id) && /^shikha\b/i.test(x.name));
+  for (const m of shikha) {
+    for (const [key, g] of flaggedGroups) add({ id: `flag:${key}`, who: m.id, tag: "Review & merge", title: label(g[0]), detail: `${g.map(doc).filter(Boolean).join(" ↔ ")} · flagged — merge to move it on`, tone: "warn", href: open(g[0].id) });
+  }
+  for (const m of shikha) {
     for (const c of ready) add({ id: `schedule:${c.id}`, who: m.id, tag: "Schedule the training", title: label(c), detail: `${shortTraining(c.training.map((t) => t.name).join(", ")) || "Training"} · ${doc(c)}${c.docDate ? ` · PI ${fmtDay(c.docDate.slice(0, 10))}` : ""}`, tone: "plain", href: open(c.id) });
   }
 
