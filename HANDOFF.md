@@ -1,10 +1,40 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Fri 30 Oct 2026 morning (status check after session 18). **Live = `2f3b049`** (both addresses) —
-**everything is pushed**; the only commit after it is this docs update. Written for the next Claude Code session (and
-the owner, sshah@thinkhealth.in)._
+_Last updated: Fri 30 Oct 2026 afternoon (session 19). **Live = `1e3f773`** (both addresses) — everything is pushed;
+the only commit after it is this docs update. Written for the next Claude Code session (and the owner,
+sshah@thinkhealth.in)._
 
-**Update — Fri 30 Oct (read this before "Start of the next session (19)" below; where they differ, this wins):**
+**Session 19 — Fri 30 Oct (newest; wins over everything below):**
+- **Nikita Shah** (member `zetm337p`) = same access as Sumit: `nikita` added to `hasFullAccess` in `roles.ts` (+ the
+  "Admin, Ashish, Shikha, Sumit and Nikita" texts). `04b336f`. She is *not* a trainer / reminder / WhatsApp recipient.
+- **Reports — Save / Discard** (`46fed8e`, owner: "whenever I apply a filter … a save option … if on a view, save the
+  view"): once period / compare / Show by / filters differ from what's saved, the toolbar shows Unsaved changes ·
+  Save · Discard. On a dashboard = my own saved filters (`reportPrefs.saved.<dash>`, POST `/api/analytics/prefs
+  {dash, saved}` / `saved: null` = Reset; mirrored in localStorage `th.reports.saved.<dash>`; the tab opens with them).
+  On a view = a "View: name ×" chip, Save view / Save as new view… / Discard. Views now live in `DashboardView`
+  (one prefs fetch per tab). Tests: `tests/prefs-route.test.ts`; the fake db handles dotted `$set` / `$unset`.
+- **Reports phase 5 (§10 #162) — all built and live** (`876e8ac`…`1e3f773`), every number checked against the raw
+  `za_tables` rows (scripts in the session scratchpad — rebuild from §9 #17):
+  - Quotes & team → **Follow up** (quotes `waitAge`, analysis `followup`) and **Against target** (analysis `vsTarget`:
+    revenue per sales person vs monthly target × months so far, part months by days; targets = kv `reports_goal.people`,
+    set by Admin with **◎ Sales targets** (`Targets.tsx`, POST `/api/analytics/goal {people}` — whole list); the
+    analytics route injects them into the spec). **No targets set yet — owner to fill in.**
+  - Money → **Coming in** (invoices `dueBand` / `dueWeek`, measures `due30` / `due90`) and **Purchase prices**
+    (analysis `priceAlerts`, Admin: latest bill vs bill before, ≥ 5 %, ≤ 3×, catalogue goods only).
+  - Customers → **Call them** (analyses `dueMonths` + `renewals`: certificates = last training invoice + 2 years —
+    Zoho's "Training Date" is on 20 invoices only; training lines = group Training Services or an un-catalogued line
+    named training / course / BLS; pads every 2 years, batteries every 4) and **Customer value** (analysis
+    `customerValue`, variant `bands`).
+  - Products & stock → **Stock health** (stock `idle`, `orderBand`, `orderIn`, `sold365`; `deadValue`, `turns`;
+    `LEAD_DAYS` = 30; below-zero items left out of order-by) and **Lead sources** (`newRevenue`, `perNewCustomer`).
+  - Trainings → **Against target** (`Tile.target`: fixed monthly line, 10 trainings / 300 people, Month only).
+  - An empty tile now shows its analysis's own note instead of "Nothing here…".
+- **Checked 30 Oct:** database 4.6–8.4 MB/s; both crons ran (9:17, 9:34); 38 tests pass.
+- **Next:** #150 live test (owner skipped it for now); owner sets sales targets; phase 6 (#163), leftovers (#164) and
+  the Next.js 16.3.5 → 16.4.3 upgrade (`npm audit`: critical RCE in `next/og` + cache advisories; ECharts XSS moderate)
+  were restated to the owner — wait for "yeah".
+
+**Update — Fri 30 Oct morning (older than session 19 above):**
 - **After the session-18 docs (`2d6e2f2`), a cloud session built §10 #150 and pushed it** (live): `8924740` tests use
   the fake db however `lib/db` is imported; `3f39f9e` #151 (Type + Sector + last name to Zoho, `CUSTOMER_FIELDS`);
   `3d37345` one-screen new customer (Business / Individual, GSTIN → state + PAN + GST treatment, `src/lib/gstin.ts`,
