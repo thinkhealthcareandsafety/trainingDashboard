@@ -909,7 +909,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
         {!answer ? <div className={`animate-pulse rounded-lg bg-surface-2 ${isKpi ? "h-14" : "h-[260px]"}`} />
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
           // Nothing to draw: say so, not empty axes at ₹0 (29 Oct).
-          : !isKpi && answer.rows.every((r) => r.values.every((v) => !v) && !r.prev?.some((v) => v)) ? <p className="grid h-[200px] place-items-center rounded-lg bg-surface-2/60 px-4 text-center text-[15.5px] text-muted">Nothing here for these dates and filters</p>
+          : !isKpi && answer.rows.every((r) => r.values.every((v) => !v) && !r.prev?.some((v) => v)) ? <p className="grid h-[200px] place-items-center rounded-lg bg-surface-2/60 px-4 text-center text-[15.5px] text-muted">{!answer.rows.length && answer.note ? answer.note : "Nothing here for these dates and filters"}</p>
           : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} lines={tweak?.lines} />}
       </div>
     </section>
