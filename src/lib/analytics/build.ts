@@ -488,6 +488,8 @@ function stockLevelRows(t: RawTables, today: string): Row[] {
 }
 const nextMonth = (m: string) => { const y = Number(m.slice(0, 4)), mo = Number(m.slice(5, 7)); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; };
 const SOLD_DAYS = 90;
+/** Days from ordering stock to having it (owner, 30 Oct — phase 5 default). */
+const LEAD_DAYS = 30;
 
 /**
  * Stock now (owner, 28 Oct: ANALYTICS-PLAN §11 #27) — one row per item Zoho keeps stock of (any stock movement).
@@ -510,19 +512,21 @@ export function onHandByItem(t: RawTables): Map<string, number> {
 
 function stockRows(t: RawTables, today: string): Row[] {
   const items = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
-  const s = new Map<string, { left: number; value: number; short: number; sold: number; lastSold: string | null; committed: number }>();
-  const get = (p: string) => s.get(p) ?? s.set(p, { left: 0, value: 0, short: 0, sold: 0, lastSold: null, committed: 0 }).get(p)!;
+  const s = new Map<string, { left: number; value: number; short: number; sold: number; sold365: number; lastSold: string | null; committed: number }>();
+  const get = (p: string) => s.get(p) ?? s.set(p, { left: 0, value: 0, short: 0, sold: 0, sold365: 0, lastSold: null, committed: 0 }).get(p)!;
   for (const r of t.stockIn ?? []) {
     const left = money(r["Quantity Available"]) ?? 0;
     const x = get(r["Product ID"]);
     if (left >= 0) { x.left += left; x.value += left * (money(r["Price (BCY)"]) ?? 0); } else x.short -= left;
   }
   const since = new Date(Date.parse(today) - SOLD_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const yearAgo = plusDays(today, -365);
   for (const r of t.stockOut ?? []) {
     const date = day(r["Transaction Date"]);
     const x = get(r["Product ID"]);
     if (!/invoice/i.test(r["EntityType"] ?? "") || !date) continue; // sales only — not adjustments / returns to vendors
     if (date > since && date <= today) x.sold += money(r["Quantity Out"]) ?? 0;
+    if (date > yearAgo && date <= today) x.sold365 += money(r["Quantity Out"]) ?? 0;
     if (!x.lastSold || date > x.lastSold) x.lastSold = date;
   }
   const bookedFrom = new Date(Date.parse(today) - BOOKED_DAYS * 86_400_000).toISOString().slice(0, 10);
@@ -543,6 +547,9 @@ function stockRows(t: RawTables, today: string): Row[] {
     // Below zero: mostly bought per order and invoiced without stock (N95 masks, bandages) or services set up as goods
     // — not stock to reorder, so their own band (28 Oct: they filled "To reorder").
     const below = x.short > 0 && onHand === 0;
+    // Stock health (owner, 30 Oct — phase 5): how long since it last sold, and when to order (cover − 30 days' lead time).
+    const idleDays = x.lastSold ? dayDiff(x.lastSold, today) : null;
+    const orderIn = cover !== null && available > 0 ? Math.round(cover - LEAD_DAYS) : cover !== null ? -LEAD_DAYS : null;
     return {
       date: x.lastSold, item: text(item?.["Item Name"]) ?? "(unknown item)", itemGroup: text(item?.["Item Identifier"]),
       itemStatus: text(item?.["Status"]),
@@ -552,6 +559,9 @@ function stockRows(t: RawTables, today: string): Row[] {
       cover: below ? "Below zero in Zoho" : cover === null ? (onHand > 0 ? "Not sold in 90 days" : "No stock, not selling")
         : available <= 0 ? "Out of stock, still selling" : cover < 30 ? "Under 30 days" : cover < 90 ? "30–90 days" : cover < 180 ? "90–180 days" : "Over 180 days",
       reorder: reorder <= 0 ? "No reorder level" : available < reorder ? "Below reorder level" : "Above reorder level",
+      idle: onHand <= 0 ? null : idleDays === null ? "Never sold" : idleDays <= 90 ? "Sold in the last 90 days" : idleDays <= 180 ? "No sale in 90–180 days" : "No sale in 180+ days",
+      orderBand: below || orderIn === null ? null : orderIn <= 0 ? "Order now" : orderIn <= 30 ? "Within 30 days" : orderIn <= 60 ? "In 31–60 days" : "Later",
+      orderIn, sold365: x.sold365,
       onHand, value: x.value, committed: x.committed, available, sold90: x.sold, short: x.short,
     };
   });

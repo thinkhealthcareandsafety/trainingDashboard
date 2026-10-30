@@ -385,6 +385,8 @@ export const DATASETS: Dataset[] = [
       { key: "stock", label: "Stock", kind: "text", hint: "In stock · Out of stock · Sold more than bought (Zoho shows it below zero — a purchase or stock adjustment is missing there)", order: ["In stock", "Out of stock", "Sold more than bought"] },
       { key: "cover", label: "Days of cover", kind: "text", hint: "How long what's available lasts at the last 90 days' rate of sales", order: COVER_ORDER },
       { key: "reorder", label: "Reorder level", kind: "text", hint: "Available against the item's reorder level in Zoho (few items have one)", order: ["Below reorder level", "Above reorder level", "No reorder level"] },
+      { key: "idle", label: "Last sale", kind: "text", hint: "Items in stock: how long since one was last invoiced — 180+ days (or never) = dead stock", order: ["Sold in the last 90 days", "No sale in 90–180 days", "No sale in 180+ days", "Never sold"] },
+      { key: "orderBand", label: "Order by", kind: "text", hint: "Items selling in the last 90 days: days of cover − 30 days to get new stock in. Order now = it runs out before new stock would arrive", order: ["Order now", "Within 30 days", "In 31–60 days", "Later"] },
     ],
     measures: [
       { key: "value", label: "Stock value (cost)", format: "inr", agg: "sum", field: "value", def: "What the stock on hand cost: each purchase still in stock × its purchase price, before tax (Zoho's FIFO)." },
@@ -397,6 +399,10 @@ export const DATASETS: Dataset[] = [
       { key: "toReorder", label: "Items to reorder", better: "down", format: "count", agg: "count", where: { field: "cover", values: ["Out of stock, still selling", "Under 30 days"] }, def: "Items that sold in the last 90 days and have under 30 days of cover (or none left)." },
       { key: "oversold", label: "Items below zero in Zoho", better: "down", format: "count", agg: "count", where: { field: "stock", values: ["Sold more than bought"] }, def: "Items invoiced with no stock recorded — Zoho shows them below zero until a purchase or stock adjustment is entered." },
       { key: "short", label: "Units below zero", format: "count", agg: "sum", field: "short", def: "How far below zero Zoho has the item (units invoiced with no stock recorded)." },
+      { key: "deadValue", label: "Dead stock (cost)", better: "down", format: "inr", agg: "sum", field: "value", where: { field: "idle", values: ["No sale in 180+ days", "Never sold"] }, def: "What the stock that hasn't sold in 180 days (or never) cost us — money sitting on the shelf." },
+      { key: "sold365", label: "Units sold (12 months)", format: "count", agg: "sum", field: "sold365", def: "Units invoiced in the last 365 days." },
+      { key: "turns", label: "Stock turns (12 months)", format: "count", agg: "ratio", num: "sold365", den: "onHand", def: "Units sold in the last 12 months ÷ units on hand now: how many times a year the stock sells through. Under 1 = more than a year's stock." },
+      { key: "orderIn", label: "Order within (days)", format: "days", agg: "avg", field: "orderIn", def: "Days of cover − 30 days to get new stock in; 0 or less = order now. One item at a time." },
     ],
   },
 ];
