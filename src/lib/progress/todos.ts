@@ -8,6 +8,7 @@ import { CATEGORIES, type Comment, type PtRequest, type Who, isAdminId, isSevere
  * Everyone's to-do (Progress tracker, owner 26 Oct: "I need to see what everyone needs to do or is going to do") —
  * read from the boards as they stand, nothing typed in, nothing saved. Pure: the route loads the data.
  *
+ *   Shikha             PIs ready to schedule (merged, no training date yet) — "Schedule the training"
  *   Trainers           trainings they give (today / next 7 days)
  *   Who scheduled it   a training whose date has passed and isn't marked completed → "Mark completed or postpone"
  *                      (owner: "pending to be marked complete or pushed if past training date"); an upcoming one with
@@ -76,6 +77,13 @@ export function buildTodos(today: string, team: Who[], b: Boards, entries: Calen
     const next = days.find((d) => d >= today)!;
     for (const m of trainers) add({ id: `give:${c.id}:${m.id}`, who: m.id, tag: "Give the training", title: label(c), detail: `${what}${days.length > 1 ? ` · day ${days.indexOf(next) + 1} of ${days.length}` : ""} · ${s.trainers.map((n) => n.split(" ")[0]).join(", ")}`, date: next, tone: "info", href: open(c.id) });
     if (!c.concernedPhone) for (const m of owners) add({ id: `phone:${c.id}:${m.id}`, who: m.id, tag: "Add the contact number", title: label(c), detail: `${what} · needed for the reminders and to complete it`, date: next, tone: "warn", href: open(c.id) });
+  }
+
+  // PIs merged and ready but with no training date yet → Shikha schedules them (owner, 30 Oct: "training scheduling is
+  // shikha's work and should show in her tracker"). Waiting on her now (no date); oldest PI first.
+  const ready = [...b.board.cards.values()].filter((c) => c.readyToSchedule && !c.mergedInto && !c.deleted && !c.lost).sort((x, y) => (x.docDate ?? "").localeCompare(y.docDate ?? ""));
+  for (const m of team.filter((x) => !isAdminId(x.id) && /^shikha\b/i.test(x.name))) {
+    for (const c of ready) add({ id: `schedule:${c.id}`, who: m.id, tag: "Schedule the training", title: label(c), detail: `${shortTraining(c.training.map((t) => t.name).join(", ")) || "Training"} · ${doc(c)}${c.docDate ? ` · PI ${fmtDay(c.docDate.slice(0, 10))}` : ""}`, tone: "plain", href: open(c.id) });
   }
 
   // ---- AedSmartx (Priyanka) ----
