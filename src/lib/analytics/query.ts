@@ -8,7 +8,7 @@ import { type Dataset, type Format, type Grain, type Measure, type Row, datasetO
 /** matrix: two splits as a pivot table (with the comparison in each cell); waterfall: steps up and down (bridge);
  * diverging: rises right in green, falls left in red (what changed). */
 export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "stacked100" | "donut" | "table" | "matrix" | "heatmap" | "waterfall" | "diverging" | "map";
-export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup";
+export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup" | "renewals" | "dueMonths";
 /**
  * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
  * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
@@ -85,7 +85,7 @@ export function checkSpec(spec: Spec): Dataset {
   const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
   if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
-  if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
+  if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell" || spec.analysis === "renewals" || spec.analysis === "dueMonths") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
   if (spec.analysis === "followup" && d.key !== "quotes") throw new SpecError("This analysis works on Quotes");
   const c = spec.compare;
   if (c && typeof c === "object" && !fieldOf(d, c.field)) throw new SpecError(`"${c.field}" isn't a field of ${d.label}`);
@@ -336,6 +336,8 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
  * - drivers:  what changed: each value of the split's change against the comparison, biggest rises and falls
  * - funnel:   each measure as a step (quotes → accepted → invoiced), with its share of the first
  * - followup: quotes with no answer yet, oldest first — who to chase (owner, 30 Oct — phase 5)
+ * - renewals: customers whose last training's certificates (valid 2 years) run out within 90 days either side of today
+ * - dueMonths: next 12 months — customers due certificates, AED pads (every 2 years) and batteries (every 4 years)
  */
 function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
   const m = spec.measures[0];
@@ -375,6 +377,67 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
     return out(rows.slice(0, lim).map((r) => ({ keys: [text(r.quote), text(r.customer), typeof r.date === "string" ? grainLabel(r.date, "day", true) : "—", `${r.daysWaiting ?? "—"} days`, text(r.salesperson)], values: [sum([r])] })),
       [{ key: "quote", label: "Quote", date: false }, { key: "customer", label: "Customer", date: false }, { key: "sent", label: "Sent", date: false }, { key: "waiting", label: "Waiting", date: false }, { key: "salesperson", label: "Sales person", date: false }],
       { totals: [sum(rows)], note: `${n(rows.length)} quotes have no answer yet${rows.length > lim ? ` — the oldest ${lim} shown` : ""}.` });
+  }
+  // Renewals (owner, 30 Oct — phase 5). Over all of history; filters apply, the period doesn't. A training's date is its
+  // invoice's (Zoho's "Training Date" is on 20 invoices only); certificates are valid 2 years. Pads last 2 years and
+  // batteries 4, counted from the AED or from the last pads / battery bought, whichever is later.
+  if (spec.analysis === "renewals" || spec.analysis === "dueMonths") {
+    const today = spec.asOf ?? new Date().toISOString().slice(0, 10);
+    const rows = keep(d, all, { filters: spec.filters });
+    type Last = { date: string; people: number; value: number; invoice: string };
+    const per = new Map<string, { training?: Last; aed?: string; pads?: string; battery?: string; info: Row }>();
+    for (const r of rows) for (const k of asList(r.customer)) {
+      if (k === BLANK || typeof r.date !== "string") continue;
+      const c = per.get(k) ?? { info: r };
+      const dt = r.date;
+      // Training lines: item group Training Services, or (half of them) a line typed with no Zoho item — "CPR AED
+      // Training (M)", "Fast Response BLS Course" — but not training pads, manikins, masks or kits.
+      const g = typeof r.itemGroup === "string" ? r.itemGroup : "";
+      if (/training services/i.test(g) || (!g && /training|course|\bbls\b/i.test(String(r.item ?? "")) && !/pads|manikin|mask|kit/i.test(String(r.item ?? "")))) {
+        if (!c.training || dt > c.training.date) c.training = { date: dt, people: 0, value: 0, invoice: String(r.invoice ?? "") };
+        if (c.training.date === dt && c.training.invoice === String(r.invoice ?? "")) { c.training.people += Number(r.qty) || 0; c.training.value += Number(r.amount) || 0; }
+      }
+      if (r.kind === "AED" && dt > (c.aed ?? "")) c.aed = dt;
+      if (r.kind === "Pads" && dt > (c.pads ?? "")) c.pads = dt;
+      if (r.kind === "Battery" && dt > (c.battery ?? "")) c.battery = dt;
+      if (dt >= String(c.info.date ?? "")) c.info = r;
+      per.set(k, c);
+    }
+    const later = (a?: string, b?: string) => (a && b ? (a > b ? a : b) : a ?? b);
+    const due = (c: { training?: Last; aed?: string; pads?: string; battery?: string }) => ({
+      certs: c.training ? addMonths(c.training.date, 24) : undefined,
+      pads: c.aed ? addMonths(later(c.aed, c.pads)!, 24) : undefined,
+      battery: c.aed ? addMonths(later(c.aed, c.battery)!, 48) : undefined,
+    });
+    const text = (v: Row[string] | undefined) => (typeof v === "string" && v ? v : "—");
+    const day = (x: string) => grainLabel(x, "day", true);
+    if (spec.analysis === "renewals") {
+      const from = addMonths(today, -3), to = addMonths(today, 3);
+      const list = [...per].map(([k, c]) => ({ k, c, exp: due(c).certs })).filter((x) => x.exp && x.exp >= from && x.exp <= to).sort((a, b) => a.exp!.localeCompare(b.exp!));
+      const lim = spec.limit || 25;
+      return out(list.slice(0, lim).map(({ k, c, exp }) => ({ keys: [k, day(c.training!.date), `${day(exp!)}${exp! < today ? " (ran out)" : ""}`, String(c.training!.people || "—"), text(c.info.sector), text(c.info.salesperson)], values: [c.training!.value] })),
+        [{ key: "customer", label: "Customer", date: false }, { key: "trained", label: "Last trained", date: false }, { key: "expires", label: "Certificates run out", date: false }, { key: "people", label: "People (invoice qty)", date: false }, { key: "sector", label: "Sector", date: false }, { key: "salesperson", label: "Sales person", date: false }],
+        { measures: [{ ...fmt, label: "Last training (₹)" }], totals: [list.reduce((s, x) => s + x.c.training!.value, 0)],
+          note: `${n(list.length)} customers' certificates run out between ${day(from)} and ${day(to)}${list.length > lim ? ` — the first ${lim} shown` : ""}.` });
+    }
+    // dueMonths: "Already due" (pads / batteries only — certificates already out are in the renewals list) + 12 months.
+    const months = Array.from({ length: 12 }, (_, i) => addMonths(today.slice(0, 7) + "-01", i).slice(0, 7));
+    const end = addMonths(today.slice(0, 7) + "-01", 12);
+    const KINDS = [["certs", "Certificates"], ["pads", "AED pads"], ["battery", "AED batteries"]] as const;
+    const count = new Map<string, number>();
+    for (const [, c] of per) {
+      const x = due(c);
+      for (const [key, label] of KINDS) {
+        const at = x[key];
+        if (!at || at >= end) continue;
+        const bucket = at < today.slice(0, 7) + "-01" ? (key === "certs" ? null : "Already due") : grainLabel(at.slice(0, 7), "month");
+        if (bucket) count.set(`${bucket}|${label}`, (count.get(`${bucket}|${label}`) ?? 0) + 1);
+      }
+    }
+    const buckets = ["Already due", ...months.map((m) => grainLabel(m, "month"))];
+    const rowsOut: ResultRow[] = buckets.flatMap((b) => KINDS.map(([, label]) => ({ keys: [b, label], values: [count.get(`${b}|${label}`) ?? 0] })));
+    return out(rowsOut, [{ key: "month", label: "Due", date: false, order: buckets }, { key: "what", label: "What", date: false }],
+      { measures: [{ key: "customers", label: "Customers due", format: "count" }], totals: [[...count.values()].reduce((s, v) => s + v, 0)] });
   }
   // Lists over the whole history (filters apply, the period doesn't): who to call about pads / batteries, and who
   // bought one thing but not the other.
