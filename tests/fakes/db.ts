@@ -21,6 +21,12 @@ const coll = (name: string) => {
       for (const k of Object.keys(u.$unset ?? {})) { const [o, last] = at(k); delete o[last]; }
       m.set(q._id, d);
     },
+    // Enough for a lock: matches the doc by _id (other conditions ignored), $set, upsert, the new doc back.
+    findOneAndUpdate: async (q: { _id: string }, u: { $set?: Record<string, unknown> }) => {
+      const d: Doc = { ...(m.get(q._id) ?? { _id: q._id }), ...(u.$set ?? {}) };
+      m.set(q._id, structuredClone(d));
+      return structuredClone(d);
+    },
     deleteOne: async (q: { _id: string }) => { m.delete(q._id); },
     countDocuments: async () => m.size,
   };

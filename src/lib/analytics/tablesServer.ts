@@ -24,18 +24,20 @@ const DAY_MS = 24 * 3600_000;
 const PACE_MS = 2500; // Zoho Analytics refuses bursts
 const BUDGET_MS = 85_000;
 
-type CatalogDoc = Catalog & { _id: string; readOn?: Record<string, string>; running?: number };
+/** `error`: why the last reading pass stopped (shown in the table picker), cleared by the next pass that reads. */
+type CatalogDoc = Catalog & { _id: string; readOn?: Record<string, string>; running?: number; error?: string; errorAt?: string };
 type CopyDoc = { _id: string; gz: Binary; count: number; at: string };
 const kv = async () => (await db()).collection<CatalogDoc>("kv");
 
 let lastCall = 0;
 const paced = async () => { const wait = lastCall + PACE_MS - Date.now(); if (wait > 0) await new Promise((r) => setTimeout(r, wait)); lastCall = Date.now(); };
 
-let catalogMemo: { at: number; value: Catalog & { readOn?: Record<string, string> } } | null = null;
-export async function readCatalog(): Promise<Catalog> {
-  if (catalogMemo && Date.now() - catalogMemo.at < 60_000) return catalogMemo.value;
+let catalogMemo: { at: number; value: Catalog & { readOn?: Record<string, string>; error?: string; reading?: boolean } } | null = null;
+export async function readCatalog(): Promise<Catalog & { error?: string; reading?: boolean }> {
+  // Kept 20 s on this server (the picker's "Check again" should see a pass that just finished).
+  if (catalogMemo && Date.now() - catalogMemo.at < 20_000) return catalogMemo.value;
   const d = await (await kv()).findOne({ _id: KEY });
-  const value = { tables: d?.tables ?? [], readAt: d?.readAt, partial: d?.partial ?? !d, readOn: d?.readOn };
+  const value = { tables: d?.tables ?? [], readAt: d?.readAt, partial: d?.partial ?? !d, readOn: d?.readOn, error: d?.error, reading: Boolean(d?.running && d.running > Date.now()) };
   catalogMemo = { at: Date.now(), value };
   return value;
 }
@@ -82,12 +84,13 @@ export async function refreshCatalog(force = false): Promise<boolean> {
       readOn[v.id] = new Date().toISOString();
     }
     const list = views.map((v) => tables.get(v.id)).filter((t): t is CatalogTable => Boolean(t));
-    await col.updateOne({ _id: KEY }, { $set: { tables: list, readOn, partial, readAt: new Date().toISOString(), running: 0 } });
+    await col.updateOne({ _id: KEY }, { $set: { tables: list, readOn, partial, readAt: new Date().toISOString(), running: 0 }, $unset: { error: "", errorAt: "" } });
     catalogMemo = null;
     return true;
   } catch (e) {
     console.error("[tables] catalog read failed:", e);
-    await col.updateOne({ _id: KEY }, { $set: { running: 0 } });
+    await col.updateOne({ _id: KEY }, { $set: { running: 0, error: e instanceof Error ? e.message : String(e), errorAt: new Date().toISOString() } });
+    catalogMemo = null;
     return true;
   }
 }

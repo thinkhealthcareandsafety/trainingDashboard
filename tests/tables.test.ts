@@ -89,3 +89,13 @@ test("Count and Count distinct on any column; number ranges as filters; Sum only
   const big = runQuery({ dataset: "zt:1", measures: ["rows"], filters: [{ field: "Sub Total (BCY)", values: [], min: 15 }] }, rows);
   assert.equal(big.rows[0].values[0], 2);
 });
+
+test("a reading pass that fails says why (here: Zoho Analytics isn't connected in the fake database)", async () => {
+  const { refreshCatalog, readCatalog } = await import("@/lib/analytics/tablesServer");
+  const { resetFakeDb } = await import("./fakes/db");
+  resetFakeDb();
+  assert.equal(await refreshCatalog(), true);
+  const c = await readCatalog();
+  assert.match(c.error ?? "", /connected/);
+  assert.equal(c.tables.length, 0);
+});

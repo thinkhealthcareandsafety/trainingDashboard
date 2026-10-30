@@ -417,9 +417,15 @@ function TablePicker({ list, legacy, admin, onPick, onClose, onReload }: {
       </div>
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {list?.error && <p className="text-[16px] text-high">{list.error}</p>}
-        {list?.partial && (
+        {list?.readError ? (
+          // A pass that failed says why instead of "still being read" for ever.
+          <p className="mb-3 rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-high">
+            Reading Zoho&apos;s tables stopped: {list.readError}{list.tables.length ? " — showing the ones read before." : ""}{" "}
+            <button className="font-semibold text-brand hover:underline" onClick={() => onReload(false)}>Try again</button>
+          </p>
+        ) : list?.partial && (
           <p className="mb-3 rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2">
-            Zoho&apos;s table list is still being read (about 5 minutes the first time) — {list.tables.length ? "these are the ones read so far." : "none read yet."}{" "}
+            Zoho&apos;s table list is {list.reading ? "being read right now" : "still being read"} (about 5 minutes the first time, in steps) — {list.tables.length ? `${list.tables.length} read so far.` : "none read yet."}{" "}
             <button className="font-semibold text-brand hover:underline" onClick={() => onReload(false)}>Check again</button>
           </p>
         )}

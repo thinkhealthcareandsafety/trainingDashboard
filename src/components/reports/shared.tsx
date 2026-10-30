@@ -10,7 +10,7 @@ import { type CatalogTable, registerTables } from "@/lib/analytics/tables";
 /* The Reports page's shared pieces: the API calls, period helpers and the multi-select filter. */
 
 /** The Zoho Analytics tables this member may build on (owner's plan of 30 Oct, point 1), as /api/analytics/tables gives them. */
-export type TableList = { tables: CatalogTable[]; readAt: string | null; partial: boolean; error?: string };
+export type TableList = { tables: CatalogTable[]; readAt: string | null; partial: boolean; error?: string; readError?: string; reading?: boolean };
 let tablesAsked: Promise<TableList> | null = null;
 /**
  * The table list, asked once per page (again with `fresh`, e.g. while Zoho's list is still being read), and put on the
@@ -20,7 +20,7 @@ export function loadTables(fresh = false): Promise<TableList> {
   if (!tablesAsked || fresh) {
     tablesAsked = fetch("/api/analytics/tables").then((r) => r.json()).then((j: TableList) => {
       if (Array.isArray(j.tables)) registerTables({ tables: j.tables });
-      return { tables: j.tables ?? [], readAt: j.readAt ?? null, partial: Boolean(j.partial), error: j.error };
+      return { tables: j.tables ?? [], readAt: j.readAt ?? null, partial: Boolean(j.partial), error: j.error, readError: j.readError, reading: j.reading };
     }).catch(() => { tablesAsked = null; return { tables: [], readAt: null, partial: false, error: "Couldn't reach the server" }; });
   }
   return tablesAsked;

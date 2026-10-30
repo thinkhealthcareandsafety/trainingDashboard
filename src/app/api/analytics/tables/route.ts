@@ -20,7 +20,11 @@ export async function GET(request: Request) {
   if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
   const catalog = await readCatalog();
   if (catalogStale(catalog)) after(() => refreshCatalog().then(() => undefined, () => undefined));
-  return Response.json({ tables: visibleTables(catalog, isAdmin(me)), readAt: catalog.readAt ?? null, partial: catalogStale(catalog) && !catalog.readAt ? true : Boolean(catalog.partial) });
+  return Response.json({
+    tables: visibleTables(catalog, isAdmin(me)), readAt: catalog.readAt ?? null, partial: catalogStale(catalog) && !catalog.readAt ? true : Boolean(catalog.partial),
+    // Why reading stopped (e.g. Zoho Analytics not connected, or refusing), and whether a pass is running now.
+    ...(catalog.error ? { readError: catalog.error } : {}), reading: Boolean(catalog.reading),
+  });
 }
 
 export async function POST(request: Request) {
