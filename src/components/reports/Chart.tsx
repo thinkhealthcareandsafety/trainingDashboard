@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Format, type Grain, formatValue, grainLabel } from "@/lib/analytics/model";
-import { BLANK, type ChartKind, OTHERS, type Result, type ResultRow } from "@/lib/analytics/query";
+import { BLANK, type ChartKind, OTHERS, type Result, type ResultRow, type Spec } from "@/lib/analytics/query";
 import { geoName, loadIndia } from "./indiaMap";
 
 /*
@@ -125,6 +125,10 @@ export function resolveKind(kind: ChartKind | undefined, r: Pick<Result, "by" | 
   return r.by[0].date ? "column" : "bar";
 }
 
+/** The chart a spec asks for: Rows + Columns (owner's plan, step d) is a crosstab unless another chart is picked. */
+export const chartKindOf = (spec: Pick<Spec, "chart" | "split" | "by">): ChartKind | undefined =>
+  spec.split === "columns" && (spec.by ?? []).length === 2 && (!spec.chart || spec.chart === "auto") ? "matrix" : spec.chart;
+
 /** One measure of a result, as if it had been asked alone (a card per number). */
 const oneMeasure = (r: Result, i: number): Result => ({
   ...r, measures: [r.measures[i]], totals: [r.totals[i]],
@@ -161,9 +165,11 @@ function colourMap(names: string[], dark: boolean, pal: string[]): Map<string, s
 /** Lines and colours added to one chart ("Change this chart" — owner, 29 Oct, phase 4); kept with that chart's tweak. */
 export type Lines = { avg?: boolean; min?: boolean; max?: boolean; target?: number; trend?: boolean; forecast?: boolean; above?: number; below?: number };
 
-export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0, target, relative, lines }: {
+export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0, target, relative, lines, labels }: {
   result: Result; kind: ChartKind | undefined; grain?: Grain; height?: number;
   lines?: Lines;
+  /** Numbers written on the bars / points / slices (Spec.labels). Hover-only numbers come in the result (`tips`). */
+  labels?: boolean;
   /** A goal line across a column / line chart (₹50 L a month — owner, 27 Oct); heatmap: cells at or over it ringed. */
   target?: number;
   /** Matrix: each cell also as a share of its row's first column (cohort retention). */
@@ -202,7 +208,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       }
       const c = chart.current ?? ec.init(el.current, undefined, { renderer: "canvas" });
       chart.current = c;
-      c.setOption(option(model, (k === "stacked100" ? "stacked" : k) as Drawn, readTheme(), picked ?? null, accent, target, lines, grain), { notMerge: true });
+      c.setOption(option(model, (k === "stacked100" ? "stacked" : k) as Drawn, readTheme(), picked ?? null, accent, target, lines, grain, { labels, tips: result.tips }), { notMerge: true });
       c.off("click");
       c.on("click", (p: { dataIndex?: number; name?: string }) => {
         const key = model.keyByLabel.get(String(p.name ?? "")) ?? (p.dataIndex !== undefined ? model.x[p.dataIndex] : undefined);
@@ -213,7 +219,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
     }).catch(() => {});
     return () => { disposed = true; ro?.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, k, tick, picked, accent, target, JSON.stringify(lines ?? null), grain]);
+  }, [model, k, tick, picked, accent, target, JSON.stringify(lines ?? null), grain, labels, result.tips]);
   useEffect(() => () => { chart.current?.dispose(); chart.current = null; }, []);
 
   // Several numbers and no split (owner, 30 Oct: three picked showed only the first): one card each, with its name.
@@ -229,7 +235,8 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
   );
   if (k === "kpi") return <Kpi result={result} />;
   if (k === "table") return <><ResultTable result={result} grain={grain} />{result.note && <Note text={result.note} />}</>;
-  if (k === "matrix") return <Matrix result={result} relative={relative} />;
+  // A crosstab needs both splits — while a new answer is on its way (Columns just added) the old one shows as a table.
+  if (k === "matrix") return result.by.length === 2 ? <Matrix result={result} relative={relative} grain={grain} /> : <ResultTable result={result} grain={grain} />;
   if (k === "heatmap") return <Heatmap result={result} target={target} />;
   if (!result.rows.length) return <><Empty height={height} />{result.note && <Note text={result.note} />}</>;
   // The map: what has no place on it (Out of India, blank…) is listed underneath, so the totals still add up.
@@ -326,7 +333,8 @@ function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Mod
 }
 
 type Drawn = Exclude<ChartKind, "auto" | "kpi" | "table" | "matrix">;
-function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: number, target?: number, lines?: Lines, grain?: Grain) {
+const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: number, target?: number, lines?: Lines, grain?: Grain, marks: { labels?: boolean; tips?: Result["tips"] } = {}) {
   const pal = t.palette;
   const colours = colourMap(m.series.map((s) => s.key), t.dark, pal);
   const single = m.series.length === 1;
@@ -350,6 +358,16 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
       axisPointer: { type: k === "line" || k === "area" ? "line" : "shadow", lineStyle: { color: t.line }, shadowStyle: { color: t.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" } },
       backgroundColor: t.surface, borderColor: t.line, textStyle: { color: t.ink, fontSize: 16 },
       valueFormatter: (v: unknown) => fmt(typeof v === "number" ? v : null),
+      // Tooltip shelf (step d): the hover-only numbers under the drawn ones, for that Rows value.
+      ...(marks.tips ? { formatter: (ps: unknown) => {
+        type P = { dataIndex: number; name?: string; axisValueLabel?: string; seriesName?: string; marker?: string; value?: unknown };
+        const arr = (Array.isArray(ps) ? ps : [ps]) as P[];
+        const i = arr[0]?.dataIndex ?? 0;
+        const row = (l: string, v: string, marker = "") => `<div style="display:flex;justify-content:space-between;gap:18px"><span>${marker}${esc(l)}</span><b>${v}</b></div>`;
+        const drawn = arr.map((p) => row(p.seriesName ?? "", fmt(typeof p.value === "number" ? p.value : null), p.marker ?? "")).join("");
+        const extra = marks.tips!.measures.map((mm, j) => row(mm.label, formatValue(marks.tips!.byKey[m.x[i]]?.[j] ?? null, mm.format))).join("");
+        return `<div style="font-weight:600;margin-bottom:4px">${esc(arr[0]?.axisValueLabel ?? arr[0]?.name ?? "")}</div>${drawn}<div style="margin-top:4px;padding-top:4px;border-top:1px solid ${t.line};color:${t.ink2}">${extra}</div>`;
+      } } : {}),
     },
     // One line, with ◀ ▶ when it doesn't fit (phones: a wrapped legend sat on top of the bars).
     legend: m.series.length > 1 ? { type: "scroll", top: 0, left: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 12, textStyle: { color: t.ink2, fontSize: 15 } } : undefined,
@@ -364,7 +382,7 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
       series: [{
         type: "pie", radius: ["52%", "76%"], center: ["32%", "50%"], avoidLabelOverlap: true,
         itemStyle: { borderColor: t.surface, borderWidth: 2, borderRadius: 4 },
-        label: { show: false },
+        label: marks.labels ? { show: true, color: t.ink2, fontSize: 14, formatter: (p: { name: string; value: number }) => `${p.name}: ${fmt(p.value)}` } : { show: false },
         data: m.x.map((key, i) => ({ name: m.xLabels[i], value: s.values[i] ?? 0, itemStyle: { color: pieColours.get(key), opacity: fade(key) } })),
       }],
     };
@@ -383,7 +401,8 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
     const goal = target && si === m.series.length - 1 && m.dateX && !horizontal ? { markLine: { silent: true, symbol: "none", data: [{ yAxis: target }], lineStyle: { type: "dashed", color: t.ink2, width: 1.5 }, label: { formatter: `Goal ${fmt(target)}`, color: t.ink2, fontSize: 14, position: "insideEndTop" } } } : {};
     if (k === "line" || k === "area") {
       const dashed = s.key === PREV && m.twin === "time"; // last year as a dashed line, no fill
-      return { ...goal, type: "line", name: s.name, data: s.values, color: colour, showSymbol: false, symbolSize: 8, lineStyle: { width: 2, color: colour, type: dashed ? "dashed" : "solid" }, itemStyle: { color: colour }, areaStyle: k === "area" && !dashed ? { color: colour, opacity: 0.12 } : undefined };
+      return { ...goal, type: "line", name: s.name, data: s.values, color: colour, showSymbol: Boolean(marks.labels && !dashed),
+        label: marks.labels && !dashed ? { show: true, position: "top", color: t.ink2, fontSize: 14, formatter: (p: { value: number }) => fmt(p.value) } : undefined, symbolSize: 8, lineStyle: { width: 2, color: colour, type: dashed ? "dashed" : "solid" }, itemStyle: { color: colour }, areaStyle: k === "area" && !dashed ? { color: colour, opacity: 0.12 } : undefined };
     }
     const last = si === m.series.length - 1;
     // What changed: rises in green to the right, falls in red to the left, each with its signed amount.
@@ -400,7 +419,10 @@ function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: num
       barMaxWidth: horizontal ? 18 : 36, barGap: "20%",
       // Stacks: only the top segment is rounded; segments are parted by a 2 px surface gap.
       data: s.values.map((v, i) => ({ value: v, itemStyle: { color: barColours?.get(m.x[i]) ?? colour, opacity: fade(m.x[i]), borderRadius: k === "stacked" && !last ? 0 : radius, borderColor: k === "stacked" ? t.surface : undefined, borderWidth: k === "stacked" ? 1 : 0 } })),
-      label: horizontal && single ? { show: true, position: "right", color: t.ink2, fontSize: 15, formatter: (p: { value: number }) => fmt(p.value) } : undefined,
+      label: horizontal && single ? { show: true, position: "right", color: t.ink2, fontSize: 15, formatter: (p: { value: number }) => fmt(p.value) }
+        // Label shelf (step d): the numbers on the bars — inside a stack's segments, else at the end; not on the comparison.
+        : marks.labels && s.key !== PREV ? { show: true, position: k === "stacked" ? "inside" : horizontal ? "right" : "top", color: k === "stacked" ? "#fff" : t.ink2, fontSize: 14, formatter: (p: { value: number }) => (p.value ? fmt(p.value) : "") }
+        : undefined,
       emphasis: { focus: k === "stacked" ? "series" : "none" },
     };
   });
@@ -627,7 +649,7 @@ function Heatmap({ result, target }: { result: Result; target?: number }) {
 }
 
 /** Two splits as a pivot (this year vs last year by sector × customer type): each cell its value and change. */
-function Matrix({ result, relative = false }: { result: Result; relative?: boolean }) {
+function Matrix({ result, relative = false, grain = "month" }: { result: Result; relative?: boolean; grain?: Grain }) {
   if (!result.rows.length) return <Empty height={160} />;
   const f = result.measures[0]?.format ?? "inr";
   const group = Boolean(result.prevLabel) && result.prevLabel !== "Last year" && result.prevLabel !== "Period before";
@@ -635,7 +657,9 @@ function Matrix({ result, relative = false }: { result: Result; relative?: boole
   // Cohorts (relative): years in time order, and no totals (a customer counts in every year they bought).
   const byName = (a: string, b: string) => a.localeCompare(b);
   const cols = [...new Set(result.rows.map((r) => r.keys[1]))].sort(relative ? byName : (a, b) => (a === OTHERS || a === BLANK ? 1 : b === OTHERS || b === BLANK ? -1 : total(result.rows.filter((r) => r.keys[1] === b)) - total(result.rows.filter((r) => r.keys[1] === a))));
-  const rowsK = [...new Set(result.rows.map((r) => r.keys[0]))].sort(relative ? byName : (a, b) => total(result.rows.filter((r) => r.keys[0] === b)) - total(result.rows.filter((r) => r.keys[0] === a)));
+  // Dates down the side in time order (Rows = a date, Columns = an attribute — step d); else the biggest first.
+  const rowsK = [...new Set(result.rows.map((r) => r.keys[0]))].sort(relative || result.by[0]?.date ? byName : (a, b) => total(result.rows.filter((r) => r.keys[0] === b)) - total(result.rows.filter((r) => r.keys[0] === a)));
+  const rowName = (rk: string) => labelOf(rk, Boolean(result.by[0]?.date), grain);
   const has = !relative && result.rows.some((r) => r.prev);
   const firstOf = (rk: string) => { for (const c of cols) { const v = total(result.rows.filter((r) => r.keys[0] === rk && r.keys[1] === c)); if (v) return v; } return 0; };
   const Cell = ({ rs, strong, base }: { rs: ResultRow[]; strong?: boolean; base?: number }) => {
@@ -690,7 +714,7 @@ function Matrix({ result, relative = false }: { result: Result; relative?: boole
               const rs = result.rows.filter((r) => r.keys[0] === rk);
               return (
                 <tr key={rk} className="border-b border-line/60 last:border-0">
-                  <td className="max-w-[220px] truncate py-1.5 pr-3 align-top text-ink-2">{labelOf(rk, false, "month")}</td>
+                  <td className="max-w-[220px] truncate py-1.5 pr-3 align-top text-ink-2">{rowName(rk)}</td>
                   {cols.map((c) => <Cell key={c} rs={rs.filter((r) => r.keys[1] === c)} />)}
                   <Cell rs={rs} strong />
                 </tr>

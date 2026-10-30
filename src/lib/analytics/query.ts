@@ -47,6 +47,13 @@ export type Spec = {
   period?: string;
   /** The team's monthly revenue goal (set by the server for "vsTarget" — kv reports_goal; months = one-off months). */
   goal?: { monthly: number; months: Record<string, number> };
+  /** The second split shown as Columns (a crosstab: Rows down, Columns across) instead of Colour (owner's plan of 30 Oct,
+   *  step d). The engine is the same — two splits — only the drawing differs. */
+  split?: "colour" | "columns";
+  /** Numbers written on the marks (the first value). */
+  labels?: boolean;
+  /** Up to 3 more numbers shown only on hover, per Rows value — computed, not drawn. */
+  tooltip?: string[];
   /** Which date column the period (from / to) applies to — Zoho tables have several (owner's plan, 30 Oct, point 5);
    *  none = the dataset's own date. */
   dateField?: string;
@@ -72,6 +79,8 @@ export type Result = {
   prevLabel?: string;
   /** Number of source rows that matched the filters. */
   matched: number;
+  /** The hover-only numbers (Spec.tooltip): per Rows value (its key), and over everything. */
+  tips?: { measures: { key: string; label: string; format: Format }[]; byKey: Record<string, (number | null)[]>; total: (number | null)[] };
 };
 
 export const OTHERS = "Others";
@@ -86,6 +95,8 @@ export function checkSpec(spec: Spec): Dataset {
   if (!spec.measures?.length) throw new SpecError("Pick at least one measure");
   for (const m of spec.measures) if (!measureOf(d, m)) throw new SpecError(`"${m}" isn't a measure of ${d.label}`);
   if ((spec.by ?? []).length > 2) throw new SpecError("At most two “split by”");
+  if ((spec.tooltip ?? []).length > 3) throw new SpecError("At most 3 tooltip numbers");
+  for (const m of spec.tooltip ?? []) if (!measureOf(d, m)) throw new SpecError(`"${m}" isn't a measure of ${d.label}`);
   for (const b of spec.by ?? []) if (!fieldOf(d, b)) throw new SpecError(`"${b}" isn't a field of ${d.label}`);
   const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
@@ -272,6 +283,21 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
     totals: evaluate(d, spec.measures, kept),
     matched: kept.length,
   };
+  // Hover-only numbers, per Rows value (with a Colour split, for the whole bar / point).
+  if (spec.tooltip?.length) {
+    const byKey: Record<string, (number | null)[]> = {};
+    if (by[0]) {
+      const first = new Map<string, Row[]>();
+      for (const r of kept) for (const k of keyOf(r, by[0])) first.set(k, [...(first.get(k) ?? []), r]);
+      for (const [k, rs] of first) byKey[k] = evaluate(d, spec.tooltip, rs);
+      // "Others" (the top N folded the rest): everything not shown on its own.
+      if (out.some((r) => r.keys[0] === OTHERS)) {
+        const shown = new Set(out.map((r) => r.keys[0]));
+        byKey[OTHERS] = evaluate(d, spec.tooltip, kept.filter((r) => keyOf(r, by[0]).every((k) => !shown.has(k))));
+      }
+    }
+    result.tips = { measures: spec.tooltip.map((k) => { const m = measureOf(d, k)!; return { key: k, label: m.label, format: m.format }; }), byKey, total: evaluate(d, spec.tooltip, kept) };
+  }
   // The comparison: its rows, and how to move their dates onto this period's axis (a year on, or a period on).
   let prevRows: Row[] | null = null;
   let curRows: Row[] = kept; // this period up to today when it's still running (like for like with prevRows)

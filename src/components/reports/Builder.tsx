@@ -7,7 +7,7 @@ import { describeSpec } from "@/lib/analytics/describe";
 import { AGGS, extraNumbers } from "@/lib/analytics/extras";
 import { STATUS_COLUMN, TABLE_AGGS, VOID_OR_DRAFT, isTableKey, tableNumbers } from "@/lib/analytics/tables";
 import { btn, inputCls } from "../ui";
-import { Chart, resolveKind } from "./Chart";
+import { Chart, chartKindOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, type TableList, isError, loadTables, runSpecs, useFieldValues, withPeriod } from "./shared";
 
 /*
@@ -103,42 +103,62 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     });
   };
   const by = spec.by ?? [];
-  // Shelves. Rows = by[0]; Colour = by[1] (needs Rows); Values = measures (1–4).
-  const setRows = (k: string | null) => set({ by: k ? [k, ...by.slice(1)].filter((x, i, a) => a.indexOf(x) === i) : by.slice(1, 2) });
-  const setColour = (k: string | null) => {
+  // Shelves. Rows = by[0]; the second split, by[1], is Colour or Columns (`split`, step d — the engine takes two);
+  // Values = measures (1–4); Label = numbers on the marks; Tooltip = up to 3 hover-only numbers.
+  const setRows = (k: string | null) => set({ by: k ? [k, ...by.slice(1)].filter((x, i, a) => a.indexOf(x) === i) : by.slice(1, 2), ...(k ? {} : { split: undefined }) });
+  const columns = spec.split === "columns" && Boolean(by[1]);
+  const setSecond = (k: string | null, to: "colour" | "columns") => {
     setNote("");
-    if (!k) return set({ by: by.slice(0, 1) });
-    if (!by[0]) return setNote("Colour splits the rows — put something on Rows first.");
+    const name = to === "columns" ? "Columns" : "Colour";
+    if (!k) return set({ by: by.slice(0, 1), split: undefined });
+    if (!by[0]) return setNote(`${name} ${to === "columns" ? "spreads" : "splits"} the rows — put something on Rows first.`);
     if (k === by[0]) {
       // The date on Rows by month / quarter, and again on Colour: colour by financial year (Tableau: YEAR(date) on Colour).
-      if (!zt && k === d.dateField && fieldOf(d, "fy") && (spec.grain ?? "month") !== "fy") return set({ by: [by[0], "fy"] });
-      return setNote(`${label(k)} is already on Rows — Colour needs a different attribute (e.g. Sector, Customer type).`);
+      if (!zt && to === "colour" && k === d.dateField && fieldOf(d, "fy") && (spec.grain ?? "month") !== "fy") return set({ by: [by[0], "fy"], split: undefined });
+      return setNote(`${label(k)} is already on Rows — ${name} needs a different attribute (e.g. Sector, Customer type).`);
     }
-    set({ by: [by[0], k] });
+    // Colour and Columns share the second split: one moves the other off, and says so.
+    if (by[1] && columns !== (to === "columns")) setNote(`Colour and Columns share one place — ${label(by[1])} came off ${columns ? "Columns" : "Colour"}.`);
+    set({ by: [by[0], k], split: to === "columns" ? "columns" : undefined });
   };
+  const setColour = (k: string | null) => setSecond(k, "colour");
+  const setColumns = (k: string | null) => setSecond(k, "columns");
+  const MAX_TIPS = 3;
+  const tips = spec.tooltip ?? [];
+  const toggleTip = (k: string) => set({ tooltip: tips.includes(k) ? tips.filter((x) => x !== k) : [...tips, k].slice(-MAX_TIPS) });
   const toggleValue = (k: string) => {
     const has = spec.measures.includes(k);
     set({ measures: has ? spec.measures.filter((m) => m !== k) : [...spec.measures, k].slice(-MAX_VALUES) });
   };
   // A click in the Data pane puts the field on the obvious shelf; clicking it again takes it off.
   const pickAttribute = (k: string) => {
-    if (by.includes(k)) return by[0] === k ? setRows(null) : setColour(null);
+    if (by.includes(k)) return by[0] === k ? setRows(null) : setSecond(null, columns ? "columns" : "colour");
     if (!by[0]) setRows(k); else setColour(k);
   };
-  const drop = (shelf: "rows" | "colour" | "values" | "filters", payload: string) => {
+  const drop = (shelf: "rows" | "columns" | "colour" | "values" | "tooltip" | "filters", payload: string) => {
     const i = payload.indexOf(":");
     const kind = payload.slice(0, i), key = payload.slice(i + 1);
     if (i < 0 || !key) return;
     // A word or date dropped on Values on a Zoho table counts its different values (Tableau's COUNTD).
     if (kind === "attr" && shelf === "values" && zt) { if (!spec.measures.includes(`distinct:${key}`)) toggleValue(`distinct:${key}`); return; }
     if (kind === "num") {
-      if (shelf !== "values") return setNote("Numbers go on Values — Rows, Colour and Filters take attributes (words and dates).");
+      if (shelf === "tooltip") { if (!tips.includes(key)) toggleTip(key); return; }
+      // A number on Filters: a range ("Total (BCY) at least …"), on the column itself.
+      if (shelf === "filters") {
+        const col = key.replace(/^(sum|avg|min|max|count|distinct):/, "");
+        if (!d.ranges?.some((r) => r.key === col)) return setNote("This number can't be a filter — try one of the table's own number columns.");
+        if (!(spec.filters ?? []).some((f) => f.field === col)) set({ filters: [...(spec.filters ?? []), { field: col, values: [] }] });
+        return;
+      }
+      if (shelf !== "values") return setNote("Numbers go on Values, Tooltip or Filters — Rows, Columns and Colour take attributes (words and dates).");
       if (!spec.measures.includes(key)) toggleValue(key);
       return;
     }
+    if (shelf === "tooltip") return setNote("Tooltip takes numbers — drop a measure here.");
     setNote("");
     if (shelf === "rows") setRows(key);
     else if (shelf === "colour") setColour(key);
+    else if (shelf === "columns") setColumns(key);
     else if (shelf === "filters" && key !== d.dateField && !(spec.filters ?? []).some((f) => f.field === key)) set({ filters: [...(spec.filters ?? []), { field: key, values: [] }] });
   };
   const isDateField = (k?: string) => Boolean(d0 && k && (k === d.dateField || fieldOf(d, k)?.kind === "date"));
@@ -164,7 +184,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   // No table yet (a new report), or the list still on its way: the table picker.
   if (!d0) return frame(<TablePicker list={tables} legacy={legacy.map((x) => ({ key: x.key, label: x.label }))} admin={admin} onPick={changeDataset} onClose={onClose}
     onReload={(force: boolean) => { setTables(null); (force ? fetch("/api/analytics/tables", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) }).catch(() => null) : Promise.resolve()).then(() => loadTables(true).then(setTables)); }} />);
-  const kind = answer && !isError(answer) ? resolveKind(spec.chart, answer) : undefined;
+  const kind = answer && !isError(answer) ? resolveKind(chartKindOf(spec), answer) : undefined;
   const sentence = describeSpec(spec, today, kind);
   const q = search.trim().toLowerCase();
   // "Total BCY" finds "Total (BCY)": brackets and dots don't count.
@@ -251,9 +271,13 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   </span>
                 )}
               </Shelf>
+              <Shelf label="Columns" hint="Spreads the values of an attribute across, as columns — Rows down, Columns across, the numbers in the cells (a crosstab)" onDrop={(p) => drop("columns", p)}>
+                {columns ? <Pill text={label(by[1])} onRemove={() => setColumns(null)} /> : <Empty text={by[0] ? "Optional — a crosstab" : "Needs Rows first"} />}
+                {by[0] && !columns && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="+ Add…" onPick={setColumns} />}
+              </Shelf>
               <Shelf label="Colour" hint="Splits each row into colours — one per value of this attribute" onDrop={(p) => drop("colour", p)}>
-                {by[1] ? <Pill text={label(by[1])} onRemove={() => setColour(null)} /> : <Empty text={by[0] ? "Optional — split each into colours" : "Needs Rows first"} />}
-                {by[0] && !by[1] && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="+ Add…" onPick={setColour} />}
+                {by[1] && !columns ? <Pill text={label(by[1])} onRemove={() => setColour(null)} /> : <Empty text={by[0] ? "Optional — split each into colours" : "Needs Rows first"} />}
+                {by[0] && (!by[1] || columns) && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="+ Add…" onPick={setColour} />}
               </Shelf>
               <Shelf label="Values" hint={`The numbers — up to ${MAX_VALUES}`} onDrop={(p) => drop("values", p)}>
                 {spec.measures.map((k) => {
@@ -283,6 +307,25 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   </select>
                 )}
               </Shelf>
+              <div className="grid gap-2 xl:grid-cols-[auto_minmax(0,1fr)]">
+                <Shelf label="Label" hint="The numbers written on the bars, points or slices">
+                  {(["Off", "On"] as const).map((x) => (
+                    <button key={x} type="button" aria-pressed={Boolean(spec.labels) === (x === "On")} onClick={() => set({ labels: x === "On" || undefined })}
+                      className={`rounded-full px-2.5 py-0.5 text-[14.5px] font-medium ${Boolean(spec.labels) === (x === "On") ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{x}</button>
+                  ))}
+                </Shelf>
+                <Shelf label="Tooltip" hint={`Up to ${MAX_TIPS} more numbers shown only when hovering a bar or point — not drawn`} onDrop={(p) => drop("tooltip", p)}>
+                  {tips.map((k) => <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={() => toggleTip(k)} title={measureOf(d, k)?.def} />)}
+                  {tips.length < MAX_TIPS && (
+                    <select aria-label="Add a tooltip number" className="h-8 rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
+                      onChange={(e) => e.target.value && toggleTip(e.target.value)}>
+                      <option value="">{tips.length ? "+ Add…" : "+ Add a number…"}</option>
+                      {d.measures.filter((m) => !tips.includes(m.key)).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                      {zt && tableNumbers(d.key).flatMap((c) => (["sum", "avg"] as const).map((a) => `${a}:${c.key}`)).filter((k) => !tips.includes(k)).map((k) => <option key={k} value={k}>{measureOf(d, k)?.label ?? k}</option>)}
+                    </select>
+                  )}
+                </Shelf>
+              </div>
               {note && <p className="rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2" role="status">{note}</p>}
               {mixedAverage(spec) && <p className="rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2">A price per unit over different items mixes them (an AED and a pad average to neither) — put Item on Rows, or filter to one item, group or kind.</p>}
               <Shelf label="Filters" hint="Only rows that match" onDrop={(p) => drop("filters", p)}>
@@ -316,7 +359,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                 {!spec.measures.length ? <p className="grid h-[300px] place-items-center rounded-lg border border-dashed border-line px-6 text-center text-[16px] text-muted">Nothing to show yet. Pick a number from the Data pane (e.g. {zt ? "Sum of Total (BCY), Number of rows" : "Revenue, Invoices, Quantity"}), then something for Rows.</p>
                   : !answer ? <div className="h-[420px] animate-pulse rounded-lg bg-surface-2" />
                   : isError(answer) ? <p className="text-[16px] text-high">{answer.error}</p>
-                  : <Chart result={answer} kind={spec.chart} grain={spec.grain} height={kind === "kpi" ? 120 : 420} />}
+                  : <Chart result={answer} kind={chartKindOf(spec)} labels={spec.labels} grain={spec.grain} height={kind === "kpi" ? 120 : 420} />}
               </div>
             </div>
           </section>
@@ -326,9 +369,10 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
             <FormatRow label="Title">
               <input className={inputCls} placeholder={autoTitle(spec)} value={title} onChange={(e) => setTitle(e.target.value)} />
             </FormatRow>
-            <FormatRow label="Chart" hint={kind && (spec.chart ?? "auto") === "auto" ? `Suggested here: ${CHARTS.find((c) => c.value === kind)?.label ?? kind}` : undefined}>
+            <FormatRow label="Chart" hint={kind && (spec.chart ?? "auto") === "auto" ? `Suggested here: ${kind === "matrix" ? "Crosstab" : CHARTS.find((c) => c.value === kind)?.label ?? kind}` : undefined}>
               <div className="flex flex-wrap gap-1">
-                {CHARTS.map((c) => (
+                {/* Two splits: also a crosstab (Columns' own look) or a heat map. */}
+                {[...CHARTS, ...(by.length === 2 ? [{ value: "matrix" as ChartKind, label: "Crosstab" }, { value: "heatmap" as ChartKind, label: "Heatmap" }] : [])].map((c) => (
                   <button key={c.value} type="button" aria-pressed={(spec.chart ?? "auto") === c.value} onClick={() => set({ chart: c.value })}
                     className={`rounded-full px-2.5 py-1 text-[15px] font-medium ${(spec.chart ?? "auto") === c.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{c.label}</button>
                 ))}
@@ -475,7 +519,7 @@ function Shelf({ label, hint, onDrop, children }: { label: string; hint: string;
     <div onDragOver={onDrop ? (e) => { e.preventDefault(); setOver(true); } : undefined} onDragLeave={() => setOver(false)}
       onDrop={onDrop ? (e) => { e.preventDefault(); setOver(false); onDrop(e.dataTransfer.getData("text/plain")); } : undefined}
       className={`flex min-h-11 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5 transition ${over ? "border-brand bg-brand-soft" : "border-line"}`}>
-      <span className="w-[68px] shrink-0 text-[14px] font-semibold uppercase tracking-wide text-muted" title={hint}>{label}</span>
+      <span className="w-[78px] shrink-0 text-[14px] font-semibold uppercase tracking-wide text-muted" title={hint}>{label}</span>
       {children}
     </div>
   );
@@ -515,22 +559,40 @@ function FormatRow({ label, hint, children }: { label: string; hint?: string; ch
 function Filters({ dataset, filters, onChange }: { dataset: string; filters: Filter[]; onChange: (f: Filter[]) => void }) {
   const d = datasetOf(dataset)!;
   const free = d.fields.filter((f) => f.key !== d.dateField && !filters.some((x) => x.field === f.key));
+  // Numbers as ranges (a Zoho table's every number column; "Total (BCY) at least 1 L").
+  const freeRanges = (d.ranges ?? []).filter((r) => !filters.some((x) => x.field === r.key));
+  const isRange = (field: string) => Boolean(d.ranges?.some((r) => r.key === field));
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {filters.map((f, i) => (
         <div key={f.field} className="flex min-w-[200px] items-center gap-1">
-          <FilterValues dataset={dataset} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />
-          <button type="button" aria-label={`Remove the ${fieldOf(d, f.field)?.label} filter`} className="rounded-full px-2 text-muted hover:text-ink" onClick={() => onChange(filters.filter((_, j) => j !== i))}>×</button>
+          {isRange(f.field) ? <RangeValues label={d.ranges!.find((r) => r.key === f.field)!.label} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />
+            : <FilterValues dataset={dataset} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />}
+          <button type="button" aria-label={`Remove the ${fieldOf(d, f.field)?.label ?? f.field} filter`} className="rounded-full px-2 text-muted hover:text-ink" onClick={() => onChange(filters.filter((_, j) => j !== i))}>×</button>
         </div>
       ))}
-      {free.length > 0 && (
+      {(free.length > 0 || freeRanges.length > 0) && (
         <select aria-label="Add a filter" className="h-8 rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
           onChange={(e) => { if (e.target.value) onChange([...filters, { field: e.target.value, values: [] }]); }}>
           <option value="">+ Add a filter…</option>
           {free.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+          {freeRanges.length > 0 && <optgroup label="Numbers (a range)">{freeRanges.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</optgroup>}
         </select>
       )}
     </div>
+  );
+}
+
+/** A number filter: at least / at most (either may be empty). */
+function RangeValues({ label, filter, onChange }: { label: string; filter: Filter; onChange: (f: Filter) => void }) {
+  const num = (v: string) => (v.trim() === "" || !Number.isFinite(Number(v)) ? undefined : Number(v));
+  const box = "h-8 w-28 rounded-lg border border-line bg-surface px-2 text-[15px] text-ink focus:border-brand focus:outline-none";
+  return (
+    <span className="flex flex-wrap items-center gap-1.5 rounded-full bg-brand-soft py-0.5 pl-3 pr-1 text-[15px] text-ink">
+      {label}
+      <input aria-label={`${label} at least`} className={box} inputMode="decimal" placeholder="at least" defaultValue={filter.min ?? ""} onChange={(e) => onChange({ ...filter, min: num(e.target.value) })} />
+      <input aria-label={`${label} at most`} className={box} inputMode="decimal" placeholder="at most" defaultValue={filter.max ?? ""} onChange={(e) => onChange({ ...filter, max: num(e.target.value) })} />
+    </span>
   );
 }
 

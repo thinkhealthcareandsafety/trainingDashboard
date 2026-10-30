@@ -25,17 +25,22 @@ export function describeSpec(spec: Spec, today: string, kind?: Exclude<ChartKind
   const ms = spec.measures.map((k) => measureOf(d, k)?.label ?? k);
   if (!ms.length) return "Nothing yet — click a number in the Data pane (or + Add on Values) to see what it gives.";
   const by = spec.by ?? [];
-  const name = (k: string) => (k === d.dateField ? GRAIN_WORD[spec.grain ?? "month"] : (fieldOf(d, k)?.label ?? k).toLowerCase());
+  // A linked table's column by its own name ("sector", not "sector (customers)"); any date by its grain.
+  const name = (k: string) => (k === d.dateField || fieldOf(d, k)?.kind === "date" ? GRAIN_WORD[spec.grain ?? "month"]
+    : (fieldOf(d, k)?.label ?? k).replace(fieldOf(d, k)?.table ? / \([^)]*\)$/ : /$^/, "").toLowerCase());
 
   let what: string;
   if (!by.length) what = ms.length === 1 ? `one number: ${ms[0]}` : `${ms.length} numbers side by side: ${and(ms)}`;
   else {
     what = `${and(ms)} for each ${name(by[0])}`;
     if (by[0] !== d.dateField && spec.limit) what += ` (the top ${spec.limit}, the rest added up as “Others”)`;
-    if (by[1]) what += `, each split into a colour per ${name(by[1])}`;
+    if (by[1]) what += spec.split === "columns" ? `, with a column per ${name(by[1])} (a crosstab)` : `, each split into a colour per ${name(by[1])}`;
     else if (ms.length > 1) what += mixedUnits(spec) ? " — as a table, because ₹ amounts, counts and % can't share one chart" : " — side by side";
   }
-  const chart = kind && kind !== "kpi" && !(kind === "table" && what.includes("as a table")) ? ` ${CHART_WORD[kind] ?? ""}` : "";
+  const crosstab = spec.split === "columns" && by.length === 2 && kind === "matrix"; // "(a crosstab)" says it already
+  const chart = (kind && kind !== "kpi" && !crosstab && !(kind === "table" && what.includes("as a table")) ? ` ${CHART_WORD[kind] ?? ""}` : "")
+    + (spec.labels && by.length ? ", the numbers written on it" : "")
+    + (spec.tooltip?.length ? ` (hovering also shows ${and(spec.tooltip.map((k) => measureOf(d, k)?.label ?? k))})` : "");
 
   const p = spec.period ?? "";
   const range = p.startsWith("range:") ? p.split(":") : null;

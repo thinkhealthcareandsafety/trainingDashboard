@@ -8,7 +8,7 @@ import { Canvas, heightOf } from "./Canvas";
 import { Library } from "./Editor";
 import { btn } from "../ui";
 import { BLANK, type Compare, type Filter, type Spec } from "@/lib/analytics/query";
-import { Chart, Kpi, type Lines, downloadCsv, labelOf, resolveKind } from "./Chart";
+import { Chart, Kpi, type Lines, chartKindOf, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
 
 /*
@@ -877,7 +877,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
 }) {
   const [table, setTable] = useState(false);
   const [editing, setEditing] = useState(false);
-  const kind = answer && !isError(answer) ? resolveKind(spec.chart, answer) : spec.chart;
+  const kind = answer && !isError(answer) ? resolveKind(chartKindOf(spec), answer) : chartKindOf(spec);
   const isKpi = kind === "kpi";
   const ok = answer && !isError(answer);
   // Analyses have a fixed shape; "what changed" can still switch its split.
@@ -910,7 +910,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
           // Nothing to draw: say so, not empty axes at ₹0 (29 Oct).
           : !isKpi && answer.rows.every((r) => r.values.every((v) => !v) && !r.prev?.some((v) => v)) ? <p className="grid h-[200px] place-items-center rounded-lg bg-surface-2/60 px-4 text-center text-[15.5px] text-muted">{!answer.rows.length && answer.note ? answer.note : "Nothing here for these dates and filters"}</p>
-          : <Chart result={answer} kind={table ? "table" : spec.chart} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} lines={tweak?.lines} />}
+          : <Chart result={answer} kind={table ? "table" : chartKindOf(spec)} labels={spec.labels} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} lines={tweak?.lines} />}
       </div>
     </section>
   );
