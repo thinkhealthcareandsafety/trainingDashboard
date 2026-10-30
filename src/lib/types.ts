@@ -349,7 +349,8 @@ export interface CardEvent {
   // set_fulfillment "done": Mark as Completed — done before the dashboard (no email, no certificates here), on to Logistics.
   // set_training_date / complete_training "invoice": completed on the invoice date — a training from before the dashboard.
   // set_fulfillment "list": certificates made from Training Completed with the list already at hand — no gratitude email.
-  mode?: "change" | "done" | "invoice" | "list";
+  // merge "all": one of a Merge all flagged (Sales board, owner 30 Oct) — counted once in the tracker's Work done.
+  mode?: "change" | "done" | "invoice" | "list" | "all";
   underName?: string; // set_training_date (before set_cert_alias): the training is under this alias (none = the customer's own name)
   location?: string; // set_training_date (since 15 Oct, required with a date): the certificate location name, "" = the customer's own name
   email?: string; // set_training_date (since 15 Oct, required with a date): the concerned person's email for this training

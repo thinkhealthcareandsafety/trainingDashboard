@@ -66,3 +66,27 @@ test("a quotation declined in Zoho is a lost deal; deleting a document sends the
   assert.equal(d.leadCards.length, 1);
   assert.ok(d.cards.get("sale:quote:q1")!.deleted);
 });
+
+test("Merge all flagged: the whole chain in one go, each card into one card, nothing left flagged", async () => {
+  const { mergeAllSteps } = await import("@/lib/sales");
+  const b = board();
+  const steps = mergeAllSteps(b.cards).map(([f, t]) => `${f.id} > ${t.id}`);
+  assert.deepEqual(steps, ["sale:quote:q1 > sale:pi:p1", "sale:lead:c1 > sale:quote:q1", "sale:pi:p1 > sale:invoice:i1", "sale:invoice:i1 > sale:payment:y1"]);
+  const events = mergeAllSteps(b.cards).map(([f, t]) => ({ ...merge(f.id, t.id), mode: "all" as const }));
+  const after = board(events);
+  assert.equal(after.paymentCards.length, 1);
+  assert.equal([...after.cards.values()].filter((c) => !c.mergedInto && c.flaggedWith.length).length, 0);
+  // A customer with two quotations: the lead goes into the newest; the older one stays as it is.
+  const older: ZohoQuote = { ...quote, estimateId: "q0", number: "Quotation-24-0", date: "2026-09-01" };
+  const two = buildSalesBoard([lead], [older, quote], [], [], [], []);
+  assert.deepEqual(mergeAllSteps(two.cards).map(([f, t]) => `${f.id} > ${t.id}`), ["sale:lead:c1 > sale:quote:q1"]);
+});
+
+test("Work done counts a Merge all once (per person per day)", async () => {
+  const { buildDone } = await import("@/lib/progress/todos");
+  const evs = [1, 2, 3].map((i) => ({ id: `m${i}`, at: `2026-10-30T10:00:0${i}.000Z`, by: "Sumit A Shah", kind: "merge", mode: "all", cardIds: [`sale:lead:c${i}`, `sale:quote:q${i}`] }) as CardEvent);
+  const done = buildDone([{ id: "sumit", name: "Sumit A Shah" }], evs, () => undefined, [], new Date("2026-10-30T12:00:00Z"));
+  assert.equal(done.length, 1);
+  assert.equal(done[0].count, 3);
+  assert.equal(done[0].tag, "Merged all flagged cards");
+});

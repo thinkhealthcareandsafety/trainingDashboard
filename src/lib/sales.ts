@@ -23,6 +23,42 @@ export const saleId = (kind: CardKind, id: string) => `sale:${kind}:${id}`;
 export const isSaleCard = (id: string) => id.startsWith("sale:");
 export const SALES_COLUMN = { lead: "Potential Customers", quote: "Quotations", pi: "Performa invoice", invoice: "Invoice sent", payment: "Payment received", lost: "Deal lost" } as const;
 
+/**
+ * "Merge all flagged" (owner, 30 Oct: "these are so many, just give me a merge all button"): every merge the board's
+ * flags allow, as the merge view's main button would do them — each card merges into one card only:
+ *  1. Quote → the PI that cites it (a quote cited by several PIs: the oldest).
+ *  2. Lead → its customer's newest flagged quotation (else PI) — the chain carries it on if that quote goes into a PI.
+ *  3. PI (or a quotation that skipped its PI) → the invoice that cites it — the oldest invoice, when several do.
+ *  4. Invoice → its newest payment (paid in full; its other payments fold in by themselves).
+ * Pure — the board records them as "merge" events (mode "all"), undoable together or one by one in Changes.
+ */
+export function mergeAllSteps(cards: Map<string, CardView>): [CardView, CardView][] {
+  const live = (c?: CardView): c is CardView => Boolean(c && !c.mergedInto && !c.deleted && !c.lost);
+  const all = [...cards.values()].filter(live);
+  const byDate = (a: CardView, b: CardView) => (a.docDate ?? "").localeCompare(b.docDate ?? "") || a.id.localeCompare(b.id);
+  const partners = (c: CardView, kind: CardKind) => c.flaggedWith.map((id) => cards.get(id)).filter((x): x is CardView => live(x) && x.kind === kind);
+  const gone = new Set<string>(); // already merged away in this batch
+  const steps: [CardView, CardView][] = [];
+  const step = (from: CardView, to: CardView) => { steps.push([from, to]); gone.add(from.id); };
+  for (const p of all.filter((c) => c.kind === "pi").sort(byDate)) {
+    const q = partners(p, "quote").filter((x) => !gone.has(x.id)).sort(byDate)[0];
+    if (q) step(q, p);
+  }
+  for (const l of all.filter((c) => c.kind === "lead")) {
+    const to = partners(l, "quote").sort(byDate).at(-1) ?? partners(l, "pi").sort(byDate).at(-1);
+    if (to) step(l, to);
+  }
+  for (const inv of all.filter((c) => c.kind === "invoice").sort(byDate)) {
+    const src = [...partners(inv, "pi"), ...partners(inv, "quote")].filter((x) => !gone.has(x.id)).sort(byDate)[0];
+    if (src) step(src, inv);
+  }
+  for (const inv of all.filter((c) => c.kind === "invoice")) {
+    const pay = partners(inv, "payment").sort((a, b) => (b.payment?.date ?? "").localeCompare(a.payment?.date ?? "") || Number(b.payment?.number) - Number(a.payment?.number))[0];
+    if (pay) step(inv, pay);
+  }
+  return steps;
+}
+
 /** Merges that still apply: not reverted, both cards still here, forward only; an invoice joins its payments once paid in full. */
 function liveMerges(active: CardEvent[], exists: Set<string>, paid: Set<string>) {
   const into = new Map<string, string>();

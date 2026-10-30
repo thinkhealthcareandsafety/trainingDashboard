@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Member } from "@/lib/types";
-import { type CardView, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerContacts, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, peopleOf, zohoNotices } from "@/lib/pipeline";
+import { type CardView, KIND_LABEL, cardLabel, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerContacts, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, peopleOf, zohoNotices } from "@/lib/pipeline";
 import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
-import { type BoardKind, boardsFor } from "@/lib/roles";
+import { type BoardKind, boardsFor, hasFullAccess } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
 import { useAedInvoices, usePipeline, useSalesData } from "./followups/useBoards";
-import { SALES_COLUMN, buildSalesBoard, isSaleCard } from "@/lib/sales";
+import { SALES_COLUMN, buildSalesBoard, isSaleCard, mergeAllSteps } from "@/lib/sales";
 import { docStatus } from "@/lib/docStatus";
 import { SalesModal } from "./followups/SalesModal";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
@@ -512,6 +512,48 @@ function Column({ stage, cards, onOpen, onAdd, loading, filtered }: { stage: (ty
   );
 }
 
+/**
+ * Sales board: "Merge all flagged" (owner, 30 Oct: "these are so many, just give me a merge all button") — every merge
+ * the flags allow (sales.ts mergeAllSteps), after a check of how many of each; Undo right after takes them all back,
+ * and each one can still be reverted in Changes. Admin, Ashish, Shikha, Sumit and Nikita.
+ */
+function MergeAll({ cards, member }: { cards: Map<string, CardView>; member: Member }) {
+  const { addCardEvents, revertCardEvent, toast } = useStore();
+  const [plan, setPlan] = useState<ReturnType<typeof mergeAllSteps> | null>(null);
+  const flagged = useMemo(() => [...cards.values()].some((c) => !c.mergedInto && !c.deleted && c.flaggedWith.length), [cards]);
+  if (!flagged && !plan) return null;
+  const counts = new Map<string, number>();
+  for (const [f, t] of plan ?? []) { const k = `${KIND_LABEL[f.kind]} → ${KIND_LABEL[t.kind]}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
+  const run = () => {
+    const evs = addCardEvents(plan!.map(([f, t]) => ({ cardIds: [f.id, t.id], kind: "merge" as const, mode: "all" as const, before: cardLabel(f), value: cardLabel(t), by: member.name })));
+    setPlan(null);
+    toast({ text: `Merged ${evs.length.toLocaleString("en-IN")} flagged cards on the Sales board`, actionLabel: "Undo", onAction: () => revertCardEvent(evs.map((e) => e.id), member.name) });
+  };
+  return (
+    <>
+      <button className={`${btn.ghost} !h-9 text-[13px]`} onClick={() => setPlan(mergeAllSteps(cards))} title="Merge every flagged card into the card it belongs with">Merge all flagged</button>
+      <Modal open={Boolean(plan)} onClose={() => setPlan(null)} title="Merge all flagged cards?">
+        {plan && (plan.length ? (
+          <div className="space-y-3 text-[14px] text-ink-2">
+            <p>{plan.length.toLocaleString("en-IN")} merges on the Sales board, each into the card it&apos;s flagged with — the same as Review &amp; merge&apos;s main button, card by card:</p>
+            <ul className="space-y-0.5">{[...counts].map(([k, n]) => <li key={k} className="flex justify-between gap-4"><span>{k}</span><span className="num font-semibold text-ink">{n.toLocaleString("en-IN")}</span></li>)}</ul>
+            <p className="text-[13px] text-muted">Zoho isn&apos;t changed. Undo right after takes them all back; any one can be reverted later in its card&apos;s Changes.</p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button className={btn.ghost} onClick={() => setPlan(null)}>Cancel</button>
+              <button className={btn.primary} onClick={run}>Merge {plan.length.toLocaleString("en-IN")}</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3 text-[14px] text-ink-2">
+            <p>Nothing can be merged right now — the flagged cards are waiting on something (a part-paid invoice, or a reference to add in Zoho Books). Open one to see why.</p>
+            <div className="flex justify-end"><button className={btn.primary} onClick={() => setPlan(null)}>OK</button></div>
+          </div>
+        ))}
+      </Modal>
+    </>
+  );
+}
+
 /** ◀ / ▶ — slides the board one column left or right. */
 function SlideButton({ dir, disabled, onClick }: { dir: "left" | "right"; disabled: boolean; onClick: () => void }) {
   return (
@@ -886,6 +928,7 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
             </label>
           )}
           <DateFilterButton value={dateFilter} onChange={setDateFilter} />
+          {salesMode && salesBoard && hasFullAccess(member) && <MergeAll cards={salesBoard.cards} member={member} />}
           <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
             {/* Sync now, last and next sync live in the sidebar (every page); the board only flags a problem. */}
             {sync?.error && <span className="text-high">Zoho sync issue: {sync.error}</span>}

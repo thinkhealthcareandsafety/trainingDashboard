@@ -231,6 +231,8 @@ export function buildDone(team: Who[], events: CardEvent[], nameOf: (cardId: str
     const m = byName.get(e.by.trim().toLowerCase());
     const tag = m && doneTag(e);
     if (!m || !tag) continue;
+    // A Merge all flagged (Sales board) is one piece of work, not thousands: one line per person per day, ×n.
+    if (e.kind === "merge" && e.mode === "all") { add({ id: e.id, who: m.id, at: e.at, tag: "Merged all flagged cards", title: "Sales board", href: "/follow-up" }, `${m.id}|merge-all|${e.at.slice(0, 10)}`); continue; }
     const card = e.kind === "merge" ? e.cardIds[1] : e.cardIds.find((id) => !id.startsWith("aedcustomer:")) ?? e.cardIds[0];
     const title = nameOf(card) ?? e.value ?? "—";
     const detail = e.kind === "set_training_date" && e.value && e.value !== "TBD" ? `for ${e.value.split(",").map((d) => fmtDay(d.slice(0, 10))).join(", ")}` : e.kind === "merge" ? `${e.before ?? ""} → ${e.value ?? ""}`.trim() : undefined;
