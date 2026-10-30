@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { DATASETS, type Grain, datasetOf, fieldOf, measureOf, periods } from "@/lib/analytics/model";
 import type { ChartKind, Filter, Spec } from "@/lib/analytics/query";
 import { describeSpec } from "@/lib/analytics/describe";
+import { type Param, type ParamCmp, allParams, paramFilterText } from "@/lib/analytics/params";
+import { ParamEditor, ParamInput, useParams } from "./ParamControls";
 import { type CalcField, type CalcFormula, OPS, calcKey, calcProblem, defaultFormat, describeCalc, forgetCalcField, registerCalcFields } from "@/lib/analytics/calc";
 import { AGGS, extraNumbers } from "@/lib/analytics/extras";
 import { STATUS_COLUMN, TABLE_AGGS, VOID_OR_DRAFT, currentCatalog, isTableKey, tableNumbers } from "@/lib/analytics/tables";
@@ -71,6 +73,11 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   // The team's calculated fields on this data (calc.ts), and the one being made / changed ("new" = a new one).
   const [myFields, setMyFields] = useState<CalcField[]>([]);
   const [editingField, setEditingField] = useState<CalcField | "new" | null>(null);
+  // Parameters (params.ts): the team's, the values chosen here for the preview (not saved with the report — each viewer
+  // sets their own), and the one being made / changed.
+  const [params, setParams] = useParams();
+  const [paramValues, setParamValues] = useState<Record<string, string | number>>({});
+  const [editingParam, setEditingParam] = useState<Param | "new" | null>(null);
   // Undefined until a table is picked (or while the table list loads for a saved Zoho-table report).
   const d0 = tables || !isTableKey(spec.dataset) ? datasetOf(spec.dataset) : undefined;
   const d = d0!;
@@ -84,7 +91,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   }, [onClose]);
 
   // Live preview (debounced).
-  const query = useMemo(() => withPeriod({ ...spec, title: title || autoTitle(spec) }, today), [spec, title, today]);
+  const query = useMemo(() => withPeriod({ ...spec, title: title || autoTitle(spec), ...(Object.keys(paramValues).length ? { params: paramValues } : {}) }, today), [spec, title, today, paramValues]);
   useEffect(() => {
     let live = true;
     if (!query.measures.length || !d0) { setAnswer(undefined); return; }
@@ -340,6 +347,19 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                     <button type="button" onClick={() => setEditingField("new")}
                       className="mt-1 w-full rounded-lg border border-dashed border-line px-2.5 py-1.5 text-left text-[15px] font-medium text-brand hover:bg-brand-soft">+ New field</button>
                   )}
+                  <PaneHead title="Parameters" hint="Values each person sets on their report — filters and fields can follow them" />
+                  {params.filter((p) => match(p.name)).map((p) => (
+                    <div key={p.id} className="flex items-center gap-1.5 px-1 py-1">
+                      <span className="min-w-0 flex-1 truncate text-[15.5px] text-ink-2" title={`{${p.name}} — starts on ${p.value}${p.createdBy ? `, made by ${p.createdBy}` : ""}`}>{`{${p.name}}`}</span>
+                      <ParamInput p={p} compact value={paramValues[p.id]} onChange={(v) => setParamValues((x) => { const n = { ...x }; if (v === undefined) delete n[p.id]; else n[p.id] = v; return n; })} />
+                      {canSave && <button type="button" aria-label={`Change ${p.name}`} onClick={() => setEditingParam(p)} className="grid size-7 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">✎</button>}
+                    </div>
+                  ))}
+                  {!params.length && <p className="px-2 py-1 text-[14.5px] text-faint">None yet.</p>}
+                  {canSave && (
+                    <button type="button" onClick={() => setEditingParam("new")}
+                      className="mt-1 w-full rounded-lg border border-dashed border-line px-2.5 py-1.5 text-left text-[15px] font-medium text-brand hover:bg-brand-soft">+ New parameter</button>
+                  )}
                 </>
               )}
             </div>
@@ -493,6 +513,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               ...d.measures.map((m) => ({ key: m.key, label: m.label })),
               ...numberCols.flatMap((c) => TABLE_AGGS.filter(([a]) => a !== "count" && a !== "distinct").map(([a, w]) => ({ key: mk(a, c.key), label: `${w} of ${c.label}${c.group && relatedIds.length ? ` (${c.group})` : ""}` }))),
               ...d.fields.filter((x) => !x.table && x.kind !== "date").map((x) => ({ key: `distinct:${x.key}`, label: `Count distinct of ${x.label}` })),
+              ...params.filter((p) => p.type === "number").map((p) => ({ key: `param:${p.id}`, label: `Parameter {${p.name}}` })),
             ]}
             onClose={() => setEditingField(null)}
             onSaved={(f, isNew) => {
@@ -508,6 +529,11 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               set({ measures: spec.measures.filter((m) => m !== `calc:${id}`) });
               setEditingField(null);
             }} />, document.body)}
+
+        {editingParam && createPortal(
+          <ParamEditor param={editingParam === "new" ? null : editingParam} onClose={() => setEditingParam(null)}
+            onSaved={(p) => { setParams([...params.filter((x) => x.id !== p.id), p]); setEditingParam(null); set({ filters: [...(spec.filters ?? [])] }); }}
+            onDeleted={(id) => { setParams(params.filter((x) => x.id !== id)); setParamValues(({ [id]: _, ...rest }) => rest); setEditingParam(null); }} />, document.body)}
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">
           {saving.error && <span className="mr-auto text-[16px] font-medium text-high">{saving.error}</span>}
@@ -674,11 +700,19 @@ function Filters({ dataset, filters, onChange }: { dataset: string; filters: Fil
   // Numbers as ranges (a Zoho table's every number column; "Total (BCY) at least 1 L").
   const freeRanges = (d.ranges ?? []).filter((r) => !filters.some((x) => x.field === r.key));
   const isRange = (field: string) => Boolean(d.ranges?.some((r) => r.key === field));
+  const nameOf = (field: string) => fieldOf(d, field)?.label ?? d.ranges?.find((r) => r.key === field)?.label ?? field;
+  // Following a parameter (params.ts): which one, on which column, and — numbers and dates — at least / at most.
+  const [follow, setFollow] = useState<{ param: string; field: string; cmp: ParamCmp } | null>(null);
+  const ps = allParams();
+  const fp = follow ? ps.find((p) => p.id === follow.param) : undefined;
+  const fitting = !fp ? [] : fp.type === "number" ? (d.ranges ?? []).map((r) => ({ key: r.key, label: r.label }))
+    : d.fields.filter((x) => (fp.type === "date" ? x.kind === "date" : x.kind !== "date")).map((x) => ({ key: x.key, label: x.label }));
+  const small = "h-8 rounded-full border border-line bg-surface px-2.5 text-[15px] text-ink focus:border-brand focus:outline-none";
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {filters.map((f, i) => (
-        <div key={f.field} className="flex min-w-[200px] items-center gap-1">
-          {isRange(f.field) ? <RangeValues label={d.ranges!.find((r) => r.key === f.field)!.label} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />
+        <div key={`${f.field}|${f.param ?? ""}|${i}`} className="flex min-w-[200px] items-center gap-1">
+          {f.param ? <span className="inline-flex items-center rounded-full bg-brand-soft px-3 py-1 text-[15px] text-ink">{paramFilterText(nameOf(f.field), f)}</span> : isRange(f.field) ? <RangeValues label={d.ranges!.find((r) => r.key === f.field)!.label} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />
             : <FilterValues dataset={dataset} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />}
           <button type="button" aria-label={`Remove the ${fieldOf(d, f.field)?.label ?? f.field} filter`} className="rounded-full px-2 text-muted hover:text-ink" onClick={() => onChange(filters.filter((_, j) => j !== i))}>×</button>
         </div>
@@ -691,6 +725,29 @@ function Filters({ dataset, filters, onChange }: { dataset: string; filters: Fil
           {freeRanges.length > 0 && <optgroup label="Numbers (a range)">{freeRanges.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</optgroup>}
         </select>
       )}
+      {ps.length > 0 && (follow && fp ? (
+        <span className="inline-flex flex-wrap items-center gap-1 rounded-full border border-dashed border-brand px-1.5 py-0.5">
+          <select aria-label="Which column follows it" className={small} value={follow.field} onChange={(e) => setFollow({ ...follow, field: e.target.value })}>
+            <option value="">Column…</option>
+            {fitting.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+          </select>
+          {fp.type === "number" || fp.type === "date" ? (
+            <select aria-label="How" className={small} value={follow.cmp} onChange={(e) => setFollow({ ...follow, cmp: e.target.value as ParamCmp })}>
+              <option value="min">{fp.type === "date" ? "on or after" : "at least"}</option><option value="max">{fp.type === "date" ? "on or before" : "at most"}</option><option value="is">is</option>
+            </select>
+          ) : <span className="px-1 text-[15px] text-muted">is</span>}
+          <span className="px-1 text-[15px] font-medium text-ink">{`{${fp.name}}`}</span>
+          <button type="button" className="h-7 rounded-full bg-brand px-3 text-[14.5px] font-semibold text-brand-ink disabled:opacity-40" disabled={!follow.field}
+            onClick={() => { onChange([...filters, { field: follow.field, values: [], param: follow.param, ...(fp.type === "number" || fp.type === "date" ? { cmp: follow.cmp } : {}) }]); setFollow(null); }}>Add</button>
+          <button type="button" aria-label="Cancel" className="rounded-full px-2 text-muted hover:text-ink" onClick={() => setFollow(null)}>×</button>
+        </span>
+      ) : (
+        <select aria-label="Follow a parameter" className="h-8 rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
+          onChange={(e) => { const p = ps.find((x) => x.id === e.target.value); if (p) setFollow({ param: p.id, field: "", cmp: p.type === "number" || p.type === "date" ? "min" : "is" }); }}>
+          <option value="">+ Follow a parameter…</option>
+          {ps.map((p) => <option key={p.id} value={p.id}>{`{${p.name}}`}</option>)}
+        </select>
+      ))}
     </div>
   );
 }

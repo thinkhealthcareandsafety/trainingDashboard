@@ -1,5 +1,6 @@
 import { type Grain, datasetOf, fieldOf, grainLabel, measureOf, periods } from "./model";
 import type { ChartKind, Spec } from "./query";
+import { paramFilterText } from "./params";
 
 /*
  * "You'll get …" (owner, 30 Oct: "if I select 3 of these whatever things, what am I getting?") — one plain sentence for
@@ -51,6 +52,8 @@ export function describeSpec(spec: Spec, today: string, kind?: Exclude<ChartKind
 
   const only = (spec.filters ?? []).flatMap((f) => {
     const l = fieldOf(d, f.field)?.label ?? f.field;
+    if (f.param) return [paramFilterText(l, f)];
+    if (f.after || f.before) return [`${l} is ${[f.after && `on or after ${f.after}`, f.before && `on or before ${f.before}`].filter(Boolean).join(" and ")}`];
     if (f.contains?.trim()) return [`${l} ${f.exclude ? "doesn't contain" : "contains"} “${f.contains.trim()}”`];
     if (f.min !== undefined || f.max !== undefined) return [`${l} is ${f.min !== undefined ? `at least ${f.min}` : ""}${f.min !== undefined && f.max !== undefined ? " and " : ""}${f.max !== undefined ? `at most ${f.max}` : ""}`];
     if (!f.values.length) return [];

@@ -10,6 +10,7 @@ import { DEFAULT_GOAL } from "@/lib/analytics/goal";
 import { isTableKey, registerTables } from "@/lib/analytics/tables";
 import { readCatalog, tableRowsFor } from "@/lib/analytics/tablesServer";
 import { type CalcField, calcIds, registerCalcFields } from "@/lib/analytics/calc";
+import { type Param, registerParams } from "@/lib/analytics/params";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -65,6 +66,11 @@ export async function POST(request: Request) {
   if (calc.length) {
     const docs = await (await db()).collection<Omit<CalcField, "id"> & { _id: string }>("reportFields").find({ _id: { $in: calc } }).toArray();
     registerCalcFields(docs.map(({ _id, ...f }) => ({ id: _id, ...f })));
+  }
+  // Parameters (params.ts): read when a report — or a field it uses — follows one.
+  if (JSON.stringify(specs).includes("param") || calc.length) {
+    const docs = await (await db()).collection<Omit<Param, "id"> & { _id: string }>("reportParams").find({}).toArray();
+    registerParams(docs.map(({ _id, ...p }) => ({ id: _id, ...p })));
   }
   // Reports on a Zoho table (owner's plan of 30 Oct): the table, and the linked tables it uses, copied on first use.
   const tableRows = new Map<number, Row[]>();

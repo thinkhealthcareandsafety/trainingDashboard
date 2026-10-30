@@ -1,4 +1,5 @@
 import { type Dataset, type Format, type Grain, type Measure, type Row, datasetOf, fieldOf, formatValue, grainKey, grainLabel, measureOf } from "./model";
+import { resolveFilter, setParamValues } from "./params";
 
 /*
  * Runs a report spec over a dataset's rows (pure — the server calls it; scripts test it). A spec names only fields and
@@ -13,7 +14,9 @@ export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | 
  * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
  * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
  */
-export type Filter = { field: string; values: string[]; exclude?: boolean; contains?: string; min?: number; max?: number };
+/** `param` (params.ts): the filter follows a parameter — is it / at least / at most (`cmp`) — resolved per run into
+ *  values, min / max, or for dates `after` / `before` ("YYYY-MM-DD", inclusive). */
+export type Filter = { field: string; values: string[]; exclude?: boolean; contains?: string; min?: number; max?: number; param?: string; cmp?: "is" | "min" | "max"; after?: string; before?: string };
 /**
  * What a report is compared with: the period before (true, the old setting), the same dates a year earlier, or
  * another group in the same dates (`field` in `b` against `field` in `a` — e.g. Aviation vs IT).
@@ -54,6 +57,8 @@ export type Spec = {
   labels?: boolean;
   /** Up to 3 more numbers shown only on hover, per Rows value — computed, not drawn. */
   tooltip?: string[];
+  /** The parameter values chosen for this run (params.ts); a parameter not here takes its own value. */
+  params?: Record<string, string | number>;
   /** Which date column the period (from / to) applies to — Zoho tables have several (owner's plan, 30 Oct, point 5);
    *  none = the dataset's own date. */
   dateField?: string;
@@ -111,8 +116,13 @@ export function checkSpec(spec: Spec): Dataset {
 
 const asList = (v: Row[string]): string[] => (Array.isArray(v) ? (v.length ? v : [BLANK]) : v === null || v === undefined || v === "" ? [BLANK] : [String(v)]);
 
-const active = (f: Filter) => f.values.length > 0 || Boolean(f.contains?.trim()) || f.min !== undefined || f.max !== undefined;
+const active = (f: Filter) => f.values.length > 0 || Boolean(f.contains?.trim()) || f.min !== undefined || f.max !== undefined || Boolean(f.after || f.before);
 function passes(f: Filter, r: Row): boolean {
+  if (f.after || f.before) {
+    const s = r[f.field];
+    const hit = typeof s === "string" && Boolean(s) && (!f.after || s >= f.after) && (!f.before || s <= f.before);
+    return f.exclude ? !hit : hit;
+  }
   if (f.min !== undefined || f.max !== undefined) {
     const n = r[f.field];
     return typeof n === "number" && (f.min === undefined || n >= f.min) && (f.max === undefined || n <= f.max);
@@ -171,7 +181,10 @@ function evaluate(d: Dataset, keys: string[], rows: Row[]): (number | null)[] {
     } else if (m.agg === "filtered") {
       // A calculated field with conditions (calc.ts): its measure over the matching rows only.
       const base = measureOf(d, m.base);
-      v = base ? evaluate(d, [m.base], rs.filter((r) => m.filters.filter(active).every((f) => passes(f, r))))[0] : null;
+      const fs = m.filters.map((f) => resolveFilter(f as Filter)).filter(active);
+      v = base ? evaluate(d, [m.base], rs.filter((r) => fs.every((f) => passes(f, r))))[0] : null;
+    } else if (m.agg === "const") {
+      v = m.value;
     } else if (m.agg === "combine") {
       const a = measureOf(d, m.a), b = measureOf(d, m.b);
       const x = a ? one(a) : null, y = b ? one(b) : null;
@@ -207,6 +220,9 @@ export function previousPeriod(from: string, to: string): { from: string; to: st
 }
 
 export function runQuery(spec: Spec, rows: Row[]): Result {
+  // Parameters (params.ts): this run's values, and the filters that follow one become plain filters.
+  setParamValues(spec.params);
+  if (spec.filters?.some((f) => f.param)) spec = { ...spec, filters: spec.filters.map((f) => resolveFilter(f, spec.params)) };
   const d = checkSpec(spec);
   const grain: Grain = spec.grain ?? "month";
   const by = spec.by ?? [];

@@ -1,5 +1,6 @@
 import { type Dataset, type Format, type Measure, addMeasureResolver, fieldOf, measureOf } from "./model";
 import type { Filter } from "./query";
+import { paramFilterText } from "./params";
 
 /*
  * Calculated fields (owner, 30 Oct: "ability to add aggregated columns" — the Tableau plan, step e). Built from picks,
@@ -35,6 +36,7 @@ const and = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1)
 function whereText(d: Dataset, filters: Filter[]) {
   return and(filters.flatMap((f) => {
     const l = fieldOf(d, f.field)?.label ?? f.field;
+    if (f.param) return [paramFilterText(l, f)];
     if (f.contains?.trim()) return [`${l} ${f.exclude ? "doesn't contain" : "contains"} “${f.contains.trim()}”`];
     if (f.min !== undefined || f.max !== undefined) return [`${l} is ${[f.min !== undefined && `at least ${f.min}`, f.max !== undefined && `at most ${f.max}`].filter(Boolean).join(" and ")}`];
     if (!f.values.length) return [];
@@ -69,7 +71,7 @@ export function calcProblem(f: Pick<CalcField, "name" | "formula" | "format">): 
   const refs = f.formula.kind === "filtered" ? [f.formula.base] : [f.formula.a, f.formula.b];
   if (refs.some((r) => !r)) return f.formula.kind === "filtered" ? "Pick the number to add up" : "Pick both numbers";
   if (refs.some((r) => r.startsWith("calc:"))) return "A field can't be built from another field yet";
-  if (f.formula.kind === "filtered" && (f.formula.filters.length > 10 || !f.formula.filters.some((x) => x.values.length || x.contains?.trim() || x.min !== undefined || x.max !== undefined)))
+  if (f.formula.kind === "filtered" && (f.formula.filters.length > 10 || !f.formula.filters.some((x) => x.values.length || x.contains?.trim() || x.min !== undefined || x.max !== undefined || x.param)))
     return "Add at least one condition (“only where …”)";
   if (!["inr", "count", "pct", "days"].includes(f.format)) return "Bad format";
   return null;

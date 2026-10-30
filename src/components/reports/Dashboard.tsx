@@ -8,6 +8,11 @@ import { Canvas, heightOf } from "./Canvas";
 import { Library } from "./Editor";
 import { btn } from "../ui";
 import { BLANK, type Compare, type Filter, type Spec } from "@/lib/analytics/query";
+import { type Param, paramsUsed } from "@/lib/analytics/params";
+import { type CalcField, calcInputs, registerCalcFields } from "@/lib/analytics/calc";
+import { isTableKey } from "@/lib/analytics/tables";
+import { ParamInput, loadParams } from "./ParamControls";
+import { allParams as paramsList } from "@/lib/analytics/params";
 import { Chart, Kpi, type Lines, chartKindOf, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
 
@@ -33,7 +38,8 @@ type Tweak = { measure?: string; by?: string; limit?: number; grain?: Grain; lin
 /** A tweak that changes what the chart shows (not just lines on it) — then its title is made from the new shape. */
 const reshapes = (t?: Tweak) => Boolean(t && (t.measure || t.by || t.limit !== undefined || t.grain));
 /** What a saved view keeps. */
-type ViewState = { period: string; filters: Record<string, FState>; compare: CompareMode; grain?: Grain };
+/** `params`: this viewer's parameter values (params.ts) — saved with the filters and views, like them. */
+type ViewState = { period: string; filters: Record<string, FState>; compare: CompareMode; grain?: Grain; params?: Record<string, string | number> };
 type View = { name: string; state: ViewState };
 
 const fActive = (f?: FState) => Boolean(f && (f.values.length || f.contains?.trim() || f.min !== undefined || f.max !== undefined));
@@ -41,7 +47,7 @@ const fActive = (f?: FState) => Boolean(f && (f.values.length || f.contains?.tri
 const sorted = (x: unknown): unknown => Array.isArray(x) ? x.map(sorted)
   : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, sorted(v)])) : x;
 const sameState = (def: DashboardDef, a: ViewState, b: ViewState) => {
-  const key = (v: ViewState) => JSON.stringify(sorted({ period: v.period, compare: v.compare ?? "lastYear", grain: v.grain ?? def.grains ?? null, filters: Object.fromEntries(Object.entries(v.filters ?? {}).filter(([, f]) => fActive(f))) }));
+  const key = (v: ViewState) => JSON.stringify(sorted({ period: v.period, compare: v.compare ?? "lastYear", grain: v.grain ?? def.grains ?? null, filters: Object.fromEntries(Object.entries(v.filters ?? {}).filter(([, f]) => fActive(f))), params: v.params ?? {} }));
   return key(a) === key(b);
 };
 /** A dashboard as it starts, before anyone saved filters on it. */
@@ -175,6 +181,7 @@ export type EditCtl = { draft: CustomDash; onChange: (d: CustomDash) => void; ba
 export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; today: string; tools?: React.ReactNode; edit?: EditCtl }) {
   const [period, setPeriod] = useState(() => readState(def).period);
   const [filters, setFilters] = useState<Record<string, FState>>(() => readState(def).filters);
+  const [paramValues, setParamValues] = useState<Record<string, string | number>>(() => readState(def).params ?? {});
   const [compare, setCompare] = useState<CompareMode>(() => readState(def).compare);
   const [grain, setGrain] = useState<Grain | undefined>(() => readState(def).grain);
   const [pick, setPick] = useState<Pick | null>(null);
@@ -189,7 +196,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
   const setPage = (i: number) => { setPageRaw(i); try { localStorage.setItem(`th.reports.page.${def.id}`, String(i)); } catch {} };
   const [goal, setGoal] = useState<number | undefined>();
   useEffect(() => { if (def.tiles.some((t) => t.goalLine)) fetch("/api/analytics/goal").then((r) => r.json()).then((g) => setGoal(typeof g.monthly === "number" ? g.monthly : undefined)).catch(() => {}); }, [def]);
-  useEffect(() => { const st = readState(def); setPeriod(st.period); setFilters(st.filters); setCompare(st.compare); setGrain(st.grain); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); setDrills({});
+  useEffect(() => { const st = readState(def); setPeriod(st.period); setFilters(st.filters); setParamValues(st.params ?? {}); setCompare(st.compare); setGrain(st.grain); setPick(null); setGot({}); setPageRaw(readPage(def.id)); setTweaks(readTweaks(def.id)); setDrills({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
   useEffect(() => { try { localStorage.setItem(`th.reports.tweaks.${def.id}`, JSON.stringify(tweaks)); } catch {} }, [tweaks, def.id]);
@@ -199,11 +206,28 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
   // Drill-down (owner, 29 Oct — phase 4): a click on a year shows its quarters on that chart, a quarter its months.
   const [drills, setDrills] = useState<Record<string, Drill[]>>({});
   const specs = useMemo(() => def.tiles.map((t) => {
-    const s = compose(t, today, period, filters, pick, cmpMode, tweaks[t.id], grain);
+    const s0 = compose(t, today, period, filters, pick, cmpMode, tweaks[t.id], grain);
+    const s = Object.keys(paramValues).length ? { ...s0, params: paramValues } : s0;
     const dr = drills[t.id]?.at(-1);
     // The title follows the level ("Revenue by year" → "Revenue by quarter").
     return dr ? { ...s, grain: dr.grain, from: dr.from, to: dr.to, title: s.title?.replace(/\b(year|quarter|month|week)\b/, dr.grain) } : s;
-  }), [def, today, period, filters, pick, cmpMode, tweaks, grain, drills]);
+  }), [def, today, period, filters, pick, cmpMode, tweaks, grain, drills, paramValues]);
+  // The parameters this page's reports follow (directly, or through a field) — a box each on the toolbar. Their
+  // definitions and the fields of the Zoho tables in use are loaded once (params.ts, calc.ts).
+  const [paramsReady, setParamsReady] = useState(0);
+  useEffect(() => {
+    const tables = [...new Set(def.tiles.map((t) => t.spec.dataset).filter(isTableKey))];
+    if (!tables.length && !JSON.stringify(def.tiles.map((t) => t.spec)).includes("param")) return;
+    let live = true;
+    Promise.all([loadParams(), ...tables.map((k) => fetch(`/api/analytics/fields?dataset=${encodeURIComponent(k)}`).then((r) => r.json()).then((j: { fields?: CalcField[] }) => registerCalcFields(j.fields ?? [])).catch(() => {}))])
+      .then(() => { if (live) setParamsReady((n) => n + 1); });
+    return () => { live = false; };
+  }, [def]);
+  const usedParams = useMemo<Param[]>(() => {
+    const ids = new Set(def.tiles.flatMap((t) => paramsUsed(t.spec, calcInputs)));
+    return [...ids].map((id) => paramsList().find((p) => p.id === id)).filter((p): p is Param => Boolean(p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def, paramsReady]);
   const keys = useMemo(() => specs.map((s) => JSON.stringify(s)), [specs]);
   // Each number on the open page also comes month by month, for its small trend line (one more request a page).
   const sparkSpecs = useMemo(() => (pages[at]?.tiles ?? []).filter((t) => t.spec.chart === "kpi" && !t.fixedPeriod && !t.spec.analysis).map((t) => {
@@ -393,8 +417,8 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
     if (pick && pick.tileId !== t.id && pick.field !== "date" && !fieldOf(d, pick.field)) out.push(`“${pick.label}”`);
     return out;
   };
-  const viewState: ViewState = { period, filters, compare, grain };
-  const applyState = (v: ViewState) => { setPeriod(v.period); setFilters(v.filters ?? {}); setCompare(v.compare ?? "lastYear"); setGrain(v.grain ?? def.grains); setPick(null); };
+  const viewState: ViewState = { period, filters, compare, grain, ...(Object.keys(paramValues).length ? { params: paramValues } : {}) };
+  const applyState = (v: ViewState) => { setPeriod(v.period); setFilters(v.filters ?? {}); setCompare(v.compare ?? "lastYear"); setGrain(v.grain ?? def.grains); setParamValues(v.params ?? {}); setPick(null); };
   // Saving (owner, 30 Oct): my saved filters of this dashboard, my views of it, and the view I'm on (none = the dashboard).
   const [views, setViews] = useState<View[] | null>(null);
   const [saved, setSaved] = useState<ViewState | null>(null);
@@ -452,8 +476,8 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
   const shown = useRef<string | null>(null);
   useEffect(() => {
     if (shown.current !== def.id) { shown.current = def.id; return; }
-    writeState(def, { period, filters, compare, grain });
-  }, [def, period, filters, compare, grain]);
+    writeState(def, { period, filters, compare, grain, params: paramValues });
+  }, [def, period, filters, compare, grain, paramValues]);
 
   return (
     <div>
@@ -462,6 +486,12 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
         {/* A dashboard that never compares (Defibtech) doesn't offer it. */}
         {def.tiles.some((t) => !t.noCompare) && period !== "all" && <CompareControl def={def} value={compare} onChange={setCompare} datasetOf={firstDatasetWith} />}
         {def.tiles.some((t) => t.spec.by?.[0] === datasetOf(t.spec.dataset)?.dateField && !t.fixedGrain && !t.goalLine) && <GrainSwitch value={grain} onChange={(g) => { setGrain(g); setPick(null); }} />}
+        {usedParams.map((p) => (
+          <label key={p.id} className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface pl-4 pr-1 text-[16px] text-ink-2" title={`Parameter — starts on ${p.value}; your own value is kept with your saved filters`}>
+            <span className="font-medium">{p.name}</span>
+            <ParamInput p={p} compact value={paramValues[p.id]} onChange={(v) => setParamValues((x) => { const n = { ...x }; if (v === undefined) delete n[p.id]; else n[p.id] = v; return n; })} />
+          </label>
+        ))}
         <FiltersButton count={chosen.length}>
           {def.filters.map((f) => f.range
             ? <RangeControl key={f.field} label={f.label} value={filters[f.field]} onChange={(min, max) => setF(f.field, { min, max })} />
