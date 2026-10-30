@@ -14,7 +14,7 @@ import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
 import { AnalyticsConnect } from "./AnalyticsConnect";
 import { ProgressToasts, useProgressPulse } from "./progress/ProgressPulse";
-import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
+import { boardsFor, canQuote, hasFullAccess, isAdmin } from "@/lib/roles";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
@@ -358,7 +358,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
   const money = boardsFor(session.member!).includes("training");
-  const nav = NAV.filter((n) => !("full" in n) || hasFullAccess(session.member!)).map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
+  // Quotations also for Pranjal (canQuote); the other "full" pages for full access only.
+  const nav = NAV.filter((n) => !("full" in n) || (n.href === "/quotations" ? canQuote(session.member!) : hasFullAccess(session.member!))).map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
   const onTracker = path.startsWith(TRACKER);
   // Tagged and not answered yet: a red count on Progress tracker until you reply in the request or resolve it (owner, 26 Oct).
   const trackerBadge = progress.needs > 0 && (

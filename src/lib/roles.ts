@@ -6,7 +6,8 @@ import type { CardEvent } from "./types";
  *   Priyanka  AedSmartx only — everything there except marking an AED delivered
  *   Arti      Logistics only — everything there (AED delivered / hide, merges, packing, shipping, notes)
  *   Shreya    Fulfillment only — everything there
- *   Ashish, Shikha, Sumit, Nikita   all four boards, every action
+ *   Pranjal   Sales only — everything there; also sends quotations (owner, 30 Oct)
+ *   Ashish, Shikha, Sumit, Nikita   every board, every action
  *   Admin     everything; the only one who clears logs (Clear logs) or deletes log entries
  *   Anyone else   Training board
  *
@@ -14,16 +15,21 @@ import type { CardEvent } from "./types";
  * when someone else made them — the flow must stay in order.
  */
 
-export type BoardKind = "training" | "aed" | "fulfil" | "logistics";
+export type BoardKind = "training" | "sales" | "aed" | "fulfil" | "logistics";
 type Who = { id: string; name: string };
 
 const named = (m: Who, re: RegExp) => re.test(m.name.trim());
 export const isAdmin = (m: Who) => m.id === "admin";
 /** Ashish, Shikha, Sumit, Nikita and Admin: every board, every action. */
 export const hasFullAccess = (m: Who) => isAdmin(m) || named(m, /^(ashish|shikha|sumit|nikita)\b/i);
+/** Pranjal Nikalje (owner, 30 Oct): the Sales board and Quotations. */
+const isSalesOnly = (m: Who) => named(m, /^pranjal\b/i);
+/** Who sends quotations (the Quotations page): everyone with full access, and Pranjal. */
+export const canQuote = (m: Who) => hasFullAccess(m) || isSalesOnly(m);
 
 export function boardsFor(m: Who): BoardKind[] {
-  if (hasFullAccess(m)) return ["training", "aed", "fulfil", "logistics"];
+  if (hasFullAccess(m)) return ["training", "sales", "aed", "fulfil", "logistics"];
+  if (isSalesOnly(m)) return ["sales"];
   if (named(m, /^priyanka\b/i)) return ["aed"];
   if (named(m, /^arti\b/i)) return ["logistics"];
   if (named(m, /^shreya\b/i)) return ["fulfil"];
@@ -39,6 +45,7 @@ function boardOfCard(id: string): BoardKind {
   if (p === "aed" || p === "aedcustomer") return "aed";
   if (p === "fulfil") return "fulfil";
   if (p === "logi" || p === "logipay") return "logistics";
+  if (p === "sale") return "sales"; // Sales board (sales.ts): "sale:quote:…", "sale:lead:…"
   return "training";
 }
 

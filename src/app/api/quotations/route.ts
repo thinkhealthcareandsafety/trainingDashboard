@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { hasFullAccess, isAdmin } from "@/lib/roles";
+import { canQuote, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, money, nameKey, onHandByItem } from "@/lib/analytics/build";
@@ -144,7 +144,7 @@ type CF = { api_name?: string; value?: unknown };
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita send quotations" }, { status: 403 });
+  if (!canQuote(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   const q = new URL(request.url).searchParams;
   try {
     if (q.get("items")) {
@@ -295,7 +295,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita send quotations" }, { status: 403 });
+  if (!canQuote(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) return sendEmail(await request.formData().catch(() => null));

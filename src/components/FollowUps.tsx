@@ -61,7 +61,7 @@ const LOGI_COLUMNS: { key: Stage; label: string; header: string; dot: string }[]
 ];
 
 /** Who sees which board: roles.ts (Priyanka AedSmartx, Arti Logistics, Shreya Fulfillment; Ashish, Shikha, Sumit, Admin all four). */
-const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", aed: "AedSmartx", fulfil: "Fulfillment", logistics: "Logistics" };
+const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", sales: "Sales", aed: "AedSmartx", fulfil: "Fulfillment", logistics: "Logistics" };
 
 // As many columns as fit at MIN_COL_W (enough for the column name); the rest slide in with ◀ ▶,
 // the arrow keys or a swipe. A wide screen shows every column.
