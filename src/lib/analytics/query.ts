@@ -1,4 +1,4 @@
-import { type Dataset, type Format, type Grain, type Measure, type Row, datasetOf, fieldOf, grainKey, grainLabel, measureOf } from "./model";
+import { type Dataset, type Format, type Grain, type Measure, type Row, datasetOf, fieldOf, formatValue, grainKey, grainLabel, measureOf } from "./model";
 
 /*
  * Runs a report spec over a dataset's rows (pure — the server calls it; scripts test it). A spec names only fields and
@@ -45,8 +45,8 @@ export type Spec = {
   title?: string;
   /** Saved reports keep a relative period ("fy", "3m"…, model.ts periods) — the browser turns it into from / to. */
   period?: string;
-  /** Each sales person's monthly revenue target (set by the server for "vsTarget" — kv reports_goal.people). */
-  targets?: Record<string, number>;
+  /** The team's monthly revenue goal (set by the server for "vsTarget" — kv reports_goal; months = one-off months). */
+  goal?: { monthly: number; months: Record<string, number> };
   /** Today (set by the server): a period still running is compared like for like — up to the same day of the one before. */
   asOf?: string;
 };
@@ -344,7 +344,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
  * - priceAlerts: items whose latest purchase price (last 12 months) moved 5%+ from the bill before
  * - customerValue: each customer's revenue since Jul 2021, invoices, first / last bought, days between orders
  *   (variant "bands": customers and revenue per value band)
- * - vsTarget: each sales person's revenue in the period against their monthly target, pro-rated to the days so far
+ * - vsTarget: each sales person's revenue and share of the team's revenue goal, pro-rated to the days so far
  */
 function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
   const m = spec.measures[0];
@@ -439,29 +439,31 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
     }), [{ key: "customer", label: "Customer", date: false }, { key: "first", label: "First bought", date: false }, { key: "last", label: "Last bought", date: false }, { key: "invoices", label: "Invoices", date: false }, { key: "gap", label: "Days between orders", date: false }, { key: "sector", label: "Sector", date: false }],
       { measures: [{ ...fmt, label: `${fmt.label} (all time)` }], totals: [total], note: `The top ${Math.min(lim, list.length)} of ${n(list.length)} customers make ${total ? Math.round((list.slice(0, lim).reduce((s, [, c]) => s + c.value, 0) / total) * 100) : 0}% of all revenue since Jul 2021.` });
   }
-  // Sales against target (owner, 30 Oct — phase 5): the period's revenue per sales person against monthly target ×
-  // months so far (a month part-way counts its share of days, so mid-month reads fairly). People without a target are
-  // left out; a target with no sales shows 0.
+  // Sales against target (owner, 30 Oct — phase 5: "sales target is 50 lakh per month" — one team target): each sales
+  // person's revenue in the period and their share of the team goal × months so far (a month part-way counts its share
+  // of days, so mid-month reads fairly).
   if (spec.analysis === "vsTarget") {
-    const targets = spec.targets ?? {};
+    const goal = spec.goal ?? { monthly: 0, months: {} };
     const today = spec.asOf ?? new Date().toISOString().slice(0, 10);
     const from = spec.from ?? today.slice(0, 8) + "01";
     const to = !spec.to || spec.to > today ? today : spec.to;
-    let months = 0;
+    let months = 0, target = 0;
     for (let m = from.slice(0, 7); m <= to.slice(0, 7); m = addMonths(m + "-01", 1).slice(0, 7)) {
       const len = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
       const a = m === from.slice(0, 7) ? Number(from.slice(8, 10)) : 1, b = m === to.slice(0, 7) ? Number(to.slice(8, 10)) : len;
-      months += Math.max(0, b - a + 1) / len;
+      const part = Math.max(0, b - a + 1) / len;
+      months += part; target += part * (goal.months[m] ?? goal.monthly);
     }
     const got = new Map<string, number>();
     for (const r of cur) for (const k of asList(r.salesperson)) got.set(k, (got.get(k) ?? 0) + sum([r]));
-    const list = Object.entries(targets).map(([k, t]) => ({ k, actual: got.get(k) ?? 0, target: t * months })).sort((a, b) => b.actual / (b.target || 1) - a.actual / (a.target || 1));
-    if (!list.length) return { ...base, rows: [], note: "No sales targets yet — Admin sets them with “Sales targets” on Quotes & team." };
-    return out(list.map((x) => ({ keys: [x.k], values: [x.actual, x.target, x.target ? (x.actual / x.target) * 100 : null] })),
+    const list = [...got].filter(([k]) => k !== BLANK).sort((a, b) => b[1] - a[1]);
+    const total = [...got.values()].reduce((s, v) => s + v, 0);
+    const pct = (v: number) => (target ? (v / target) * 100 : null);
+    const money = (v: number) => formatValue(v, "inr");
+    return out(list.map(([k, v]) => ({ keys: [k], values: [v, pct(v)] })),
       [{ key: "salesperson", label: "Sales person", date: false }],
-      { measures: [{ ...fmt, label: "Revenue" }, { key: "target", label: "Target so far", format: "inr" }, { key: "pct", label: "% of target", format: "pct" }],
-        totals: [list.reduce((s, x) => s + x.actual, 0), list.reduce((s, x) => s + x.target, 0), null],
-        note: `Target so far = monthly target × ${months.toFixed(1)} months (${grainLabel(from, "day", true)} to ${grainLabel(to, "day", true)}).` });
+      { measures: [{ ...fmt, label: "Revenue" }, { key: "pct", label: "Share of team target", format: "pct" }], totals: [total, pct(total)],
+        note: `Team target so far ${money(target)} (${months.toFixed(1)} months, ${grainLabel(from, "day", true)} to ${grainLabel(to, "day", true)}); together ${Math.round(pct(total) ?? 0)}% of it${got.has(BLANK) ? " — incl. invoices with no sales person" : ""}.` });
   }
   // Quotes to chase: no answer yet (filters apply, the period doesn't), oldest first.
   if (spec.analysis === "followup") {

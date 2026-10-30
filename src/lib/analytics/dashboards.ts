@@ -305,8 +305,8 @@ const TABS: DashboardDef[] = [
       kpi("validValue", "quotes", "validOpen", "Open & still valid (₹)", { fixedPeriod: true }),
       kpi("validCount", "quotes", "validOpenCount", "Open & still valid (quotes)", { fixedPeriod: true }),
       { id: "bymonth", section: "Over time", w: 12, spec: { dataset: "quotes", measures: ["count"], by: ["date", "outcome"], grain: "month", chart: "stacked", title: "Quotes by month and result" } },
-      // Sales against target (owner, 30 Oct — phase 5): Admin sets each person's monthly target.
-      { id: "vsTarget", section: "Against target", w: 12, noCompare: true, note: "Revenue before tax on invoices with this sales person", spec: { dataset: "sales", measures: ["revenue"], analysis: "vsTarget", chart: "table", title: "Sales against target, by person" } },
+      // Sales against target (owner, 30 Oct — phase 5): one team target, the monthly revenue goal (₹50 L).
+      { id: "vsTarget", section: "Against target", w: 12, noCompare: true, note: "Team target = the monthly revenue goal × months so far · revenue before tax, by the invoice's sales person", spec: { dataset: "sales", measures: ["revenue"], analysis: "vsTarget", chart: "table", title: "Each person's share of the team target" } },
       { id: "person", section: "Breakdown", w: 6, spec: { dataset: "quotes", measures: ["winRate"], by: ["salesperson"], limit: 7, chart: "bar", title: "Conversion rate by sales person" } },
       { id: "outcome", section: "Breakdown", w: 6, spec: { dataset: "quotes", measures: ["value"], by: ["outcome"], chart: "donut", title: "Quote value by result" } },
       { id: "open", section: "Open quotes", w: 12, spec: { dataset: "quotes", measures: ["value"], by: ["customer"], limit: 10, chart: "bar", filters: [{ field: "outcome", values: ["Waiting"] }], title: "Biggest open quotes (by customer)" } },

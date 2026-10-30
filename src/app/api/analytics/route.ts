@@ -6,6 +6,7 @@ import { DATASETS, canRead, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, runQuery } from "@/lib/analytics/query";
 import { STALE_MS, dataState, datasetRows, refreshAnalyticsData } from "@/lib/analytics/source";
 import { TABLES, type TableKey } from "@/lib/analytics/build";
+import { DEFAULT_GOAL } from "@/lib/analytics/goal";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -51,15 +52,16 @@ export async function POST(request: Request) {
   if (!state.running && (age > STALE_MS || (missing && age > 10 * 60_000))) {
     after(() => refreshAnalyticsData("Reports (automatic)").then(() => undefined, () => undefined));
   }
-  // Sales against target (phase 5): the targets travel with the report, read once.
-  const people = specs.some((s) => s.analysis === "vsTarget")
-    ? ((await (await db()).collection<{ _id: string; people?: Record<string, number> }>("kv").findOne({ _id: "reports_goal" }))?.people ?? {})
-    : {};
+  // Sales against target (phase 5): the team's monthly revenue goal travels with the report, read once.
+  const goalDoc = specs.some((s) => s.analysis === "vsTarget")
+    ? await (await db()).collection<{ _id: string; monthly?: number; months?: Record<string, number> }>("kv").findOne({ _id: "reports_goal" })
+    : null;
+  const goal = { monthly: goalDoc?.monthly ?? DEFAULT_GOAL, months: goalDoc?.months ?? {} };
   const results = specs.map((spec) => {
     try {
       const d = datasetOf(spec.dataset);
       if (!d || !canRead(d, boards, isAdmin(me))) return { error: "You can't see this data" };
-      return runQuery({ ...spec, asOf: today, ...(spec.analysis === "vsTarget" ? { targets: people } : {}) }, rows[d.key] ?? []);
+      return runQuery({ ...spec, asOf: today, ...(spec.analysis === "vsTarget" ? { goal } : {}) }, rows[d.key] ?? []);
     } catch (e) {
       return { error: e instanceof SpecError ? e.message : "Couldn't run this report" };
     }

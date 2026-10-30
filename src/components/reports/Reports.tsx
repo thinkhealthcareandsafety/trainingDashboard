@@ -12,7 +12,6 @@ import { btn } from "../ui";
 import { Builder } from "./Builder";
 import { DashboardView, TileCard, pagesOf } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
-import { TargetsButton } from "./Targets";
 import { MyDashboard, type Prefs } from "./MyDashboard";
 import { type Answer, type Meta, forgetAnswers, runSpecs, stamp, withPeriod } from "./shared";
 
@@ -41,8 +40,6 @@ export function Reports() {
   // My dashboard's list + the tabs this person hid ("Select Dashboards to display", owner 29 Oct) — per person, server.
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   // The team's dashboards and edited tabs (owner, 29 Oct), and the built-in tabs Admin deleted.
-  // Bumped after Admin saves sales targets: the tab reloads its reports (phase 5).
-  const [rev, setRev] = useState(0);
   const [team, setTeam] = useState<{ dashboards: CustomDash[]; hidden: string[]; canEdit: boolean; admin: boolean }>({ dashboards: [], hidden: [], canEdit: false, admin: false });
   const loadTeam = useCallback(() => fetch("/api/analytics/dashboards").then((r) => r.json()).then((j) => { if (Array.isArray(j.dashboards)) setTeam(j); }).catch(() => {}), []);
   useEffect(() => {
@@ -143,12 +140,9 @@ export function Reports() {
             onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))}
             onEdit={(draft, fresh) => setEditing({ draft, fresh, mine: true })}
             onUnhide={(id) => { fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hide: id, hidden: false }) }).then(loadTeam).catch(() => {}); }} />
-          : current ? <DashboardView key={`${current.id}-${rev}`} def={current} today={meta.today} tools={team.canEdit || (team.admin && current.id === "quotes") ? (
-            <>
-              {team.admin && current.id === "quotes" && <TargetsButton today={meta.today} onSaved={() => { forgetAnswers(); setRev((r) => r + 1); }} />}
-              {team.canEdit && <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[16px] font-medium text-ink-2 transition hover:border-line-strong"
-                onClick={() => setEditing({ fresh: !current.custom, draft: current.custom ?? fromDef(current, pagesOf(current, false)) })}>✎ Edit dashboard</button>}
-            </>
+          : current ? <DashboardView def={current} today={meta.today} tools={team.canEdit ? (
+            <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[16px] font-medium text-ink-2 transition hover:border-line-strong"
+              onClick={() => setEditing({ fresh: !current.custom, draft: current.custom ?? fromDef(current, pagesOf(current, false)) })}>✎ Edit dashboard</button>
           ) : undefined} />
           : <SavedReports list={saved?.reports ?? []} today={meta.today} canBuild={Boolean(saved?.canBuild)} onEdit={(r) => setBuilder({ spec: r.spec, id: r.id })} onChanged={loadSaved} onNew={() => setBuilder({})} />}
       </div>

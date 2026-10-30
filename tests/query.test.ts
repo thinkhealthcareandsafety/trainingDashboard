@@ -84,12 +84,12 @@ test("a ratio over nothing is empty, not zero or infinity", () => {
   assert.equal(r.totals[0], null);
 });
 
-test("vsTarget: revenue per sales person against the monthly target, pro-rated to the days so far", () => {
-  // 1 Apr – 15 Jun with today = 15 Jun: April + May + 15/30 of June = 2.5 months.
-  const r = q({ dataset: "sales", measures: ["revenue"], analysis: "vsTarget", from: "2026-04-01", to: "2026-06-30", asOf: "2026-06-15", targets: { "Sumit A Shah": 200_000, "Nobody Yet": 100_000 } });
-  assert.deepEqual(r.rows.map((x) => x.keys[0]), ["Sumit A Shah", "Nobody Yet"]);
-  assert.deepEqual(r.rows[0].values, [480_000, 500_000, 96]);
-  assert.deepEqual(r.rows[1].values, [0, 250_000, 0]);
+test("vsTarget: each person's share of the team goal, pro-rated to the days so far", () => {
+  // 1 Apr – 15 Jun with today = 15 Jun: April + May (one-off ₹1 L) + 15/30 of June = 2 + 0.5 months;
+  // target = 2 L + 1 L + 1 L = 4 L.
+  const r = q({ dataset: "sales", measures: ["revenue"], analysis: "vsTarget", from: "2026-04-01", to: "2026-06-30", asOf: "2026-06-15", goal: { monthly: 200_000, months: { "2026-05": 100_000 } } });
+  assert.deepEqual(r.rows.map((x) => x.keys[0]), ["Sumit A Shah"]);
+  assert.deepEqual(r.rows[0].values, [480_000, 120]);
+  assert.deepEqual(r.totals, [480_000, 120]);
   assert.match(String(r.note), /2\.5 months/);
-  assert.equal(q({ dataset: "sales", measures: ["revenue"], analysis: "vsTarget", from: "2026-04-01", to: "2026-06-30", asOf: "2026-06-15" }).rows.length, 0);
 });

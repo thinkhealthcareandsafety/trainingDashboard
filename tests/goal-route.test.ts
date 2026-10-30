@@ -1,4 +1,4 @@
-// /api/analytics/goal against the in-memory fake database (tests/fakes) — sales targets per person (owner, 30 Oct).
+// /api/analytics/goal against the in-memory fake database (tests/fakes).
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { GET, POST } from "@/app/api/analytics/goal/route";
@@ -14,20 +14,17 @@ const call = async (m: keyof typeof who, method: "GET" | "POST", body?: unknown)
 
 beforeEach(() => resetFakeDb());
 
-test("an old goal doc (no targets) still reads, with no people", async () => {
+test("a goal doc with only the monthly goal still reads", async () => {
   await (await db()).collection<{ _id: string }>("kv").replaceOne({ _id: "reports_goal" }, { _id: "reports_goal", monthly: 60_00_000, months: {} });
   const { j } = await call("sumit", "GET");
   assert.equal(j.monthly, 60_00_000);
-  assert.deepEqual(j.people, {});
+  assert.deepEqual(j.months, {});
 });
 
-test("only Admin sets targets; the whole list at once; the goal stays", async () => {
-  assert.equal((await call("sumit", "POST", { people: { "Sumit A Shah": 5_00_000 } })).s, 403);
-  await call("admin", "POST", { monthly: 70_00_000 });
-  const { s, j } = await call("admin", "POST", { people: { "Sumit A Shah": 5_00_000, "Ashish Dalal": 3_00_000 } });
-  assert.equal(s, 200);
-  assert.deepEqual(j.people, { "Sumit A Shah": 5_00_000, "Ashish Dalal": 3_00_000 });
-  assert.equal(j.monthly, 70_00_000);
-  assert.deepEqual((await call("admin", "POST", { people: { "Ashish Dalal": 4_00_000 } })).j.people, { "Ashish Dalal": 4_00_000 });
-  assert.equal((await call("admin", "POST", { people: { "Sumit A Shah": 5 } })).s, 400);
+test("only Admin changes the goal; a one-off month and back", async () => {
+  assert.equal((await call("sumit", "POST", { monthly: 70_00_000 })).s, 403);
+  assert.equal((await call("admin", "POST", { monthly: 70_00_000 })).j.monthly, 70_00_000);
+  assert.deepEqual((await call("admin", "POST", { month: "2026-11", amount: 60_00_000 })).j.months, { "2026-11": 60_00_000 });
+  assert.deepEqual((await call("admin", "POST", { month: "2026-11", amount: null })).j.months, {});
+  assert.equal((await call("admin", "POST", { monthly: 5 })).s, 400);
 });
