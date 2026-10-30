@@ -1,8 +1,33 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Thu 29 Oct 2026, end of session 18. **Live = `6dfab55`** (both addresses) — **everything is pushed**;
-the only commit after it is this docs update. Written for the next Claude Code session (and the owner,
-sshah@thinkhealth.in)._
+_Last updated: Fri 30 Oct 2026 morning (status check after session 18). **Live = `2f3b049`** (both addresses) —
+**everything is pushed**; the only commit after it is this docs update. Written for the next Claude Code session (and
+the owner, sshah@thinkhealth.in)._
+
+**Update — Fri 30 Oct (read this before "Start of the next session (19)" below; where they differ, this wins):**
+- **After the session-18 docs (`2d6e2f2`), a cloud session built §10 #150 and pushed it** (live): `8924740` tests use
+  the fake db however `lib/db` is imported; `3f39f9e` #151 (Type + Sector + last name to Zoho, `CUSTOMER_FIELDS`);
+  `3d37345` one-screen new customer (Business / Individual, GSTIN → state + PAN + GST treatment, `src/lib/gstin.ts`,
+  "More" for salutation / work phone / street / PIN; tax-exempt not offered — Zoho needs an exemption id); `6be4365`
+  after Save → Download PDF (`GET ?pdf=`) and an email step (`GET ?email=` = Zoho's template; To / Cc / Subject /
+  message; Zoho's PDF attached; + 10 files ≤ 4 MB; Send = multipart → Zoho `POST /estimates/{id}/email`, marks it
+  Sent; production only); `2f3b049` keyboard-first items + the last sales person remembered (`th.quotes.salesperson`).
+  The quote already opened straight after "Create customer" (step 3).
+- **Checked 30 Oct 9:15 IST (all read-only):** local = GitHub = live `2f3b049`; `npm test` 32 / 32; database 6.9 MB/s;
+  Sync log ok (Admin full sync 9:13 IST today; quick syncs hourly yesterday); the daily Vercel cron ran 27–29 Oct at
+  9:17 (reminders) and 9:34 IST — **today's hadn't shown yet at 9:14, check it after 9:35**; **Quotations connection
+  reconnected by Admin 29 Oct 16:50 → `newCustomers: true`**; master certificate sheet ok; `quotationsSent` still only
+  the deleted 28 Oct test (no real quote from the page yet); stored dashboards: `my-admin` and the owner's edited
+  Defibtech tab ("AEDs, PADs, BATTERIES"), both canvas shape.
+- **Next, in order:**
+  1. **#150 first live test (owner):** make a quote for a test customer → Save and email… → send to
+     sshah@thinkhealth.in with one small attachment. Then check in Zoho (and read-only here): the quote is **Sent**,
+     the email arrived with Zoho's PDF + the attachment, Send to CRM / Reminder Frequency / Reminder Date / Product
+     Type / Deal Name / sales person landed, GST + total match the popup. Also try "+ New customer" with a GSTIN (Type,
+     Sector, PAN, GST treatment should land in Zoho). Fix what fails — nothing else in #150 is left.
+  2. **Reports phase 5** (§10 #162 — new business reports): restate with defaults, wait for "yeah".
+  3. Phase 6 (#163), leftovers (#164), the canvas-gaps question (#164).
+  4. Owner-side list below (item 12) is unchanged except Quotations (done).
 
 Read this end to end before touching code. It records:
 - what the owner asked for (every prompt, all eighteen sessions — §5);
@@ -2609,6 +2634,10 @@ No test suite. Pattern used throughout:
      **Open questions to ask with defaults:** send the email from Zoho Books (default; marks Sent, org address) or from
      the person's own Zoho Mail mailbox (the app already has Mail connections — replies come to them)? Keep Zoho's
      standard email as a one-click "Send with Zoho's standard email"? Attachment size cap (default 4 MB total)?
+     **BUILT and live 29 Oct (cloud session, after the owner's "yeah"): steps 1, 2, 4–6 = `3f39f9e`, `3d37345`,
+     `6be4365`, `2f3b049`; step 7 kept (production only); step 8 done — Admin reconnected Quotations 29 Oct 16:50 IST
+     (`newCustomers: true`). NOT yet proven against Zoho: the email send (multipart, PDF attached) — first live send by
+     the owner to themselves. See "Update — Fri 30 Oct" at the top.** The plan as restated:
      **Restated 29 Oct (session 18) — waiting for the owner's "yeah", build one commit per step:**
      1) fix #151 first: new customers send Zoho's mandatory Type (default "New Customer") + Sector; Last Name required;
      2) a one-screen new customer: Business / Individual, Last Name, company = display name, email, mobile, GSTIN
