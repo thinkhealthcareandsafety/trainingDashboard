@@ -97,6 +97,9 @@ export const DATASETS: Dataset[] = [
       { key: "avgPrice", label: "Average selling price", format: "inr", agg: "ratio", num: "revenue", den: "units", def: "Revenue ÷ units: the average price per unit sold (after discounts, before tax). Compare like with like — one item group or item at a time." },
       { key: "newCustomers", label: "New customers", format: "count", agg: "distinct", field: "customer", where: { field: "repeat", values: ["First invoice"] }, def: "Customers whose first-ever invoice (Zoho Books has them from Jul 2021) falls in the period." },
       { key: "repeatRevenue", label: "Repeat revenue", format: "inr", agg: "sum", field: "amount", where: { field: "repeat", values: ["Repeat"] }, def: "Revenue from customers' second and later invoices." },
+      // Lead-source return (owner, 30 Oct — phase 5): what a new customer brings in their first invoice, per channel.
+      { key: "newRevenue", label: "Revenue from new customers", format: "inr", agg: "sum", field: "amount", where: { field: "repeat", values: ["First invoice"] }, def: "Revenue on customers' first-ever invoice (Zoho Books has them from Jul 2021)." },
+      { key: "perNewCustomer", label: "First order per new customer", format: "inr", agg: "ratio", num: "newRevenue", den: "newCustomers", def: "Revenue from new customers ÷ new customers: what a new customer's first invoice is worth. Zoho doesn't record what each channel costs, so this is what a channel brings, not its return on spend." },
       { key: "repeatShare", label: "Repeat revenue share", format: "pct", agg: "ratio", num: "repeatRevenue", den: "revenue", scale: 100, def: "Repeat revenue ÷ revenue: how much comes from customers who bought before." },
       { key: "top10Share", label: "Top 10 customers' share", better: "down", format: "pct", agg: "topShare", field: "customer", sum: "amount", n: 10, def: "The 10 biggest customers' revenue ÷ all revenue — how much rides on a few customers." },
     ],
