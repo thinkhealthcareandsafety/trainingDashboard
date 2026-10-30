@@ -40,7 +40,12 @@ export function Reports() {
   const [editing, setEditing] = useState<{ draft: CustomDash; fresh: boolean; mine?: boolean } | null>(null);
 
   // The other Zoho columns go on the datasets before anything reads them (REPORT-BUILDER-PLAN step 1).
-  const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => { registerExtras(j.columns ?? {}); setMeta(j); }).catch(() => setError("Couldn't reach the server")), []);
+  // An answer without `datasets` (signed out, a 503 from a slow database) says so — read as Meta it crashed the whole
+  // page ("This page couldn't load", found 31 Oct).
+  const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta & { error?: string }) => {
+    if (!Array.isArray(j.datasets)) { setError(j.error ?? "Couldn't load Reports — try again in a minute"); return; }
+    registerExtras(j.columns ?? {}); setMeta(j);
+  }).catch(() => setError("Couldn't reach the server")), []);
   // A saved report on a Zoho table needs the table list first (its fields and numbers come from it).
   const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json())
     .then(async (j: { canBuild: boolean; reports: Saved[] }) => { if (j.reports?.some((x) => isTableKey(x.spec.dataset))) await loadTables(); setSaved(j); }).catch(() => {}), []);
