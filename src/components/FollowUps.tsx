@@ -23,7 +23,7 @@ type Stage = "lead" | "quotation" | "performa" | "training" | "training_complete
   | "logi_aed" | "logi_stl" | "logi_paid" | "logi_packages" | "logi_shipments" | "logi_received";
 
 const STAGES: { key: Stage; label: string; header: string; dot: string }[] = [
-  { key: "lead", label: "Leads", header: "bg-surface-2", dot: "bg-faint" },
+  { key: "lead", label: "Potential Leads", header: "bg-surface-2", dot: "bg-faint" },
   { key: "quotation", label: "Quotations", header: "bg-brand-soft", dot: "bg-brand-2" },
   { key: "performa", label: "Performa invoice", header: "bg-medium-bg", dot: "bg-medium" },
   { key: "training", label: "Training scheduled", header: "bg-scheduled-bg", dot: "bg-scheduled" },
@@ -812,7 +812,7 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
                 {aed.data?.windowStart && <> · AED invoices since {fmtDate(aed.data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
               </>
             ) : <>
-            {leads.length.toLocaleString("en-IN")} leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments · {lost.length} lost · {potential.length} potential
+            {leads.length.toLocaleString("en-IN")} potential leads · {quotes.length} quotations · {pis.length} performa invoices · {scheduled.length} scheduled · {completed.length} completed · {invoiced.length} invoices · {paid.length} payments · {lost.length} lost · {potential.length} potential
             {data?.windowStart && <> · documents since {fmtDate(data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
             </>}
           </p>

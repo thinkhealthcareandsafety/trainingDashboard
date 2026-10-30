@@ -15,7 +15,7 @@ const monthName = (ym: string, year = true) => fmtDate(`${ym}-01`, year ? { mont
 
 /**
  * The date each card is filtered on — the one it shows: training days once a training is scheduled, otherwise the
- * quotation / PI / invoice / payment date, the expected date on Potential training, the created date on Leads.
+ * quotation / PI / invoice / payment date, the expected date on Potential training, the created date on Potential Leads.
  * Each entry is a day span, so a month-only expected date ("2026-11") counts for the whole month.
  */
 function spans(c: CardView): [string, string][] {
@@ -126,7 +126,7 @@ function FilterModal({ value, onApply, onClose }: { value: DateFilterValue | nul
         </div>
       )}
       <p className="mt-3 rounded-xl bg-surface-2 px-3 py-2 text-[12.5px] leading-snug text-muted">
-        Each card is matched on the date it shows: training dates once scheduled, otherwise the quotation, PI, invoice or payment date; expected date on Potential training; created date on Leads.
+        Each card is matched on the date it shows: training dates once scheduled, otherwise the quotation, PI, invoice or payment date; expected date on Potential training; created date on Potential Leads.
       </p>
       <div className="mt-5 flex items-center justify-end gap-2">
         {value && <button type="button" className={`${btn.quiet} mr-auto`} onClick={() => onApply(null)}>Clear filter</button>}

@@ -1809,7 +1809,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
   const del = () => {
     // Recorded on everything merged into this card too, so the lead that returns to Leads shows why.
     const [ev] = addCardEvents([{ cardIds: [...new Set([card.id, ...card.historyIds])], kind: "delete", by: member.name }]);
-    const text = card.kind === "potential" ? `Removed ${card.name} from Potential training` : `Deleted ${cardLabel(card)} — ${card.name} is back in Leads`;
+    const text = card.kind === "potential" ? `Removed ${card.name} from Potential training` : `Deleted ${cardLabel(card)} — ${card.name} is back in Potential Leads`;
     toast({ text, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
     onClose();
   };
@@ -1846,7 +1846,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       {/* Leads are the Zoho customers themselves, so only quote/PI cards can be deleted. */}
       {card.kind !== "lead" && !card.deleted && (confirmDelete ? (
         <span className="ml-auto inline-flex items-center gap-2 text-[13px] text-muted">
-          {card.kind === "potential" ? "Remove from Potential training? (Zoho is not changed.)" : "Delete this card? The customer goes back to Leads (Zoho is not changed)."}
+          {card.kind === "potential" ? "Remove from Potential training? (Zoho is not changed.)" : "Delete this card? The customer goes back to Potential Leads (Zoho is not changed)."}
           <button className={btn.danger} onClick={del}>Delete</button>
           <button className={btn.quiet} onClick={() => setConfirmDelete(false)}>Keep</button>
         </span>
@@ -1870,7 +1870,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
       <div className="space-y-3 p-4">
         {card.deleted && (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-high-bg px-4 py-3 text-[14px] text-high">
-            {ownDelete ? (card.kind === "potential" ? "Removed from Potential training." : "This card is deleted; the customer is back in Leads.") : "Hidden because the card it was merged into was deleted — restore that card to bring it back."}
+            {ownDelete ? (card.kind === "potential" ? "Removed from Potential training." : "This card is deleted; the customer is back in Potential Leads.") : "Hidden because the card it was merged into was deleted — restore that card to bring it back."}
             {ownDelete && canRestore && <button className="font-semibold underline" onClick={restore}>Restore</button>}
           </div>
         )}
