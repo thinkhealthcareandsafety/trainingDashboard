@@ -109,8 +109,10 @@ let loading: Promise<Echarts> | null = null;
 function loadEcharts(): Promise<Echarts> {
   return (loading ??= (async () => {
     const core = await import("echarts/core");
-    const [charts, components, renderers] = await Promise.all([import("echarts/charts"), import("echarts/components"), import("echarts/renderers")]);
-    core.use([charts.BarChart, charts.LineChart, charts.PieChart, components.GridComponent, components.TooltipComponent, components.LegendComponent, components.MarkLineComponent, renderers.CanvasRenderer]);
+    const [charts, components, renderers, features] = await Promise.all([import("echarts/charts"), import("echarts/components"), import("echarts/renderers"), import("echarts/features")]);
+    // ECharts 6 (31 Oct, for its XSS fix): `grid.containLabel` lays out the v5 way only with LegacyGridContainLabel —
+    // without it the label column grew and the axis amounts thinned out ("Top 10 customers": ₹0 · ₹10 L · ₹30 L).
+    core.use([charts.BarChart, charts.LineChart, charts.PieChart, components.GridComponent, components.TooltipComponent, components.LegendComponent, components.MarkLineComponent, renderers.CanvasRenderer, features.LegacyGridContainLabel]);
     return core;
   })());
 }
