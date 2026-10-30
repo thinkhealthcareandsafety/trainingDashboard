@@ -12,6 +12,7 @@ import { type Param, paramsUsed } from "@/lib/analytics/params";
 import { type CalcField, calcInputs, registerCalcFields } from "@/lib/analytics/calc";
 import { isTableKey } from "@/lib/analytics/tables";
 import { ParamInput, loadParams } from "./ParamControls";
+import { relabel, renderLabel } from "@/lib/analytics/labels";
 import { allParams as paramsList } from "@/lib/analytics/params";
 import { Chart, Kpi, type Lines, chartKindOf, downloadCsv, labelOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, PeriodSelect, type Rule, isError, rangeOfKey, ruleSummary, runSpecs, useFieldList, useFieldValues, withPeriod } from "./shared";
@@ -592,7 +593,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
             onArrange={(b) => { const r = arrange(edit!.draft, at, b); if ("error" in r) { setNote(r.error); setRev((x) => x + 1); } else apply(r); }}
             onDropNew={(pos) => dropNew(at, pos)} dropSize={dropSize}
             render={(t, box) => framed(t, t.spec.chart === "kpi"
-              ? <KpiCell title={specOf(t).title ?? ""} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} spark={sparkOf(t)} />
+              ? <KpiCell title={renderLabel(specOf(t).title ?? "", { spec: specOf(t), result: answers[t.id] && !isError(answers[t.id]) ? answers[t.id] as Exclude<Answer, { error: string }> : undefined })} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} spark={sparkOf(t)} />
               : <TileCard tile={{ ...t, w: 12 }} fill={heightOf(box.h)} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                   picked={pick?.tileId === t.id ? pick.value : null} onPick={edit ? undefined : pickFrom(t)}
                   target={(specOf(t).grain ?? "month") !== "month" ? undefined : t.goalLine ? goal : t.target}
@@ -785,6 +786,7 @@ const BAND_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 
 
 /** Numbers side by side in one card, parted by hairlines (the grid's 1 px gaps over the line colour). */
 function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; skippedOf?: (t: Tile) => string[]; sparkOf?: (t: Tile) => (number | null)[] | undefined; className?: string }) {
+  const kpiTitle = (t: Tile) => { const a = answers[t.id]; return renderLabel(specOf(t).title ?? "", { spec: specOf(t), result: a && !isError(a) ? a : undefined }); };
   return (
     <section className={`card overflow-hidden ${className}`} aria-label="Key numbers">
       <div className={`grid gap-px bg-line ${BAND_COLS[tiles.length] ?? "grid-cols-2 xl:grid-cols-4"}`}>
@@ -793,7 +795,7 @@ function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, className = "" }:
           const def = measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def;
           return (
             <div key={t.id} className="min-w-0 bg-surface px-5 py-4">
-              <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${specOf(t).title} — ${def}` : specOf(t).title}>{specOf(t).title}</h3>
+              <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${kpiTitle(t)} — ${def}` : kpiTitle(t)}>{kpiTitle(t)}</h3>
               <div className="mt-1.5">
                 {!a ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
                   : isError(a) ? <p className="text-[15px] text-high">{a.error}</p>
@@ -913,16 +915,18 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
   // Analyses have a fixed shape; "what changed" can still switch its split.
   const canTweak = Boolean(onTweak) && !isKpi && tile.spec.by?.length === 1 && (!tile.spec.analysis || tile.spec.analysis === "drivers");
   // Changed here: the title says what it now shows.
-  const title = reshapes(tweak) ? autoTitle(spec) : spec.title ?? "";
+  // The report's own words (labels.ts): its title and subtitle with values dropped in, its own column names.
+  const shownAnswer = answer && !isError(answer) ? relabel(answer, spec.text?.names) : answer;
+  const title = reshapes(tweak) ? autoTitle(spec) : renderLabel(spec.title ?? "", { spec, result: shownAnswer && !isError(shownAnswer) ? shownAnswer : undefined });
   const items: MenuItem[] = [
     ...(canTweak ? [{ label: "Change this chart…", onClick: () => setEditing(true) }] : []),
     ...(!isKpi && ok ? [
       { label: table ? "Show as chart" : "Show as table", onClick: () => setTable((x) => !x) },
-      { label: "Download CSV (Excel)", onClick: () => downloadCsv(answer, title || "report", spec.grain) },
+      { label: "Download CSV (Excel)", onClick: () => downloadCsv(shownAnswer as typeof answer, title || "report", spec.grain) },
     ] : []),
     ...menu,
   ];
-  const sub = meta ?? (reshapes(tweak) ? `Changed from “${titleOf(tile.spec)}”` : !isKpi ? tile.note : undefined);
+  const sub = meta ?? (reshapes(tweak) ? `Changed from “${titleOf(tile.spec)}”` : spec.text?.subtitle?.trim() ? renderLabel(spec.text.subtitle, { spec, result: shownAnswer && !isError(shownAnswer) ? shownAnswer : undefined }) : !isKpi ? tile.note : undefined);
   return (
     <section className={`card flex min-w-0 flex-col p-5 ${fill ? "h-full overflow-hidden" : SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
@@ -940,7 +944,7 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
           // Nothing to draw: say so, not empty axes at ₹0 (29 Oct).
           : !isKpi && answer.rows.every((r) => r.values.every((v) => !v) && !r.prev?.some((v) => v)) ? <p className="grid h-[200px] place-items-center rounded-lg bg-surface-2/60 px-4 text-center text-[15.5px] text-muted">{!answer.rows.length && answer.note ? answer.note : "Nothing here for these dates and filters"}</p>
-          : <Chart result={answer} kind={table ? "table" : chartKindOf(spec)} labels={spec.labels} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} lines={tweak?.lines} />}
+          : <Chart result={shownAnswer as typeof answer} axisNames={{ x: spec.text?.axisX && renderLabel(spec.text.axisX, { spec }), y: spec.text?.axisY && renderLabel(spec.text.axisY, { spec }) }} kind={table ? "table" : chartKindOf(spec)} labels={spec.labels} grain={spec.grain} height={fill ? Math.max(120, fill - (sub ? 118 : 96)) : tile.tall ? 470 : tile.w === 12 ? 300 : 280} picked={picked} onPick={onPick} accent={accent} target={target} relative={spec.relative === "first"} lines={tweak?.lines} />}
       </div>
     </section>
   );

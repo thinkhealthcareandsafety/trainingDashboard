@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { DATASETS, type Grain, datasetOf, fieldOf, measureOf, periods } from "@/lib/analytics/model";
 import type { ChartKind, Filter, Spec } from "@/lib/analytics/query";
 import { describeSpec } from "@/lib/analytics/describe";
+import { TOKENS, relabel, renderLabel } from "@/lib/analytics/labels";
 import { type Param, type ParamCmp, allParams, paramFilterText } from "@/lib/analytics/params";
 import { ParamEditor, ParamInput, useParams } from "./ParamControls";
 import { type CalcField, type CalcFormula, OPS, calcKey, calcProblem, defaultFormat, describeCalc, forgetCalcField, registerCalcFields } from "@/lib/analytics/calc";
@@ -83,6 +84,13 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const d = d0!;
   const zt = isTableKey(spec.dataset);
   const set = (patch: Partial<Spec>) => setSpec((s) => ({ ...s, ...patch }));
+  const setText = (patch: NonNullable<Spec["text"]>) => setSpec((s) => {
+    const t = { ...(s.text ?? {}), ...patch };
+    const names = Object.fromEntries(Object.entries(t.names ?? {}).filter(([, v]) => v.trim()));
+    const text = { ...(t.subtitle?.trim() ? { subtitle: t.subtitle } : {}), ...(t.axisX?.trim() ? { axisX: t.axisX } : {}), ...(t.axisY?.trim() ? { axisY: t.axisY } : {}), ...(Object.keys(names).length ? { names } : {}) };
+    // A box keeps what's typed (spaces too); an emptied one leaves nothing behind.
+    return { ...s, text: Object.keys(text).length ? text : undefined };
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("[aria-expanded=true]")) onClose(); };
@@ -227,6 +235,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   if (!d0) return frame(<TablePicker list={tables} legacy={legacy.map((x) => ({ key: x.key, label: x.label }))} admin={admin} onPick={changeDataset} onClose={onClose}
     onReload={(force: boolean) => { setTables(null); (force ? fetch("/api/analytics/tables", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) }).catch(() => null) : Promise.resolve()).then(() => loadTables(true).then(setTables)); }} />);
   const kind = answer && !isError(answer) ? resolveKind(chartKindOf(spec), answer) : undefined;
+  const shown = answer && !isError(answer) ? relabel(answer, spec.text?.names) : undefined;
   const sentence = describeSpec(spec, today, kind);
   const q = search.trim().toLowerCase();
   // "Total BCY" finds "Total (BCY)": brackets and dots don't count.
@@ -462,23 +471,51 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
             <div className="no-scrollbar flex flex-col p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               <p className="rounded-xl bg-brand-soft px-4 py-2.5 text-[15.5px] leading-relaxed text-ink" aria-live="polite">{sentence}</p>
               <div className="mt-3 flex items-baseline justify-between gap-3">
-                <h3 className="min-w-0 truncate text-[18px] font-semibold text-ink">{title || autoTitle(spec)}</h3>
+                <div className="min-w-0">
+                  <h3 className="truncate text-[18px] font-semibold text-ink">{renderLabel(title || autoTitle(spec), { spec: { ...spec, params: paramValues }, result: shown })}</h3>
+                  {spec.text?.subtitle?.trim() && <p className="truncate text-[15px] text-muted">{renderLabel(spec.text.subtitle, { spec: { ...spec, params: paramValues }, result: shown })}</p>}
+                </div>
                 {answer && !isError(answer) && <span className="shrink-0 text-[15px] text-muted">{answer.matched.toLocaleString("en-IN")} rows of data</span>}
               </div>
               <div className="mt-3 min-h-[300px] flex-1">
                 {!spec.measures.length ? <p className="grid h-[300px] place-items-center rounded-lg border border-dashed border-line px-6 text-center text-[16px] text-muted">Nothing to show yet. Pick a number from the Data pane (e.g. {zt ? "Sum of Total (BCY), Number of rows" : "Revenue, Invoices, Quantity"}), then something for Rows.</p>
                   : !answer ? <div className="h-[420px] animate-pulse rounded-lg bg-surface-2" />
                   : isError(answer) ? <p className="text-[16px] text-high">{answer.error}</p>
-                  : <Chart result={answer} kind={chartKindOf(spec)} labels={spec.labels} grain={spec.grain} height={kind === "kpi" ? 120 : 420} />}
+                  : <Chart result={shown!} axisNames={{ x: spec.text?.axisX && renderLabel(spec.text.axisX, { spec }), y: spec.text?.axisY && renderLabel(spec.text.axisY, { spec }) }} kind={chartKindOf(spec)} labels={spec.labels} grain={spec.grain} height={kind === "kpi" ? 120 : 420} />}
               </div>
             </div>
           </section>
 
           {/* Format */}
           <section aria-label="Format" className={`${show("format")} no-scrollbar min-h-0 flex-col gap-4 overflow-y-auto border-line p-4 lg:border-l`}>
-            <FormatRow label="Title">
+            {/* Your own words (labels.ts): title, subtitle and axis names can carry values ("Revenue {period}: {total}"),
+                and every column and number can be renamed. */}
+            <FormatRow label="Title" hint="Values can go in — pick one below; they fill in by themselves">
               <input className={inputCls} placeholder={autoTitle(spec)} value={title} onChange={(e) => setTitle(e.target.value)} />
+              <TokenPicker onPick={(t) => setTitle((x) => `${x || autoTitle(spec)} ${t}`.trim())} />
             </FormatRow>
+            <FormatRow label="Subtitle">
+              <input className={inputCls} placeholder="e.g. {filters} · as of {today}" value={spec.text?.subtitle ?? ""} onChange={(e) => setText({ subtitle: e.target.value })} />
+              <TokenPicker onPick={(t) => setText({ subtitle: `${spec.text?.subtitle ?? ""} ${t}`.trim() })} />
+            </FormatRow>
+            {kind && !["kpi", "table", "donut", "matrix", "heatmap", "map"].includes(kind) && (
+              <FormatRow label="Axis names">
+                <div className="grid gap-1.5">
+                  <input className={inputCls} placeholder="Along the bars (e.g. Month)" value={spec.text?.axisX ?? ""} onChange={(e) => setText({ axisX: e.target.value })} aria-label="Category axis name" />
+                  <input className={inputCls} placeholder="The values (e.g. ₹ before tax)" value={spec.text?.axisY ?? ""} onChange={(e) => setText({ axisY: e.target.value })} aria-label="Value axis name" />
+                </div>
+              </FormatRow>
+            )}
+            {(by.length > 0 || spec.measures.length > 0) && (
+              <FormatRow label="Names" hint="What columns and numbers are called on this report — empty = Zoho's name">
+                <div className="grid gap-1.5">
+                  {[...by.map((k) => ({ key: k, label: fieldOf(d, k)?.label ?? k })), ...spec.measures.map((k) => ({ key: k, label: measureOf(d, k)?.label ?? k }))].map((x) => (
+                    <input key={x.key} className={inputCls} placeholder={x.label} aria-label={`Name for ${x.label}`} value={spec.text?.names?.[x.key] ?? ""}
+                      onChange={(e) => setText({ names: { ...(spec.text?.names ?? {}), [x.key]: e.target.value } })} />
+                  ))}
+                </div>
+              </FormatRow>
+            )}
             <FormatRow label="Chart" hint={kind && (spec.chart ?? "auto") === "auto" ? `Suggested here: ${kind === "matrix" ? "Crosstab" : CHARTS.find((c) => c.value === kind)?.label ?? kind}` : undefined}>
               <div className="flex flex-wrap gap-1">
                 {/* Two splits: also a crosstab (Columns' own look) or a heat map. */}
@@ -871,5 +908,17 @@ function FieldEditor({ d, field, choices, onClose, onSaved, onDeleted }: {
         </div>
       </div>
     </div>
+  );
+}
+
+/** "Insert value": drops a value into a label — the fixed ones, then each parameter by name. */
+function TokenPicker({ onPick }: { onPick: (token: string) => void }) {
+  return (
+    <select aria-label="Insert a value" className="mt-1.5 h-8 w-full rounded-lg border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
+      onChange={(e) => e.target.value && onPick(e.target.value)}>
+      <option value="">+ Insert a value…</option>
+      {TOKENS.map(([t, l]) => <option key={t} value={t}>{l} — {t}</option>)}
+      {allParams().length > 0 && <optgroup label="Parameters">{allParams().map((p) => <option key={p.id} value={`{${p.name}}`}>{p.name}</option>)}</optgroup>}
+    </select>
   );
 }

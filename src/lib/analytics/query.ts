@@ -55,6 +55,9 @@ export type Spec = {
   split?: "colour" | "columns";
   /** Numbers written on the marks (the first value). */
   labels?: boolean;
+  /** The report's own words (labels.ts): a subtitle and axis names (templates, like the title), and new names for its
+   *  columns and numbers (key → name). */
+  text?: { subtitle?: string; axisX?: string; axisY?: string; names?: Record<string, string> };
   /** Up to 3 more numbers shown only on hover, per Rows value — computed, not drawn. */
   tooltip?: string[];
   /** The parameter values chosen for this run (params.ts); a parameter not here takes its own value. */

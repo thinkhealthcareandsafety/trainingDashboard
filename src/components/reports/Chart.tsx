@@ -166,7 +166,9 @@ function colourMap(names: string[], dark: boolean, pal: string[]): Map<string, s
 /** Lines and colours added to one chart ("Change this chart" — owner, 29 Oct, phase 4); kept with that chart's tweak. */
 export type Lines = { avg?: boolean; min?: boolean; max?: boolean; target?: number; trend?: boolean; forecast?: boolean; above?: number; below?: number };
 
-export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0, target, relative, lines, labels }: {
+export function Chart({ result, kind, grain = "month", height = 280, picked, onPick, accent = 0, target, relative, lines, labels, axisNames }: {
+  /** The report's own axis names (Spec.text): the categories' axis and the values' axis. */
+  axisNames?: { x?: string; y?: string };
   result: Result; kind: ChartKind | undefined; grain?: Grain; height?: number;
   lines?: Lines;
   /** Numbers written on the bars / points / slices (Spec.labels). Hover-only numbers come in the result (`tips`). */
@@ -209,7 +211,7 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
       }
       const c = chart.current ?? ec.init(el.current, undefined, { renderer: "canvas" });
       chart.current = c;
-      c.setOption(option(model, (k === "stacked100" ? "stacked" : k) as Drawn, readTheme(), picked ?? null, accent, target, lines, grain, { labels, tips: result.tips }), { notMerge: true });
+      c.setOption(withAxisNames(option(model, (k === "stacked100" ? "stacked" : k) as Drawn, readTheme(), picked ?? null, accent, target, lines, grain, { labels, tips: result.tips }), axisNames), { notMerge: true });
       c.off("click");
       c.on("click", (p: { dataIndex?: number; name?: string }) => {
         const key = model.keyByLabel.get(String(p.name ?? "")) ?? (p.dataIndex !== undefined ? model.x[p.dataIndex] : undefined);
@@ -335,6 +337,24 @@ function buildModel(r: Result, k: Exclude<ChartKind, "auto">, grain: Grain): Mod
 
 type Drawn = Exclude<ChartKind, "auto" | "kpi" | "table" | "matrix">;
 const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+/** The report's axis names on a drawn chart: the category axis gets `x`, the value axis `y` (whichever way it lies). */
+function withAxisNames<T>(o: T, names?: { x?: string; y?: string }): T {
+  if (!names?.x?.trim() && !names?.y?.trim()) return o;
+  const opt = o as { xAxis?: unknown; yAxis?: unknown };
+  // Along the bottom: under the axis. Up the side: rotated beside the numbers — but beside bar names (horizontal bars)
+  // it would sit on them, so there it goes above the axis.
+  const name = (side: "x" | "y") => (axis: unknown): unknown => {
+    if (Array.isArray(axis)) return axis.map(name(side));
+    if (!axis || typeof axis !== "object") return axis;
+    const a = axis as { type?: string };
+    const n = (a.type === "category" ? names.x : names.y)?.trim();
+    if (!n) return a;
+    const place = side === "x" ? { nameLocation: "middle", nameGap: 34 } : a.type === "category" ? { nameLocation: "end", nameGap: 12 } : { nameLocation: "middle", nameGap: 56 };
+    return { ...a, name: n, ...place, nameTextStyle: { fontSize: 14 } };
+  };
+  return { ...opt, ...(opt.xAxis ? { xAxis: name("x")(opt.xAxis) } : {}), ...(opt.yAxis ? { yAxis: name("y")(opt.yAxis) } : {}) } as T;
+}
+
 function option(m: Model, k: Drawn, t: Theme, picked: string | null, accent: number, target?: number, lines?: Lines, grain?: Grain, marks: { labels?: boolean; tips?: Result["tips"] } = {}) {
   const pal = t.palette;
   const colours = colourMap(m.series.map((s) => s.key), t.dark, pal);
