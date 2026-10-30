@@ -2,11 +2,13 @@ import { after } from "next/server";
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { boardsFor, isAdmin } from "@/lib/roles";
-import { DATASETS, canRead, datasetOf } from "@/lib/analytics/model";
+import { DATASETS, type Row, canRead, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, runQuery } from "@/lib/analytics/query";
 import { STALE_MS, dataState, datasetRows, refreshAnalyticsData } from "@/lib/analytics/source";
 import { TABLES, type TableKey } from "@/lib/analytics/build";
 import { DEFAULT_GOAL } from "@/lib/analytics/goal";
+import { isTableKey, registerTables } from "@/lib/analytics/tables";
+import { readCatalog, tableRowsFor } from "@/lib/analytics/tablesServer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -57,11 +59,25 @@ export async function POST(request: Request) {
     ? await (await db()).collection<{ _id: string; monthly?: number; months?: Record<string, number> }>("kv").findOne({ _id: "reports_goal" })
     : null;
   const goal = { monthly: goalDoc?.monthly ?? DEFAULT_GOAL, months: goalDoc?.months ?? {} };
-  const results = specs.map((spec) => {
+  // Reports on a Zoho table (owner's plan of 30 Oct): the table, and the linked tables it uses, copied on first use.
+  const tableRows = new Map<number, Row[]>();
+  const tableErrors = new Map<number, string>();
+  if (specs.some((s) => isTableKey(s.dataset))) {
+    const catalog = await readCatalog();
+    registerTables(catalog);
+    for (const [i, spec] of specs.entries()) {
+      if (!isTableKey(spec.dataset)) continue;
+      const d = datasetOf(spec.dataset);
+      if (!d || !canRead(d, boards, isAdmin(me))) continue;
+      try { tableRows.set(i, await tableRowsFor(spec, catalog)); } catch (e) { tableErrors.set(i, `Couldn't copy that table from Zoho (${e instanceof Error ? e.message : String(e)}) — try again in a minute`); }
+    }
+  }
+  const results = specs.map((spec, i) => {
     try {
       const d = datasetOf(spec.dataset);
       if (!d || !canRead(d, boards, isAdmin(me))) return { error: "You can't see this data" };
-      return runQuery({ ...spec, asOf: today, ...(spec.analysis === "vsTarget" ? { goal } : {}) }, rows[d.key] ?? []);
+      if (tableErrors.has(i)) return { error: tableErrors.get(i)! };
+      return runQuery({ ...spec, asOf: today, ...(spec.analysis === "vsTarget" ? { goal } : {}) }, tableRows.get(i) ?? rows[d.key] ?? []);
     } catch (e) {
       return { error: e instanceof SpecError ? e.message : "Couldn't run this report" };
     }

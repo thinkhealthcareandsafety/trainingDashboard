@@ -1,5 +1,5 @@
 import type { Raw, TableKey } from "./build";
-import { type Dataset, type Field, type Format, type Measure, DATASETS, setMeasureResolver } from "./model";
+import { type Dataset, type Field, type Format, type Measure, DATASETS, addMeasureResolver } from "./model";
 
 /*
  * Every other Zoho column (owner, 30 Oct: "read all the columns first … rows, columns, colour, labels, tooltips,
@@ -99,4 +99,4 @@ export function dynamicMeasure(d: Dataset, key: string): Measure | undefined {
     def: `${word} of the Zoho column “${col.name}” over the ${col.table.toLowerCase()}s chosen (empty ones left out of an average).` };
 }
 
-setMeasureResolver(dynamicMeasure);
+addMeasureResolver(dynamicMeasure);

@@ -427,10 +427,11 @@ for (const d of DATASETS) for (const m of d.measures) m.zoho ??= ZOHO[d.key]?.[m
 
 export const datasetOf = (key: string) => DATASETS.find((d) => d.key === key);
 export const fieldOf = (d: Dataset, key: string) => (key === "date" ? d.fields.find((f) => f.key === "date") : d.fields.find((f) => f.key === key));
-/** Measures made on the spot from a copied number column (extras.ts: "sum:x.invoiceItems.Discount"); set by extras.ts. */
-let extraMeasure: ((d: Dataset, key: string) => Measure | undefined) | undefined;
-export const setMeasureResolver = (f: typeof extraMeasure) => { extraMeasure = f; };
-export const measureOf = (d: Dataset, key: string) => d.measures.find((m) => m.key === key) ?? extraMeasure?.(d, key);
+/** Measures made on the spot from a number column ("sum:Sub Total (BCY)") — extras.ts and tables.ts add their resolvers. */
+type Resolver = (d: Dataset, key: string) => Measure | undefined;
+const resolvers: Resolver[] = [];
+export const addMeasureResolver = (f: Resolver) => { if (!resolvers.includes(f)) resolvers.push(f); };
+export const measureOf = (d: Dataset, key: string): Measure | undefined => d.measures.find((m) => m.key === key) ?? resolvers.reduce<Measure | undefined>((m, f) => m ?? f(d, key), undefined);
 
 /* ---------------- Formatting (Indian style) ---------------- */
 
