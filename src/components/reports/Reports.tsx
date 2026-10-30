@@ -165,7 +165,7 @@ function SavedReports({ list, today, canBuild, onEdit, onChanged, onNew }: { lis
     return (
       <div className="card grid place-items-center gap-2 p-10 text-center">
         <p className="text-[16px] text-ink-2">No saved reports yet.</p>
-        <p className="max-w-md text-[15px] text-muted">{canBuild ? "Make one with + New report — pick the data, what to measure and how to split it, then save it for the team." : "Admin, Ashish, Shikha and Sumit save reports here for everyone."}</p>
+        <p className="max-w-md text-[15px] text-muted">{canBuild ? "Make one with + New report — pick the data, what to measure and how to split it, then save it for the team." : "Admin, Ashish, Shikha, Sumit and Nikita save reports here for everyone."}</p>
         {canBuild && <button className={`${btn.primary} mt-2`} onClick={onNew}>+ New report</button>}
       </div>
     );

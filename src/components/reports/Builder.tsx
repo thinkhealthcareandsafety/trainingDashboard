@@ -182,7 +182,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3.5">
           {saving.error && <span className="mr-auto text-[16px] font-medium text-high">{saving.error}</span>}
-          {!canSave && <span className="mr-auto text-[15.5px] text-muted">Admin, Ashish, Shikha and Sumit can save reports for the team.</span>}
+          {!canSave && <span className="mr-auto text-[15.5px] text-muted">Admin, Ashish, Shikha, Sumit and Nikita can save reports for the team.</span>}
           {canSave && !savedId && targets.length > 0 && (
             <div className="mr-auto flex flex-wrap items-center gap-2 text-[15.5px] text-ink-2">
               <span>Put it on</span>

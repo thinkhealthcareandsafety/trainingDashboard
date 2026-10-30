@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   if (!me) return unauthorized();
   const body = (await request.json().catch(() => ({}))) as { dashboard?: unknown; hide?: unknown; hidden?: unknown };
   const own = (body.dashboard as { id?: unknown } | undefined)?.id === "mine";
-  if (own ? !boardsFor(me).includes("training") : !hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha and Sumit edit dashboards" }, { status: 403 });
+  if (own ? !boardsFor(me).includes("training") : !hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita edit dashboards" }, { status: 403 });
   const now = new Date().toISOString();
 
   if ("hide" in body) {

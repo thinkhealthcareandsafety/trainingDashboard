@@ -77,7 +77,7 @@ export function AedTrainingSection({ card, member }: { card: CardView; member: M
     <Section title="Training">
       {!card.notRequired && (
         <div className={`mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 px-3 py-1 ${card.delivered ? "border-low bg-low-bg" : "border-medium bg-medium-bg"}`}>
-          <span className="text-[13.5px]" title={card.delivered ? undefined : "Arti, Shikha, Sumit, Ashish or Admin marks it once the AED is delivered — then the training can be scheduled"}>
+          <span className="text-[13.5px]" title={card.delivered ? undefined : "Arti, Shikha, Sumit, Ashish, Nikita or Admin marks it once the AED is delivered — then the training can be scheduled"}>
             <b className={card.delivered ? "text-low" : "text-medium"}>{card.delivered ? "Delivered — ready for scheduling" : "Not delivered yet"}</b>
             {card.delivered && <span className="text-[12px] text-muted"> · {card.delivered.by}, {dateLong(card.delivered.at)}</span>}
           </span>

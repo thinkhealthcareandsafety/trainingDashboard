@@ -28,7 +28,7 @@ export function TrackerInfo() {
             <div><dt className="font-semibold text-ink">Work done</dt><dd>Everything each person did on the boards in the last 7 days, recorded on its own from the change log (an undone change doesn't count), plus the requests they resolved.</dd></div>
             <div><dt className="font-semibold text-ink">Requests</dt><dd>Ask a teammate for input, a review or a hand-off, or flag a blocker — from here or from any card (the speech-bubble next to ×). Ping after 4 hours; anything open over a day turns red; resolving tells them to carry on.</dd></div>
             <div><dt className="font-semibold text-ink">Tagged</dt><dd>When a request is for you, or someone types @ and your name in its thread, you get a <span className="font-semibold text-high">red number</span> on Progress tracker. It stays until you reply in that request or resolve it.</dd></div>
-            <div><dt className="font-semibold text-ink">Who sees what</dt><dd>Admin, Shikha, Sumit and Ashish see everyone's columns; everyone else sees their own.</dd></div>
+            <div><dt className="font-semibold text-ink">Who sees what</dt><dd>Admin, Shikha, Sumit, Ashish and Nikita see everyone's columns; everyone else sees their own.</dd></div>
             <div><dt className="font-semibold text-ink">Active / Away</dt><dd>Active = the dashboard open on screen in the last 10 minutes; you can set Away or your focus on your own card. Nothing else is tracked — no screens, keys or apps, and no history of when anyone was online.</dd></div>
           </dl>
         </div>

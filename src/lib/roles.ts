@@ -6,7 +6,7 @@ import type { CardEvent } from "./types";
  *   Priyanka  AedSmartx only — everything there except marking an AED delivered
  *   Arti      Logistics only — everything there (AED delivered / hide, merges, packing, shipping, notes)
  *   Shreya    Fulfillment only — everything there
- *   Ashish, Shikha, Sumit   all four boards, every action
+ *   Ashish, Shikha, Sumit, Nikita   all four boards, every action
  *   Admin     everything; the only one who clears logs (Clear logs) or deletes log entries
  *   Anyone else   Training board
  *
@@ -19,8 +19,8 @@ type Who = { id: string; name: string };
 
 const named = (m: Who, re: RegExp) => re.test(m.name.trim());
 export const isAdmin = (m: Who) => m.id === "admin";
-/** Ashish, Shikha, Sumit and Admin: every board, every action. */
-export const hasFullAccess = (m: Who) => isAdmin(m) || named(m, /^(ashish|shikha|sumit)\b/i);
+/** Ashish, Shikha, Sumit, Nikita and Admin: every board, every action. */
+export const hasFullAccess = (m: Who) => isAdmin(m) || named(m, /^(ashish|shikha|sumit|nikita)\b/i);
 
 export function boardsFor(m: Who): BoardKind[] {
   if (hasFullAccess(m)) return ["training", "aed", "fulfil", "logistics"];

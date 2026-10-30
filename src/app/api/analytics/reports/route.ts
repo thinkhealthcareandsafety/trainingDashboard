@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha and Sumit save reports" }, { status: 403 });
+  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita save reports" }, { status: 403 });
   const body = (await request.json().catch(() => ({}))) as { id?: string; spec?: Spec };
   if (!body.spec) return Response.json({ error: "Nothing to save" }, { status: 400 });
   try {
