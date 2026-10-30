@@ -8,7 +8,7 @@ import { type Dataset, type Format, type Grain, type Measure, type Row, datasetO
 /** matrix: two splits as a pivot table (with the comparison in each cell); waterfall: steps up and down (bridge);
  * diverging: rises right in green, falls left in red (what changed). */
 export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "stacked100" | "donut" | "table" | "matrix" | "heatmap" | "waterfall" | "diverging" | "map";
-export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell";
+export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup";
 /**
  * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
  * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
@@ -86,6 +86,7 @@ export function checkSpec(spec: Spec): Dataset {
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
   if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
   if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
+  if (spec.analysis === "followup" && d.key !== "quotes") throw new SpecError("This analysis works on Quotes");
   const c = spec.compare;
   if (c && typeof c === "object" && !fieldOf(d, c.field)) throw new SpecError(`"${c.field}" isn't a field of ${d.label}`);
   return d;
@@ -334,6 +335,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
  * - winback:  customers who bought in the comparison period and not in this one, biggest first (needs a time compare)
  * - drivers:  what changed: each value of the split's change against the comparison, biggest rises and falls
  * - funnel:   each measure as a step (quotes → accepted → invoiced), with its share of the first
+ * - followup: quotes with no answer yet, oldest first — who to chase (owner, 30 Oct — phase 5)
  */
 function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
   const m = spec.measures[0];
@@ -364,6 +366,15 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
       return { keys: [`${label} · ${total ? Math.round((v / total) * 100) : 0}%`], values: [v] as (number | null)[] };
     });
     return out(rows, [{ key: "band", label: "Customers", date: false }], { note: `${n(n80)} of ${n(per.length)} customers make 80% of it.` });
+  }
+  // Quotes to chase: no answer yet (filters apply, the period doesn't), oldest first.
+  if (spec.analysis === "followup") {
+    const rows = keep(d, all, { filters: spec.filters }).filter((r) => r.outcome === "Waiting").sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const lim = spec.limit || 25;
+    const text = (v: Row[string] | undefined) => (typeof v === "string" && v ? v : "—");
+    return out(rows.slice(0, lim).map((r) => ({ keys: [text(r.quote), text(r.customer), typeof r.date === "string" ? grainLabel(r.date, "day", true) : "—", `${r.daysWaiting ?? "—"} days`, text(r.salesperson)], values: [sum([r])] })),
+      [{ key: "quote", label: "Quote", date: false }, { key: "customer", label: "Customer", date: false }, { key: "sent", label: "Sent", date: false }, { key: "waiting", label: "Waiting", date: false }, { key: "salesperson", label: "Sales person", date: false }],
+      { totals: [sum(rows)], note: `${n(rows.length)} quotes have no answer yet${rows.length > lim ? ` — the oldest ${lim} shown` : ""}.` });
   }
   // Lists over the whole history (filters apply, the period doesn't): who to call about pads / batteries, and who
   // bought one thing but not the other.

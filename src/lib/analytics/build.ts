@@ -69,6 +69,8 @@ const text = (s: string | undefined) => (s ?? "").trim() || null;
 /** Multi-select values ("AEDs, CPR Training") → a list, spaces tidied. */
 const list = (s: string | undefined) => (s ?? "").split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
 const dayDiff = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
+const plusDays = (d: string, n: number) => new Date(Date.parse(d) + n * 86_400_000).toISOString().slice(0, 10);
+const dm = (d: string) => `${Number(d.slice(8, 10))} ${"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ")[Number(d.slice(5, 7)) - 1]}`;
 export const nameKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 type Cust = { name: string; type: string | null; sector: string | null; chain: string | null };
@@ -134,12 +136,17 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     const disc = /false|no/i.test(i["Is Discount Before Tax"] ?? "") ? 0 : money(i["Discount Amount (BCY)"]) ?? 0;
     const balance = money(i["Balance (BCY)"]) ?? 0;
     const late = balance > 0 && due && due < today ? dayDiff(due, today) : 0;
+    // Cash coming in (owner, 30 Oct — phase 5): what's still owed, by when it falls due. Weeks count from today.
+    const ahead = balance > 0 && due && !late ? dayDiff(today, due) : null;
+    const week = ahead === null || ahead > 90 ? null : Math.floor(ahead / 7) + 1;
     const paidOn = day(i["Last Payment Date"]);
     invoices.push({
       date, invoice: text(i["Invoice Number"]), ...customerFields(i["Customer ID"], i["Address ID"]),
       salesperson: ix.people.get(i["Salesperson ID"]) ?? null, status: text(i["Invoice Status"]),
       ageBand: balance <= 0 ? "Paid" : !late ? "Not due" : late <= 30 ? "1–30 days" : late <= 60 ? "31–60 days" : late <= 90 ? "61–90 days" : "90+ days",
       productType: list(i["Product Type"]), businessType: text(i["Business Type"]), leadSource: text(i["Lead Source"]),
+      dueBand: balance <= 0 ? "Paid" : late ? "Overdue" : ahead === null ? "No due date" : ahead <= 30 ? "Next 30 days" : ahead <= 60 ? "31–60 days" : ahead <= 90 ? "61–90 days" : "Later",
+      dueWeek: balance <= 0 ? null : late ? "Overdue" : week ? `Wk ${String(week).padStart(2, "0")} · ${dm(plusDays(today, (week - 1) * 7))}` : "Later",
       amount: sub - disc, docValue: sub - disc, balance, overdue: late ? balance : 0,
       daysToPay: balance <= 0 && paidOn && date ? Math.max(0, dayDiff(date, paidOn)) : null,
     });
@@ -252,6 +259,9 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       date, quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
       salesperson: ix.people.get(q["Salesperson ID"]) ?? null, status: text(q["Status"]), outcome,
       age: age === null ? null : age <= 15 ? "0–15 days" : age <= 30 ? "16–30 days" : age <= 90 ? "31–90 days" : "Over 90 days",
+      // Quote follow-up (owner, 30 Oct — phase 5): how long a quote with no answer has been waiting.
+      waitAge: outcome !== "Waiting" || age === null ? null : age <= 7 ? "0–7 days" : age <= 15 ? "8–15 days" : age <= 30 ? "16–30 days" : "Over 30 days",
+      daysWaiting: outcome === "Waiting" ? age : null,
       // Owner: a quote is valid for 15 days, then they make a new one.
       valid: outcome === "Waiting" && age !== null && age <= QUOTE_VALID_DAYS ? "yes" : "no",
       amount: money(q["Sub Total (BCY)"]) ?? 0, docValue: money(q["Sub Total (BCY)"]) ?? 0, won: won ? 1 : 0,

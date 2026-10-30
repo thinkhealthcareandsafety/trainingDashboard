@@ -220,6 +220,12 @@ const TABS: DashboardDef[] = [
       { id: "debtors", section: "Owed now", w: 6, fixedPeriod: true, note: "All open invoices, whatever the period", spec: { dataset: "invoices", measures: ["overdue"], by: ["customer"], limit: 10, chart: "bar", title: "Most overdue, by customer" } },
       { id: "byPerson", section: "Owed now", w: 6, fixedPeriod: true, note: "All open invoices, whatever the period", spec: { dataset: "invoices", measures: ["overdue"], by: ["salesperson"], limit: 7, chart: "bar", title: "Overdue by sales person" } },
       { id: "bySector", section: "Owed now", w: 6, fixedPeriod: true, note: "All open invoices, whatever the period", spec: { dataset: "invoices", measures: ["overdue"], by: ["sector"], limit: 7, chart: "bar", title: "Overdue by sector" } },
+      // Cash coming in (owner, 30 Oct — phase 5): what's owed, by when it falls due.
+      kpi("due30", "invoices", "due30", "Falling due, next 30 days", { section: "Coming in", fixedPeriod: true, noCompare: true }),
+      kpi("due90", "invoices", "due90", "Falling due, next 90 days", { section: "Coming in", fixedPeriod: true, noCompare: true }),
+      { id: "dueWeek", section: "Coming in", w: 12, fixedPeriod: true, noCompare: true, note: "Open invoices by the week their due date falls in (incl. tax); Wk 01 = the next 7 days", spec: { dataset: "invoices", measures: ["outstanding"], by: ["dueWeek"], sort: "label", chart: "column", filters: [{ field: "dueBand", values: ["Overdue", "Next 30 days", "31–60 days", "61–90 days"] }], title: "Cash due, week by week (next 90 days)" } },
+      { id: "dueBand", section: "Coming in", w: 6, fixedPeriod: true, noCompare: true, note: "All open invoices, whatever the period", spec: { dataset: "invoices", measures: ["outstanding"], by: ["dueBand"], sort: "label", chart: "bar", filters: [{ field: "dueBand", values: ["Overdue", "Next 30 days", "31–60 days", "61–90 days", "Later", "No due date"] }], title: "Owed, by when it falls due" } },
+      { id: "duePerson", section: "Coming in", w: 6, fixedPeriod: true, noCompare: true, note: "Open invoices falling due in the next 90 days", spec: { dataset: "invoices", measures: ["outstanding"], by: ["customer"], limit: 10, chart: "bar", filters: [{ field: "dueBand", values: ["Next 30 days", "31–60 days", "61–90 days"] }], title: "Who should pay next 90 days" } },
       { id: "dtpMonth", section: "How fast they pay", w: 6, note: "Paid invoices only — recent months look faster until the rest are paid", spec: { dataset: "invoices", measures: ["daysToPay"], by: ["date"], grain: "month", chart: "line", title: "Days to pay, by invoice month" } },
       { id: "dtpSector", section: "How fast they pay", w: 6, spec: { dataset: "invoices", measures: ["daysToPay"], by: ["sector"], limit: 8, chart: "bar", title: "Days to pay, by sector" } },
       { id: "slowest", section: "How fast they pay", w: 12, spec: { dataset: "invoices", measures: ["daysToPay", "billed"], by: ["customer"], limit: 12, chart: "bar", title: "Slowest payers (average days)" } },
@@ -279,6 +285,10 @@ const TABS: DashboardDef[] = [
       { id: "person", section: "Breakdown", w: 6, spec: { dataset: "quotes", measures: ["winRate"], by: ["salesperson"], limit: 7, chart: "bar", title: "Conversion rate by sales person" } },
       { id: "outcome", section: "Breakdown", w: 6, spec: { dataset: "quotes", measures: ["value"], by: ["outcome"], chart: "donut", title: "Quote value by result" } },
       { id: "open", section: "Open quotes", w: 12, spec: { dataset: "quotes", measures: ["value"], by: ["customer"], limit: 10, chart: "bar", filters: [{ field: "outcome", values: ["Waiting"] }], title: "Biggest open quotes (by customer)" } },
+      // Quote follow-up (owner, 30 Oct — phase 5): quotes with no answer, by how long they've waited, and the list to chase.
+      { id: "waitAge", section: "Follow up", w: 6, fixedPeriod: true, noCompare: true, note: "Quotes with no answer yet, whatever the period", spec: { dataset: "quotes", measures: ["value"], by: ["waitAge"], sort: "label", chart: "column", filters: [{ field: "outcome", values: ["Waiting"] }], title: "Waiting for an answer, by days" } },
+      { id: "waitPerson", section: "Follow up", w: 6, fixedPeriod: true, noCompare: true, note: "Quotes with no answer yet, whatever the period", spec: { dataset: "quotes", measures: ["count"], by: ["salesperson", "waitAge"], chart: "stacked", filters: [{ field: "outcome", values: ["Waiting"] }], title: "Waiting for an answer, by sales person" } },
+      { id: "followup", section: "Follow up", w: 12, fixedPeriod: true, noCompare: true, spec: { dataset: "quotes", measures: ["value"], analysis: "followup", chart: "table", limit: 25, title: "Quotes to chase, oldest first" } },
     ],
   },
   {

@@ -115,6 +115,8 @@ export const DATASETS: Dataset[] = [
       { key: "salesperson", label: "Sales person", kind: "text" },
       { key: "status", label: "Status", kind: "text" },
       { key: "ageBand", label: "Age (overdue)", kind: "text", hint: "Days past the due date of what's still owed: Not due / 1–30 / 31–60 / 61–90 / 90+", order: ["Not due", "1–30 days", "31–60 days", "61–90 days", "90+ days", "Paid"] },
+      { key: "dueBand", label: "Falls due", kind: "text", hint: "What's still owed, by its due date: overdue, in the next 30 days, 31–60, 61–90, later", order: ["Overdue", "Next 30 days", "31–60 days", "61–90 days", "Later", "No due date", "Paid"] },
+      { key: "dueWeek", label: "Week it falls due", kind: "text", hint: "What's still owed, by the week its due date falls in — weeks count from today (Wk 01 = the next 7 days), for 90 days", order: ["Overdue"] },
       { key: "productType", label: "Product type", kind: "text", multi: true },
       { key: "businessType", label: "Business type", kind: "text" },
       { key: "leadSource", label: "Lead source", kind: "text" },
@@ -127,6 +129,8 @@ export const DATASETS: Dataset[] = [
       { key: "overdue", label: "Overdue", better: "down", format: "inr", agg: "sum", field: "overdue", def: "Outstanding on invoices past their due date." },
       { key: "overduePct", label: "Overdue %", better: "down", format: "pct", agg: "ratio", num: "overdue", den: "outstanding", scale: 100, def: "Overdue ÷ outstanding: how much of what's owed is late." },
       { key: "daysToPay", label: "Days to pay", better: "down", format: "days", agg: "avg", field: "daysToPay", def: "Average days from invoice date to the last payment, on paid invoices." },
+      { key: "due30", label: "Falling due, next 30 days", format: "inr", agg: "sum", field: "balance", where: { field: "dueBand", values: ["Next 30 days"] }, def: "What's still owed on invoices whose due date is in the next 30 days (incl. tax) — cash that should come in." },
+      { key: "due90", label: "Falling due, next 90 days", format: "inr", agg: "sum", field: "balance", where: { field: "dueBand", values: ["Next 30 days", "31–60 days", "61–90 days"] }, def: "What's still owed on invoices whose due date is in the next 90 days (incl. tax)." },
     ],
   },
   {
@@ -144,6 +148,7 @@ export const DATASETS: Dataset[] = [
       { key: "status", label: "Status", kind: "text" },
       { key: "outcome", label: "Result", kind: "text", hint: "Accepted (incl. invoiced) · Declined · Expired (Zoho's, or no answer after 90 days) · Waiting", order: ["Accepted", "Declined", "Expired", "Waiting"] },
       { key: "age", label: "Age", kind: "text", hint: "Days since the quote was made — a quote is valid for 15 days, then a new one is made", order: ["0–15 days", "16–30 days", "31–90 days", "Over 90 days"] },
+      { key: "waitAge", label: "Waiting for", kind: "text", hint: "Quotes with no answer yet: days since they were sent", order: ["0–7 days", "8–15 days", "16–30 days", "Over 30 days"] },
     ],
     ranges: [{ key: "docValue", label: "Quote value" }],
     measures: [
