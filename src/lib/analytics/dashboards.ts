@@ -19,7 +19,11 @@ export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: bo
   /** A taller chart (the India map, and the bars beside it). */
   tall?: boolean;
   /** Keeps its own grouping when the dashboard's "Show by" changes (stock levels: months can't be added up). */
-  fixedGrain?: boolean };
+  fixedGrain?: boolean;
+  /** On a dashboard made of references (custom.ts): the report this tile is — for ⋯ → Edit report…. */
+  ref?: { dash: string; tile: string };
+  /** The team's version of a built-in tile (tileEdits.ts): who changed it, when. */
+  edited?: { by: string; at: string } };
 /** `range`: a min–max on one of the dataset's `ranges` (e.g. invoices of ₹1 L or more). */
 export type DashFilter = { field: string; label: string; range?: boolean };
 /** `grains`: a "Show by Week / Month / Quarter / Year" switch for every time chart (owner, 29 Oct), starting on this one. */

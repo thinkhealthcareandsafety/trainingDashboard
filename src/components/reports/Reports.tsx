@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { DASHBOARDS, type DashboardDef, type Tile, tabOf } from "@/lib/analytics/dashboards";
-import { type CustomDash, addItem, addPage, fromDef, fullness, newId, savedTile, toDef } from "@/lib/analytics/custom";
-import type { Target } from "./Builder";
+import { type CustomDash, type Ref, addItem, addPage, fromDef, fullness, newId, savedTile, tileOf, toDef } from "@/lib/analytics/custom";
+import { type TileEdit, applyTileEdits, builtInTile, tileKey } from "@/lib/analytics/tileEdits";
+import type { Target, TileEditing } from "./Builder";
 import { EditBar } from "./Editor";
 import { datasetOf } from "@/lib/analytics/model";
 import type { Spec } from "@/lib/analytics/query";
 import { btn } from "../ui";
 import { Builder } from "./Builder";
-import { DashboardView, TileCard, pagesOf } from "./Dashboard";
+import { DashboardView, type MenuItem, TileCard, pagesOf } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
 import { registerExtras } from "@/lib/analytics/extras";
 import { MyDashboard, type Prefs } from "./MyDashboard";
@@ -32,7 +33,8 @@ export function Reports() {
   // Opens on My dashboard the first time (owner, 27 Oct), then on the tab last used.
   const [tab, setTab] = useState<TabKey>(() => { try { return tabOf((localStorage.getItem("th.reports.mine") && localStorage.getItem("th.reports.tab")) || "mine"); } catch { return "mine"; } });
   const [saved, setSaved] = useState<{ canBuild: boolean; reports: Saved[] } | null>(null);
-  const [builder, setBuilder] = useState<{ spec?: Spec; id?: string } | null>(null);
+  // `tile`: editing a built-in tile — the team's version of it (tileEdits.ts).
+  const [builder, setBuilder] = useState<{ spec?: Spec; id?: string; tile?: TileEditing } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   // Editing a dashboard (owner, 29 Oct): a copy of it, and whether it's new / a built-in tab not edited yet.
   const [editing, setEditing] = useState<{ draft: CustomDash; fresh: boolean; mine?: boolean } | null>(null);
@@ -47,16 +49,19 @@ export function Reports() {
   // The team's dashboards and edited tabs (owner, 29 Oct), and the built-in tabs Admin deleted.
   const [team, setTeam] = useState<{ dashboards: CustomDash[]; hidden: string[]; canEdit: boolean; admin: boolean }>({ dashboards: [], hidden: [], canEdit: false, admin: false });
   const loadTeam = useCallback(() => fetch("/api/analytics/dashboards").then((r) => r.json()).then((j) => { if (Array.isArray(j.dashboards)) setTeam(j); }).catch(() => {}), []);
+  // The team's versions of the built-in reports (⋯ → Edit report…, owner's Tableau plan): a few small documents, once.
+  const [tileEdits, setTileEdits] = useState<TileEdit[]>([]);
+  const loadEdits = useCallback(() => fetch("/api/analytics/tile-edits").then((r) => r.json()).then((j) => { if (Array.isArray(j.edits)) setTileEdits(j.edits); }).catch(() => {}), []);
   useEffect(() => {
-    loadMeta(); loadSaved(); loadTeam();
+    loadMeta(); loadSaved(); loadTeam(); loadEdits();
     fetch("/api/analytics/prefs").then((r) => r.json())
       .then((j) => setPrefs({ layout: j.layout ?? null, starting: j.starting ?? null, startingBy: j.startingBy, hidden: j.hidden ?? [] }))
       .catch(() => setPrefs({ layout: null, starting: null, hidden: [] }));
-  }, [loadMeta, loadSaved, loadTeam]);
+  }, [loadMeta, loadSaved, loadTeam, loadEdits]);
   useEffect(() => { try { localStorage.setItem("th.reports.tab", tab); localStorage.setItem("th.reports.mine", "1"); } catch {} }, [tab]);
 
   // Each report shows to whoever may read its data (Money: the margin pages are Admin's); an Admin tab whole or not at all.
-  const builtIns = useMemo(() => (meta ? DASHBOARDS.map((d) => ({ ...d, tiles: d.tiles.filter((t) => meta.datasets.includes(t.spec.dataset)) })).filter((d) => d.tiles.length && (!d.admin || meta.admin)) : []), [meta]);
+  const builtIns = useMemo(() => (meta ? applyTileEdits(DASHBOARDS, tileEdits).map((d) => ({ ...d, tiles: d.tiles.filter((t) => meta.datasets.includes(t.spec.dataset)) })).filter((d) => d.tiles.length && (!d.admin || meta.admin)) : []), [meta, tileEdits]);
   // The tabs: each built-in one (or the team's version of it), then the dashboards the team made.
   const dashboards = useMemo<DashboardDef[]>(() => {
     const savedList = saved?.reports ?? [];
@@ -92,6 +97,37 @@ export function Reports() {
     if (j.error) { alert(`Saved in Saved reports, but not put on the dashboard: ${j.error}`); setTab("saved"); return; }
     await loadTeam();
     setTab(tried.id);
+  };
+  // ⋯ on every tile (owner's Tableau plan): Edit report… — a saved report by its author or Admin, a built-in one by the
+  // people who edit dashboards (saved for the team, wherever it shows) — and Restore original on an edited built-in one.
+  const tileMenu = (dashId: string) => (t: Tile): MenuItem[] => {
+    const ref: Ref = t.ref ?? { dash: dashId, tile: t.id };
+    if (ref.dash === "saved") {
+      const r = saved?.reports.find((x) => x.id === ref.tile);
+      return r?.mine ? [{ label: "Edit report…", onClick: () => setBuilder({ spec: r.spec, id: r.id }) }] : [];
+    }
+    const cur = tileOf(ref, builtIns, []);
+    if (!team.canEdit || !cur || !builtInTile(ref.dash, ref.tile)) return [];
+    // The dashboard's period picker decides a tile's dates (unless it keeps its own) — the builder previews This FY.
+    const period = cur.spec.period;
+    const save = async (spec: Spec): Promise<string | null> => {
+      const body = { dash: ref.dash, tile: ref.tile, spec: cur.fixedPeriod ? spec : { ...spec, period } };
+      const r = await fetch("/api/analytics/tile-edits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+      const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
+      if (j.error || !r?.ok) return j.error ?? "Couldn't save";
+      await loadEdits();
+      return null;
+    };
+    const restore = async () => {
+      if (!confirm(`Restore “${cur.spec.title ?? "this report"}” to how it was built? The team's changes to it go.`)) return;
+      const r = await fetch(`/api/analytics/tile-edits?key=${encodeURIComponent(tileKey(ref.dash, ref.tile))}`, { method: "DELETE" }).catch(() => null);
+      const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
+      if (j.error) alert(j.error); else loadEdits();
+    };
+    return [
+      { label: "Edit report…", onClick: () => setBuilder({ spec: { ...cur.spec, period: cur.spec.period ?? "fy" }, tile: { save } }) },
+      ...(cur.edited ? [{ label: "Restore original", onClick: restore, danger: true }] : []),
+    ];
   };
   const editDef = useMemo(() => (editing ? toDef(editing.draft, builtIns, saved?.reports ?? []) : null), [editing, builtIns, saved]);
   const allTabs = [...dashboards.map((d) => ({ id: d.id, label: d.title, desc: d.desc })), { id: "saved", label: `Saved reports${saved?.reports.length ? ` (${saved.reports.length})` : ""}`, desc: "Reports the team has made and saved" }];
@@ -144,8 +180,9 @@ export function Reports() {
             deleted={builtIns.filter((d) => team.hidden.map(tabOf).includes(d.id)).map((d) => ({ id: d.id, label: d.title }))}
             onPrefs={(patch) => setPrefs((p) => (p ? { ...p, ...patch } : p))}
             onEdit={(draft, fresh) => setEditing({ draft, fresh, mine: true })}
+            tileMenu={tileMenu("mine")}
             onUnhide={(id) => { fetch("/api/analytics/dashboards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hide: id, hidden: false }) }).then(loadTeam).catch(() => {}); }} />
-          : current ? <DashboardView def={current} today={meta.today} tools={team.canEdit ? (
+          : current ? <DashboardView def={current} today={meta.today} tileMenu={tileMenu(current.id)} tools={team.canEdit ? (
             <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-surface px-4 text-[16px] font-medium text-ink-2 transition hover:border-line-strong"
               onClick={() => setEditing({ fresh: !current.custom, draft: current.custom ?? fromDef(current, pagesOf(current, false)) })}>✎ Edit dashboard</button>
           ) : undefined} />
@@ -157,7 +194,7 @@ export function Reports() {
       </p>
     </div>
       {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
-      {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} admin={meta.admin} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={place} targets={targets} defaultTarget={current?.id} />, document.body)}
+      {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} admin={meta.admin} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={place} targets={targets} defaultTarget={current?.id} tile={builder.tile} />, document.body)}
     </div>
   );
 }

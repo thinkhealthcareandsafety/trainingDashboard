@@ -55,9 +55,12 @@ export type TargetChoice = { id: string; title: string; pages: { name: string; f
 
 type Pane = "data" | "build" | "format";
 
-export function Builder({ initial, datasets, today, canSave, savedId, onClose, onSaved, targets = [], defaultTarget, admin = false }: {
+/** Editing a dashboard's own report (tileEdits.ts): it keeps its data, and saving is the team's version of that tile. */
+export type TileEditing = { save: (spec: Spec) => Promise<string | null> };
+
+export function Builder({ initial, datasets, today, canSave, savedId, onClose, onSaved, targets = [], defaultTarget, admin = false, tile }: {
   initial?: Spec; datasets: string[]; today: string; canSave: boolean; savedId?: string; onClose: () => void; onSaved: (id: string | undefined, target: Target, spec: Spec) => void;
-  targets?: TargetChoice[]; defaultTarget?: string; admin?: boolean;
+  targets?: TargetChoice[]; defaultTarget?: string; admin?: boolean; tile?: TileEditing;
 }) {
   // The ready-made data only for a saved report built on it; everything new starts from a Zoho table.
   const legacy = initial && !isTableKey(initial.dataset) ? DATASETS.filter((d) => d.key === initial.dataset && datasets.includes(d.key)) : [];
@@ -202,6 +205,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     const i = payload.indexOf(":");
     const kind = payload.slice(0, i), key = payload.slice(i + 1);
     if (i < 0 || !key) return;
+    if (spec.analysis && shelf !== "filters") return setNote("A ready-made analysis keeps its rows and values — filters, title and format can change.");
     // A word or date dropped on Values on a Zoho table counts its different values (Tableau's COUNTD).
     if (kind === "attr" && shelf === "values" && zt) { if (!spec.measures.includes(`distinct:${key}`)) toggleValue(`distinct:${key}`); return; }
     if (kind === "num") {
@@ -231,6 +235,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const save = async () => {
     setSaving({ busy: true });
     const body = { id: savedId, spec: { ...spec, from: undefined, to: undefined, title: title.trim() || autoTitle(spec) } };
+    if (tile) { const error = await tile.save(body.spec); if (error) setSaving({ error }); else onClose(); return; }
     const r = await fetch("/api/analytics/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; id?: string }) : { error: "Couldn't reach the server" };
     if (j.ok) { onSaved(j.id, savedId ? null : where, body.spec); onClose(); } else setSaving({ error: j.error ?? "Couldn't save" });
@@ -276,7 +281,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-2 sm:p-4" onMouseDown={onClose}>
       <div role="dialog" aria-label="Report builder" className="modal-in flex h-[96vh] w-full max-w-[1500px] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
-          <h2 className="text-[19px] font-bold tracking-tight text-ink">{savedId ? "Edit report" : "New report"}</h2>
+          <h2 className="text-[19px] font-bold tracking-tight text-ink">{tile ? "Edit dashboard report" : savedId ? "Edit report" : "New report"}</h2>
           {/* Phones and narrow windows: one pane at a time. */}
           <div className="flex rounded-full bg-surface-2 p-0.5 lg:hidden" role="tablist" aria-label="Builder panes">
             {(["data", "build", "format"] as Pane[]).map((p) => (
@@ -293,7 +298,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
           {/* Data */}
           <section aria-label="Data" className={`${show("data")} min-h-0 flex-col border-line lg:border-r`}>
             <div className="shrink-0 space-y-2 border-b border-line p-4">
-              <select aria-label="Zoho table" className={selectCls} value={zt ? `zt:${mainId}` : spec.dataset} onChange={(e) => changeDataset(e.target.value)}>
+              <select aria-label="Zoho table" className={selectCls} value={zt ? `zt:${mainId}` : spec.dataset} onChange={(e) => changeDataset(e.target.value)} disabled={Boolean(tile)} title={tile ? "A dashboard report keeps its own data" : undefined}>
                 {legacy.map((x) => <option key={x.key} value={x.key}>{x.label} (ready-made, this report)</option>)}
                 {(tables?.tables ?? []).map((t) => <option key={t.id} value={`zt:${t.id}`}>{t.name}</option>)}
               </select>
@@ -390,6 +395,10 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
           {/* Build + preview */}
           <section aria-label="Build" className={`${show("build")} no-scrollbar min-h-0 min-w-0 flex-col overflow-y-auto lg:overflow-hidden`}>
             <div className="shrink-0 space-y-2 border-b border-line p-4">
+              {/* A ready-made analysis (Pareto, win-back …) shapes its own rows and values — only its title, filters and
+                  format change here. */}
+              {spec.analysis && <p className="rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2">A ready-made analysis — its rows and values stay as built. Change its filters, title and format.</p>}
+              <fieldset disabled={Boolean(spec.analysis)} className={`contents ${spec.analysis ? "[&>div]:opacity-60" : ""}`}>
               <Shelf label="Rows" hint="One row, bar or line point for each value" onDrop={(p) => drop("rows", p)}>
                 {by[0] ? <Pill text={label(by[0])} onRemove={() => setRows(null)} /> : <Empty text="Click or drop an attribute — e.g. Sector, Month" />}
                 {by[0] && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="Change…" onPick={setRows} />}
@@ -410,7 +419,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                 {by[1] && !columns ? <Pill text={label(by[1])} onRemove={() => setColour(null)} /> : <Empty text={by[0] ? "Optional — split each into colours" : "Needs Rows first"} />}
                 {by[0] && (!by[1] || columns) && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="+ Add…" onPick={setColour} />}
               </Shelf>
-              <Shelf label="Values" hint={`The numbers — up to ${MAX_VALUES}`} onDrop={(p) => drop("values", p)}>
+              <Shelf label="Values" hint={`The numbers — up to ${MAX_VALUES}`} onDrop={spec.analysis ? undefined : (p) => drop("values", p)}>
                 {spec.measures.map((k) => {
                   const a = aggOf(k);
                   const showAs = by[0] ? <ShowAs label={measureOf(d, k)?.label ?? k} calc={spec.calcs?.[k]} onChange={(c) => setCalc(k, c)} /> : null;
@@ -441,6 +450,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   </select>
                 )}
               </Shelf>
+              </fieldset>
               <div className="grid gap-2 xl:grid-cols-[auto_minmax(0,1fr)]">
                 <Shelf label="Label" hint="The numbers written on the bars, points or slices">
                   {(["Off", "On"] as const).map((x) => (
@@ -590,7 +600,8 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">
           {saving.error && <span className="mr-auto text-[16px] font-medium text-high">{saving.error}</span>}
           {!canSave && <span className="mr-auto text-[15.5px] text-muted">Admin, Ashish, Shikha, Sumit and Nikita can save reports for the team.</span>}
-          {canSave && !savedId && targets.length > 0 && (
+          {tile && !saving.error && <span className="mr-auto text-[15.5px] text-muted">Saves it for the team, wherever this report shows. ⋯ → Restore original brings back how it was built.</span>}
+          {canSave && !savedId && !tile && targets.length > 0 && (
             <div className="mr-auto flex flex-wrap items-center gap-2 text-[15.5px] text-ink-2">
               <span>Put it on</span>
               <select aria-label="Dashboard" className={selectBase} value={where ? where.dash : ""}
@@ -609,7 +620,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
             </div>
           )}
           <button className={btn.ghost} onClick={onClose}>Close</button>
-          {canSave && <button className={btn.primary} disabled={saving.busy || !spec.measures.length || !answer || isError(answer)} onClick={save}>{saving.busy ? "Saving…" : savedId ? "Save changes" : "Save report"}</button>}
+          {canSave && <button className={btn.primary} disabled={saving.busy || !spec.measures.length || !answer || isError(answer)} onClick={save}>{saving.busy ? "Saving…" : tile ? "Save for the team" : savedId ? "Save changes" : "Save report"}</button>}
         </div>
       </div>
     </div>

@@ -18,7 +18,8 @@ register("data:text/javascript," + encodeURIComponent(`
     let url = null;
     if (spec.startsWith("@/")) url = new URL(spec.slice(2), SRC);
     else if ((spec.startsWith("./") || spec.startsWith("../")) && ctx.parentURL?.startsWith("file:")) url = new URL(spec, ctx.parentURL);
-    if (url && !/\.[cm]?[jt]sx?$/.test(url.pathname)) {
+    // "\\." — inside this template string a single backslash would vanish, and "tileEdits" would pass for a ".ts" file.
+    if (url && !/\\.[cm]?[jt]sx?$/.test(url.pathname)) {
       for (const ext of [".ts", ".tsx", "/index.ts"]) if (existsSync(fileURLToPath(url.href + ext))) { url = new URL(url.href + ext); break; }
     }
     // Also when imported relatively ("./db" from cachedRead.ts) — before 30 Oct only "@/lib/db" was swapped.

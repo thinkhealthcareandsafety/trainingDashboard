@@ -12,7 +12,8 @@ const coll = (name: string) => {
     // readAll's fingerprint: no answer → it reads the collection, as with a real failure.
     aggregate: () => ({ toArray: async () => [] }),
     findOne: async (q: { _id: string }) => (m.has(q._id) ? structuredClone(m.get(q._id)!) : null),
-    replaceOne: async (q: { _id: string }, doc: Doc) => { m.set(q._id, structuredClone(doc)); },
+    // Like Mongo: the filter's _id stays on the document (a replacement may leave it out).
+    replaceOne: async (q: { _id: string }, doc: Omit<Doc, "_id">) => { m.set(q._id, structuredClone({ ...doc, _id: q._id })); },
     // $set / $unset with dotted paths ("views.sales"), like Mongo.
     updateOne: async (q: { _id: string }, u: { $set?: Record<string, unknown>; $unset?: Record<string, unknown> }) => {
       const d: Doc = structuredClone(m.get(q._id) ?? { _id: q._id });

@@ -118,7 +118,7 @@ export function toDef(c: CustomDash, builtIns: DashboardDef[], saved: SavedRef[]
     for (const it of p.items) {
       const t = tileOf(it.ref, builtIns, saved);
       if (!t) continue;
-      tiles.push({ ...t, id: it.id, section: undefined, tall: false });
+      tiles.push({ ...t, id: it.id, section: undefined, tall: false, ref: it.ref });
       ids.push(it.id);
       boxes[it.id] = { x: it.x, y: it.y, w: it.w, h: it.h };
     }

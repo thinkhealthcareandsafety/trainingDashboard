@@ -179,7 +179,8 @@ const filterLabel = (def: DashboardDef, field: string) => def.filters.find((f) =
 /** Editing a dashboard in place: its copy, what changes it, the bar (name, Save, Cancel…) and the reports to add. */
 export type EditCtl = { draft: CustomDash; onChange: (d: CustomDash) => void; bar: React.ReactNode; builtIns: DashboardDef[]; saved: SavedRef[] };
 
-export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; today: string; tools?: React.ReactNode; edit?: EditCtl }) {
+/** `tileMenu`: more ⋯ items per tile (Reports: Edit report… / Restore original — tileEdits.ts). */
+export function DashboardView({ def, today, tools, edit, tileMenu }: { def: DashboardDef; today: string; tools?: React.ReactNode; edit?: EditCtl; tileMenu?: (t: Tile) => MenuItem[] }) {
   const [period, setPeriod] = useState(() => readState(def).period);
   const [filters, setFilters] = useState<Record<string, FState>>(() => readState(def).filters);
   const [paramValues, setParamValues] = useState<Record<string, string | number>>(() => readState(def).params ?? {});
@@ -233,7 +234,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
   // Each number on the open page also comes month by month, for its small trend line (one more request a page).
   const sparkSpecs = useMemo(() => (pages[at]?.tiles ?? []).filter((t) => t.spec.chart === "kpi" && !t.fixedPeriod && !t.spec.analysis).map((t) => {
     const s = specs[def.tiles.indexOf(t)];
-    return { id: t.id, spec: { ...s, by: [datasetOf(s.dataset)!.dateField], grain: "month" as Grain, chart: "line" as const, compare: undefined } };
+    return { id: t.id, spec: { ...s, by: [datasetOf(s.dataset)!.dateField], grain: "month" as Grain, chart: "line" as const, compare: undefined, calcs: undefined } };
   }), [pages, at, specs, def]);
   const [sparks, setSparks] = useState<{ key: string; by: Record<string, (number | null)[]> }>({ key: "", by: {} });
   const sparkKey = JSON.stringify(sparkSpecs);
@@ -593,11 +594,11 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
             onArrange={(b) => { const r = arrange(edit!.draft, at, b); if ("error" in r) { setNote(r.error); setRev((x) => x + 1); } else apply(r); }}
             onDropNew={(pos) => dropNew(at, pos)} dropSize={dropSize}
             render={(t, box) => framed(t, t.spec.chart === "kpi"
-              ? <KpiCell title={renderLabel(specOf(t).title ?? "", { spec: specOf(t), result: answers[t.id] && !isError(answers[t.id]) ? answers[t.id] as Exclude<Answer, { error: string }> : undefined })} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} spark={sparkOf(t)} />
+              ? <KpiCell title={renderLabel(specOf(t).title ?? "", { spec: specOf(t), result: answers[t.id] && !isError(answers[t.id]) ? answers[t.id] as Exclude<Answer, { error: string }> : undefined })} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} spark={sparkOf(t)} edited={t.edited} menu={edit ? undefined : tileMenu?.(t)} />
               : <TileCard tile={{ ...t, w: 12 }} fill={heightOf(box.h)} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                   picked={pick?.tileId === t.id ? pick.value : null} onPick={edit ? undefined : pickFrom(t)}
                   target={(specOf(t).grain ?? "month") !== "month" ? undefined : t.goalLine ? goal : t.target}
-                  skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />)} />
+                  skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} menu={edit ? undefined : tileMenu?.(t)} />)} />
           {edit && !(pages[at]?.tiles.length) && <p className="mt-2 text-center text-[15.5px] text-muted">An empty page — + Add report, then drag it anywhere in the box.</p>}
         </>
       ) : groups.map((g, gi) => (
@@ -607,7 +608,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
             const top = gi === 0 && ri === 0;
             if (run.kpi) return (
               <Fragment key={ri}>
-                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} skippedOf={skippedOf} sparkOf={sparkOf} className={top ? "mt-5" : "mt-4"} />
+                <KpiBand tiles={run.tiles} specOf={specOf} answers={answers} skippedOf={skippedOf} sparkOf={sparkOf} menuOf={tileMenu} className={top ? "mt-5" : "mt-4"} />
                 {/* Not under numbers that are never compared (stock: today's). */}
                 {gi === 0 && ri === 0 && footnote && run.tiles.some((t) => !t.noCompare) && <p className="mt-2 text-[14.5px] text-faint">{footnote}</p>}
               </Fragment>
@@ -618,7 +619,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
                   <TileCard key={t.id} tile={pages[at]?.half?.has(t.id) ? { ...t, w: 6, tall: false } : t} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                     picked={pick?.tileId === t.id ? pick.value : null} onPick={pickFrom(t)}
                     target={(specOf(t).grain ?? "month") !== "month" ? undefined : t.goalLine ? goal : t.target}
-                    skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />
+                    skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} menu={edit ? undefined : tileMenu?.(t)} />
                 ))}
               </div>
             );
@@ -785,7 +786,7 @@ function ViewsButton({ views, current, open, setOpen, onSave, onApply, onAdded }
 const BAND_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-1 sm:grid-cols-3", 4: "grid-cols-2 xl:grid-cols-4", 6: "grid-cols-2 xl:grid-cols-3", 8: "grid-cols-2 xl:grid-cols-4" };
 
 /** Numbers side by side in one card, parted by hairlines (the grid's 1 px gaps over the line colour). */
-function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; skippedOf?: (t: Tile) => string[]; sparkOf?: (t: Tile) => (number | null)[] | undefined; className?: string }) {
+function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, menuOf, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; skippedOf?: (t: Tile) => string[]; sparkOf?: (t: Tile) => (number | null)[] | undefined; menuOf?: (t: Tile) => MenuItem[]; className?: string }) {
   const kpiTitle = (t: Tile) => { const a = answers[t.id]; return renderLabel(specOf(t).title ?? "", { spec: specOf(t), result: a && !isError(a) ? a : undefined }); };
   return (
     <section className={`card overflow-hidden ${className}`} aria-label="Key numbers">
@@ -795,7 +796,7 @@ function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, className = "" }:
           const def = measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def;
           return (
             <div key={t.id} className="min-w-0 bg-surface px-5 py-4">
-              <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${kpiTitle(t)} — ${def}` : kpiTitle(t)}>{kpiTitle(t)}</h3>
+              <KpiHead title={kpiTitle(t)} def={def} edited={t.edited} menu={menuOf?.(t)} />
               <div className="mt-1.5">
                 {!a ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
                   : isError(a) ? <p className="text-[15px] text-high">{a.error}</p>
@@ -811,10 +812,10 @@ function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, className = "" }:
 }
 
 /** One number on the canvas — it fills the box it was given. */
-function KpiCell({ title, def, answer, skipped, spark }: { title: string; def?: string; answer?: Answer; skipped?: string[]; spark?: (number | null)[] }) {
+function KpiCell({ title, def, answer, skipped, spark, edited, menu }: { title: string; def?: string; answer?: Answer; skipped?: string[]; spark?: (number | null)[]; edited?: Tile["edited"]; menu?: MenuItem[] }) {
   return (
     <section className="card flex h-full min-w-0 flex-col overflow-hidden px-5 py-4" aria-label={title}>
-      <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${title} — ${def}` : title}>{title}</h3>
+      <KpiHead title={title} def={def} edited={edited} menu={menu} />
       <div className="mt-1.5">
         {!answer ? <div className="h-[62px] animate-pulse rounded-lg bg-surface-2" />
           : isError(answer) ? <p className="text-[15px] text-high">{answer.error}</p>
@@ -823,6 +824,23 @@ function KpiCell({ title, def, answer, skipped, spark }: { title: string; def?: 
       <Skipped labels={skipped} />
     </section>
   );
+}
+
+/** A number's name, its "edited" mark (tileEdits.ts) and its ⋯ (Edit report… — owner's Tableau plan: "KPIs included"). */
+function KpiHead({ title, def, edited, menu = [] }: { title: string; def?: string; edited?: Tile["edited"]; menu?: MenuItem[] }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <h3 className="truncate text-[16px] font-medium text-ink-2" title={def ? `${title} — ${def}` : title}>{title}</h3>
+      {edited && <EditedMark edited={edited} />}
+      {menu.length > 0 && <div className="ml-auto"><TileMenu items={menu} label={`${title || "Report"} options`} /></div>}
+    </div>
+  );
+}
+
+/** "edited": the team's version of a built-in report — ⋯ → Restore original brings back how it was built. */
+function EditedMark({ edited }: { edited: NonNullable<Tile["edited"]> }) {
+  const when = edited.at ? ` on ${new Date(edited.at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : "";
+  return <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-[12.5px] font-medium text-muted" title={`Edited${edited.by ? ` by ${edited.by}` : ""}${when} — ⋯ → Restore original brings back how it was built`}>edited</span>;
 }
 
 /** "Not filtered by Sector" — a filter that can't reach this tile's data. */
@@ -931,7 +949,11 @@ export function TileCard({ tile, spec, answer, picked, onPick, menu = [], meta, 
     <section className={`card flex min-w-0 flex-col p-5 ${fill ? "h-full overflow-hidden" : SPAN[tile.w]}`} aria-label={spec.title}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[16.5px] text-ink-2" : "text-[18.5px]"}`} title={title}>{title}</h3>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h3 className={`truncate font-semibold tracking-tight text-ink ${isKpi ? "text-[16.5px] text-ink-2" : "text-[18.5px]"}`} title={title}>{title}</h3>
+            {/* The team's version of a built-in report (tileEdits.ts) — ⋯ → Restore original brings back how it was built. */}
+            {tile.edited && <EditedMark edited={tile.edited} />}
+          </div>
           <Skipped labels={skipped} />
           {crumbs && <p className="truncate text-[15px] text-ink-2"><button type="button" className="font-semibold text-brand hover:underline" onClick={crumbs.onBack}>← Back</button> · {crumbs.text}</p>}
           {sub && <p className="truncate text-[15px] text-muted">{sub}{tweak && onTweak && <> · <button type="button" className="font-semibold text-brand hover:underline" onClick={() => onTweak(null)}>Reset</button></>}</p>}

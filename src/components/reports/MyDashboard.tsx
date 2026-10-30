@@ -7,7 +7,7 @@ import { type CustomDash, type Ref, type SavedRef, paginate, tileOf, toDef } fro
 import type { Tile } from "@/lib/analytics/dashboards";
 import { type LayoutEntry, START } from "@/lib/analytics/layout";
 import { btn } from "../ui";
-import { DashboardView } from "./Dashboard";
+import { DashboardView, type MenuItem } from "./Dashboard";
 
 /*
  * My dashboard (owner, 27 Oct — ANALYTICS-PLAN §11 (f)): the first Reports tab, each person's own reports. Since 29 Oct
@@ -33,7 +33,7 @@ function fromEntries(entries: LayoutEntry[], builtIns: DashboardDef[], saved: Sa
   return { id: "mine", title: "My dashboard", shared: false, pages: paginate([{ name: "Page 1", tiles }]) };
 }
 
-export function MyDashboard({ today, admin, builtIns, saved, prefs, mine, start, tabs, deleted, onPrefs, onEdit, onUnhide }: {
+export function MyDashboard({ today, admin, builtIns, saved, prefs, mine, start, tabs, deleted, onPrefs, onEdit, onUnhide, tileMenu }: {
   today: string; admin: boolean; builtIns: DashboardDef[]; saved: SavedRef[] | null;
   /** Loaded by Reports (it needs `hidden` for the tab bar). */
   prefs: Prefs | null;
@@ -43,6 +43,7 @@ export function MyDashboard({ today, admin, builtIns, saved, prefs, mine, start,
   onPrefs: (patch: Partial<Prefs>) => void;
   onEdit: (draft: CustomDash, fresh: boolean) => void;
   onUnhide: (id: string) => void;
+  tileMenu?: (t: Tile) => MenuItem[];
 }) {
   const [tabsOpen, setTabsOpen] = useState(false);
   const base = useMemo<CustomDash | null>(() => mine ?? start ?? (prefs ? fromEntries(prefs.layout ?? prefs.starting ?? START, builtIns, saved ?? []) : null), [mine, start, prefs, builtIns, saved]);
@@ -68,7 +69,7 @@ export function MyDashboard({ today, admin, builtIns, saved, prefs, mine, start,
   );
   return (
     <>
-      {def.tiles.length ? <DashboardView def={def} today={today} tools={tools} /> : (
+      {def.tiles.length ? <DashboardView def={def} today={today} tools={tools} tileMenu={tileMenu} /> : (
         <div className="card grid place-items-center gap-2 p-10 text-center">
           <p className="text-[16px] text-ink-2">Nothing on your dashboard yet.</p>
           <p className="max-w-md text-[15px] text-muted">Pick the reports you look at most — from any tab, or the team&apos;s saved reports.</p>
