@@ -30,11 +30,12 @@ const TRACKER = "/reports/progress-tracker";
 
 /**
  * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
- * light or dark (picking one sets the mode; there's no separate Appearance switch any more). "" = plain. Experimental
- * themes colour the cards, lines and text too (`card` / `accent` only draw their swatch).
+ * light or dark (picking one sets the mode; there's no separate Appearance switch any more). "" = plain. The full themes
+ * (`full`) colour the cards, lines and text too (`card` / `accent` only draw their swatch) — no longer "experimental"
+ * (owner, 30 Oct: "light with light, dark with dark … i like them no need to keep them experimental").
  */
 type Mode = "light" | "dark";
-type Theme = { mode: Mode; id: string; label: string; experimental?: boolean; card?: string; accent?: string };
+type Theme = { mode: Mode; id: string; label: string; full?: boolean; card?: string; accent?: string };
 const THEMES: Theme[] = [
   { mode: "light", id: "", label: "Plain" },
   { mode: "light", id: "blush", label: "Blush" },
@@ -52,21 +53,21 @@ const THEMES: Theme[] = [
   { mode: "dark", id: "dark-forest", label: "Forest" },
   { mode: "dark", id: "dark-plum", label: "Plum" },
   { mode: "dark", id: "dark-ember", label: "Ember" },
-  { mode: "dark", id: "dark-xplum", label: "Plum", experimental: true, card: "#22152a", accent: "#e29ad6" },
-  { mode: "light", id: "xcoastal", label: "Smoky coastal", experimental: true, card: "#f2f7f7", accent: "#1f6f8b" },
-  // 27 Oct (owner: "add more experimental themes, i like them").
-  { mode: "dark", id: "dark-xocean", label: "Deep sea", experimental: true, card: "#0f1f2e", accent: "#5cc8e6" },
-  { mode: "dark", id: "dark-xespresso", label: "Espresso", experimental: true, card: "#211812", accent: "#e6a65c" },
-  { mode: "dark", id: "dark-xemerald", label: "Emerald night", experimental: true, card: "#102019", accent: "#5fd4a0" },
-  { mode: "light", id: "xsakura", label: "Sakura", experimental: true, card: "#fff8fa", accent: "#b83d68" },
-  { mode: "light", id: "xsand", label: "Sand dune", experimental: true, card: "#fcf8f1", accent: "#a8552f" },
-  { mode: "light", id: "xnordic", label: "Nordic", experimental: true, card: "#f7f8fb", accent: "#3f56a6" },
+  { mode: "dark", id: "dark-xplum", label: "Plum night", full: true, card: "#22152a", accent: "#e29ad6" },
+  { mode: "light", id: "xcoastal", label: "Smoky coastal", full: true, card: "#f2f7f7", accent: "#1f6f8b" },
+  // 27 Oct (owner: "add more experimental themes, i like them") — full themes since 30 Oct.
+  { mode: "dark", id: "dark-xocean", label: "Deep sea", full: true, card: "#0f1f2e", accent: "#5cc8e6" },
+  { mode: "dark", id: "dark-xespresso", label: "Espresso", full: true, card: "#211812", accent: "#e6a65c" },
+  { mode: "dark", id: "dark-xemerald", label: "Emerald night", full: true, card: "#102019", accent: "#5fd4a0" },
+  { mode: "light", id: "xsakura", label: "Sakura", full: true, card: "#fff8fa", accent: "#b83d68" },
+  { mode: "light", id: "xsand", label: "Sand dune", full: true, card: "#fcf8f1", accent: "#a8552f" },
+  { mode: "light", id: "xnordic", label: "Nordic", full: true, card: "#f7f8fb", accent: "#3f56a6" },
 ];
-const GROUPS = [
-  { key: "light", label: "Light", themes: THEMES.filter((t) => t.mode === "light" && !t.experimental) },
-  { key: "dark", label: "Dark", themes: THEMES.filter((t) => t.mode === "dark" && !t.experimental) },
-  { key: "experimental", label: "Experimental", themes: THEMES.filter((t) => t.experimental) },
-];
+// Light with light, dark with dark: the gradients first, then the full themes.
+const GROUPS = (["light", "dark"] as const).map((mode) => ({
+  key: mode, label: mode === "light" ? "Light" : "Dark",
+  themes: [...THEMES.filter((t) => t.mode === mode && !t.full), ...THEMES.filter((t) => t.mode === mode && t.full)],
+}));
 const PALETTE = <path d="M10 3.5a6.5 6.5 0 1 0 0 13c.9 0 1.4-.6 1.4-1.3 0-.4-.2-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.6-1.3 1.4-1.3h1.6a3 3 0 0 0 2.9-3C16.5 6 13.6 3.5 10 3.5ZM6.5 10h.01M8 6.8h.01M12 6.8h.01" />;
 
 const currentMode = (): Mode => {
@@ -109,7 +110,6 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
           <div key={g.key} className="mt-4">
             <div className="flex items-baseline gap-2">
               <span className="text-[12px] font-bold uppercase tracking-wide text-muted">{g.label}</span>
-              {g.key === "experimental" && <span className="text-[12px] text-faint">Colours the cards and text too — still being tried out</span>}
             </div>
             <div className="mt-1.5 grid grid-cols-3 gap-2 sm:grid-cols-5">
               {g.themes.map((t) => {
@@ -123,7 +123,7 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
                     className={`press flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-center text-[12.5px] font-medium ${on ? "text-ink ring-2 ring-brand" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
                   >
                     <span data-bg={t.id || undefined} className="relative h-12 w-full overflow-hidden rounded-lg border border-line" style={{ backgroundColor: t.mode === "light" ? "#f5f5f7" : "#000000", backgroundImage: t.id ? "var(--bg-art)" : "none" }}>
-                      {/* Experimental: a little card in the theme's own colours. */}
+                      {/* A full theme: a little card in the theme's own colours. */}
                       {t.card && (
                         <span className="absolute inset-x-2.5 bottom-0 top-3 rounded-t-md p-1.5" style={{ background: t.card }}>
                           <span className="block h-1.5 w-2/3 rounded-full" style={{ background: t.accent }} />
