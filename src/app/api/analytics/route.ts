@@ -9,6 +9,7 @@ import { TABLES, type TableKey } from "@/lib/analytics/build";
 import { DEFAULT_GOAL } from "@/lib/analytics/goal";
 import { isTableKey, registerTables } from "@/lib/analytics/tables";
 import { readCatalog, tableRowsFor } from "@/lib/analytics/tablesServer";
+import { type CalcField, calcIds, registerCalcFields } from "@/lib/analytics/calc";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -59,6 +60,12 @@ export async function POST(request: Request) {
     ? await (await db()).collection<{ _id: string; monthly?: number; months?: Record<string, number> }>("kv").findOne({ _id: "reports_goal" })
     : null;
   const goal = { monthly: goalDoc?.monthly ?? DEFAULT_GOAL, months: goalDoc?.months ?? {} };
+  // Calculated fields the reports use (calc.ts) — read before anything is worked out, so their numbers resolve.
+  const calc = [...new Set(specs.flatMap((s) => calcIds([...s.measures, ...(s.tooltip ?? [])])))];
+  if (calc.length) {
+    const docs = await (await db()).collection<Omit<CalcField, "id"> & { _id: string }>("reportFields").find({ _id: { $in: calc } }).toArray();
+    registerCalcFields(docs.map(({ _id, ...f }) => ({ id: _id, ...f })));
+  }
   // Reports on a Zoho table (owner's plan of 30 Oct): the table, and the linked tables it uses, copied on first use.
   const tableRows = new Map<number, Row[]>();
   const tableErrors = new Map<number, string>();

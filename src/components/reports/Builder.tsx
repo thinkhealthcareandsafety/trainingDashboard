@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { DATASETS, type Grain, datasetOf, fieldOf, measureOf, periods } from "@/lib/analytics/model";
 import type { ChartKind, Filter, Spec } from "@/lib/analytics/query";
 import { describeSpec } from "@/lib/analytics/describe";
+import { type CalcField, type CalcFormula, OPS, calcKey, calcProblem, defaultFormat, describeCalc, forgetCalcField, registerCalcFields } from "@/lib/analytics/calc";
 import { AGGS, extraNumbers } from "@/lib/analytics/extras";
 import { STATUS_COLUMN, TABLE_AGGS, VOID_OR_DRAFT, currentCatalog, isTableKey, tableNumbers } from "@/lib/analytics/tables";
 import { DATE, MAX_RELATED, isJoinKey, joinKey, joinNumbers, relKey, relatedTables } from "@/lib/analytics/joins";
@@ -66,6 +68,9 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const [search, setSearch] = useState("");
   // Why a drop or click didn't do what it looked like (owner, 30 Oct: "I can't even place this in the colours").
   const [note, setNote] = useState("");
+  // The team's calculated fields on this data (calc.ts), and the one being made / changed ("new" = a new one).
+  const [myFields, setMyFields] = useState<CalcField[]>([]);
+  const [editingField, setEditingField] = useState<CalcField | "new" | null>(null);
   // Undefined until a table is picked (or while the table list loads for a saved Zoho-table report).
   const d0 = tables || !isTableKey(spec.dataset) ? datasetOf(spec.dataset) : undefined;
   const d = d0!;
@@ -86,6 +91,17 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     const t = setTimeout(() => runSpecs([query]).then((j) => { if (live) setAnswer(j.results[0]); }), 250);
     return () => { live = false; clearTimeout(t); };
   }, [query, d0]);
+
+  useEffect(() => {
+    if (!isTableKey(spec.dataset)) { setMyFields([]); return; }
+    let live = true;
+    fetch(`/api/analytics/fields?dataset=${encodeURIComponent(spec.dataset)}`).then((r) => r.json()).then((j: { fields?: CalcField[] }) => {
+      if (!live) return;
+      registerCalcFields(j.fields ?? []);
+      setMyFields(j.fields ?? []);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [spec.dataset]);
 
   const changeDataset = (key: string) => {
     const nd = datasetOf(key);
@@ -307,6 +323,25 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   })}
                 </div>
               ))}
+              {zt && (
+                <>
+                  <PaneHead title="Your fields" hint="Numbers you make — with conditions, or two combined; shared with the team" />
+                  {myFields.filter((f) => match(f.name)).map((f) => (
+                    <div key={f.id} className="flex items-center gap-1">
+                      <div className="min-w-0 flex-1">
+                        <DataItem icon="calc" label={f.name} sub={describeCalc(d, f)} hint={`${describeCalc(d, f)}${f.createdBy ? ` — made by ${f.createdBy}` : ""}`} used={spec.measures.includes(calcKey(f))}
+                          drag={`num:${calcKey(f)}`} onClick={() => toggleValue(calcKey(f))} />
+                      </div>
+                      {canSave && <button type="button" aria-label={`Change ${f.name}`} title="Change this field" onClick={() => setEditingField(f)} className="grid size-7 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">✎</button>}
+                    </div>
+                  ))}
+                  {!myFields.length && <p className="px-2 py-1 text-[14.5px] text-faint">None yet.</p>}
+                  {canSave && (
+                    <button type="button" onClick={() => setEditingField("new")}
+                      className="mt-1 w-full rounded-lg border border-dashed border-line px-2.5 py-1.5 text-left text-[15px] font-medium text-brand hover:bg-brand-soft">+ New field</button>
+                  )}
+                </>
+              )}
             </div>
           </section>
 
@@ -452,6 +487,28 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
           </section>
         </div>
 
+        {editingField && zt && createPortal(
+          <FieldEditor d={d} field={editingField === "new" ? null : editingField}
+            choices={[
+              ...d.measures.map((m) => ({ key: m.key, label: m.label })),
+              ...numberCols.flatMap((c) => TABLE_AGGS.filter(([a]) => a !== "count" && a !== "distinct").map(([a, w]) => ({ key: mk(a, c.key), label: `${w} of ${c.label}${c.group && relatedIds.length ? ` (${c.group})` : ""}` }))),
+              ...d.fields.filter((x) => !x.table && x.kind !== "date").map((x) => ({ key: `distinct:${x.key}`, label: `Count distinct of ${x.label}` })),
+            ]}
+            onClose={() => setEditingField(null)}
+            onSaved={(f, isNew) => {
+              registerCalcFields([f]);
+              setMyFields((xs) => [...xs.filter((x) => x.id !== f.id), f].sort((a, b) => a.name.localeCompare(b.name)));
+              if (isNew && spec.measures.length < MAX_VALUES) set({ measures: [...spec.measures, calcKey(f)] });
+              else set({ measures: [...spec.measures] }); // re-run the preview with the changed field
+              setEditingField(null);
+            }}
+            onDeleted={(id) => {
+              forgetCalcField(id);
+              setMyFields((xs) => xs.filter((x) => x.id !== id));
+              set({ measures: spec.measures.filter((m) => m !== `calc:${id}`) });
+              setEditingField(null);
+            }} />, document.body)}
+
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">
           {saving.error && <span className="mr-auto text-[16px] font-medium text-high">{saving.error}</span>}
           {!canSave && <span className="mr-auto text-[15.5px] text-muted">Admin, Ashish, Shikha, Sumit and Nikita can save reports for the team.</span>}
@@ -552,13 +609,13 @@ function PaneHead({ title, hint }: { title: string; hint: string }) {
   );
 }
 
-const ICON = { text: "Aa", date: "◷", num: "#" } as const;
+const ICON = { text: "Aa", date: "◷", num: "#", calc: "ƒ" } as const;
 /** A field in the Data pane: click to put it on its shelf (again to take it off), or drag it onto any shelf. */
 function DataItem({ icon, label, sub, hint, used, drag, onClick }: { icon: keyof typeof ICON; label: string; sub?: string; hint?: string; used: boolean; drag: string; onClick: () => void }) {
   return (
     <button type="button" draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", drag)} onClick={onClick} title={hint} aria-pressed={used}
       className={`mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[15.5px] transition ${used ? "bg-brand-soft font-medium text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
-      <span aria-hidden className={`grid h-5 w-6 shrink-0 place-items-center rounded text-[12px] font-bold ${icon === "num" ? "bg-brand-soft text-brand" : "bg-surface-2 text-muted"}`}>{ICON[icon]}</span>
+      <span aria-hidden className={`grid h-5 w-6 shrink-0 place-items-center rounded text-[12px] font-bold ${icon === "num" || icon === "calc" ? "bg-brand-soft text-brand" : "bg-surface-2 text-muted"}`}>{ICON[icon]}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate">{label}</span>
         {sub && <span className="block truncate text-[13px] font-normal text-faint">{sub}</span>}
@@ -666,4 +723,96 @@ function mixedAverage(spec: Spec) {
   if (!spec.measures.some((m) => PER_UNIT.has(m))) return false;
   if ((spec.by ?? []).some((b) => ITEMISH.includes(b))) return false;
   return !(spec.filters ?? []).some((f) => ITEMISH.includes(f.field) && !f.exclude && (f.values.length === 1 || f.field === "kind"));
+}
+
+/**
+ * Making or changing a calculated field (owner, 30 Oct: "ability to add aggregated columns"): a number with conditions,
+ * or two numbers combined — picked, never typed, with the field read back as a sentence while it's made.
+ */
+function FieldEditor({ d, field, choices, onClose, onSaved, onDeleted }: {
+  d: NonNullable<ReturnType<typeof datasetOf>>; field: CalcField | null; choices: { key: string; label: string }[];
+  onClose: () => void; onSaved: (f: CalcField, isNew: boolean) => void; onDeleted: (id: string) => void;
+}) {
+  const [name, setName] = useState(field?.name ?? "");
+  const [formula, setFormula] = useState<CalcFormula>(field?.formula ?? { kind: "filtered", base: "", filters: [] });
+  const [format, setFormat] = useState<CalcField["format"] | null>(field?.format ?? null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const shown = format ?? defaultFormat(d, formula);
+  const problem = calcProblem({ name, formula, format: shown });
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("[role=dialog][aria-label='Report field'] [aria-expanded=true]")) { e.stopImmediatePropagation(); onClose(); } };
+    window.addEventListener("keydown", esc, true);
+    return () => window.removeEventListener("keydown", esc, true);
+  }, [onClose]);
+  const save = async () => {
+    setBusy(true); setError("");
+    const r = await fetch("/api/analytics/fields", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field: { id: field?.id, dataset: d.key, name: name.trim(), formula, format: shown } }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!r?.ok || !j.field) return setError(j.error ?? "Couldn't save");
+    onSaved(j.field, !field);
+  };
+  const remove = async () => {
+    if (!field || !confirm(`Delete “${field.name}”? Reports using it will show the number as gone.`)) return;
+    const r = await fetch(`/api/analytics/fields?id=${encodeURIComponent(field.id)}`, { method: "DELETE" }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : { error: "Couldn't reach the server" };
+    if (!r?.ok) return setError(j.error ?? "Couldn't delete");
+    onDeleted(field.id);
+  };
+  const sel = "h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[16px] text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
+  const pick = (value: string, onChange: (v: string) => void, label: string) => (
+    <select aria-label={label} className={sel} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Pick a number…</option>
+      {choices.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+    </select>
+  );
+  return (
+    <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/40 p-3" onMouseDown={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Report field" className="modal-in flex max-h-[92vh] w-full max-w-[560px] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="border-b border-line px-5 py-3.5">
+          <h3 className="text-[18px] font-bold text-ink">{field ? "Change field" : "New field"}</h3>
+          <p className="text-[15px] text-muted">On {d.label} — the whole team can use it.</p>
+        </div>
+        <div className="no-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <FormatRow label="Name"><input className={inputCls} value={name} maxLength={60} placeholder="e.g. Paid invoices (₹)" onChange={(e) => setName(e.target.value)} autoFocus /></FormatRow>
+          <div className="flex rounded-full bg-surface-2 p-0.5" role="tablist" aria-label="Kind of field">
+            {([["filtered", "A number, only where …"], ["combine", "Two numbers combined"]] as const).map(([k, l]) => (
+              <button key={k} type="button" role="tab" aria-selected={formula.kind === k}
+                onClick={() => setFormula(k === "filtered" ? { kind: "filtered", base: formula.kind === "combine" ? formula.a : formula.base, filters: [] } : { kind: "combine", a: formula.kind === "filtered" ? formula.base : formula.a, op: "div", b: "" })}
+                className={`flex-1 rounded-full px-3 py-1.5 text-[15px] font-medium ${formula.kind === k ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted"}`}>{l}</button>
+            ))}
+          </div>
+          {formula.kind === "filtered" ? (
+            <>
+              <FormatRow label="Number">{pick(formula.base, (v) => setFormula({ ...formula, base: v }), "Number")}</FormatRow>
+              <FormatRow label="Only where" hint="Every condition must match — like the report's filters, but only for this number.">
+                <Filters dataset={d.key} filters={formula.filters} onChange={(filters) => setFormula({ ...formula, filters })} />
+              </FormatRow>
+            </>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
+              <FormatRow label="First">{pick(formula.a, (v) => setFormula({ ...formula, a: v }), "First number")}</FormatRow>
+              <select aria-label="How to combine" className={`${sel} sm:w-auto`} value={formula.op} onChange={(e) => setFormula({ ...formula, op: e.target.value as typeof formula.op })}>
+                {OPS.map(([k, w]) => <option key={k} value={k}>{w}</option>)}
+              </select>
+              <FormatRow label="Second">{pick(formula.b, (v) => setFormula({ ...formula, b: v }), "Second number")}</FormatRow>
+            </div>
+          )}
+          <FormatRow label="Shown as">
+            <select className={sel} value={shown} onChange={(e) => setFormat(e.target.value as CalcField["format"])}>
+              <option value="inr">₹ amount</option><option value="count">Number</option><option value="pct">Percent</option><option value="days">Days</option>
+            </select>
+          </FormatRow>
+          <p className="rounded-xl bg-brand-soft px-4 py-2.5 text-[15.5px] text-ink" aria-live="polite"><b className="font-semibold">{name.trim() || "This field"}</b> = {describeCalc(d, { formula })}</p>
+          {(error || (problem && name)) && <p className="text-[15px] text-high" role="alert">{error || problem}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+          {field && <button type="button" className={`${btn.quiet} mr-auto text-high`} onClick={remove}>Delete</button>}
+          <button type="button" className={btn.ghost} onClick={onClose}>Cancel</button>
+          <button type="button" className={btn.primary} disabled={busy || Boolean(problem)} onClick={save}>{busy ? "Saving…" : field ? "Save changes" : "Make field"}</button>
+        </div>
+      </div>
+    </div>
+  );
 }

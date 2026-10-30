@@ -22,6 +22,10 @@ type Agg =
   | { agg: "sum" | "avg" | "min" | "max"; field: string; where?: Where }
   | { agg: "distinct"; field: string; where?: Where }
   | { agg: "ratio"; num: string; den: string; scale?: number }
+  /** A calculated field (calc.ts): another measure over only the rows matching `filters` (same shape as query.ts Filter). */
+  | { agg: "filtered"; base: string; filters: { field: string; values: string[]; exclude?: boolean; contains?: string; min?: number; max?: number }[] }
+  /** A calculated field: two measures combined — a ÷ b, a − b, a + b, a × b, or a as % of b. */
+  | { agg: "combine"; a: string; b: string; op: "div" | "sub" | "add" | "mul" | "pct" }
   /** Share (%) of `sum` that the top `n` values of `field` make up — "top 10 customers' share". */
   | { agg: "topShare"; field: string; sum: string; n: number };
 /** `better: "down"` — a fall is good news (overdue, days to pay, dependence on a few customers): KPIs colour it green. */

@@ -5,6 +5,7 @@ import { db } from "../db";
 import { exportTable, viewDetails, workspaceViews } from "../zohoAnalytics";
 import type { Row } from "./model";
 import type { Spec } from "./query";
+import { calcInputs } from "./calc";
 import { type Catalog, type CatalogColumn, type CatalogTable, HIDDEN_TABLES, type Linked, columnType, isTableKey, tableRows } from "./tables";
 import { joinedRows, parseJoinKey } from "./joins";
 
@@ -133,7 +134,9 @@ async function rawRows(t: CatalogTable): Promise<Record<string, string>[]> {
 
 /** The fields a report touches (splits, filters, numbers, tooltip, compare) — to load only the tables they need. */
 export function fieldsUsed(spec: Spec): string[] {
-  const keys = [...(spec.by ?? []), ...(spec.filters ?? []).map((f) => f.field), ...spec.measures, ...(spec.tooltip ?? []), spec.dateField ?? ""];
+  // A calculated field brings what it reads (its numbers and its conditions' columns).
+  const measures = [...spec.measures, ...(spec.tooltip ?? [])].flatMap((m) => [m, ...calcInputs(m)]);
+  const keys = [...(spec.by ?? []), ...(spec.filters ?? []).map((f) => f.field), ...measures, spec.dateField ?? ""];
   if (typeof spec.compare === "object" && spec.compare) keys.push(spec.compare.field);
   return keys.map((k) => k.replace(/^(?:rel:\d+:)?(?:sum|avg|min|max|count|distinct):/, "")).filter(Boolean);
 }

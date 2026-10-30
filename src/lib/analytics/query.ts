@@ -168,6 +168,14 @@ function evaluate(d: Dataset, keys: string[], rows: Row[]): (number | null)[] {
       const num = one(measureOf(d, m.num)!);
       const den = one(measureOf(d, m.den)!);
       v = num !== null && den ? (num / den) * (m.scale ?? 1) : null;
+    } else if (m.agg === "filtered") {
+      // A calculated field with conditions (calc.ts): its measure over the matching rows only.
+      const base = measureOf(d, m.base);
+      v = base ? evaluate(d, [m.base], rs.filter((r) => m.filters.filter(active).every((f) => passes(f, r))))[0] : null;
+    } else if (m.agg === "combine") {
+      const a = measureOf(d, m.a), b = measureOf(d, m.b);
+      const x = a ? one(a) : null, y = b ? one(b) : null;
+      v = x === null || y === null ? null : m.op === "add" ? x + y : m.op === "sub" ? x - y : m.op === "mul" ? x * y : !y ? null : m.op === "pct" ? (x / y) * 100 : x / y;
     }
     cache.set(m.key, v);
     return v;
