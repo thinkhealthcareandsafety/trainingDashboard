@@ -129,8 +129,9 @@ function keep(d: Dataset, rows: Row[], spec: Pick<Spec, "from" | "to" | "filters
   const df = spec.dateField || d.dateField;
   return rows.filter((r) => {
     const date = r[df];
-    // A table with no date at all ignores the period.
-    if (df && (spec.from || spec.to)) {
+    // A table with no date at all ignores the period; so do joined rows marked "always" (joins.ts: the customers
+    // beside their invoices — the period picks the invoices, it doesn't drop customers).
+    if (df && (spec.from || spec.to) && r["⟂always"] !== "1") {
       if (typeof date !== "string" || !date) return false;
       if (spec.from && date < spec.from) return false;
       if (spec.to && date > spec.to) return false;

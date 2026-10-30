@@ -50,15 +50,35 @@ export function columnType(dataTypeName: string): ColumnType {
   return "text";
 }
 export const offered = (c: CatalogColumn) => !PERSONAL.test(c.name);
-const isId = (c: CatalogColumn) => /(^|\s)ID$/i.test(c.name) || /_id$/i.test(c.name);
-const NUMERIC: ColumnType[] = ["number", "money", "pct"];
-const FORMAT: Record<string, Format> = { number: "count", money: "inr", pct: "pct" };
-/** A linked table's column, carried on this table's row: "Customer ID→Customer Name". */
-export const linkKey = (via: string, column: string) => `${via}→${column}`;
+export const isId = (c: CatalogColumn) => /(^|\s)ID$/i.test(c.name) || /_id$/i.test(c.name);
+export const NUMERIC: ColumnType[] = ["number", "money", "pct"];
+export const FORMAT: Record<string, Format> = { number: "count", money: "inr", pct: "pct" };
+/** A linked table's column, carried on this table's row: "Customer ID→Customer Name"; two levels deep (owner, 30 Oct:
+ *  "join two tables … all are interconnected"): "Invoice ID→Customer ID→Customer Name" (Invoice Items → Invoices → Customers). */
+export const linkKey = (...path: string[]) => path.join("→");
+/** The words and dates of a linked table that come along (no IDs, no numbers, no contact details). */
+export const carried = (t: CatalogTable) => t.columns.filter((x) => offered(x) && !isId(x) && !NUMERIC.includes(x.type));
+const linkable = (byName: Map<string, CatalogTable>, c: CatalogColumn) => {
+  const l = c.link && byName.get(c.link.table);
+  return l && !HIDDEN_TABLES.has(l.name) ? l : undefined;
+};
+/** The tables a table reaches through its links: one level, and through each of those one more (each table once, the
+ *  nearest way). Pure — the dataset's fields and the server's row building walk the same paths. */
+export function linkPaths(t: CatalogTable, catalog: Catalog): { path: string[]; table: CatalogTable }[] {
+  const byName = new Map(catalog.tables.map((x) => [x.name, x]));
+  const out: { path: string[]; table: CatalogTable }[] = [];
+  const seen = new Set([t.name]);
+  for (const c of t.columns.filter(offered)) { const l = linkable(byName, c); if (l && !seen.has(l.name)) { seen.add(l.name); out.push({ path: [c.name], table: l }); } }
+  for (const first of [...out]) for (const lc of first.table.columns.filter(offered)) {
+    const m = linkable(byName, lc);
+    if (m && !seen.has(m.name)) { seen.add(m.name); out.push({ path: [...first.path, lc.name], table: m }); }
+  }
+  return out;
+}
 
 /** The table's main date — what "When" filters on (another date column can be picked): "<Table> Date", else "Date",
  *  else the first date that isn't bookkeeping. */
-function mainDate(t: CatalogTable): string {
+export function mainDate(t: CatalogTable): string {
   const dates = t.columns.filter((c) => c.type === "date" && offered(c));
   const single = t.name.replace(/ (Items?|Table)$/, "").replace(/s$/, "");
   return (dates.find((c) => c.name.toLowerCase() === `${single} date`.toLowerCase())
@@ -76,17 +96,16 @@ export function tableDataset(t: CatalogTable, catalog: Catalog): Dataset {
   const fields: Field[] = [];
   const nums: NumberCol[] = [];
   for (const c of t.columns.filter(offered)) {
-    const linked = c.link && byName.get(c.link.table);
-    if (linked && !HIDDEN_TABLES.has(linked.name)) {
-      // The link itself is an ID nobody reads; its table's words and dates come instead.
-      for (const lc of linked.columns.filter((x) => offered(x) && !isId(x) && !NUMERIC.includes(x.type)))
-        fields.push({ key: linkKey(c.name, lc.name), label: `${lc.name} (${linked.name})`, kind: "text", table: linked.name, hint: `${linked.name} → ${lc.name}, through ${c.name}` });
-      continue;
-    }
+    // The link itself is an ID nobody reads; its table's words and dates come instead (below, linkPaths).
+    if (linkable(byName, c)) continue;
     if (NUMERIC.includes(c.type)) { if (!isId(c)) nums.push({ key: c.name, label: c.name, format: FORMAT[c.type] }); continue; }
     if (isId(c)) continue;
     fields.push({ key: c.name, label: c.name, kind: c.type === "date" ? "date" : "text", hint: `Zoho column “${c.name}” (${t.name})` });
   }
+  // Linked tables' words and dates, one and two levels deep.
+  for (const { path, table } of linkPaths(t, catalog))
+    for (const lc of carried(table))
+      fields.push({ key: linkKey(...path, lc.name), label: `${lc.name} (${table.name})`, kind: lc.type === "date" ? "date" : "text", table: table.name, hint: `${table.name} → ${lc.name}, through ${path.join(" → ")}` });
   numbers.set(tableKey(t), nums);
   const date = mainDate(t);
   const measures: Measure[] = [{ key: "rows", label: "Number of rows", format: "count", agg: "count", def: `How many ${t.name} rows (after the filters).` }];
@@ -98,8 +117,14 @@ export function tableDataset(t: CatalogTable, catalog: Catalog): Dataset {
   };
 }
 
+/** The table list last registered — joined datasets ("zt:1+7", joins.ts) are built from it when first asked for. */
+let current: Catalog = { tables: [] };
+export const currentCatalog = () => current;
 /** Puts the tables on the dataset list (server: before a query; browser: when the builder opens). Safe to repeat. */
 export function registerTables(catalog: Catalog) {
+  current = catalog;
+  // Joined datasets built from an older list are rebuilt on the next ask.
+  for (let i = DATASETS.length - 1; i >= 0; i--) if (DATASETS[i].key.startsWith("zt:") && DATASETS[i].key.includes("+")) DATASETS.splice(i, 1);
   for (const t of catalog.tables) {
     if (HIDDEN_TABLES.has(t.name)) continue;
     const d = tableDataset(t, catalog);
@@ -127,20 +152,33 @@ export function parseDate(s: string | undefined): string | null {
   m = t.match(/^(\d{1,2})[ -]([A-Za-z]{3})[a-z]*,?[ -](\d{4})/);
   return m && MON[m[2].toLowerCase()] ? `${m[3]}-${MON[m[2].toLowerCase()]}-${m[1].padStart(2, "0")}` : null;
 }
-const value = (c: CatalogColumn, s: string | undefined) =>
+export const value = (c: CatalogColumn, s: string | undefined) =>
   NUMERIC.includes(c.type) ? parseNumber(s) : c.type === "date" ? parseDate(s) : (s ?? "").trim() || null;
 
-/** A table's rows as report rows: its own columns, plus each linked table's words and dates. */
-export function tableRows(t: CatalogTable, raw: Record<string, string>[], linked: Map<string, { table: CatalogTable; rows: Map<string, Record<string, string>> }>): Row[] {
+/** Rows of a linked table, by the column links point at (its ID). */
+export type Linked = Map<string, { table: CatalogTable; rows: Map<string, Record<string, string>> }>;
+/**
+ * A table's rows as report rows: its own columns, plus the words and dates of each linked table that's loaded (one or
+ * two levels deep — `linked` holds the ones a report uses). Own columns keep their raw ID values too (joins use them).
+ */
+export function tableRows(t: CatalogTable, raw: Record<string, string>[], linked: Linked, catalog?: Catalog): Row[] {
   const own = t.columns.filter(offered);
+  const paths = (catalog ? linkPaths(t, catalog) : own.filter((c) => c.link && linked.has(c.link.table)).map((c) => ({ path: [c.name], table: linked.get(c.link!.table)!.table })))
+    .filter((p) => linked.has(p.table.name));
   return raw.map((r) => {
     const row: Row = {};
-    for (const c of own) {
-      const l = c.link && linked.get(c.link.table);
-      if (l) {
-        const target = l.rows.get((r[c.name] ?? "").trim());
-        for (const lc of l.table.columns) if (offered(lc) && !isId(lc) && !NUMERIC.includes(lc.type)) row[linkKey(c.name, lc.name)] = target ? value(lc, target[lc.name]) : null;
-      } else row[c.name] = value(c, r[c.name]);
+    for (const c of own) if (!(c.link && linked.has(c.link.table))) row[c.name] = value(c, r[c.name]);
+    for (const { path, table } of paths) {
+      // Walk the path: this row's ID → the first table's row → (its ID →) the second's.
+      let at: Record<string, string> | undefined = r;
+      let from = t;
+      for (const step of path) {
+        const col = from.columns.find((x) => x.name === step);
+        const l = col?.link && linked.get(col.link.table);
+        at = at && l ? l.rows.get((at[step] ?? "").trim()) : undefined;
+        if (l) from = l.table;
+      }
+      for (const lc of carried(table)) row[linkKey(...path, lc.name)] = at ? value(lc, at[lc.name]) : null;
     }
     return row;
   });
@@ -153,7 +191,7 @@ export function tableRows(t: CatalogTable, raw: Record<string, string>[], linked
 export const TABLE_AGGS = [["sum", "Sum"], ["avg", "Average"], ["min", "Min"], ["max", "Max"], ["count", "Count"], ["distinct", "Count distinct"]] as const;
 export type TableAgg = (typeof TABLE_AGGS)[number][0];
 export function tableMeasure(d: Dataset, key: string): Measure | undefined {
-  if (!isTableKey(d.key)) return undefined;
+  if (!isTableKey(d.key) || d.key.includes("+")) return undefined; // a joined dataset has its own (joins.ts)
   const m = key.match(/^(sum|avg|min|max|count|distinct):(.+)$/);
   if (!m) return undefined;
   const agg = m[1] as TableAgg;

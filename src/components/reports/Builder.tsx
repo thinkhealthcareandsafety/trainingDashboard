@@ -5,7 +5,8 @@ import { DATASETS, type Grain, datasetOf, fieldOf, measureOf, periods } from "@/
 import type { ChartKind, Filter, Spec } from "@/lib/analytics/query";
 import { describeSpec } from "@/lib/analytics/describe";
 import { AGGS, extraNumbers } from "@/lib/analytics/extras";
-import { STATUS_COLUMN, TABLE_AGGS, VOID_OR_DRAFT, isTableKey, tableNumbers } from "@/lib/analytics/tables";
+import { STATUS_COLUMN, TABLE_AGGS, VOID_OR_DRAFT, currentCatalog, isTableKey, tableNumbers } from "@/lib/analytics/tables";
+import { DATE, MAX_RELATED, isJoinKey, joinKey, joinNumbers, relKey, relatedTables } from "@/lib/analytics/joins";
 import { btn, inputCls } from "../ui";
 import { Chart, chartKindOf, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, type TableList, isError, loadTables, runSpecs, useFieldValues, withPeriod } from "./shared";
@@ -91,17 +92,35 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     if (!nd) return;
     setNote("");
     setSearch("");
-    setSpec((s) => ({ ...s, dataset: key, measures: [], dateField: undefined, by: (s.by ?? []).filter((b) => fieldOf(nd, b)), filters: (s.filters ?? []).filter((f) => fieldOf(nd, f.field)) }));
-    // Invoices, Quotes, Sales Orders, Bills open with a visible "Status is not Void / Draft" — removable (plan, point 6).
-    // Its values are the table's own spellings, read from the data.
-    const status = STATUS_COLUMN[nd.label];
-    if (!status || !fieldOf(nd, status)) return;
-    runSpecs([{ dataset: key, measures: ["rows"], by: [status] }]).then((j) => {
-      const r = j.results[0];
-      const values = r && !isError(r) ? r.rows.map((row) => row.keys[0]).filter((v) => VOID_OR_DRAFT.test(v)) : [];
-      if (values.length) setSpec((s) => (s.dataset !== key || (s.filters ?? []).some((f) => f.field === status) ? s : { ...s, filters: [...(s.filters ?? []), { field: status, values, exclude: true }] }));
+    // Adding or removing a related table keeps what still means something on the new data.
+    const keep = (k: string) => Boolean(measureOf(nd, k));
+    setSpec((s) => {
+      // The main date on Rows becomes "Date (each table's own)" when a related table joins (its rows have no Invoice
+      // Date — they'd all land in "(blank)"), and back when the last one leaves.
+      const od = datasetOf(s.dataset);
+      const swap = (b: string) => (od && isJoinKey(key) && !isJoinKey(s.dataset) && b === od.dateField ? DATE : od && !isJoinKey(key) && isJoinKey(s.dataset) && b === DATE ? nd.dateField : b);
+      return { ...s, dataset: key, measures: s.measures.filter(keep), tooltip: s.tooltip?.filter(keep), dateField: s.dateField && fieldOf(nd, s.dateField) ? s.dateField : undefined,
+        by: (s.by ?? []).map(swap).filter((b) => fieldOf(nd, b)), filters: (s.filters ?? []).filter((f) => fieldOf(nd, f.field) || nd.ranges?.some((r) => r.key === f.field)) };
     });
+    // Invoices, Quotes, Sales Orders, Bills open with a visible "Status is not Void / Draft" — removable (plan, point 6) —
+    // a related table of those kinds too ("Invoice Status (Invoices)"). Values are the table's own spellings, from its data.
+    const ids = key.slice(3).split("+");
+    const statusFields = isTableKey(key) ? ids.map((id, i) => {
+      const t = currentCatalog().tables.find((x) => x.id === id);
+      const col = t && STATUS_COLUMN[t.name];
+      return col ? (i === 0 ? col : relKey(t, col)) : null;
+    }).filter((f): f is string => Boolean(f && fieldOf(nd, f))) : [];
+    for (const status of statusFields) {
+      runSpecs([{ dataset: key, measures: ["rows", ...(status.startsWith("rel:") ? [`rel:${status.split(":")[1]}:rows`] : [])], by: [status] }]).then((j) => {
+        const r = j.results[0];
+        const values = r && !isError(r) ? r.rows.map((row) => row.keys[0]).filter((v) => VOID_OR_DRAFT.test(v)) : [];
+        if (values.length) setSpec((s) => (s.dataset !== key || (s.filters ?? []).some((f) => f.field === status) ? s : { ...s, filters: [...(s.filters ?? []), { field: status, values, exclude: true }] }));
+      });
+    }
   };
+  // The main table and its related ones (joins.ts): "zt:1+7" — Invoices with its Customer Payments…
+  const [mainId, ...relatedIds] = isTableKey(spec.dataset) ? spec.dataset.slice(3).split("+") : [];
+  const setRelated = (ids: string[]) => changeDataset(ids.length ? joinKey({ id: mainId }, ids.map((id) => ({ id }))) : `zt:${mainId}`);
   const by = spec.by ?? [];
   // Shelves. Rows = by[0]; the second split, by[1], is Colour or Columns (`split`, step d — the engine takes two);
   // Values = measures (1–4); Label = numbers on the marks; Tooltip = up to 3 hover-only numbers.
@@ -145,7 +164,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
       if (shelf === "tooltip") { if (!tips.includes(key)) toggleTip(key); return; }
       // A number on Filters: a range ("Total (BCY) at least …"), on the column itself.
       if (shelf === "filters") {
-        const col = key.replace(/^(sum|avg|min|max|count|distinct):/, "");
+        const col = aggOf(key)?.col ?? key;
         if (!d.ranges?.some((r) => r.key === col)) return setNote("This number can't be a filter — try one of the table's own number columns.");
         if (!(spec.filters ?? []).some((f) => f.field === col)) set({ filters: [...(spec.filters ?? []), { field: col, values: [] }] });
         return;
@@ -194,9 +213,16 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const nums = d.measures.filter((m) => match(m.label) || match(m.zoho ?? ""));
   // A Zoho table: the tables it links to come along (plan, point 3), each under its own name.
   const linkedAttrs = zt ? Object.entries(Object.groupBy(d.fields.filter((f) => f.table && match(f.label)), (f) => f.table!)) : [];
-  const tableNums = zt ? tableNumbers(d.key).filter((c) => match(c.label)) : [];
-  const aggOf = (k: string) => k.match(/^(sum|avg|min|max|count|distinct):(.+)$/);
-  const usedNumber = (key: string) => spec.measures.find((k) => aggOf(k)?.[2] === key);
+  // A Zoho table's number columns — on joined data each table's, a related one's as "rel:<id>:<column>".
+  const numberCols: { key: string; label: string; group: string }[] = !zt ? [] : isJoinKey(d.key)
+    ? joinNumbers(d.key).flatMap((g) => g.cols.map((c) => ({ key: g.prefix ? relKey(g.table, c.name) : c.name, label: c.name, group: g.table.name })))
+    : tableNumbers(d.key).map((c) => ({ key: c.key, label: c.label, group: "" }));
+  const tableNums = numberCols.filter((c) => match(c.label));
+  // "sum:Total (BCY)" / "rel:7:avg:Amount" ⇄ how it adds up + which column ("rel:7:Amount").
+  const aggOf = (k: string) => { const m = k.match(/^(?:rel:(\d+):)?(sum|avg|min|max|count|distinct):(.+)$/); return m ? { agg: m[2], col: m[1] ? `rel:${m[1]}:${m[3]}` : m[3] } : null; };
+  const mk = (agg: string, col: string) => { const m = col.match(/^rel:(\d+):(.+)$/); return m ? `rel:${m[1]}:${agg}:${m[2]}` : `${agg}:${col}`; };
+  const usedNumber = (key: string) => spec.measures.find((k) => aggOf(k)?.col === key);
+  const related = mainId ? relatedTables(currentCatalog().tables.find((t) => t.id === mainId) ?? { id: "", name: "", rows: 0, columns: [] }, currentCatalog()) : [];
   const dates = d.fields.filter((f) => f.kind === "date");
   const label = (k: string) => (isDateField(k) ? `${fieldOf(d, k)?.label ?? "Date"} · ${(GRAINS.find((g) => g.value === (spec.grain ?? "month"))?.label ?? "Month").toLowerCase()}` : fieldOf(d, k)?.label ?? k);
   const show = (p: Pane) => (pane === p ? "flex" : "hidden lg:flex");
@@ -222,10 +248,33 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
           {/* Data */}
           <section aria-label="Data" className={`${show("data")} min-h-0 flex-col border-line lg:border-r`}>
             <div className="shrink-0 space-y-2 border-b border-line p-4">
-              <select aria-label="Zoho table" className={selectCls} value={spec.dataset} onChange={(e) => changeDataset(e.target.value)}>
+              <select aria-label="Zoho table" className={selectCls} value={zt ? `zt:${mainId}` : spec.dataset} onChange={(e) => changeDataset(e.target.value)}>
                 {legacy.map((x) => <option key={x.key} value={x.key}>{x.label} (ready-made, this report)</option>)}
                 {(tables?.tables ?? []).map((t) => <option key={t.id} value={`zt:${t.id}`}>{t.name}</option>)}
               </select>
+              {/* Related tables (owner, 30 Oct: "join two tables"): ones pointing to this one, or sharing its customer… */}
+              {zt && related.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {relatedIds.map((id) => {
+                    const r = related.find((x) => x.table.id === id);
+                    return <Pill key={id} text={`+ ${r?.table.name ?? id}`} title={r ? (r.kind === "child" ? `Its ${r.table.name} (through ${r.col})` : `Same ${r.via} as this table`) : undefined} onRemove={() => setRelated(relatedIds.filter((x) => x !== id))} />;
+                  })}
+                  {relatedIds.length < MAX_RELATED && (
+                    <select aria-label="Add a related table" className="h-8 max-w-full rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
+                      onChange={(e) => e.target.value && setRelated([...relatedIds, e.target.value])}>
+                      <option value="">+ Add a related table…</option>
+                      {(["child", "sibling"] as const).map((kind) => {
+                        const list = related.filter((r) => r.kind === kind && !relatedIds.includes(r.table.id));
+                        return list.length ? (
+                          <optgroup key={kind} label={kind === "child" ? "Linked to this table" : "Sharing a customer, sales person, item…"}>
+                            {list.map((r) => <option key={r.table.id} value={r.table.id}>{r.table.name}{r.kind === "sibling" ? ` (same ${r.via?.replace(/s$/, "").toLowerCase()})` : ""}</option>)}
+                          </optgroup>
+                        ) : null;
+                      })}
+                    </select>
+                  )}
+                </div>
+              )}
               <p className="text-[14.5px] leading-snug text-muted">{d.desc}</p>
               <input className={`${selectCls} h-8`} placeholder="Find a field…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Find a field" />
             </div>
@@ -239,7 +288,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                 <div key={table} className="mt-2">
                   <p className="px-2 pb-0.5 text-[13.5px] font-semibold text-faint" title={`Zoho's link from this table to ${table}`}>From {table}</p>
                   {fs!.map((f) => (
-                    <DataItem key={f.key} icon="text" label={f.label.replace(/ \([^)]*\)$/, "")} hint={f.hint} used={by.includes(f.key) || (spec.filters ?? []).some((x) => x.field === f.key)}
+                    <DataItem key={f.key} icon={f.kind === "date" ? "date" : "text"} label={f.label.replace(/ \([^)]*\)$/, "")} hint={f.hint} used={by.includes(f.key) || (spec.filters ?? []).some((x) => x.field === f.key)}
                       drag={`attr:${f.key}`} onClick={() => pickAttribute(f.key)} />
                   ))}
                 </div>
@@ -248,11 +297,16 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               {nums.map((m) => (
                 <DataItem key={m.key} icon="num" label={m.label} sub={m.zoho && `Zoho: ${m.zoho}`} hint={m.def} used={spec.measures.includes(m.key)} drag={`num:${m.key}`} onClick={() => toggleValue(m.key)} />
               ))}
-              {tableNums.map((c) => {
-                const used = usedNumber(c.key);
-                return <DataItem key={c.key} icon="num" label={c.label} hint={`Zoho column “${c.label}” — added up as a Sum; change it to Average, Min, Max, Count or Count distinct on its pill`} used={Boolean(used)}
-                  drag={`num:sum:${c.key}`} onClick={() => toggleValue(used ?? `sum:${c.key}`)} />;
-              })}
+              {Object.entries(Object.groupBy(tableNums, (c) => c.group)).map(([group, cs]) => (
+                <div key={group || "own"} className={group ? "mt-2" : ""}>
+                  {group && relatedIds.length > 0 && <p className="px-2 pb-0.5 text-[13.5px] font-semibold text-faint">{group} numbers</p>}
+                  {cs!.map((c) => {
+                    const used = usedNumber(c.key);
+                    return <DataItem key={c.key} icon="num" label={c.label} hint={`Zoho column “${c.label}”${group ? ` (${group})` : ""} — added up as a Sum; change it to Average, Min, Max, Count or Count distinct on its pill`} used={Boolean(used)}
+                      drag={`num:${mk("sum", c.key)}`} onClick={() => toggleValue(used ?? mk("sum", c.key))} />;
+                  })}
+                </div>
+              ))}
             </div>
           </section>
 
@@ -284,16 +338,17 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   const a = aggOf(k);
                   if (!a) return <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={() => toggleValue(k)} title={[measureOf(d, k)?.def, measureOf(d, k)?.zoho && `Zoho: ${measureOf(d, k)?.zoho}`].filter(Boolean).join("\n")} />;
                   // A Zoho number column: how it adds up is chosen on the pill (Tableau's right-click → Measure).
-                  const col = zt ? tableNumbers(d.key).find((c) => c.key === a[2]) ?? fieldOf(d, a[2]) : extraNumbers(d).find((c) => c.key === a[2]);
+                  const num = numberCols.find((c) => c.key === a.col);
+                  const col = zt ? (num && { label: `${num.label}${num.group && relatedIds.length ? ` (${num.group})` : ""}` }) ?? fieldOf(d, a.col) : extraNumbers(d).find((c) => c.key === a.col);
                   // Words and dates only count; numbers also add up.
-                  const choices = !zt ? AGGS : tableNumbers(d.key).some((c) => c.key === a[2]) ? TABLE_AGGS : TABLE_AGGS.filter(([v]) => v === "count" || v === "distinct");
+                  const choices = !zt ? AGGS : num ? TABLE_AGGS : TABLE_AGGS.filter(([v]) => v === "count" || v === "distinct");
                   return (
                     <span key={k} title={measureOf(d, k)?.def} className="inline-flex max-w-full items-center gap-1 rounded-full bg-brand-soft py-0.5 pl-1 pr-1 text-[15px] font-medium text-ink">
-                      <select aria-label={`How ${col?.label ?? "it"} adds up`} value={a[1]} onChange={(e) => set({ measures: spec.measures.map((x) => (x === k ? `${e.target.value}:${a[2]}` : x)) })}
+                      <select aria-label={`How ${col?.label ?? "it"} adds up`} value={a.agg} onChange={(e) => set({ measures: spec.measures.map((x) => (x === k ? mk(e.target.value, a.col) : x)) })}
                         className="h-7 rounded-full border border-line bg-surface px-2 text-[14.5px] text-ink focus:border-brand focus:outline-none">
                         {choices.map(([v, w]) => <option key={v} value={v}>{w}</option>)}
                       </select>
-                      <span className="truncate">of {col?.label ?? a[2]}</span>
+                      <span className="truncate">of {col?.label ?? a.col}</span>
                       <button type="button" aria-label={`Remove ${col?.label ?? k}`} onClick={() => toggleValue(k)} className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink">×</button>
                     </span>
                   );
@@ -303,7 +358,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                     onChange={(e) => e.target.value && toggleValue(e.target.value)}>
                     <option value="">+ Add…</option>
                     {d.measures.filter((m) => !spec.measures.includes(m.key)).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                    {zt && tableNumbers(d.key).filter((c) => !usedNumber(c.key)).map((c) => <option key={c.key} value={`sum:${c.key}`}>Sum of {c.label}</option>)}
+                    {zt && numberCols.filter((c) => !usedNumber(c.key)).map((c) => <option key={c.key} value={mk("sum", c.key)}>{measureOf(d, mk("sum", c.key))?.label ?? `Sum of ${c.label}`}</option>)}
                   </select>
                 )}
               </Shelf>
@@ -321,7 +376,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                       onChange={(e) => e.target.value && toggleTip(e.target.value)}>
                       <option value="">{tips.length ? "+ Add…" : "+ Add a number…"}</option>
                       {d.measures.filter((m) => !tips.includes(m.key)).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                      {zt && tableNumbers(d.key).flatMap((c) => (["sum", "avg"] as const).map((a) => `${a}:${c.key}`)).filter((k) => !tips.includes(k)).map((k) => <option key={k} value={k}>{measureOf(d, k)?.label ?? k}</option>)}
+                      {zt && numberCols.flatMap((c) => (["sum", "avg"] as const).map((a) => mk(a, c.key))).filter((k) => !tips.includes(k)).map((k) => <option key={k} value={k}>{measureOf(d, k)?.label ?? k}</option>)}
                     </select>
                   )}
                 </Shelf>

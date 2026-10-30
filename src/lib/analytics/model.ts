@@ -426,7 +426,17 @@ const ZOHO: Record<string, Record<string, string>> = {
 };
 for (const d of DATASETS) for (const m of d.measures) m.zoho ??= ZOHO[d.key]?.[m.key];
 
-export const datasetOf = (key: string) => DATASETS.find((d) => d.key === key);
+/** Datasets made when first asked for (joins.ts: "zt:1+7" — a Zoho table with related tables); kept on DATASETS. */
+type DatasetResolver = (key: string) => Dataset | undefined;
+const datasetResolvers: DatasetResolver[] = [];
+export const addDatasetResolver = (f: DatasetResolver) => { if (!datasetResolvers.includes(f)) datasetResolvers.push(f); };
+export const datasetOf = (key: string): Dataset | undefined => {
+  const have = DATASETS.find((d) => d.key === key);
+  if (have) return have;
+  const made = datasetResolvers.reduce<Dataset | undefined>((d, f) => d ?? f(key), undefined);
+  if (made) DATASETS.push(made);
+  return made;
+};
 export const fieldOf = (d: Dataset, key: string) => (key === "date" ? d.fields.find((f) => f.key === "date") : d.fields.find((f) => f.key === key));
 /** Measures made on the spot from a number column ("sum:Sub Total (BCY)") — extras.ts and tables.ts add their resolvers. */
 type Resolver = (d: Dataset, key: string) => Measure | undefined;

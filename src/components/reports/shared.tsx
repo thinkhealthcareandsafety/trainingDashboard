@@ -6,6 +6,8 @@ import type { ExtraCol } from "@/lib/analytics/extras";
 import { type Period, fieldOf, datasetOf, grainKey, periods } from "@/lib/analytics/model";
 import { BLANK, type Filter, type Result, type Spec } from "@/lib/analytics/query";
 import { type CatalogTable, registerTables } from "@/lib/analytics/tables";
+// Joined datasets ("zt:1+7") are made on first ask — the resolver comes with this import.
+import "@/lib/analytics/joins";
 
 /* The Reports page's shared pieces: the API calls, period helpers and the multi-select filter. */
 

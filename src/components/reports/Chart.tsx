@@ -121,7 +121,8 @@ export function resolveKind(kind: ChartKind | undefined, r: Pick<Result, "by" | 
   if (!r.by.length) return "kpi";
   // ₹, counts and % can't share one axis (one axis, ever) — a chart would drop all but the first unit; a table shows all.
   if (r.by.length === 1 && new Set(r.measures.map((m) => m.format)).size > 1) return "table";
-  if (r.by.length === 2) return "stacked";
+  // Two splits: stacked colours — but a stack draws one number, so with several the table shows them all.
+  if (r.by.length === 2) return r.measures.length > 1 ? "table" : "stacked";
   return r.by[0].date ? "column" : "bar";
 }
 

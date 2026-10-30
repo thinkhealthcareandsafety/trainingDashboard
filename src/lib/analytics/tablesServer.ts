@@ -5,7 +5,8 @@ import { db } from "../db";
 import { exportTable, viewDetails, workspaceViews } from "../zohoAnalytics";
 import type { Row } from "./model";
 import type { Spec } from "./query";
-import { type Catalog, type CatalogColumn, type CatalogTable, HIDDEN_TABLES, columnType, isTableKey, tableRows } from "./tables";
+import { type Catalog, type CatalogColumn, type CatalogTable, HIDDEN_TABLES, type Linked, columnType, isTableKey, tableRows } from "./tables";
+import { joinedRows, parseJoinKey } from "./joins";
 
 /*
  * The Zoho Analytics tables behind "Pick a Zoho table" (owner's plan of 30 Oct, steps a–b). Read-only on Zoho's side.
@@ -130,26 +131,57 @@ async function rawRows(t: CatalogTable): Promise<Record<string, string>[]> {
   return p;
 }
 
-/** The linked tables a report touches: "Customer ID→Customer Name" in its splits, filters or counts. */
-function linksUsed(spec: Spec): string[] {
-  const keys = [...(spec.by ?? []), ...(spec.filters ?? []).map((f) => f.field), ...spec.measures.map((m) => m.replace(/^distinct:/, ""))];
+/** The fields a report touches (splits, filters, numbers, tooltip, compare) — to load only the tables they need. */
+export function fieldsUsed(spec: Spec): string[] {
+  const keys = [...(spec.by ?? []), ...(spec.filters ?? []).map((f) => f.field), ...spec.measures, ...(spec.tooltip ?? []), spec.dateField ?? ""];
   if (typeof spec.compare === "object" && spec.compare) keys.push(spec.compare.field);
-  return [...new Set(keys.filter((k) => k.includes("→")).map((k) => k.split("→")[0]))];
+  return keys.map((k) => k.replace(/^(?:rel:\d+:)?(?:sum|avg|min|max|count|distinct):/, "")).filter(Boolean);
+}
+/** The link paths those fields walk: "Invoice ID→Customer ID→Sector" → ["Invoice ID", "Customer ID"]. */
+const pathsOf = (keys: string[]) => [...new Map(keys.filter((k) => k.includes("→")).map((k) => { const p = k.split("→").slice(0, -1); return [p.join("→"), p] as const; })).values()];
+
+/** Loads the linked tables a set of paths walks from `t` (one or two levels), keyed by the column the link points at. */
+export async function loadLinks(t: CatalogTable, paths: string[][], catalog: Catalog, linked: Linked = new Map()): Promise<Linked> {
+  const byName = new Map(catalog.tables.map((x) => [x.name, x]));
+  for (const path of paths) {
+    let from = t;
+    for (const step of path) {
+      const c = from.columns.find((x) => x.name === step);
+      const lt = c?.link && byName.get(c.link.table);
+      if (!c?.link || !lt || HIDDEN_TABLES.has(lt.name)) break;
+      if (!linked.has(lt.name)) { const key = c.link.column; linked.set(lt.name, { table: lt, rows: new Map((await rawRows(lt)).map((r) => [(r[key] ?? "").trim(), r])) }); }
+      from = lt;
+    }
+  }
+  return linked;
 }
 
-/** A Zoho table dataset's rows for this report (with the linked tables it uses). */
+/** A Zoho table dataset's rows for this report (with the linked tables it uses); a joined one ("zt:1+7") in joins. */
 export async function tableRowsFor(spec: Spec, catalog: Catalog): Promise<Row[]> {
   if (!isTableKey(spec.dataset)) return [];
+  if (spec.dataset.includes("+")) return joinedRowsFor(spec, catalog);
   const t = catalog.tables.find((x) => `zt:${x.id}` === spec.dataset);
   if (!t) throw new Error("That Zoho table isn't in the list any more");
-  const byName = new Map(catalog.tables.map((x) => [x.name, x]));
-  const linked = new Map<string, { table: CatalogTable; rows: Map<string, Record<string, string>> }>();
-  for (const via of linksUsed(spec)) {
-    const c = t.columns.find((x) => x.name === via);
-    const lt = c?.link && byName.get(c.link.table);
-    if (!c?.link || !lt || HIDDEN_TABLES.has(lt.name) || linked.has(lt.name)) continue;
-    const key = c.link.column;
-    linked.set(lt.name, { table: lt, rows: new Map((await rawRows(lt)).map((r) => [(r[key] ?? "").trim(), r])) });
+  return tableRows(t, await rawRows(t), await loadLinks(t, pathsOf(fieldsUsed(spec)), catalog), catalog);
+}
+
+/**
+ * A joined dataset's rows (joins.ts): the main table and each related table, every row tagged with its table; the
+ * related rows carry the main table's words and dates through the shared ID (owner, 30 Oct: "join two tables").
+ */
+async function joinedRowsFor(spec: Spec, catalog: Catalog): Promise<Row[]> {
+  const j = parseJoinKey(spec.dataset, catalog);
+  if (!j) throw new Error("Those Zoho tables can't be put together any more");
+  const used = fieldsUsed(spec);
+  // The main table's links: those the report uses, plus whatever the related rows need to fill the same fields.
+  const mainPaths = pathsOf(used.filter((k) => !k.startsWith("rel:") && !k.startsWith("⟂")));
+  const main = { table: j.main, raw: await rawRows(j.main), linked: await loadLinks(j.main, mainPaths, catalog) };
+  const related = [];
+  for (const r of j.related) {
+    // A sibling (both point at Customers…) fills the main table's fields from that shared table: load it from both sides.
+    const viaPaths = r.kind === "sibling" ? mainPaths.filter((p) => p[0] === r.mainCol).map((p) => [r.col, ...p.slice(1)]) : [];
+    const own = pathsOf(used.filter((k) => k.startsWith(`rel:${r.table.id}:`)).map((k) => k.slice(`rel:${r.table.id}:`.length)));
+    related.push({ ...r, raw: await rawRows(r.table), linked: await loadLinks(r.table, [...viaPaths, ...own], catalog) });
   }
-  return tableRows(t, await rawRows(t), linked);
+  return joinedRows(main, related, catalog);
 }
