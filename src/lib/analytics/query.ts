@@ -137,6 +137,9 @@ function evaluate(d: Dataset, keys: string[], rows: Row[]): (number | null)[] {
     else if (m.agg === "avg") {
       const xs = rs.map((r) => r[m.field]).filter((x): x is number => typeof x === "number");
       v = xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
+    } else if (m.agg === "min" || m.agg === "max") {
+      const xs = rs.map((r) => r[m.field]).filter((x): x is number => typeof x === "number");
+      v = xs.length ? (m.agg === "min" ? Math.min(...xs) : Math.max(...xs)) : null;
     } else if (m.agg === "distinct") v = new Set(rs.flatMap((r) => asList(r[m.field])).filter((x) => x !== BLANK)).size;
     else if (m.agg === "topShare") {
       const by = new Map<string, number>();

@@ -11,13 +11,14 @@ export type Row = Record<string, Value>;
 
 export type FieldKind = "text" | "date";
 /** `order`: the values' natural order (age bands, stages) — used instead of A–Z when sorting by label. */
-export type Field = { key: string; label: string; kind: FieldKind; multi?: boolean; hint?: string; order?: string[] };
+/** `table`: a column copied from Zoho beyond the curated ones (extras.ts) — which row it belongs to ("Invoice"). */
+export type Field = { key: string; label: string; kind: FieldKind; multi?: boolean; hint?: string; order?: string[]; table?: string };
 export type Format = "inr" | "count" | "pct" | "days";
 /** Only the rows whose `field` is one of `values` (e.g. revenue from repeat invoices only). */
 export type Where = { field: string; values: string[] };
 type Agg =
   | { agg: "count"; where?: Where }
-  | { agg: "sum" | "avg"; field: string; where?: Where }
+  | { agg: "sum" | "avg" | "min" | "max"; field: string; where?: Where }
   | { agg: "distinct"; field: string; where?: Where }
   | { agg: "ratio"; num: string; den: string; scale?: number }
   /** Share (%) of `sum` that the top `n` values of `field` make up — "top 10 customers' share". */
@@ -412,7 +413,10 @@ export const DATASETS: Dataset[] = [
 
 export const datasetOf = (key: string) => DATASETS.find((d) => d.key === key);
 export const fieldOf = (d: Dataset, key: string) => (key === "date" ? d.fields.find((f) => f.key === "date") : d.fields.find((f) => f.key === key));
-export const measureOf = (d: Dataset, key: string) => d.measures.find((m) => m.key === key);
+/** Measures made on the spot from a copied number column (extras.ts: "sum:x.invoiceItems.Discount"); set by extras.ts. */
+let extraMeasure: ((d: Dataset, key: string) => Measure | undefined) | undefined;
+export const setMeasureResolver = (f: typeof extraMeasure) => { extraMeasure = f; };
+export const measureOf = (d: Dataset, key: string) => d.measures.find((m) => m.key === key) ?? extraMeasure?.(d, key);
 
 /* ---------------- Formatting (Indian style) ---------------- */
 

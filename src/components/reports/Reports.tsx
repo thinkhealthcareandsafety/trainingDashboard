@@ -12,6 +12,7 @@ import { btn } from "../ui";
 import { Builder } from "./Builder";
 import { DashboardView, TileCard, pagesOf } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
+import { registerExtras } from "@/lib/analytics/extras";
 import { MyDashboard, type Prefs } from "./MyDashboard";
 import { type Answer, type Meta, forgetAnswers, runSpecs, stamp, withPeriod } from "./shared";
 
@@ -35,7 +36,8 @@ export function Reports() {
   // Editing a dashboard (owner, 29 Oct): a copy of it, and whether it's new / a built-in tab not edited yet.
   const [editing, setEditing] = useState<{ draft: CustomDash; fresh: boolean; mine?: boolean } | null>(null);
 
-  const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => setMeta(j)).catch(() => setError("Couldn't reach the server")), []);
+  // The other Zoho columns go on the datasets before anything reads them (REPORT-BUILDER-PLAN step 1).
+  const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => { registerExtras(j.columns ?? {}); setMeta(j); }).catch(() => setError("Couldn't reach the server")), []);
   const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json()).then(setSaved).catch(() => {}), []);
   // My dashboard's list + the tabs this person hid ("Select Dashboards to display", owner 29 Oct) — per person, server.
   const [prefs, setPrefs] = useState<Prefs | null>(null);

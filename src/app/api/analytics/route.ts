@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   const boards = boardsFor(me);
   const state = await dataState();
-  return Response.json({ datasets: DATASETS.filter((d) => canRead(d, boards, isAdmin(me))).map((d) => d.key), state, today: istToday(), admin: isAdmin(me) });
+  return Response.json({ datasets: DATASETS.filter((d) => canRead(d, boards, isAdmin(me))).map((d) => d.key), state, today: istToday(), admin: isAdmin(me), columns: state.columns ?? {} });
 }
 
 export async function POST(request: Request) {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DATASETS, type Grain, datasetOf, fieldOf, measureOf, periods } from "@/lib/analytics/model";
 import type { ChartKind, Filter, Spec } from "@/lib/analytics/query";
 import { describeSpec } from "@/lib/analytics/describe";
+import { AGGS, extraNumbers } from "@/lib/analytics/extras";
 import { btn, inputCls } from "../ui";
 import { Chart, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, isError, runSpecs, useFieldValues, withPeriod } from "./shared";
@@ -88,8 +89,9 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     if (!by[0]) setRows(k); else setColour(k);
   };
   const drop = (shelf: "rows" | "colour" | "values" | "filters", payload: string) => {
-    const [kind, key] = payload.split(":");
-    if (!key) return;
+    const i = payload.indexOf(":");
+    const kind = payload.slice(0, i), key = payload.slice(i + 1);
+    if (i < 0 || !key) return;
     if (kind === "num") { if (shelf === "values" && !spec.measures.includes(key)) toggleValue(key); return; }
     if (shelf === "rows") setRows(key);
     else if (shelf === "colour") setColour(key);
@@ -113,8 +115,14 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const kind = answer && !isError(answer) ? resolveKind(spec.chart, answer) : undefined;
   const sentence = describeSpec(spec, today, kind);
   const q = search.trim().toLowerCase();
-  const attrs = d.fields.filter((f) => !q || f.label.toLowerCase().includes(q));
-  const nums = d.measures.filter((m) => !q || m.label.toLowerCase().includes(q));
+  const match = (l: string) => !q || l.toLowerCase().includes(q);
+  const attrs = d.fields.filter((f) => !f.table && match(f.label));
+  const nums = d.measures.filter((m) => match(m.label));
+  // Every other Zoho column (step 1), grouped by the row it belongs to; closed until opened (or searched).
+  const extraAttrs = Object.entries(Object.groupBy(d.fields.filter((f) => f.table && match(f.label)), (f) => f.table!));
+  const extraNums = extraNumbers(d).filter((c) => match(c.label));
+  const aggOf = (k: string) => k.match(/^(sum|avg|min|max):(.+)$/);
+  const usedNumber = (key: string) => spec.measures.find((k) => aggOf(k)?.[2] === key);
   const label = (k: string) => (k === d.dateField ? `${fieldOf(d, k)?.label ?? "Date"} · ${(GRAINS.find((g) => g.value === (spec.grain ?? "month"))?.label ?? "Month").toLowerCase()}` : fieldOf(d, k)?.label ?? k);
   const show = (p: Pane) => (pane === p ? "flex" : "hidden lg:flex");
 
@@ -151,10 +159,29 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                 <DataItem key={f.key} icon={f.kind === "date" ? "date" : "text"} label={f.label} hint={f.hint} used={by.includes(f.key) || (spec.filters ?? []).some((x) => x.field === f.key)}
                   drag={`attr:${f.key}`} onClick={() => pickAttribute(f.key)} />
               ))}
+              {extraAttrs.map(([table, fs]) => (
+                <details key={table} open={Boolean(q)} className="mt-1 rounded-lg">
+                  <summary className="cursor-pointer rounded-lg px-2 py-1.5 text-[15px] font-medium text-muted hover:bg-surface-2 hover:text-ink">More from Zoho · {table} <span className="text-faint">({fs!.length})</span></summary>
+                  {fs!.map((f) => (
+                    <DataItem key={f.key} icon="text" label={f.label.replace(/ ([^)]*)$/, "")} hint={f.hint} used={by.includes(f.key) || (spec.filters ?? []).some((x) => x.field === f.key)}
+                      drag={`attr:${f.key}`} onClick={() => pickAttribute(f.key)} />
+                  ))}
+                </details>
+              ))}
               <PaneHead title="Numbers" hint="What's counted or added up — the values" />
               {nums.map((m) => (
                 <DataItem key={m.key} icon="num" label={m.label} hint={m.def} used={spec.measures.includes(m.key)} drag={`num:${m.key}`} onClick={() => toggleValue(m.key)} />
               ))}
+              {extraNums.length > 0 && (
+                <details open={Boolean(q)} className="mt-1 rounded-lg">
+                  <summary className="cursor-pointer rounded-lg px-2 py-1.5 text-[15px] font-medium text-muted hover:bg-surface-2 hover:text-ink">More numbers from Zoho · {extraNums[0].table} <span className="text-faint">({extraNums.length})</span></summary>
+                  {extraNums.map((c) => {
+                    const used = usedNumber(c.key);
+                    return <DataItem key={c.key} icon="num" label={c.label.replace(/ ([^)]*)$/, "")} hint={`Zoho column “${c.name}” — added up as a Sum; change it to Average, Lowest or Highest on its pill`} used={Boolean(used)}
+                      drag={`num:sum:${c.key}`} onClick={() => toggleValue(used ?? `sum:${c.key}`)} />;
+                  })}
+                </details>
+              )}
             </div>
           </section>
 
@@ -178,7 +205,22 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                 {by[0] && !by[1] && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="+ Add…" onPick={setColour} />}
               </Shelf>
               <Shelf label="Values" hint={`The numbers — up to ${MAX_VALUES}`} onDrop={(p) => drop("values", p)}>
-                {spec.measures.map((k) => <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={spec.measures.length > 1 ? () => toggleValue(k) : undefined} title={measureOf(d, k)?.def} />)}
+                {spec.measures.map((k) => {
+                  const a = aggOf(k);
+                  if (!a) return <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={spec.measures.length > 1 ? () => toggleValue(k) : undefined} title={measureOf(d, k)?.def} />;
+                  // A Zoho number column: how it adds up is chosen on the pill (Tableau's right-click → Measure).
+                  const col = extraNumbers(d).find((c) => c.key === a[2]);
+                  return (
+                    <span key={k} title={measureOf(d, k)?.def} className="inline-flex max-w-full items-center gap-1 rounded-full bg-brand-soft py-0.5 pl-1 pr-1 text-[15px] font-medium text-ink">
+                      <select aria-label={`How ${col?.label ?? "it"} adds up`} value={a[1]} onChange={(e) => set({ measures: spec.measures.map((x) => (x === k ? `${e.target.value}:${a[2]}` : x)) })}
+                        className="h-7 rounded-full border border-line bg-surface px-2 text-[14.5px] text-ink focus:border-brand focus:outline-none">
+                        {AGGS.map(([v, w]) => <option key={v} value={v}>{w}</option>)}
+                      </select>
+                      <span className="truncate">of {col?.label ?? a[2]}</span>
+                      {spec.measures.length > 1 && <button type="button" aria-label={`Remove ${col?.label ?? k}`} onClick={() => toggleValue(k)} className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink">×</button>}
+                    </span>
+                  );
+                })}
                 {spec.measures.length < MAX_VALUES && (
                   <select aria-label="Add a value" className="h-8 rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
                     onChange={(e) => e.target.value && toggleValue(e.target.value)}>

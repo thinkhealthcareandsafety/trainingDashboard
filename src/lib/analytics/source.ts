@@ -7,10 +7,12 @@ import { getSnapshot } from "../zohoSync";
 import { boardTrainings } from "../fulfilServer";
 import { type Raw, type RawTables, type TableKey, STOCK_TABLES, TABLES, buildRows } from "./build";
 import type { Row } from "./model";
+import { EXTRA_TABLES, type ExtraCol, inferColumns, registerExtras } from "./extras";
 
 /*
  * The Reports page's data. Zoho Analytics tables (the whole of Zoho Books, synced by Zoho) are copied into Mongo
- * `za_tables` — one doc per table, only the columns build.ts uses — by `refreshAnalyticsData` (Admin's "Refresh", and
+ * `za_tables` — one doc per table, the columns build.ts uses plus (for the tables reports offer, extras.ts) every other
+ * non-empty one, listed with its kind in `za_state.columns` — by `refreshAnalyticsData` (Admin's "Refresh", and
  * on its own when older than STALE_MS). The Training board's trainings come live from the boards. Built rows are kept
  * in memory per data version.
  */
@@ -27,7 +29,9 @@ const BUDGET_MS = 85_000; // start no table after this — the route's maxDurati
 type TableDoc = { _id: TableKey; rows?: Raw[]; gz?: Binary; count: number; at: string };
 const unpack = (d: TableDoc): Raw[] => (d.gz ? JSON.parse(gunzipSync(d.gz.buffer).toString("utf8")) : d.rows ?? []);
 /** `partial`: the last refresh ran out of time — the remaining tables are copied by the next one. */
-export type DataState = { _id?: string; refreshedAt?: string; refreshedBy?: string; error?: string; tables?: Partial<Record<TableKey, number>>; running?: boolean; partial?: boolean };
+export type DataState = { _id?: string; refreshedAt?: string; refreshedBy?: string; error?: string; tables?: Partial<Record<TableKey, number>>; running?: boolean; partial?: boolean;
+  /** The other columns kept per table (extras.ts) — none until the first refresh after 30 Oct. */
+  columns?: Partial<Record<TableKey, ExtraCol[]>> };
 
 const kv = async () => (await db()).collection<DataState & { _id: string; until?: number; owner?: string }>("kv");
 
@@ -39,7 +43,7 @@ let state: { at: number; value: DataState } | null = null;
 export async function dataState(): Promise<DataState> {
   if (state && Date.now() - state.at < STATE_MS) return state.value;
   const [s, lock] = await Promise.all([(await kv()).findOne({ _id: STATE_KEY }), (await kv()).findOne({ _id: LOCK })]);
-  const value = { refreshedAt: s?.refreshedAt, refreshedBy: s?.refreshedBy, error: s?.error, tables: s?.tables, running: Boolean(lock?.until && lock.until > Date.now()), partial: s?.partial };
+  const value = { refreshedAt: s?.refreshedAt, refreshedBy: s?.refreshedBy, error: s?.error, tables: s?.tables, running: Boolean(lock?.until && lock.until > Date.now()), partial: s?.partial, columns: s?.columns };
   state = { at: Date.now(), value };
   return value;
 }
@@ -66,7 +70,7 @@ export async function refreshAnalyticsData(by: string): Promise<boolean> {
   if (!owner) return false;
   state = null; // "refreshing…" shows at once on this server
   const col = (await db()).collection<TableDoc>(COL);
-  const counts: Record<string, number> = {};
+  const counts: Record<string, number | ExtraCol[]> = {};
   let error: string | undefined;
   let partial = false;
   const started = Date.now();
@@ -83,7 +87,11 @@ export async function refreshAnalyticsData(by: string): Promise<boolean> {
       const view = views.find((v) => v.name === def.name && /^table$/i.test(v.type));
       if (!view) { error = `No “${def.name}” table in the workspace`; continue; }
       await new Promise((r) => setTimeout(r, PACE_MS));
-      const rows = (await exportTable(view.id)).map((r) => Object.fromEntries(def.columns.map((c) => [c, r[c] ?? ""])));
+      const all = await exportTable(view.id);
+      const extra = EXTRA_TABLES[key] ? inferColumns(all, def.columns) : [];
+      const keep = [...def.columns, ...extra.map((c) => c.name)];
+      const rows = all.map((r) => Object.fromEntries(keep.map((c) => [c, r[c] ?? ""])));
+      if (EXTRA_TABLES[key]) counts[`columns.${key}`] = extra;
       await col.replaceOne({ _id: key }, { gz: new Binary(gzipSync(Buffer.from(JSON.stringify(rows)))), count: rows.length, at: new Date().toISOString() }, { upsert: true });
       counts[`tables.${key}`] = rows.length;
     }
@@ -134,7 +142,8 @@ export async function datasetRows(today: string, withTrainings = true, withStock
   const key = `${state.refreshedAt ?? ""}|${withTrainings ? snap?.version ?? 0 : "-"}|${hasStock ? "stock" : "-"}|${today}`;
   if (memo && memo.key === key && Date.now() - memo.at < 60_000) return { rows: memo.rows, state };
   const trainings = snap ? (await boardTrainings(snap)).board : [];
-  const rows = buildRows(tables, trainings, today);
+  registerExtras(state.columns ?? {});
+  const rows = buildRows(tables, trainings, today, state.columns);
   memo = { key, at: Date.now(), rows };
   return { rows, state };
 }

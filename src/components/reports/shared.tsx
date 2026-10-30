@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { TableKey } from "@/lib/analytics/build";
+import type { ExtraCol } from "@/lib/analytics/extras";
 import { type Period, fieldOf, datasetOf, grainKey, periods } from "@/lib/analytics/model";
 import { BLANK, type Filter, type Result, type Spec } from "@/lib/analytics/query";
 
 /* The Reports page's shared pieces: the API calls, period helpers and the multi-select filter. */
 
-export type Meta = { datasets: string[]; today: string; admin: boolean; state: DataState };
+/** `columns`: the other Zoho columns copied per table (extras.ts) — Reports registers them so the builder offers them. */
+export type Meta = { datasets: string[]; today: string; admin: boolean; state: DataState; columns?: Partial<Record<TableKey, ExtraCol[]>> };
 export type DataState = { refreshedAt?: string; refreshedBy?: string; error?: string; running?: boolean; tables?: Record<string, number> };
 export type Answer = Result | { error: string };
 export const isError = (a: Answer | undefined): a is { error: string } => Boolean(a && "error" in a);

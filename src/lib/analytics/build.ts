@@ -2,6 +2,7 @@ import type { BoardTraining } from "../types";
 import { QUOTE_VALID_DAYS } from "../forecast";
 import { BOOKED_DAYS } from "./goal";
 import type { Row, Value } from "./model";
+import { type ExtraCol, extraKey } from "./extras";
 
 /*
  * Rows for each dataset (model.ts) — from the Zoho Analytics tables the server keeps (source.ts) and the Training
@@ -114,8 +115,22 @@ function kindOf(group: string | null, name: string | undefined) {
   return /pad|electrode/i.test(s) ? "Pads" : /batter/i.test(s) ? "Battery" : /trainer|accessor|bag|cabinet|bracket|sign|software/i.test(s) ? "Other" : /\baeds?\b|defibrillator|ddu-/i.test(s) ? "AED" : "Other";
 }
 
-export function buildRows(t: RawTables, trainings: BoardTraining[], today: string): Record<string, Row[]> {
+/** A row's other Zoho columns (extras.ts) as `x.<table>.<column>` — numbers only from the row's own table (`own`). */
+type Xc = (table: TableKey, r: Raw | undefined, own?: boolean) => Row;
+
+export function buildRows(t: RawTables, trainings: BoardTraining[], today: string, columns: Partial<Record<TableKey, ExtraCol[]>> = {}): Record<string, Row[]> {
   const ix = indexes(t);
+  const rawCustomer = new Map((t.customers ?? []).map((c) => [c["Customer ID"], c]));
+  const rawItem = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
+  const xc: Xc = (table, r, own = false) => {
+    const out: Row = {};
+    for (const c of columns[table] ?? []) {
+      if (c.kind === "number" && !own) continue;
+      const v = r?.[c.name];
+      out[extraKey(table, c.name)] = c.kind === "number" ? money(v) : c.kind === "date" ? day(v) : text(v);
+    }
+    return out;
+  };
   const customerFields = (customerId: string, addressId?: string) => {
     const c = ix.who(customerId);
     const w = ix.where(addressId, customerId);
@@ -143,6 +158,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     invoices.push({
       date, invoice: text(i["Invoice Number"]), ...customerFields(i["Customer ID"], i["Address ID"]),
       salesperson: ix.people.get(i["Salesperson ID"]) ?? null, status: text(i["Invoice Status"]),
+      ...xc("invoices", i, true), ...xc("customers", rawCustomer.get(i["Customer ID"])),
       ageBand: balance <= 0 ? "Paid" : !late ? "Not due" : late <= 30 ? "1–30 days" : late <= 60 ? "31–60 days" : late <= 90 ? "61–90 days" : "90+ days",
       productType: list(i["Product Type"]), businessType: text(i["Business Type"]), leadSource: text(i["Lead Source"]),
       dueBand: balance <= 0 ? "Paid" : late ? "Overdue" : ahead === null ? "No due date" : ahead <= 30 ? "Next 30 days" : ahead <= 60 ? "31–60 days" : ahead <= 90 ? "61–90 days" : "Later",
@@ -229,6 +245,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
       salesperson: ix.people.get(inv["Salesperson ID"]) ?? null, item: text(li["Item Name"]), itemGroup: item?.group ?? null,
       zohoItem: item?.name ?? text(li["Item Name"]), itemStatus: item?.status ?? null,
       brand: brandOf(item?.brand ?? null, li["Item Name"]), kind: kindOf(item?.group ?? null, li["Item Name"]),
+      ...xc("invoiceItems", li, true), ...xc("invoices", inv), ...xc("customers", rawCustomer.get(inv["Customer ID"])), ...xc("items", rawItem.get(li["Product ID"])),
       productType: list(inv["Product Type"]), businessType: text(inv["Business Type"]), leadSource: text(inv["Lead Source"]), status: text(inv["Invoice Status"]),
       repeat: firstOf.get(custKey(inv["Customer ID"]))?.id === li["Invoice ID"] ? "First invoice" : "Repeat",
       segment: segmentOf.get(custKey(inv["Customer ID"])) ?? null,
@@ -258,6 +275,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     return {
       date, quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
       salesperson: ix.people.get(q["Salesperson ID"]) ?? null, status: text(q["Status"]), outcome,
+      ...xc("quotes", q, true), ...xc("customers", rawCustomer.get(q["Customer ID"])),
       age: age === null ? null : age <= 15 ? "0–15 days" : age <= 30 ? "16–30 days" : age <= 90 ? "31–90 days" : "Over 90 days",
       // Quote follow-up (owner, 30 Oct — phase 5): how long a quote with no answer has been waiting.
       waitAge: outcome !== "Waiting" || age === null ? null : age <= 7 ? "0–7 days" : age <= 15 ? "8–15 days" : age <= 30 ? "16–30 days" : "Over 30 days",
@@ -272,6 +290,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
 
   const payments: Row[] = (t.payments ?? []).map((p) => ({
     date: day(p["Payment Date"]), ...customerFields(p["Customer ID"]), mode: text(p["Payment Mode"]),
+    ...xc("payments", p, true), ...xc("customers", rawCustomer.get(p["Customer ID"])),
     amount: money(p["Amount (BCY)"]) ?? 0, tds: money(p["Withholding Tax (BCY)"]) ?? 0,
   }));
 
@@ -294,6 +313,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
     return {
       date: day(o["Order Date"]), pi: text(o["Sales Order#"]), ...customerFields(o["Customer ID"], o["Address ID"]),
       salesperson: ix.people.get(o["Salesperson ID"]) ?? null, status: text(o["Status"]),
+      ...xc("salesOrders", o, true), ...xc("customers", rawCustomer.get(o["Customer ID"])),
       invoiced: closed ? "Closed" : /partial/.test(inv) ? "Part invoiced" : /^invoiced$/.test(inv) || open < 1 ? "Invoiced" : "Not invoiced",
       amount: sub - disc, docValue: sub - disc, open: open >= 1 ? open : 0,
     };
@@ -411,15 +431,15 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
   return {
     sales, invoices, quotes, payments, orders, trainings: boardRows, freight,
     ...(t.stockIn && t.stockOut ? { stock: stockRows(t, today), stockLevel: stockLevelRows(t, today) } : {}),
-    ...(t.bills && t.billItems ? { purchases: purchaseRows(t) } : {}),
-    ...(t.quoteItems ? { quoteItems: quoteItemRows(t, ix, customerFields, today) } : {}),
+    ...(t.bills && t.billItems ? { purchases: purchaseRows(t, xc) } : {}),
+    ...(t.quoteItems ? { quoteItems: quoteItemRows(t, ix, customerFields, today, xc, rawItem) } : {}),
     ...(margin ? { margin } : {}),
   };
 }
 
 /** Owner, 29 Oct: "on the overview add kpis for conversion rates — quotes sent and quotes converted, that is accepted,
  *  and declined". One row per quote and Zoho item (a quote listing an item twice counts once); invoiced = accepted. */
-function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFields: (customerId: string, addressId?: string) => Record<string, Value>, today: string): Row[] {
+function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFields: (customerId: string, addressId?: string) => Record<string, Value>, today: string, xc: Xc, rawItem: Map<string, Raw>): Row[] {
   const quotes = new Map((t.quotes ?? []).map((q) => [q["Quote ID"], q]));
   const seen = new Map<string, Row>();
   for (const li of t.quoteItems ?? []) {
@@ -438,6 +458,8 @@ function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFie
       date, quote: text(q["Quote Number"]), ...customerFields(q["Customer ID"], q["Address ID"]),
       salesperson: ix.people.get(q["Salesperson ID"]) ?? null,
       stage: /accepted|invoiced/.test(s) ? "Accepted" : /declined|rejected/.test(s) ? "Declined" : /expired/.test(s) ? "Expired" : /draft/.test(s) ? "Draft" : old ? "Expired" : "Waiting",
+      // A second line of the same item adds its amount only — its other numbers stay the first line's.
+      ...xc("quoteItems", li, true), ...xc("quotes", q), ...xc("items", rawItem.get(li["Product ID"])),
       item: text(li["Item Name"]), zohoItem: name, itemStatus: item?.status ?? null, itemGroup: item?.group ?? null,
       brand: brandOf(item?.brand ?? null, name ?? ""), kind: kindOf(item?.group ?? null, name ?? ""), amount,
     });
@@ -446,8 +468,9 @@ function quoteItemRows(t: RawTables, ix: ReturnType<typeof indexes>, customerFie
 }
 
 /** Owner, 29 Oct: "purchase trend charts, per year, per month" — one row per bill line (void / draft bills left out). */
-function purchaseRows(t: RawTables): Row[] {
+function purchaseRows(t: RawTables, xc: Xc): Row[] {
   const items = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
+  const bills = new Map((t.bills ?? []).map((b) => [b["Bill ID"], b]));
   const billDay = new Map((t.bills ?? []).filter((b) => live(b["Bill Status"])).map((b) => [b["Bill ID"], day(b["Bill Date"])]));
   const out: Row[] = [];
   for (const b of t.billItems ?? []) {
@@ -456,7 +479,7 @@ function purchaseRows(t: RawTables): Row[] {
     if (!date || !item) continue; // lines without an item (freight, services typed in) aren't goods we stock
     const name = text(item["Item Name"]);
     const group = text(item["Item Identifier"]);
-    out.push({ date, item: name, zohoItem: name, itemStatus: text(item["Status"]), itemGroup: group, brand: brandOf(text(item["Brand"]), name ?? ""), kind: kindOf(group, name ?? ""), qty: money(b["Quantity"]) ?? 0, amount: money(b["Sub Total (BCY)"]) ?? 0 });
+    out.push({ ...xc("billItems", b, true), ...xc("bills", bills.get(b["Bill ID"])), ...xc("items", item), date, item: name, zohoItem: name, itemStatus: text(item["Status"]), itemGroup: group, brand: brandOf(text(item["Brand"]), name ?? ""), kind: kindOf(group, name ?? ""), qty: money(b["Quantity"]) ?? 0, amount: money(b["Sub Total (BCY)"]) ?? 0 });
   }
   return out;
 }
