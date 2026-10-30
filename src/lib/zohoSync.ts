@@ -113,6 +113,8 @@ export type SyncLogEntry = SyncTrigger & {
   customers?: string[]; // new or changed customers
   customersRemoved?: number;
   replies?: number; // new replies to Fulfillment gratitude emails (Zoho Mail, learn@)
+  sales?: number; // Sales board copy (salesSync.ts): documents changed + invoices whose payments were read
+  salesError?: string;
   mailError?: string; // checking them failed — the Zoho Books sync itself still counts
   aedReplies?: number; // new replies to the AedSmartx onboarding emails (Zoho Mail, hello@)
   aedMailError?: string;
@@ -349,6 +351,15 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     // Documents and payments.
     changed += fullDue ? await reconcile(state, sets, log.docs!) : await incremental(state, sets, log.docs!);
     changed += await syncPayments(sets, log.payments!);
+    // The Sales board's own copy (owner, 30 Oct) — on its own, so a problem there never fails the Training board's sync.
+    try {
+      const { syncSales } = await import("./salesSync");
+      const s = await syncSales(fullDue);
+      log.sales = s.docs + s.payments || undefined;
+    } catch (e) {
+      log.salesError = e instanceof Error ? e.message : String(e);
+      console.error(`[sales sync] failed: ${log.salesError}`);
+    }
     // Replies to the gratitude emails ride along with the hourly sync; a mail problem never fails the Books sync.
     try {
       log.replies = (await checkGratitudeReplies()) || undefined;

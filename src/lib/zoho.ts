@@ -327,6 +327,8 @@ export async function newestChange(kind: Kind, since: string): Promise<string | 
 
 /** Every document of a kind containing an item (used by the periodic full check). */
 export const listByItem = (kind: Kind, itemId: string, since: string) => paged(`/${kind}`, kind, { item_id: itemId, date_start: since });
+/** Every document of a kind since a date — the Sales board's full check (salesSync.ts). */
+export const listAll = (kind: Kind, since: string) => paged(`/${kind}`, kind, { date_start: since });
 
 export async function fetchDetail(kind: Kind, id: string): Promise<ZRecord> {
   return (await zget<Record<string, ZRecord>>(`/${kind}/${id}`))[DETAIL_KEY[kind]];
