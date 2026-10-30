@@ -3,14 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { DATASETS, type Grain, datasetOf, fieldOf, measureOf, periods } from "@/lib/analytics/model";
 import type { ChartKind, Filter, Spec } from "@/lib/analytics/query";
+import { describeSpec } from "@/lib/analytics/describe";
 import { btn, inputCls } from "../ui";
 import { Chart, resolveKind } from "./Chart";
 import { type Answer, MultiSelect, isError, runSpecs, useFieldValues, withPeriod } from "./shared";
 
 /*
- * Make a report in three questions — what data, what to measure, split by what — then the chart, period and filters.
- * The preview runs live. Builders (Admin, Ashish, Shikha, Sumit) save it for the whole team; everyone else can still
- * explore and download.
+ * The report builder (owner, 30 Oct: "I should rather have columns and attributes … if I select 3 of these what am I
+ * getting … everything is too jumbled" — REPORT-BUILDER-PLAN.md, step 1). Three panes, one job each, like Tableau:
+ *   Data   — the attributes (text / dates) and numbers of the chosen data, each with what it means; click or drag one in.
+ *   Build  — shelves: Rows (one bar / line point / table row per value), Colour (splits each into colours), Values (the
+ *            numbers), Filters, When — then the live preview and a "You'll get …" sentence (describe.ts).
+ *   Format — title, chart, how many, order.
+ * The saved shape is the same Spec as before, so every saved report and dashboard tile opens here unchanged. Builders
+ * (Admin, Ashish, Shikha, Sumit, Nikita) save for the whole team; everyone else can still explore and download.
  */
 
 const CHARTS: { value: ChartKind; label: string }[] = [
@@ -18,6 +24,7 @@ const CHARTS: { value: ChartKind; label: string }[] = [
   { value: "area", label: "Area" }, { value: "stacked", label: "Stacked" }, { value: "donut", label: "Donut" }, { value: "table", label: "Table" }, { value: "kpi", label: "Number" },
 ];
 const GRAINS: { value: Grain; label: string }[] = [{ value: "month", label: "Month" }, { value: "quarter", label: "Quarter" }, { value: "fy", label: "Financial year" }, { value: "week", label: "Week" }, { value: "day", label: "Day" }];
+const MAX_VALUES = 4;
 
 export function autoTitle(s: Spec): string {
   const d = datasetOf(s.dataset);
@@ -32,6 +39,8 @@ export function autoTitle(s: Spec): string {
 export type Target = { dash: string; page: number; newTitle?: string } | null;
 export type TargetChoice = { id: string; title: string; pages: { name: string; free: number }[] };
 
+type Pane = "data" | "build" | "format";
+
 export function Builder({ initial, datasets, today, canSave, savedId, onClose, onSaved, targets = [], defaultTarget }: {
   initial?: Spec; datasets: string[]; today: string; canSave: boolean; savedId?: string; onClose: () => void; onSaved: (id: string | undefined, target: Target, spec: Spec) => void;
   targets?: TargetChoice[]; defaultTarget?: string;
@@ -41,6 +50,8 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const [title, setTitle] = useState(initial?.title ?? "");
   const [answer, setAnswer] = useState<Answer | undefined>();
   const [saving, setSaving] = useState<{ busy?: boolean; error?: string }>({});
+  const [pane, setPane] = useState<Pane>("build");
+  const [search, setSearch] = useState("");
   const d = datasetOf(spec.dataset)!;
   const set = (patch: Partial<Spec>) => setSpec((s) => ({ ...s, ...patch }));
 
@@ -62,18 +73,29 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     const nd = datasetOf(key)!;
     setSpec((s) => ({ ...s, dataset: key, measures: [nd.measures[0].key], by: (s.by ?? []).filter((b) => fieldOf(nd, b)), filters: (s.filters ?? []).filter((f) => fieldOf(nd, f.field)) }));
   };
-  const toggleMeasure = (key: string) => {
-    const has = spec.measures.includes(key);
-    const next = has ? spec.measures.filter((m) => m !== key) : [...spec.measures, key].slice(-3);
+  const by = spec.by ?? [];
+  // Shelves. Rows = by[0]; Colour = by[1] (needs Rows); Values = measures (1–4).
+  const setRows = (k: string | null) => set({ by: k ? [k, ...by.slice(1)].filter((x, i, a) => a.indexOf(x) === i) : by.slice(1, 2) });
+  const setColour = (k: string | null) => set({ by: k && by[0] ? [by[0], k].filter((x, i, a) => a.indexOf(x) === i) : by.slice(0, 1) });
+  const toggleValue = (k: string) => {
+    const has = spec.measures.includes(k);
+    const next = has ? spec.measures.filter((m) => m !== k) : [...spec.measures, k].slice(-MAX_VALUES);
     if (next.length) set({ measures: next });
   };
-  const by0 = spec.by?.[0] ?? "";
-  const by1 = spec.by?.[1] ?? "";
-  const setBy = (i: 0 | 1, v: string) => {
-    const by = [i === 0 ? v : by0, i === 1 ? v : by1].filter(Boolean);
-    set({ by: [...new Set(by)] });
+  // A click in the Data pane puts the field on the obvious shelf; clicking it again takes it off.
+  const pickAttribute = (k: string) => {
+    if (by.includes(k)) return by[0] === k ? setRows(null) : setColour(null);
+    if (!by[0]) setRows(k); else setColour(k);
   };
-  const usesDate = (spec.by ?? []).includes(d.dateField);
+  const drop = (shelf: "rows" | "colour" | "values" | "filters", payload: string) => {
+    const [kind, key] = payload.split(":");
+    if (!key) return;
+    if (kind === "num") { if (shelf === "values" && !spec.measures.includes(key)) toggleValue(key); return; }
+    if (shelf === "rows") setRows(key);
+    else if (shelf === "colour") setColour(key);
+    else if (shelf === "filters" && key !== d.dateField && !(spec.filters ?? []).some((f) => f.field === key)) set({ filters: [...(spec.filters ?? []), { field: key, values: [] }] });
+  };
+  const usesDate = by.includes(d.dateField);
 
   const [where, setWhere] = useState<Target>(() => (defaultTarget && targets.some((t) => t.id === defaultTarget) ? { dash: defaultTarget, page: 0 } : null));
   const target = where && where.dash !== "new" ? targets.find((t) => t.id === where.dash) : undefined;
@@ -85,116 +107,157 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     if (j.ok) { onSaved(j.id, savedId ? null : where, body.spec); onClose(); } else setSaving({ error: j.error ?? "Couldn't save" });
   };
 
-  const field = (label: string, children: React.ReactNode, hint?: string) => (
-    <div>
-      <div className="text-[15px] font-semibold uppercase tracking-wide text-muted">{label}</div>
-      <div className="mt-1.5">{children}</div>
-      {hint && <p className="mt-1 text-[15px] leading-snug text-muted">{hint}</p>}
-    </div>
-  );
-  const selectCls = "h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-[16px] text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
+  // Width apart: "w-full" and "w-auto" in one class list fight (the last in the CSS wins, not the last written).
+  const selectBase = "h-9 rounded-lg border border-line bg-surface px-2.5 text-[16px] text-ink focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
+  const selectCls = `${selectBase} w-full`;
   const kind = answer && !isError(answer) ? resolveKind(spec.chart, answer) : undefined;
+  const sentence = describeSpec(spec, today, kind);
+  const q = search.trim().toLowerCase();
+  const attrs = d.fields.filter((f) => !q || f.label.toLowerCase().includes(q));
+  const nums = d.measures.filter((m) => !q || m.label.toLowerCase().includes(q));
+  const label = (k: string) => (k === d.dateField ? `${fieldOf(d, k)?.label ?? "Date"} · ${(GRAINS.find((g) => g.value === (spec.grain ?? "month"))?.label ?? "Month").toLowerCase()}` : fieldOf(d, k)?.label ?? k);
+  const show = (p: Pane) => (pane === p ? "flex" : "hidden lg:flex");
 
   return (
-    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3 sm:p-4" onMouseDown={onClose}>
-      <div role="dialog" aria-label="Report builder" className="modal-in flex max-h-[94vh] w-full max-w-[1180px] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-2 sm:p-4" onMouseDown={onClose}>
+      <div role="dialog" aria-label="Report builder" className="modal-in flex h-[96vh] w-full max-w-[1500px] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
           <h2 className="text-[19px] font-bold tracking-tight text-ink">{savedId ? "Edit report" : "New report"}</h2>
+          {/* Phones and narrow windows: one pane at a time. */}
+          <div className="flex rounded-full bg-surface-2 p-0.5 lg:hidden" role="tablist" aria-label="Builder panes">
+            {(["data", "build", "format"] as Pane[]).map((p) => (
+              <button key={p} type="button" role="tab" aria-selected={pane === p} onClick={() => setPane(p)}
+                className={`rounded-full px-3 py-1 text-[15px] font-medium capitalize ${pane === p ? "bg-surface text-ink shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-muted"}`}>{p}</button>
+            ))}
+          </div>
           <button onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
             <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
           </button>
         </div>
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
-          {/* The questions */}
-          <div className="no-scrollbar space-y-4 overflow-y-auto border-b border-line p-5 lg:border-b-0 lg:border-r">
-            {field("1 · What data", (
-              <select className={selectCls} value={spec.dataset} onChange={(e) => changeDataset(e.target.value)}>
+
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[270px_minmax(0,1fr)_250px]">
+          {/* Data */}
+          <section aria-label="Data" className={`${show("data")} min-h-0 flex-col border-line lg:border-r`}>
+            <div className="shrink-0 space-y-2 border-b border-line p-4">
+              <select aria-label="Data" className={selectCls} value={spec.dataset} onChange={(e) => changeDataset(e.target.value)}>
                 {allowed.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
               </select>
-            ), `${d.desc} Source: ${d.source}.`)}
-            {field("2 · What to measure", (
-              <div className="flex flex-wrap gap-1.5">
-                {d.measures.map((m) => (
-                  <button key={m.key} type="button" title={m.def} aria-pressed={spec.measures.includes(m.key)} onClick={() => toggleMeasure(m.key)}
-                    className={`rounded-full border px-3 py-1 text-[15.5px] font-medium transition ${spec.measures.includes(m.key) ? "border-brand bg-brand text-brand-ink" : "border-line text-ink-2 hover:border-line-strong"}`}>
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            ), measureOf(d, spec.measures[0])?.def)}
-            {mixedAverage(spec) && <p className="-mt-2 rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2">A price per unit over different items mixes them (an AED and a pad average to neither) — split by item, or filter to one item, group or kind.</p>}
-            {field("3 · Split by", (
-              <div className="space-y-2">
-                <select className={selectCls} value={by0} onChange={(e) => setBy(0, e.target.value)}>
-                  <option value="">Nothing — one number</option>
-                  {d.fields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-                </select>
-                {by0 && (
-                  <select className={selectCls} value={by1} onChange={(e) => setBy(1, e.target.value)}>
-                    <option value="">…and nothing else</option>
-                    {d.fields.filter((f) => f.key !== by0).map((f) => <option key={f.key} value={f.key}>and by {f.label.toLowerCase()}</option>)}
-                  </select>
-                )}
-                {usesDate && (
-                  <div className="flex flex-wrap gap-1">
+              <p className="text-[14.5px] leading-snug text-muted">{d.desc}</p>
+              <input className={`${selectCls} h-8`} placeholder="Find a field…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Find a field" />
+            </div>
+            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+              <PaneHead title="Attributes" hint="Words and dates — each value becomes a row, a bar or a colour" />
+              {attrs.map((f) => (
+                <DataItem key={f.key} icon={f.kind === "date" ? "date" : "text"} label={f.label} hint={f.hint} used={by.includes(f.key) || (spec.filters ?? []).some((x) => x.field === f.key)}
+                  drag={`attr:${f.key}`} onClick={() => pickAttribute(f.key)} />
+              ))}
+              <PaneHead title="Numbers" hint="What's counted or added up — the values" />
+              {nums.map((m) => (
+                <DataItem key={m.key} icon="num" label={m.label} hint={m.def} used={spec.measures.includes(m.key)} drag={`num:${m.key}`} onClick={() => toggleValue(m.key)} />
+              ))}
+            </div>
+          </section>
+
+          {/* Build + preview */}
+          <section aria-label="Build" className={`${show("build")} no-scrollbar min-h-0 min-w-0 flex-col overflow-y-auto lg:overflow-hidden`}>
+            <div className="shrink-0 space-y-2 border-b border-line p-4">
+              <Shelf label="Rows" hint="One row, bar or line point for each value" onDrop={(p) => drop("rows", p)}>
+                {by[0] ? <Pill text={label(by[0])} onRemove={() => setRows(null)} /> : <Empty text="Click or drop an attribute — e.g. Sector, Month" />}
+                {by[0] && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="Change…" onPick={setRows} />}
+                {usesDate && by[0] === d.dateField && (
+                  <span className="flex flex-wrap gap-1">
                     {GRAINS.map((g) => (
                       <button key={g.value} type="button" aria-pressed={(spec.grain ?? "month") === g.value} onClick={() => set({ grain: g.value })}
-                        className={`rounded-full px-2.5 py-1 text-[15px] font-medium ${(spec.grain ?? "month") === g.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{g.label}</button>
+                        className={`rounded-full px-2.5 py-0.5 text-[14.5px] font-medium ${(spec.grain ?? "month") === g.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{g.label}</button>
                     ))}
-                  </div>
+                  </span>
                 )}
+              </Shelf>
+              <Shelf label="Colour" hint="Splits each row into colours — one per value of this attribute" onDrop={(p) => drop("colour", p)}>
+                {by[1] ? <Pill text={label(by[1])} onRemove={() => setColour(null)} /> : <Empty text={by[0] ? "Optional — split each into colours" : "Needs Rows first"} />}
+                {by[0] && !by[1] && <AttrPicker fields={d.fields.filter((f) => f.key !== by[0])} placeholder="+ Add…" onPick={setColour} />}
+              </Shelf>
+              <Shelf label="Values" hint={`The numbers — up to ${MAX_VALUES}`} onDrop={(p) => drop("values", p)}>
+                {spec.measures.map((k) => <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={spec.measures.length > 1 ? () => toggleValue(k) : undefined} title={measureOf(d, k)?.def} />)}
+                {spec.measures.length < MAX_VALUES && (
+                  <select aria-label="Add a value" className="h-8 rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
+                    onChange={(e) => e.target.value && toggleValue(e.target.value)}>
+                    <option value="">+ Add…</option>
+                    {d.measures.filter((m) => !spec.measures.includes(m.key)).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                  </select>
+                )}
+              </Shelf>
+              {mixedAverage(spec) && <p className="rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2">A price per unit over different items mixes them (an AED and a pad average to neither) — put Item on Rows, or filter to one item, group or kind.</p>}
+              <Shelf label="Filters" hint="Only rows that match" onDrop={(p) => drop("filters", p)}>
+                <div className="min-w-0 flex-1"><Filters dataset={spec.dataset} filters={spec.filters ?? []} onChange={(filters) => set({ filters })} /></div>
+              </Shelf>
+              <Shelf label="When" hint="Saved reports keep this as a moving period — “This FY” is always the current one">
+                <select aria-label="Period" className={`${selectBase} h-8`} value={spec.period ?? "fy"} onChange={(e) => set({ period: e.target.value })}>
+                  {periods(today).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+              </Shelf>
+            </div>
+            <div className="no-scrollbar flex flex-col p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+              <p className="rounded-xl bg-brand-soft px-4 py-2.5 text-[15.5px] leading-relaxed text-ink" aria-live="polite">{sentence}</p>
+              <div className="mt-3 flex items-baseline justify-between gap-3">
+                <h3 className="min-w-0 truncate text-[18px] font-semibold text-ink">{title || autoTitle(spec)}</h3>
+                {answer && !isError(answer) && <span className="shrink-0 text-[15px] text-muted">{answer.matched.toLocaleString("en-IN")} rows of data</span>}
               </div>
-            ), by0 && fieldOf(d, by0)?.hint)}
-            {field("Chart", (
+              <div className="mt-3 min-h-[300px] flex-1">
+                {!answer ? <div className="h-[420px] animate-pulse rounded-lg bg-surface-2" />
+                  : isError(answer) ? <p className="text-[16px] text-high">{answer.error}</p>
+                  : <Chart result={answer} kind={spec.chart} grain={spec.grain} height={kind === "kpi" ? 120 : 420} />}
+              </div>
+            </div>
+          </section>
+
+          {/* Format */}
+          <section aria-label="Format" className={`${show("format")} no-scrollbar min-h-0 flex-col gap-4 overflow-y-auto border-line p-4 lg:border-l`}>
+            <FormatRow label="Title">
+              <input className={inputCls} placeholder={autoTitle(spec)} value={title} onChange={(e) => setTitle(e.target.value)} />
+            </FormatRow>
+            <FormatRow label="Chart" hint={kind && (spec.chart ?? "auto") === "auto" ? `Suggested here: ${CHARTS.find((c) => c.value === kind)?.label ?? kind}` : undefined}>
               <div className="flex flex-wrap gap-1">
                 {CHARTS.map((c) => (
                   <button key={c.value} type="button" aria-pressed={(spec.chart ?? "auto") === c.value} onClick={() => set({ chart: c.value })}
                     className={`rounded-full px-2.5 py-1 text-[15px] font-medium ${(spec.chart ?? "auto") === c.value ? "bg-ink text-surface" : "bg-surface-2 text-ink-2 hover:text-ink"}`}>{c.label}</button>
                 ))}
               </div>
-            ))}
-            {field("Period", (
-              <select className={selectCls} value={spec.period ?? "fy"} onChange={(e) => set({ period: e.target.value })}>
-                {periods(today).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-              </select>
-            ), "Saved reports keep this as a moving period — “This FY” is always the current one.")}
-            {by0 && by0 !== d.dateField && field("Show", (
-              <select className={selectCls} value={spec.limit ?? 0} onChange={(e) => set({ limit: Number(e.target.value) || undefined })}>
-                {[5, 8, 10, 15, 20].map((n) => <option key={n} value={n}>Top {n} (+ Others)</option>)}
-                <option value={0}>All</option>
-              </select>
-            ))}
-            {field("Filters", <Filters dataset={spec.dataset} filters={spec.filters ?? []} onChange={(filters) => set({ filters })} />)}
-            {field("Title", <input className={inputCls} placeholder={autoTitle(spec)} value={title} onChange={(e) => setTitle(e.target.value)} />)}
-          </div>
-          {/* The preview */}
-          <div className="flex min-h-[360px] min-w-0 flex-col p-5">
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="min-w-0 truncate text-[18.5px] font-semibold text-ink">{title || autoTitle(spec)}</h3>
-              {answer && !isError(answer) && <span className="shrink-0 text-[15px] text-muted">{answer.matched.toLocaleString("en-IN")} rows</span>}
-            </div>
-            <div className="mt-3 min-h-0 flex-1">
-              {!answer ? <div className="h-[520px] animate-pulse rounded-lg bg-surface-2" />
-                : isError(answer) ? <p className="text-[16px] text-high">{answer.error}</p>
-                : <Chart result={answer} kind={spec.chart} grain={spec.grain} height={kind === "kpi" ? 120 : 520} />}
-            </div>
-          </div>
+            </FormatRow>
+            {by[0] && by[0] !== d.dateField && (
+              <FormatRow label="How many">
+                <select className={selectCls} value={spec.limit ?? 0} onChange={(e) => set({ limit: Number(e.target.value) || undefined })}>
+                  {[5, 8, 10, 15, 20].map((n) => <option key={n} value={n}>Top {n} (+ Others)</option>)}
+                  <option value={0}>All</option>
+                </select>
+              </FormatRow>
+            )}
+            {by[0] && by[0] !== d.dateField && (
+              <FormatRow label="Order">
+                <select className={selectCls} value={spec.sort ?? "value"} onChange={(e) => set({ sort: e.target.value as Spec["sort"] })}>
+                  <option value="value">Biggest first</option>
+                  <option value="label">By name (A–Z, or its own order)</option>
+                </select>
+              </FormatRow>
+            )}
+          </section>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3.5">
+
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3">
           {saving.error && <span className="mr-auto text-[16px] font-medium text-high">{saving.error}</span>}
           {!canSave && <span className="mr-auto text-[15.5px] text-muted">Admin, Ashish, Shikha, Sumit and Nikita can save reports for the team.</span>}
           {canSave && !savedId && targets.length > 0 && (
             <div className="mr-auto flex flex-wrap items-center gap-2 text-[15.5px] text-ink-2">
               <span>Put it on</span>
-              <select aria-label="Dashboard" className={`${selectCls} w-auto`} value={where ? where.dash : ""}
+              <select aria-label="Dashboard" className={selectBase} value={where ? where.dash : ""}
                 onChange={(e) => setWhere(e.target.value === "" ? null : { dash: e.target.value, page: 0, ...(e.target.value === "new" ? { newTitle: "" } : {}) })}>
                 <option value="">Saved reports only</option>
                 {targets.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
                 <option value="new">+ New dashboard…</option>
               </select>
-              {where?.dash === "new" && <input aria-label="New dashboard name" placeholder="Its name" className={`${selectCls} w-44`} value={where.newTitle ?? ""} onChange={(e) => setWhere({ ...where, newTitle: e.target.value.slice(0, 40) })} />}
+              {where?.dash === "new" && <input aria-label="New dashboard name" placeholder="Its name" className={`${selectBase} w-44`} value={where.newTitle ?? ""} onChange={(e) => setWhere({ ...where, newTitle: e.target.value.slice(0, 40) })} />}
               {target && (
-                <select aria-label="Page" className={`${selectCls} w-auto`} value={where!.page} onChange={(e) => setWhere({ ...where!, page: Number(e.target.value) })}>
+                <select aria-label="Page" className={selectBase} value={where!.page} onChange={(e) => setWhere({ ...where!, page: Number(e.target.value) })}>
                   {target.pages.map((p, i) => <option key={i} value={i}>{p.name}{p.free > 0 ? ` · ${p.free}% free` : " · full"}</option>)}
                   <option value={-1}>+ New page</option>
                 </select>
@@ -209,21 +272,85 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   );
 }
 
+function PaneHead({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div className="mt-3 px-1 first:mt-0">
+      <div className="text-[14px] font-semibold uppercase tracking-wide text-muted">{title}</div>
+      <p className="text-[14px] leading-snug text-faint">{hint}</p>
+    </div>
+  );
+}
+
+const ICON = { text: "Aa", date: "◷", num: "#" } as const;
+/** A field in the Data pane: click to put it on its shelf (again to take it off), or drag it onto any shelf. */
+function DataItem({ icon, label, hint, used, drag, onClick }: { icon: keyof typeof ICON; label: string; hint?: string; used: boolean; drag: string; onClick: () => void }) {
+  return (
+    <button type="button" draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", drag)} onClick={onClick} title={hint} aria-pressed={used}
+      className={`mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[15.5px] transition ${used ? "bg-brand-soft font-medium text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
+      <span aria-hidden className={`grid h-5 w-6 shrink-0 place-items-center rounded text-[12px] font-bold ${icon === "num" ? "bg-brand-soft text-brand" : "bg-surface-2 text-muted"}`}>{ICON[icon]}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {used && <span aria-hidden className="text-brand">✓</span>}
+    </button>
+  );
+}
+
+function Shelf({ label, hint, onDrop, children }: { label: string; hint: string; onDrop?: (payload: string) => void; children: React.ReactNode }) {
+  const [over, setOver] = useState(false);
+  return (
+    <div onDragOver={onDrop ? (e) => { e.preventDefault(); setOver(true); } : undefined} onDragLeave={() => setOver(false)}
+      onDrop={onDrop ? (e) => { e.preventDefault(); setOver(false); onDrop(e.dataTransfer.getData("text/plain")); } : undefined}
+      className={`flex min-h-11 flex-wrap items-center gap-1.5 rounded-xl border px-2.5 py-1.5 transition ${over ? "border-brand bg-brand-soft" : "border-line"}`}>
+      <span className="w-[68px] shrink-0 text-[14px] font-semibold uppercase tracking-wide text-muted" title={hint}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Pill({ text, num, title, onRemove }: { text: string; num?: boolean; title?: string; onRemove?: () => void }) {
+  return (
+    <span title={title} className={`inline-flex max-w-full items-center gap-1 rounded-full py-1 pl-3 ${onRemove ? "pr-1" : "pr-3"} text-[15px] font-medium ${num ? "bg-brand-soft text-ink" : "bg-surface-2 text-ink"}`}>
+      <span className="truncate">{text}</span>
+      {onRemove && <button type="button" aria-label={`Remove ${text}`} onClick={onRemove} className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink">×</button>}
+    </span>
+  );
+}
+
+const Empty = ({ text }: { text: string }) => <span className="text-[15px] text-faint">{text}</span>;
+
+function AttrPicker({ fields, placeholder, onPick }: { fields: { key: string; label: string }[]; placeholder: string; onPick: (k: string) => void }) {
+  return (
+    <select aria-label={placeholder} className="h-8 rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
+      onChange={(e) => e.target.value && onPick(e.target.value)}>
+      <option value="">{placeholder}</option>
+      {fields.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+    </select>
+  );
+}
+
+function FormatRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-[14px] font-semibold uppercase tracking-wide text-muted">{label}</div>
+      <div className="mt-1.5">{children}</div>
+      {hint && <p className="mt-1 text-[14.5px] leading-snug text-muted">{hint}</p>}
+    </div>
+  );
+}
+
 function Filters({ dataset, filters, onChange }: { dataset: string; filters: Filter[]; onChange: (f: Filter[]) => void }) {
   const d = datasetOf(dataset)!;
-  const [adding, setAdding] = useState("");
   const free = d.fields.filter((f) => f.key !== d.dateField && !filters.some((x) => x.field === f.key));
   return (
-    <div className="space-y-2">
+    <div className="flex flex-wrap items-center gap-1.5">
       {filters.map((f, i) => (
-        <div key={f.field} className="flex items-center gap-1.5">
+        <div key={f.field} className="flex min-w-[200px] items-center gap-1">
           <FilterValues dataset={dataset} filter={f} onChange={(nf) => onChange(filters.map((x, j) => (j === i ? nf : x)))} />
           <button type="button" aria-label={`Remove the ${fieldOf(d, f.field)?.label} filter`} className="rounded-full px-2 text-muted hover:text-ink" onClick={() => onChange(filters.filter((_, j) => j !== i))}>×</button>
         </div>
       ))}
       {free.length > 0 && (
-        <select className="h-8 w-full rounded-lg border border-dashed border-line bg-surface px-2.5 text-[15.5px] text-muted focus:border-brand focus:outline-none" value={adding}
-          onChange={(e) => { if (e.target.value) onChange([...filters, { field: e.target.value, values: [] }]); setAdding(""); }}>
+        <select aria-label="Add a filter" className="h-8 rounded-full border border-dashed border-line bg-surface px-2.5 text-[15px] text-muted focus:border-brand focus:outline-none" value=""
+          onChange={(e) => { if (e.target.value) onChange([...filters, { field: e.target.value, values: [] }]); }}>
           <option value="">+ Add a filter…</option>
           {free.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
         </select>

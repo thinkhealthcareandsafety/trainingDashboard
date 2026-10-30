@@ -119,9 +119,18 @@ function loadEcharts(): Promise<Echarts> {
 export function resolveKind(kind: ChartKind | undefined, r: Pick<Result, "by" | "measures">): Exclude<ChartKind, "auto"> {
   if (kind && kind !== "auto") return kind;
   if (!r.by.length) return "kpi";
+  // ₹, counts and % can't share one axis (one axis, ever) — a chart would drop all but the first unit; a table shows all.
+  if (r.by.length === 1 && new Set(r.measures.map((m) => m.format)).size > 1) return "table";
   if (r.by.length === 2) return "stacked";
   return r.by[0].date ? "column" : "bar";
 }
+
+/** One measure of a result, as if it had been asked alone (a card per number). */
+const oneMeasure = (r: Result, i: number): Result => ({
+  ...r, measures: [r.measures[i]], totals: [r.totals[i]],
+  previous: r.previous ? [r.previous[i]] : undefined, toDate: r.toDate ? [r.toDate[i]] : undefined,
+  rows: r.rows.map((row) => ({ ...row, values: [row.values[i]], prev: row.prev ? [row.prev[i]] : undefined })),
+});
 
 /** A name's own palette slot (FNV-1a) — the same name gets the same colour on every chart and after any filter. */
 const slotOf = (name: string, size: number) => {
@@ -207,6 +216,17 @@ export function Chart({ result, kind, grain = "month", height = 280, picked, onP
   }, [model, k, tick, picked, accent, target, JSON.stringify(lines ?? null), grain]);
   useEffect(() => () => { chart.current?.dispose(); chart.current = null; }, []);
 
+  // Several numbers and no split (owner, 30 Oct: three picked showed only the first): one card each, with its name.
+  if (k === "kpi" && result.measures.length > 1) return (
+    <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
+      {result.measures.map((m, i) => (
+        <div key={m.key} className="min-w-0">
+          <div className="truncate text-[15.5px] font-medium text-ink-2" title={m.label}>{m.label}</div>
+          <Kpi result={oneMeasure(result, i)} />
+        </div>
+      ))}
+    </div>
+  );
   if (k === "kpi") return <Kpi result={result} />;
   if (k === "table") return <><ResultTable result={result} grain={grain} />{result.note && <Note text={result.note} />}</>;
   if (k === "matrix") return <Matrix result={result} relative={relative} />;
