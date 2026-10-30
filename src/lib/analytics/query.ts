@@ -137,7 +137,7 @@ function evaluate(d: Dataset, keys: string[], rows: Row[]): (number | null)[] {
     let v: number | null = null;
     const w = "where" in m ? m.where : undefined;
     const rs = w ? rows.filter((r) => asList(r[w.field]).some((x) => w.values.includes(x))) : rows;
-    if (m.agg === "count") v = rs.length;
+    if (m.agg === "count") { const f = m.field; v = f ? rs.filter((r) => asList(r[f])[0] !== BLANK).length : rs.length; }
     else if (m.agg === "sum") v = rs.reduce((s, r) => s + num(r, m.field), 0);
     else if (m.agg === "avg") {
       const xs = rs.map((r) => r[m.field]).filter((x): x is number => typeof x === "number");

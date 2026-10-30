@@ -30,6 +30,12 @@ const PERSONAL = /e-?mail|phone|mobile|fax|whatsapp/i;
 
 export const tableKey = (t: Pick<CatalogTable, "id">) => `zt:${t.id}`;
 export const isTableKey = (key: string) => key.startsWith("zt:");
+/**
+ * Documents that open with a visible, removable "Status is not Void / Draft" filter (owner's plan, point 6: raw tables
+ * keep every document; nothing is filtered silently). The column holding each table's status.
+ */
+export const STATUS_COLUMN: Record<string, string> = { Invoices: "Invoice Status", Quotes: "Status", "Sales Orders": "Status", Bills: "Bill Status" };
+export const VOID_OR_DRAFT = /void|draft/i;
 /** The tables a member may build on: not empty, not hidden, Admin's only for Admin. */
 export const visibleTables = (c: Catalog, admin: boolean) =>
   c.tables.filter((t) => t.rows > 0 && !HIDDEN_TABLES.has(t.name) && (admin || !ADMIN_TABLES.has(t.name))).sort((a, b) => a.name.localeCompare(b.name));
@@ -87,6 +93,8 @@ export function tableDataset(t: CatalogTable, catalog: Catalog): Dataset {
   return {
     key: tableKey(t), label: t.name, desc: `Zoho Analytics table “${t.name}” — ${t.rows.toLocaleString("en-IN")} rows.`, source: `Zoho Analytics: ${t.name}`,
     dateField: date, fields, measures, board: "training", admin: ADMIN_TABLES.has(t.name),
+    // Every number can be filtered by a range ("Total (BCY) at least 1 L").
+    ranges: nums.map((n) => ({ key: n.key, label: n.label })),
   };
 }
 
@@ -138,21 +146,26 @@ export function tableRows(t: CatalogTable, raw: Record<string, string>[], linked
   });
 }
 
-/** `sum:Sub Total (BCY)` on a Zoho table → "Sum of Sub Total (BCY)". */
-const AGG_WORD = { sum: "Sum", avg: "Average", min: "Min", max: "Max" } as const;
+/**
+ * `sum:Sub Total (BCY)` on a Zoho table → "Sum of Sub Total (BCY)" (owner's plan, point 4: Sum / Average / Min / Max /
+ * Count / Count distinct on every number; Count / Count distinct on words and dates too).
+ */
+export const TABLE_AGGS = [["sum", "Sum"], ["avg", "Average"], ["min", "Min"], ["max", "Max"], ["count", "Count"], ["distinct", "Count distinct"]] as const;
+export type TableAgg = (typeof TABLE_AGGS)[number][0];
 export function tableMeasure(d: Dataset, key: string): Measure | undefined {
   if (!isTableKey(d.key)) return undefined;
-  const m = key.match(/^(sum|avg|min|max|distinct):(.+)$/);
+  const m = key.match(/^(sum|avg|min|max|count|distinct):(.+)$/);
   if (!m) return undefined;
-  if (m[1] === "distinct") {
-    const f = d.fields.find((x) => x.key === m[2]);
-    return f ? { key, label: `Count of different ${f.label}`, format: "count", agg: "distinct", field: f.key, def: `How many different values of “${f.label}”.` } : undefined;
-  }
+  const agg = m[1] as TableAgg;
   const col = numbers.get(d.key)?.find((c) => c.key === m[2]);
-  if (!col) return undefined;
-  const word = AGG_WORD[m[1] as keyof typeof AGG_WORD];
-  return { key, label: `${word} of ${col.label}`, format: col.format, agg: m[1] as "sum", field: col.key, def: `${word} of the Zoho column “${col.label}” (${d.label}).` };
+  const field = col ? undefined : d.fields.find((x) => x.key === m[2]);
+  const name = col?.label ?? field?.label;
+  if (!name) return undefined;
+  if (agg === "count") return { key, label: `Count of ${name}`, format: "count", agg: "count", field: m[2], def: `How many ${d.label} rows have a “${name}” (after the filters).` };
+  if (agg === "distinct") return { key, label: `Count distinct of ${name}`, format: "count", agg: "distinct", field: m[2], def: `How many different values of “${name}”.` };
+  if (!col) return undefined; // adding up words or dates means nothing
+  const word = TABLE_AGGS.find(([k]) => k === agg)![1];
+  return { key, label: `${word} of ${col.label}`, format: col.format, agg, field: col.key, def: `${word} of the Zoho column “${col.label}” (${d.label}).` };
 }
-export const TABLE_AGGS = [["sum", "Sum"], ["avg", "Average"], ["min", "Min"], ["max", "Max"]] as const;
 
 addMeasureResolver(tableMeasure);

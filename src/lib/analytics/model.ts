@@ -17,7 +17,8 @@ export type Format = "inr" | "count" | "pct" | "days";
 /** Only the rows whose `field` is one of `values` (e.g. revenue from repeat invoices only). */
 export type Where = { field: string; values: string[] };
 type Agg =
-  | { agg: "count"; where?: Where }
+  /** `field`: only the rows where it has a value ("Count of Due Date" on a Zoho table). */
+  | { agg: "count"; where?: Where; field?: string }
   | { agg: "sum" | "avg" | "min" | "max"; field: string; where?: Where }
   | { agg: "distinct"; field: string; where?: Where }
   | { agg: "ratio"; num: string; den: string; scale?: number }

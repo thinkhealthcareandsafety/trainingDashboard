@@ -14,7 +14,8 @@ import { DashboardView, TileCard, pagesOf } from "./Dashboard";
 import { GoalMeter } from "./GoalMeter";
 import { registerExtras } from "@/lib/analytics/extras";
 import { MyDashboard, type Prefs } from "./MyDashboard";
-import { type Answer, type Meta, forgetAnswers, runSpecs, stamp, withPeriod } from "./shared";
+import { type Answer, type Meta, forgetAnswers, loadTables, runSpecs, stamp, withPeriod } from "./shared";
+import { isTableKey } from "@/lib/analytics/tables";
 
 /*
  * Reports (sidebar → Reports): the official dashboards (Sales, Trainings, Quotes), the team's saved reports, and the
@@ -38,7 +39,9 @@ export function Reports() {
 
   // The other Zoho columns go on the datasets before anything reads them (REPORT-BUILDER-PLAN step 1).
   const loadMeta = useCallback(() => fetch("/api/analytics").then((r) => r.json()).then((j: Meta) => { registerExtras(j.columns ?? {}); setMeta(j); }).catch(() => setError("Couldn't reach the server")), []);
-  const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json()).then(setSaved).catch(() => {}), []);
+  // A saved report on a Zoho table needs the table list first (its fields and numbers come from it).
+  const loadSaved = useCallback(() => fetch("/api/analytics/reports").then((r) => r.json())
+    .then(async (j: { canBuild: boolean; reports: Saved[] }) => { if (j.reports?.some((x) => isTableKey(x.spec.dataset))) await loadTables(); setSaved(j); }).catch(() => {}), []);
   // My dashboard's list + the tabs this person hid ("Select Dashboards to display", owner 29 Oct) — per person, server.
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   // The team's dashboards and edited tabs (owner, 29 Oct), and the built-in tabs Admin deleted.
@@ -154,7 +157,7 @@ export function Reports() {
       </p>
     </div>
       {/* Drawn on the page itself (portal): inside the page it centred on the whole (long) page, not the screen. */}
-      {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={place} targets={targets} defaultTarget={current?.id} />, document.body)}
+      {builder && createPortal(<Builder initial={builder.spec} savedId={builder.id} datasets={meta.datasets} today={meta.today} admin={meta.admin} canSave={Boolean(saved?.canBuild)} onClose={() => setBuilder(null)} onSaved={place} targets={targets} defaultTarget={current?.id} />, document.body)}
     </div>
   );
 }

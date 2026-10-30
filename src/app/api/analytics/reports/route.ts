@@ -4,6 +4,8 @@ import { signedInMember, unauthorized } from "@/lib/auth";
 import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
 import { canRead, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, checkSpec } from "@/lib/analytics/query";
+import { isTableKey, registerTables } from "@/lib/analytics/tables";
+import { readCatalog } from "@/lib/analytics/tablesServer";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,8 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   const boards = boardsFor(me);
   const list = await (await col()).find({}).sort({ updatedAt: -1 }).limit(500).toArray();
+  // Reports built on a Zoho table need the table list to be known here (else they'd look unreadable and drop out).
+  if (list.some((r) => isTableKey(r.spec.dataset))) registerTables(await readCatalog());
   return Response.json({
     canBuild: hasFullAccess(me),
     reports: list.filter((r) => { const d = datasetOf(r.spec.dataset); return d && canRead(d, boards, isAdmin(me)); })
@@ -34,6 +38,7 @@ export async function POST(request: Request) {
   if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita save reports" }, { status: 403 });
   const body = (await request.json().catch(() => ({}))) as { id?: string; spec?: Spec };
   if (!body.spec) return Response.json({ error: "Nothing to save" }, { status: 400 });
+  if (isTableKey(String(body.spec.dataset ?? ""))) registerTables(await readCatalog());
   try {
     if (!canRead(checkSpec(body.spec), boardsFor(me), isAdmin(me))) return Response.json({ error: "You can't see this data" }, { status: 403 });
   } catch (e) {

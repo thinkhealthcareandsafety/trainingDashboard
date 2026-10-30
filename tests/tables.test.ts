@@ -72,3 +72,20 @@ test("a report on a table: rows parsed, linked names filled, summed by month", (
   const byCustomer = runQuery({ dataset: "zt:1", measures: ["rows"], by: ["Customer ID→Customer Name"] }, rows);
   assert.deepEqual(Object.fromEntries(byCustomer.rows.map((r) => [r.keys[0], r.values[0]])), { Acme: 2, Zen: 1 });
 });
+
+test("Count and Count distinct on any column; number ranges as filters; Sum only on numbers", () => {
+  registerTables(catalog);
+  const d = tableDataset(catalog.tables[0], catalog);
+  assert.deepEqual(d.ranges, [{ key: "Sub Total (BCY)", label: "Sub Total (BCY)" }]);
+  assert.equal(measureOf(d, "sum:Invoice Number"), undefined);
+  assert.equal(measureOf(d, "distinct:Customer ID→Customer Name")?.label, "Count distinct of Customer Name (Customers)");
+  const rows = [
+    { "Invoice Number": "INV-1", "Invoice Date": "2026-07-05", "Sub Total (BCY)": 10, "Customer ID→Customer Name": "Acme" },
+    { "Invoice Number": "INV-2", "Invoice Date": null, "Sub Total (BCY)": 20, "Customer ID→Customer Name": "Acme" },
+    { "Invoice Number": "INV-3", "Invoice Date": "2026-07-09", "Sub Total (BCY)": 30, "Customer ID→Customer Name": "Zen" },
+  ];
+  const r = runQuery({ dataset: "zt:1", measures: ["count:Invoice Date", "distinct:Customer ID→Customer Name", "rows"] }, rows);
+  assert.deepEqual(r.rows[0].values, [2, 2, 3]);
+  const big = runQuery({ dataset: "zt:1", measures: ["rows"], filters: [{ field: "Sub Total (BCY)", values: [], min: 15 }] }, rows);
+  assert.equal(big.rows[0].values[0], 2);
+});

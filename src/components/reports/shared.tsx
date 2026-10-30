@@ -5,8 +5,26 @@ import type { TableKey } from "@/lib/analytics/build";
 import type { ExtraCol } from "@/lib/analytics/extras";
 import { type Period, fieldOf, datasetOf, grainKey, periods } from "@/lib/analytics/model";
 import { BLANK, type Filter, type Result, type Spec } from "@/lib/analytics/query";
+import { type CatalogTable, registerTables } from "@/lib/analytics/tables";
 
 /* The Reports page's shared pieces: the API calls, period helpers and the multi-select filter. */
+
+/** The Zoho Analytics tables this member may build on (owner's plan of 30 Oct, point 1), as /api/analytics/tables gives them. */
+export type TableList = { tables: CatalogTable[]; readAt: string | null; partial: boolean; error?: string };
+let tablesAsked: Promise<TableList> | null = null;
+/**
+ * The table list, asked once per page (again with `fresh`, e.g. while Zoho's list is still being read), and put on the
+ * dataset list so Zoho-table reports — in the builder, saved, on dashboards — draw like any other.
+ */
+export function loadTables(fresh = false): Promise<TableList> {
+  if (!tablesAsked || fresh) {
+    tablesAsked = fetch("/api/analytics/tables").then((r) => r.json()).then((j: TableList) => {
+      if (Array.isArray(j.tables)) registerTables({ tables: j.tables });
+      return { tables: j.tables ?? [], readAt: j.readAt ?? null, partial: Boolean(j.partial), error: j.error };
+    }).catch(() => { tablesAsked = null; return { tables: [], readAt: null, partial: false, error: "Couldn't reach the server" }; });
+  }
+  return tablesAsked;
+}
 
 /** `columns`: the other Zoho columns copied per table (extras.ts) — Reports registers them so the builder offers them. */
 export type Meta = { datasets: string[]; today: string; admin: boolean; state: DataState; columns?: Partial<Record<TableKey, ExtraCol[]>> };
