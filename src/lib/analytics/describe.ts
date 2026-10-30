@@ -1,6 +1,7 @@
 import { type Grain, datasetOf, fieldOf, grainLabel, measureOf, periods } from "./model";
 import type { ChartKind, Spec } from "./query";
 import { paramFilterText } from "./params";
+import { calcFormat, calcLabel } from "./tablecalc";
 
 /*
  * "You'll get …" (owner, 30 Oct: "if I select 3 of these whatever things, what am I getting?") — one plain sentence for
@@ -15,17 +16,19 @@ const CHART_WORD: Partial<Record<ChartKind, string>> = {
 };
 const and = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 /** Several numbers on one chart need one unit — ₹, counts and % can't share an axis (Chart.tsx draws one axis, ever). */
-export const mixedUnits = (spec: Pick<Spec, "dataset" | "measures">) => {
+export const mixedUnits = (spec: Pick<Spec, "dataset" | "measures" | "calcs" | "by">) => {
   const d = datasetOf(spec.dataset);
-  return Boolean(d) && new Set(spec.measures.map((k) => measureOf(d!, k)?.format)).size > 1;
+  const calc = (k: string) => (spec.by?.length ? spec.calcs?.[k] : undefined);
+  return Boolean(d) && new Set(spec.measures.map((k) => { const f = measureOf(d!, k)?.format; return f && calcFormat(f, calc(k)); })).size > 1;
 };
 
 export function describeSpec(spec: Spec, today: string, kind?: Exclude<ChartKind, "auto">): string {
   const d = datasetOf(spec.dataset);
   if (!d) return "";
-  const ms = spec.measures.map((k) => measureOf(d, k)?.label ?? k);
-  if (!ms.length) return "Nothing yet — click a number in the Data pane (or + Add on Values) to see what it gives.";
   const by = spec.by ?? [];
+  // A table calculation reads in the name: "Revenue (running total)" (tablecalc.ts — only with something on Rows).
+  const ms = spec.measures.map((k) => calcLabel(measureOf(d, k)?.label ?? k, by.length ? spec.calcs?.[k] : undefined));
+  if (!ms.length) return "Nothing yet — click a number in the Data pane (or + Add on Values) to see what it gives.";
   // A linked table's column by its own name ("sector", not "sector (customers)"); any date by its grain.
   const name = (k: string) => (k === d.dateField || fieldOf(d, k)?.kind === "date" ? GRAIN_WORD[spec.grain ?? "month"]
     : (fieldOf(d, k)?.label ?? k).replace(fieldOf(d, k)?.table ? / \([^)]*\)$/ : /$^/, "").toLowerCase());

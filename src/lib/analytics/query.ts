@@ -1,5 +1,6 @@
 import { type Dataset, type Format, type Grain, type Measure, type Row, datasetOf, fieldOf, formatValue, grainKey, grainLabel, measureOf } from "./model";
 import { resolveFilter, setParamValues } from "./params";
+import { type TableCalc, applyTableCalcs, isTableCalc } from "./tablecalc";
 
 /*
  * Runs a report spec over a dataset's rows (pure — the server calls it; scripts test it). A spec names only fields and
@@ -60,6 +61,8 @@ export type Spec = {
   text?: { subtitle?: string; axisX?: string; axisY?: string; names?: Record<string, string> };
   /** Up to 3 more numbers shown only on hover, per Rows value — computed, not drawn. */
   tooltip?: string[];
+  /** A value shown as a quick table calculation (tablecalc.ts) — measure key → running total, % of total … */
+  calcs?: Record<string, TableCalc>;
   /** The parameter values chosen for this run (params.ts); a parameter not here takes its own value. */
   params?: Record<string, string | number>;
   /** Which date column the period (from / to) applies to — Zoho tables have several (owner's plan, 30 Oct, point 5);
@@ -105,6 +108,7 @@ export function checkSpec(spec: Spec): Dataset {
   if ((spec.by ?? []).length > 2) throw new SpecError("At most two “split by”");
   if ((spec.tooltip ?? []).length > 3) throw new SpecError("At most 3 tooltip numbers");
   for (const m of spec.tooltip ?? []) if (!measureOf(d, m)) throw new SpecError(`"${m}" isn't a measure of ${d.label}`);
+  for (const c of Object.values(spec.calcs ?? {})) if (!isTableCalc(c)) throw new SpecError(`"${c}" isn't a table calculation`);
   for (const b of spec.by ?? []) if (!fieldOf(d, b)) throw new SpecError(`"${b}" isn't a field of ${d.label}`);
   const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
@@ -390,7 +394,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
     for (const [k, g] of prevBy) if (!have.has(k)) result.rows.push({ keys: g.keys, values: evaluate(d, spec.measures, []), prev: evaluate(d, spec.measures, g.rows) });
   }
   if (spec.analysis) return analyse(d, spec, rows, curRows, prevRows, result);
-  return result;
+  return applyTableCalcs(result, spec.calcs, by.length);
 }
 
 /*

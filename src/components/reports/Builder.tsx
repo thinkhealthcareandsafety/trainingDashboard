@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { DATASETS, type Grain, datasetOf, fieldOf, measureOf, periods } from "@/lib/analytics/model";
 import type { ChartKind, Filter, Spec } from "@/lib/analytics/query";
 import { describeSpec } from "@/lib/analytics/describe";
+import { TABLE_CALCS, type TableCalc, calcLabel } from "@/lib/analytics/tablecalc";
 import { TOKENS, relabel, renderLabel } from "@/lib/analytics/labels";
 import { type Param, type ParamCmp, allParams, paramFilterText } from "@/lib/analytics/params";
 import { ParamEditor, ParamInput, useParams } from "./ParamControls";
@@ -40,7 +41,7 @@ const MAX_VALUES = 4;
 export function autoTitle(s: Spec): string {
   const d = datasetOf(s.dataset);
   if (!d) return "Report";
-  const m = s.measures.map((k) => measureOf(d, k)?.label).filter(Boolean).join(" & ");
+  const m = s.measures.map((k) => measureOf(d, k)?.label && calcLabel(measureOf(d, k)!.label, s.by?.length ? s.calcs?.[k] : undefined)).filter(Boolean).join(" & ");
   const by = (s.by ?? []).map((k) => (k === d.dateField || fieldOf(d, k)?.kind === "date" ? (GRAINS.find((g) => g.value === (s.grain ?? "month"))?.label ?? "month").toLowerCase()
     // A linked table's column reads by its own name: "by customer name", not "by customer name (customers)".
     : fieldOf(d, k)?.label.replace(fieldOf(d, k)?.table ? / \([^)]*\)$/ : /$^/, "").toLowerCase())).filter(Boolean);
@@ -178,7 +179,19 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const toggleTip = (k: string) => set({ tooltip: tips.includes(k) ? tips.filter((x) => x !== k) : [...tips, k].slice(-MAX_TIPS) });
   const toggleValue = (k: string) => {
     const has = spec.measures.includes(k);
-    set({ measures: has ? spec.measures.filter((m) => m !== k) : [...spec.measures, k].slice(-MAX_VALUES) });
+    const measures = has ? spec.measures.filter((m) => m !== k) : [...spec.measures, k].slice(-MAX_VALUES);
+    set({ measures, calcs: keepCalcs(spec.calcs, measures) });
+  };
+  // "Show as" on a value pill (tablecalc.ts): a running total, % of total … — kept per measure key.
+  const setCalc = (k: string, c: TableCalc | null) => {
+    const { [k]: _, ...rest } = spec.calcs ?? {};
+    set({ calcs: keepCalcs(c ? { ...rest, [k]: c } : rest, spec.measures) });
+  };
+  // A pill's "Sum of" → "Average of" changes its key; its calculation goes with it.
+  const swapValue = (from: string, to: string) => {
+    const { [from]: c, ...rest } = spec.calcs ?? {};
+    const measures = spec.measures.map((x) => (x === from ? to : x));
+    set({ measures, calcs: keepCalcs(c ? { ...rest, [to]: c } : rest, measures) });
   };
   // A click in the Data pane puts the field on the obvious shelf; clicking it again takes it off.
   const pickAttribute = (k: string) => {
@@ -400,7 +413,8 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               <Shelf label="Values" hint={`The numbers — up to ${MAX_VALUES}`} onDrop={(p) => drop("values", p)}>
                 {spec.measures.map((k) => {
                   const a = aggOf(k);
-                  if (!a) return <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={() => toggleValue(k)} title={[measureOf(d, k)?.def, measureOf(d, k)?.zoho && `Zoho: ${measureOf(d, k)?.zoho}`].filter(Boolean).join("\n")} />;
+                  const showAs = by[0] ? <ShowAs label={measureOf(d, k)?.label ?? k} calc={spec.calcs?.[k]} onChange={(c) => setCalc(k, c)} /> : null;
+                  if (!a) return <Pill key={k} text={measureOf(d, k)?.label ?? k} num extra={showAs} onRemove={() => toggleValue(k)} title={[measureOf(d, k)?.def, measureOf(d, k)?.zoho && `Zoho: ${measureOf(d, k)?.zoho}`].filter(Boolean).join("\n")} />;
                   // A Zoho number column: how it adds up is chosen on the pill (Tableau's right-click → Measure).
                   const num = numberCols.find((c) => c.key === a.col);
                   const col = zt ? (num && { label: `${num.label}${num.group && relatedIds.length ? ` (${num.group})` : ""}` }) ?? fieldOf(d, a.col) : extraNumbers(d).find((c) => c.key === a.col);
@@ -408,11 +422,12 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   const choices = !zt ? AGGS : num ? TABLE_AGGS : TABLE_AGGS.filter(([v]) => v === "count" || v === "distinct");
                   return (
                     <span key={k} title={measureOf(d, k)?.def} className="inline-flex max-w-full items-center gap-1 rounded-full bg-brand-soft py-0.5 pl-1 pr-1 text-[15px] font-medium text-ink">
-                      <select aria-label={`How ${col?.label ?? "it"} adds up`} value={a.agg} onChange={(e) => set({ measures: spec.measures.map((x) => (x === k ? mk(e.target.value, a.col) : x)) })}
+                      <select aria-label={`How ${col?.label ?? "it"} adds up`} value={a.agg} onChange={(e) => swapValue(k, mk(e.target.value, a.col))}
                         className="h-7 rounded-full border border-line bg-surface px-2 text-[14.5px] text-ink focus:border-brand focus:outline-none">
                         {choices.map(([v, w]) => <option key={v} value={v}>{w}</option>)}
                       </select>
                       <span className="truncate">of {col?.label ?? a.col}</span>
+                      {showAs}
                       <button type="button" aria-label={`Remove ${col?.label ?? k}`} onClick={() => toggleValue(k)} className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink">×</button>
                     </span>
                   );
@@ -700,12 +715,65 @@ function Shelf({ label, hint, onDrop, children }: { label: string; hint: string;
   );
 }
 
-function Pill({ text, num, title, onRemove }: { text: string; num?: boolean; title?: string; onRemove?: () => void }) {
+function Pill({ text, num, title, extra, onRemove }: { text: string; num?: boolean; title?: string; extra?: React.ReactNode; onRemove?: () => void }) {
   return (
     <span title={title} className={`inline-flex max-w-full items-center gap-1 rounded-full py-1 pl-3 ${onRemove ? "pr-1" : "pr-3"} text-[15px] font-medium ${num ? "bg-brand-soft text-ink" : "bg-surface-2 text-ink"}`}>
       <span className="truncate">{text}</span>
+      {extra}
       {onRemove && <button type="button" aria-label={`Remove ${text}`} onClick={onRemove} className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink">×</button>}
     </span>
+  );
+}
+
+/** Only the calculations of values still on the shelf; none left = no `calcs` at all. */
+const keepCalcs = (calcs: Spec["calcs"], measures: string[]): Spec["calcs"] => {
+  const kept = Object.fromEntries(Object.entries(calcs ?? {}).filter(([k]) => measures.includes(k)));
+  return Object.keys(kept).length ? kept : undefined;
+};
+
+/**
+ * A value pill's ⋯ → "Show as" (Tableau's quick table calculations). The menu sits on the page (portal, fixed) so the
+ * Build pane's scrolling can't clip it; it opens upwards when there's no room below.
+ */
+function ShowAs({ label, calc, onChange }: { label: string; calc?: TableCalc; onChange: (c: TableCalc | null) => void }) {
+  const [at, setAt] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!at) return;
+    const close = (e: Event) => { if (!menu.current?.contains(e.target as Node) && !btnRef.current?.contains(e.target as Node)) setAt(null); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setAt(null); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    window.addEventListener("scroll", close, true);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); window.removeEventListener("scroll", close, true); };
+  }, [at]);
+  const open = () => {
+    const r = btnRef.current!.getBoundingClientRect();
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - 248));
+    setAt(window.innerHeight - r.bottom < 300 ? { left, bottom: window.innerHeight - r.top + 4 } : { left, top: r.bottom + 4 });
+  };
+  const name = TABLE_CALCS.find(([k]) => k === calc)?.[1];
+  const items: [TableCalc | null, string][] = [[null, "Value (as it adds up)"], ...TABLE_CALCS];
+  return (
+    <>
+      <button ref={btnRef} type="button" aria-label={`Show ${label} as…`} aria-haspopup="menu" aria-expanded={Boolean(at)} title={name ? `Shown as: ${name}` : "Show as a running total, % of total, difference, rank…"}
+        onClick={() => (at ? setAt(null) : open())}
+        className={`inline-flex h-6 shrink-0 items-center rounded-full px-1.5 text-[13.5px] ${name ? "bg-brand text-brand-ink font-semibold" : "text-muted hover:bg-surface hover:text-ink"}`}>
+        {name ?? <svg viewBox="0 0 20 20" className="size-4" fill="currentColor" aria-hidden><circle cx="4.5" cy="10" r="1.6" /><circle cx="10" cy="10" r="1.6" /><circle cx="15.5" cy="10" r="1.6" /></svg>}
+      </button>
+      {at && createPortal(
+        <div ref={menu} role="menu" aria-label={`Show ${label} as`} style={{ position: "fixed", left: at.left, top: at.top, bottom: at.bottom }}
+          className="z-[90] w-[240px] rounded-xl border border-line bg-surface p-1 shadow-pop">
+          <p className="px-3 pb-1 pt-1.5 text-[13px] font-semibold uppercase tracking-wide text-muted">Show as</p>
+          {items.map(([k, w]) => (
+            <button key={w} type="button" role="menuitemradio" aria-checked={(calc ?? null) === k} onClick={() => { setAt(null); onChange(k); }}
+              className={`flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[15.5px] ${(calc ?? null) === k ? "font-semibold text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
+              <span className="w-3 text-brand" aria-hidden>{(calc ?? null) === k ? "✓" : ""}</span>{w}
+            </button>
+          ))}
+        </div>, document.body)}
+    </>
   );
 }
 
