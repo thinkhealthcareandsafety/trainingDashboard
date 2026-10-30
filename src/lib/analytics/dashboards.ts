@@ -12,6 +12,8 @@ import type { Spec } from "./query";
 export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: boolean; note?: string; section?: string;
   /** Draw the monthly revenue goal across it (owner, 27 Oct: ₹50 L a month). */
   goalLine?: boolean;
+  /** A fixed monthly target drawn across it (trainings: 10 a month, people: 300 — kpi.ts). */
+  target?: number;
   /** Never compared (cohorts, seasonality, lists over all of history) — the dashboard's "Compare" leaves it alone. */
   noCompare?: boolean;
   /** A taller chart (the India map, and the bars beside it). */
@@ -267,6 +269,9 @@ const TABS: DashboardDef[] = [
       kpi("per", "trainings", "perTraining", "People per training"),
       kpi("trev", "sales", "revenue", "Training revenue", { spec: { dataset: "sales", measures: ["revenue"], chart: "kpi", compare: true, title: "Training revenue", filters: [{ field: "itemGroup", values: ["Training Services"] }] } }),
       { id: "bymonth", section: "Over time", w: 12, spec: { dataset: "trainings", measures: ["count"], by: ["date", "status"], grain: "month", chart: "stacked", title: "Trainings by month" } },
+      // Trainings against target (owner, 30 Oct — phase 5; targets of 13 Oct: 10 trainings and 300 people a month).
+      { id: "vsTarget", section: "Against target", w: 6, target: 10, note: "Target: 10 trainings a month (120 a year) — the line shows on Month", spec: { dataset: "trainings", measures: ["count"], by: ["date"], grain: "month", chart: "column", title: "Trainings by {grain} against target" } },
+      { id: "peopleTarget", section: "Against target", w: 6, target: 300, note: "Target: 300 people a month (3,000 a year) — the line shows on Month", spec: { dataset: "trainings", measures: ["people"], by: ["date"], grain: "month", chart: "column", title: "People trained by {grain} against target" } },
       { id: "trainer", section: "Breakdown", w: 6, spec: { dataset: "trainings", measures: ["count"], by: ["trainer"], chart: "bar", title: "Trainings by trainer" } },
       { id: "type", section: "Breakdown", w: 6, spec: { dataset: "trainings", measures: ["people"], by: ["trainingType"], limit: 7, chart: "bar", title: "People by training type" } },
       { id: "customers", section: "Breakdown", w: 6, spec: { dataset: "trainings", measures: ["people"], by: ["customer"], limit: 10, chart: "bar", title: "Top customers (people)" } },

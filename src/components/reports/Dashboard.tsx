@@ -565,7 +565,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
               ? <KpiCell title={specOf(t).title ?? ""} def={measureOf(datasetOf(t.spec.dataset)!, t.spec.measures[0])?.def} answer={answers[t.id]} skipped={skippedOf(t)} spark={sparkOf(t)} />
               : <TileCard tile={{ ...t, w: 12 }} fill={heightOf(box.h)} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                   picked={pick?.tileId === t.id ? pick.value : null} onPick={edit ? undefined : pickFrom(t)}
-                  target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
+                  target={(specOf(t).grain ?? "month") !== "month" ? undefined : t.goalLine ? goal : t.target}
                   skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />)} />
           {edit && !(pages[at]?.tiles.length) && <p className="mt-2 text-center text-[15.5px] text-muted">An empty page — + Add report, then drag it anywhere in the box.</p>}
         </>
@@ -586,7 +586,7 @@ export function DashboardView({ def, today, tools, edit }: { def: DashboardDef; 
                 {run.tiles.map((t) => (
                   <TileCard key={t.id} tile={pages[at]?.half?.has(t.id) ? { ...t, w: 6, tall: false } : t} spec={specOf(t)} answer={answers[t.id]} accent={def.tiles.indexOf(t)}
                     picked={pick?.tileId === t.id ? pick.value : null} onPick={pickFrom(t)}
-                    target={t.goalLine && (specOf(t).grain ?? "month") === "month" ? goal : undefined}
+                    target={(specOf(t).grain ?? "month") !== "month" ? undefined : t.goalLine ? goal : t.target}
                     skipped={skippedOf(t)} crumbs={crumbsOf(t)} tweak={tweaks[t.id]} onTweak={(tw) => { setPick(null); setTweaks((s) => { const n = { ...s }; if (tw) n[t.id] = tw; else delete n[t.id]; return n; }); }} />
                 ))}
               </div>
