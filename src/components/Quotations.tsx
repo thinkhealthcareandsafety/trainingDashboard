@@ -6,6 +6,7 @@ import { celebrate } from "@/lib/confetti";
 import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
+import { docStatus } from "@/lib/docStatus";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -181,7 +182,7 @@ export function Quotations() {
                   <div className="num text-[13px] text-muted">{c.phone ?? ""}</div>
                 </td>
                 <td className="hidden px-4 py-2.5 lg:table-cell">
-                  {c.lastQuote ? <><div className="text-ink-2"><span className="num">{inr(c.lastQuote.amount)}</span> · {c.lastQuote.number}</div><div className="text-[13px] text-muted">{fmtDay(c.lastQuote.date)} · {ago(c.lastQuote.date)}</div></> : <span className="text-faint">never</span>}
+                  {c.lastQuote ? <><div className="flex flex-wrap items-center gap-x-1.5 text-ink-2"><span><span className="num">{inr(c.lastQuote.amount)}</span> · {c.lastQuote.number}</span><StatusChip status={c.lastQuote.status} /></div><div className="text-[13px] text-muted">{fmtDay(c.lastQuote.date)} · {ago(c.lastQuote.date)}</div></> : <span className="text-faint">never</span>}
                 </td>
                 <td className="hidden px-4 py-2.5 text-ink-2 xl:table-cell">{c.lastInvoice ? <>{fmtDay(c.lastInvoice)}<div className="text-[13px] text-muted">{ago(c.lastInvoice)}</div></> : <span className="text-faint">never</span>}</td>
                 <td className="px-4 py-2.5 text-right">
@@ -229,6 +230,12 @@ function SortHead({ label, sort, keys, onSort, className = "" }: { label: string
       </button>
     </th>
   );
+}
+
+/** Draft / Sent / Accepted / Declined / Expired / Invoiced — the quotation's status in Zoho (docStatus.ts). */
+function StatusChip({ status }: { status?: string }) {
+  const s = docStatus(status);
+  return s ? <span className={`rounded px-1.5 py-px text-[11.5px] font-semibold ${s.tone}`}>{s.label}</span> : null;
 }
 
 function connectedLine(res: ListRes | null, reconnect: () => void) {

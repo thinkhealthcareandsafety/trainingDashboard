@@ -106,12 +106,14 @@ export async function syncSales(full: boolean): Promise<{ docs: number; payments
 /* ---------------- Reading the copy ---------------- */
 
 export type SalesResponse = { syncedAt: string; windowStart: string; quotes: ZohoQuote[]; pis: ZohoPI[]; invoices: ZohoInvoice[]; payments: ZohoPayment[]; pending?: number; error?: string };
+/** Bumped when the board data changes shape (e.g. 30 Oct: quote / PI totals) — a server keeps its copy across code reloads. */
+const SHAPE = 2;
 const G = globalThis as unknown as { __thSales?: { key: string; data: SalesResponse } | null };
 
 /** The board's data, rebuilt only when the Sales copy (or the Training board's copy, for training-only) changed. */
 export async function salesData(): Promise<SalesResponse> {
   const [state, zoho] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_state" }, { projection: { version: 1 } })]);
-  const key = `${state.version}|${zoho?.version ?? 0}`;
+  const key = `${SHAPE}|${state.version}|${zoho?.version ?? 0}`;
   if (G.__thSales?.key === key) return { ...G.__thSales.data, syncedAt: state.syncedAt ?? G.__thSales.data.syncedAt };
   const [rows, payRows, only] = await Promise.all([
     (await col<SalesRow>("salesDocs")).find({}).toArray(),

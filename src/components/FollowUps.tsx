@@ -12,6 +12,7 @@ import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
 import { useAedInvoices, usePipeline, useSalesData } from "./followups/useBoards";
 import { SALES_COLUMN, buildSalesBoard, isSaleCard } from "@/lib/sales";
+import { docStatus } from "@/lib/docStatus";
 import { SalesModal } from "./followups/SalesModal";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
 import { StatePill } from "./followups/FulfilCerts";
@@ -325,7 +326,11 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
       )}
       {isSaleCard(card.id) ? (
         // Sales board: the document's amount (incl. GST) where a training card shows its training.
-        !pay && docTotal(card) !== undefined && <div className="num mt-0.5 font-semibold text-ink-2">{fmtINR(docTotal(card)!)}</div>
+        // A quotation's / PI's status in Zoho (owner, 30 Oct: "which is sent or declined or draft"); invoices show paid / due below.
+        !pay && <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5">
+          {docTotal(card) !== undefined && <span className="num font-semibold text-ink-2">{fmtINR(docTotal(card)!)}</span>}
+          {(() => { const s = card.kind === "quote" || card.kind === "pi" ? docStatus((card.pi ?? card.quote)?.status) : null; return s && <span className={`rounded px-1 text-[10.5px] font-bold ${s.tone}`}>{s.label}</span>; })()}
+        </div>
       ) : <div className="mt-0.5 line-clamp-2">{card.training.map((t) => t.name).join(", ")}</div>}
       {card.schedule ? (
         <>

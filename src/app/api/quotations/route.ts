@@ -100,6 +100,20 @@ async function zohoLatest(): Promise<{ customers: Span; quotes: Span } | null> {
 }
 const goneFrom = (s: Span | undefined, id: string, created: string) => Boolean(s && Date.parse(created) >= s.since && !s.ids.has(id));
 
+/**
+ * Each quotation's status now (owner, 30 Oct: "how would I know which is sent or declined or draft"): from the Sales
+ * board's copy, synced hourly (salesSync.ts) — fresher than the Reports copy. Re-read only when that copy changed.
+ */
+let quoteStatus: { v: number; map: Map<string, string> } | null = null;
+async function freshQuoteStatus(): Promise<Map<string, string>> {
+  const d = await db();
+  const v = Number((await d.collection<{ _id: string; version?: number }>("kv").findOne({ _id: "sales_state" }, { projection: { version: 1 } }))?.version ?? -1);
+  if (quoteStatus?.v === v) return quoteStatus.map;
+  const rows = await d.collection<{ _id: string; kind: string; row: Record<string, unknown> }>("salesDocs").find({ kind: "estimates" }, { projection: { "row.estimate_number": 1, "row.status": 1 } }).toArray();
+  quoteStatus = { v, map: new Map(rows.map((r) => [String(r.row?.estimate_number ?? ""), String(r.row?.status ?? "")])) };
+  return quoteStatus.map;
+}
+
 const lastQuote = (h: History | undefined, mine: Last | undefined) => (mine && (!h?.quote || mine.date >= h.quote.date) ? mine : h?.quote);
 
 /**
@@ -247,7 +261,7 @@ export async function GET(request: Request) {
     }
 
     // The list: search, filters, sort, one page.
-    const [{ docs: all }, h, z, info] = await Promise.all([readAll<ZohoLead>("zohoCustomers"), histories(), zohoLatest(), quotesInfo()]);
+    const [{ docs: all }, h, z, info, status] = await Promise.all([readAll<ZohoLead>("zohoCustomers"), histories(), zohoLatest(), quotesInfo(), freshQuoteStatus().catch(() => new Map<string, string>())]);
     const mine = await recentSent(z?.quotes);
     const docs = all.filter((c) => !goneFrom(z?.customers, c.contactId, c.createdAt));
     const text = nameKey(q.get("q") ?? "");
@@ -284,7 +298,7 @@ export async function GET(request: Request) {
       total: withLast.length, page, pageSize: PAGE, sectors: count("sector"), types: count("type"),
       customers: withLast.slice(page * PAGE, page * PAGE + PAGE).map(({ c, quote, invoice }) => ({
         id: c.contactId, name: c.name, email: c.email ?? null, phone: c.mobile ?? c.phone ?? null, sector: c.sector ?? null, type: c.type ?? null,
-        lastQuote: quote ?? null, lastInvoice: invoice,
+        lastQuote: quote ? { ...quote, status: status.get(quote.number) || quote.status } : null, lastInvoice: invoice,
       })),
     });
   } catch (e) {
