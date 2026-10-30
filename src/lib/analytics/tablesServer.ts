@@ -11,7 +11,8 @@ import { type Catalog, type CatalogColumn, type CatalogTable, HIDDEN_TABLES, col
  * The Zoho Analytics tables behind "Pick a Zoho table" (owner's plan of 30 Oct, steps a–b). Read-only on Zoho's side.
  * - The catalog (kv `za_catalog`): every table, its row count and columns, from Zoho's metadata. A full read is ~110
  *   paced calls (~5 min), more than one request may run (120 s) — so each pass reads the oldest tables for 85 s and
- *   saves; the next visit continues while `partial`. Re-read once a day, or when Admin asks.
+ *   saves; the next visit continues while `partial`. Read again only when Admin presses Refresh from Zoho (owner, 30 Oct:
+ *   "i dont want to overuse the zoho tokens … i can refresh when i want for new tables and columns") — no daily re-read.
  * - A table's rows are copied the first time a report uses it (`za_tables`, `_id` "zt:<view id>", gzipped JSON) and
  *   again after STALE_MS — the 42k-row transaction tables only load if someone uses them (point 8 of the plan).
  *   Linked tables (Customer ID → Customers) load only when a report uses one of their columns.
@@ -20,7 +21,6 @@ import { type Catalog, type CatalogColumn, type CatalogTable, HIDDEN_TABLES, col
 const KEY = "za_catalog";
 const COL = "za_tables";
 const STALE_MS = 6 * 3600_000;
-const DAY_MS = 24 * 3600_000;
 const PACE_MS = 2500; // Zoho Analytics refuses bursts
 const BUDGET_MS = 85_000;
 
@@ -41,7 +41,8 @@ export async function readCatalog(): Promise<Catalog & { error?: string; reading
   catalogMemo = { at: Date.now(), value };
   return value;
 }
-export const catalogStale = (c: Catalog) => !c.tables.length || Boolean(c.partial) || !c.readAt || Date.now() - Date.parse(c.readAt) > DAY_MS;
+/** Still to read: nothing yet, or a first read (or an Admin refresh) not finished. A finished list stays until Refresh. */
+export const catalogStale = (c: Catalog) => !c.tables.length || Boolean(c.partial) || !c.readAt;
 
 /**
  * Zoho's view details → our columns. The shape is `{ views: { columns: [...] } }` (an array in some answers). Hidden
@@ -71,8 +72,8 @@ export async function refreshCatalog(force = false): Promise<boolean> {
     const old = new Map((got.tables ?? []).map((t) => [t.id, t]));
     const readOn = { ...(got.readOn ?? {}) };
     if (force) for (const k of Object.keys(readOn)) delete readOn[k];
-    // Not read yet (or a day old) first.
-    const todo = views.filter((v) => !readOn[v.id] || now - Date.parse(readOn[v.id]) > DAY_MS).sort((a, b) => (readOn[a.id] ?? "").localeCompare(readOn[b.id] ?? ""));
+    // Only the tables not read yet (all of them after an Admin refresh, which clears readOn; new ones Zoho lists).
+    const todo = views.filter((v) => !readOn[v.id]);
     const tables = new Map<string, CatalogTable>();
     for (const v of views) { const o = old.get(v.id); if (o) tables.set(v.id, { ...o, name: v.name }); }
     let partial = false;

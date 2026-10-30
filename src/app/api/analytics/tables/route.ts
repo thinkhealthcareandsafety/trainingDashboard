@@ -9,9 +9,9 @@ export const maxDuration = 120;
 
 /*
  * The Zoho Analytics tables a member may build reports on (owner, 30 Oct: "read from Zoho Analytics directly") —
- * name, rows, columns and links, read from Zoho's metadata (tablesServer.ts). GET — the list; when it's missing,
- * half-read or a day old, one more reading pass runs after the answer (`partial` tells the builder to ask again).
- * POST { force } — Admin: read every table again now.
+ * name, rows, columns and links, read from Zoho's metadata (tablesServer.ts). GET — the list; while it's missing or
+ * half-read, one more reading pass runs after the answer (`partial` tells the builder to ask again). A finished list
+ * isn't re-read by itself (owner, 30 Oct: save Zoho tokens). POST { force } — Admin: read every table again now.
  */
 
 export async function GET(request: Request) {

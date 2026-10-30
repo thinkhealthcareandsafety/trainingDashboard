@@ -99,3 +99,11 @@ test("a reading pass that fails says why (here: Zoho Analytics isn't connected i
   assert.match(c.error ?? "", /connected/);
   assert.equal(c.tables.length, 0);
 });
+
+test("a finished table list isn't read again by itself — only a first read or an Admin refresh continues", async () => {
+  const { catalogStale } = await import("@/lib/analytics/tablesServer");
+  const t = catalog.tables;
+  assert.equal(catalogStale({ tables: t, readAt: "2020-01-01T00:00:00Z" }), false);
+  assert.equal(catalogStale({ tables: t, readAt: "2026-10-30T00:00:00Z", partial: true }), true);
+  assert.equal(catalogStale({ tables: [] }), true);
+});
