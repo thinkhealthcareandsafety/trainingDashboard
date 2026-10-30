@@ -24,7 +24,8 @@ type Agg =
   /** Share (%) of `sum` that the top `n` values of `field` make up — "top 10 customers' share". */
   | { agg: "topShare"; field: string; sum: string; n: number };
 /** `better: "down"` — a fall is good news (overdue, days to pay, dependence on a few customers): KPIs colour it green. */
-export type Measure = { key: string; label: string; format: Format; def: string; better?: "down" } & Agg;
+/** `zoho`: the Zoho Analytics column(s) behind it (ZOHO below). */
+export type Measure = { key: string; label: string; format: Format; def: string; better?: "down"; zoho?: string } & Agg;
 export type BoardNeed = "training" | "aed";
 export type Dataset = {
   key: string;
@@ -410,6 +411,19 @@ export const DATASETS: Dataset[] = [
     ],
   },
 ];
+
+/** The Zoho Analytics columns behind the ready-made numbers (owner, 30 Oct: "in Zoho Analytics this field is known as
+ * the Total (BCY)") — shown under each number in the builder, and "Find a field" finds them by these names too. */
+const ZOHO: Record<string, Record<string, string>> = {
+  sales: { revenue: "Invoice Items · Sub Total (BCY), less the invoice's discount — before tax", revenueTax: "Invoice Items · Tax Inclusive Total (BCY) — Zoho's Total (BCY), with tax", units: "Invoice Items · Quantity", invoices: "Invoices · Invoice Number, counted", customers: "Customers · Customer Name, counted", repeatRevenue: "Invoice Items · Sub Total (BCY), repeat customers", newRevenue: "Invoice Items · Sub Total (BCY), first invoices" },
+  invoices: { billed: "Invoices · Sub Total (BCY), less discount — before tax", outstanding: "Invoices · Balance (BCY)", overdue: "Invoices · Balance (BCY), past the Due Date", count: "Invoices · Invoice Number, counted", due30: "Invoices · Balance (BCY), by Due Date", due90: "Invoices · Balance (BCY), by Due Date" },
+  quotes: { value: "Quotes · Sub Total (BCY)", validOpen: "Quotes · Sub Total (BCY)", count: "Quotes · Quote Number, counted" },
+  orders: { value: "Sales Orders · Sub Total (BCY), less discount", toInvoice: "Sales Order Items · Sub Total (BCY), quantity not invoiced" },
+  payments: { received: "Customer Payments · Amount (BCY)", tds: "Customer Payments · Withholding Tax (BCY)" },
+  purchases: { spent: "Bill Item · Sub Total (BCY)", bought: "Bill Item · Quantity" },
+  quoteItems: { quoted: "Quote Items · Sub Total (BCY)" },
+};
+for (const d of DATASETS) for (const m of d.measures) m.zoho ??= ZOHO[d.key]?.[m.key];
 
 export const datasetOf = (key: string) => DATASETS.find((d) => d.key === key);
 export const fieldOf = (d: Dataset, key: string) => (key === "date" ? d.fields.find((f) => f.key === "date") : d.fields.find((f) => f.key === key));

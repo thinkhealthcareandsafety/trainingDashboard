@@ -23,6 +23,7 @@ export function describeSpec(spec: Spec, today: string, kind?: Exclude<ChartKind
   const d = datasetOf(spec.dataset);
   if (!d) return "";
   const ms = spec.measures.map((k) => measureOf(d, k)?.label ?? k);
+  if (!ms.length) return "Nothing yet — click a number in the Data pane (or + Add on Values) to see what it gives.";
   const by = spec.by ?? [];
   const name = (k: string) => (k === d.dateField ? GRAIN_WORD[spec.grain ?? "month"] : (fieldOf(d, k)?.label ?? k).toLowerCase());
 

@@ -47,12 +47,15 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   targets?: TargetChoice[]; defaultTarget?: string;
 }) {
   const allowed = DATASETS.filter((d) => datasets.includes(d.key));
-  const [spec, setSpec] = useState<Spec>(() => initial ?? { dataset: allowed[0]?.key ?? "sales", measures: [allowed[0]?.measures[0].key ?? "revenue"], by: [], period: "fy", chart: "auto", limit: 10 });
+  // A new report starts empty — nothing is picked for you (owner, 30 Oct: "why does it come here automatically").
+  const [spec, setSpec] = useState<Spec>(() => initial ?? { dataset: allowed[0]?.key ?? "sales", measures: [], by: [], period: "fy", chart: "auto", limit: 10 });
   const [title, setTitle] = useState(initial?.title ?? "");
   const [answer, setAnswer] = useState<Answer | undefined>();
   const [saving, setSaving] = useState<{ busy?: boolean; error?: string }>({});
   const [pane, setPane] = useState<Pane>("build");
   const [search, setSearch] = useState("");
+  // Why a drop or click didn't do what it looked like (owner, 30 Oct: "I can't even place this in the colours").
+  const [note, setNote] = useState("");
   const d = datasetOf(spec.dataset)!;
   const set = (patch: Partial<Spec>) => setSpec((s) => ({ ...s, ...patch }));
 
@@ -66,22 +69,32 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const query = useMemo(() => withPeriod({ ...spec, title: title || autoTitle(spec) }, today), [spec, title, today]);
   useEffect(() => {
     let live = true;
+    if (!query.measures.length) { setAnswer(undefined); return; }
     const t = setTimeout(() => runSpecs([query]).then((j) => { if (live) setAnswer(j.results[0]); }), 250);
     return () => { live = false; clearTimeout(t); };
   }, [query]);
 
   const changeDataset = (key: string) => {
     const nd = datasetOf(key)!;
-    setSpec((s) => ({ ...s, dataset: key, measures: [nd.measures[0].key], by: (s.by ?? []).filter((b) => fieldOf(nd, b)), filters: (s.filters ?? []).filter((f) => fieldOf(nd, f.field)) }));
+    setSpec((s) => ({ ...s, dataset: key, measures: [], by: (s.by ?? []).filter((b) => fieldOf(nd, b)), filters: (s.filters ?? []).filter((f) => fieldOf(nd, f.field)) }));
   };
   const by = spec.by ?? [];
   // Shelves. Rows = by[0]; Colour = by[1] (needs Rows); Values = measures (1–4).
   const setRows = (k: string | null) => set({ by: k ? [k, ...by.slice(1)].filter((x, i, a) => a.indexOf(x) === i) : by.slice(1, 2) });
-  const setColour = (k: string | null) => set({ by: k && by[0] ? [by[0], k].filter((x, i, a) => a.indexOf(x) === i) : by.slice(0, 1) });
+  const setColour = (k: string | null) => {
+    setNote("");
+    if (!k) return set({ by: by.slice(0, 1) });
+    if (!by[0]) return setNote("Colour splits the rows — put something on Rows first.");
+    if (k === by[0]) {
+      // The date on Rows by month / quarter, and again on Colour: colour by financial year (Tableau: YEAR(date) on Colour).
+      if (k === d.dateField && fieldOf(d, "fy") && (spec.grain ?? "month") !== "fy") return set({ by: [by[0], "fy"] });
+      return setNote(`${label(k)} is already on Rows — Colour needs a different attribute (e.g. Sector, Customer type).`);
+    }
+    set({ by: [by[0], k] });
+  };
   const toggleValue = (k: string) => {
     const has = spec.measures.includes(k);
-    const next = has ? spec.measures.filter((m) => m !== k) : [...spec.measures, k].slice(-MAX_VALUES);
-    if (next.length) set({ measures: next });
+    set({ measures: has ? spec.measures.filter((m) => m !== k) : [...spec.measures, k].slice(-MAX_VALUES) });
   };
   // A click in the Data pane puts the field on the obvious shelf; clicking it again takes it off.
   const pickAttribute = (k: string) => {
@@ -92,7 +105,12 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
     const i = payload.indexOf(":");
     const kind = payload.slice(0, i), key = payload.slice(i + 1);
     if (i < 0 || !key) return;
-    if (kind === "num") { if (shelf === "values" && !spec.measures.includes(key)) toggleValue(key); return; }
+    if (kind === "num") {
+      if (shelf !== "values") return setNote("Numbers go on Values — Rows, Colour and Filters take attributes (words and dates).");
+      if (!spec.measures.includes(key)) toggleValue(key);
+      return;
+    }
+    setNote("");
     if (shelf === "rows") setRows(key);
     else if (shelf === "colour") setColour(key);
     else if (shelf === "filters" && key !== d.dateField && !(spec.filters ?? []).some((f) => f.field === key)) set({ filters: [...(spec.filters ?? []), { field: key, values: [] }] });
@@ -115,9 +133,11 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
   const kind = answer && !isError(answer) ? resolveKind(spec.chart, answer) : undefined;
   const sentence = describeSpec(spec, today, kind);
   const q = search.trim().toLowerCase();
-  const match = (l: string) => !q || l.toLowerCase().includes(q);
+  // "Total BCY" finds "Total (BCY)": brackets and dots don't count.
+  const plain = (s: string) => s.toLowerCase().replace(/[().·,]/g, " ").replace(/\s+/g, " ").trim();
+  const match = (l: string) => !q || plain(l).includes(plain(q));
   const attrs = d.fields.filter((f) => !f.table && match(f.label));
-  const nums = d.measures.filter((m) => match(m.label));
+  const nums = d.measures.filter((m) => match(m.label) || match(m.zoho ?? ""));
   // Every other Zoho column (step 1), grouped by the row it belongs to; closed until opened (or searched).
   const extraAttrs = Object.entries(Object.groupBy(d.fields.filter((f) => f.table && match(f.label)), (f) => f.table!));
   const extraNums = extraNumbers(d).filter((c) => match(c.label));
@@ -170,7 +190,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               ))}
               <PaneHead title="Numbers" hint="What's counted or added up — the values" />
               {nums.map((m) => (
-                <DataItem key={m.key} icon="num" label={m.label} hint={m.def} used={spec.measures.includes(m.key)} drag={`num:${m.key}`} onClick={() => toggleValue(m.key)} />
+                <DataItem key={m.key} icon="num" label={m.label} sub={m.zoho && `Zoho: ${m.zoho}`} hint={m.def} used={spec.measures.includes(m.key)} drag={`num:${m.key}`} onClick={() => toggleValue(m.key)} />
               ))}
               {extraNums.length > 0 && (
                 <details open={Boolean(q)} className="mt-1 rounded-lg">
@@ -207,7 +227,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
               <Shelf label="Values" hint={`The numbers — up to ${MAX_VALUES}`} onDrop={(p) => drop("values", p)}>
                 {spec.measures.map((k) => {
                   const a = aggOf(k);
-                  if (!a) return <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={spec.measures.length > 1 ? () => toggleValue(k) : undefined} title={measureOf(d, k)?.def} />;
+                  if (!a) return <Pill key={k} text={measureOf(d, k)?.label ?? k} num onRemove={() => toggleValue(k)} title={[measureOf(d, k)?.def, measureOf(d, k)?.zoho && `Zoho: ${measureOf(d, k)?.zoho}`].filter(Boolean).join("\n")} />;
                   // A Zoho number column: how it adds up is chosen on the pill (Tableau's right-click → Measure).
                   const col = extraNumbers(d).find((c) => c.key === a[2]);
                   return (
@@ -217,7 +237,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                         {AGGS.map(([v, w]) => <option key={v} value={v}>{w}</option>)}
                       </select>
                       <span className="truncate">of {col?.label ?? a[2]}</span>
-                      {spec.measures.length > 1 && <button type="button" aria-label={`Remove ${col?.label ?? k}`} onClick={() => toggleValue(k)} className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink">×</button>}
+                      <button type="button" aria-label={`Remove ${col?.label ?? k}`} onClick={() => toggleValue(k)} className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink">×</button>
                     </span>
                   );
                 })}
@@ -229,6 +249,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                   </select>
                 )}
               </Shelf>
+              {note && <p className="rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2" role="status">{note}</p>}
               {mixedAverage(spec) && <p className="rounded-lg bg-surface-2 px-3 py-2 text-[15px] text-ink-2">A price per unit over different items mixes them (an AED and a pad average to neither) — put Item on Rows, or filter to one item, group or kind.</p>}
               <Shelf label="Filters" hint="Only rows that match" onDrop={(p) => drop("filters", p)}>
                 <div className="min-w-0 flex-1"><Filters dataset={spec.dataset} filters={spec.filters ?? []} onChange={(filters) => set({ filters })} /></div>
@@ -246,7 +267,8 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
                 {answer && !isError(answer) && <span className="shrink-0 text-[15px] text-muted">{answer.matched.toLocaleString("en-IN")} rows of data</span>}
               </div>
               <div className="mt-3 min-h-[300px] flex-1">
-                {!answer ? <div className="h-[420px] animate-pulse rounded-lg bg-surface-2" />
+                {!spec.measures.length ? <p className="grid h-[300px] place-items-center rounded-lg border border-dashed border-line px-6 text-center text-[16px] text-muted">Nothing to show yet. Pick a number (Revenue, Invoices, Quantity…) from the Data pane, then an attribute for Rows.</p>
+                  : !answer ? <div className="h-[420px] animate-pulse rounded-lg bg-surface-2" />
                   : isError(answer) ? <p className="text-[16px] text-high">{answer.error}</p>
                   : <Chart result={answer} kind={spec.chart} grain={spec.grain} height={kind === "kpi" ? 120 : 420} />}
               </div>
@@ -307,7 +329,7 @@ export function Builder({ initial, datasets, today, canSave, savedId, onClose, o
             </div>
           )}
           <button className={btn.ghost} onClick={onClose}>Close</button>
-          {canSave && <button className={btn.primary} disabled={saving.busy || !answer || isError(answer)} onClick={save}>{saving.busy ? "Saving…" : savedId ? "Save changes" : "Save report"}</button>}
+          {canSave && <button className={btn.primary} disabled={saving.busy || !spec.measures.length || !answer || isError(answer)} onClick={save}>{saving.busy ? "Saving…" : savedId ? "Save changes" : "Save report"}</button>}
         </div>
       </div>
     </div>
@@ -325,12 +347,15 @@ function PaneHead({ title, hint }: { title: string; hint: string }) {
 
 const ICON = { text: "Aa", date: "◷", num: "#" } as const;
 /** A field in the Data pane: click to put it on its shelf (again to take it off), or drag it onto any shelf. */
-function DataItem({ icon, label, hint, used, drag, onClick }: { icon: keyof typeof ICON; label: string; hint?: string; used: boolean; drag: string; onClick: () => void }) {
+function DataItem({ icon, label, sub, hint, used, drag, onClick }: { icon: keyof typeof ICON; label: string; sub?: string; hint?: string; used: boolean; drag: string; onClick: () => void }) {
   return (
     <button type="button" draggable onDragStart={(e) => e.dataTransfer.setData("text/plain", drag)} onClick={onClick} title={hint} aria-pressed={used}
       className={`mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[15.5px] transition ${used ? "bg-brand-soft font-medium text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
       <span aria-hidden className={`grid h-5 w-6 shrink-0 place-items-center rounded text-[12px] font-bold ${icon === "num" ? "bg-brand-soft text-brand" : "bg-surface-2 text-muted"}`}>{ICON[icon]}</span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{label}</span>
+        {sub && <span className="block truncate text-[13px] font-normal text-faint">{sub}</span>}
+      </span>
       {used && <span aria-hidden className="text-brand">✓</span>}
     </button>
   );
