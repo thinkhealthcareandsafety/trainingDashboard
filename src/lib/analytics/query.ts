@@ -8,7 +8,7 @@ import { type Dataset, type Format, type Grain, type Measure, type Row, datasetO
 /** matrix: two splits as a pivot table (with the comparison in each cell); waterfall: steps up and down (bridge);
  * diverging: rises right in green, falls left in red (what changed). */
 export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "stacked100" | "donut" | "table" | "matrix" | "heatmap" | "waterfall" | "diverging" | "map";
-export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup" | "renewals" | "dueMonths" | "priceAlerts";
+export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup" | "renewals" | "dueMonths" | "priceAlerts" | "customerValue";
 /**
  * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
  * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
@@ -85,7 +85,7 @@ export function checkSpec(spec: Spec): Dataset {
   const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
   if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && spec.analysis !== "priceAlerts" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
-  if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell" || spec.analysis === "renewals" || spec.analysis === "dueMonths") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
+  if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell" || spec.analysis === "renewals" || spec.analysis === "dueMonths" || spec.analysis === "customerValue") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
   if (spec.analysis === "followup" && d.key !== "quotes") throw new SpecError("This analysis works on Quotes");
   if (spec.analysis === "priceAlerts" && d.key !== "purchases") throw new SpecError("This analysis works on Purchases");
   const c = spec.compare;
@@ -340,6 +340,8 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
  * - renewals: customers whose last training's certificates (valid 2 years) run out within 90 days either side of today
  * - dueMonths: next 12 months — customers due certificates, AED pads (every 2 years) and batteries (every 4 years)
  * - priceAlerts: items whose latest purchase price (last 12 months) moved 5%+ from the bill before
+ * - customerValue: each customer's revenue since Jul 2021, invoices, first / last bought, days between orders
+ *   (variant "bands": customers and revenue per value band)
  */
 function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
   const m = spec.measures[0];
@@ -402,6 +404,37 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
       [{ key: "item", label: "Item", date: false }, { key: "brand", label: "Brand", date: false }, { key: "before", label: "Bill before", date: false }, { key: "latest", label: "Latest bill", date: false }],
       { measures: [{ key: "p0", label: "Price before", format: "inr" }, { key: "p1", label: "Latest price", format: "inr" }, { key: "ch", label: "Change %", format: "pct", better: "down" }], totals: [null, null, null],
         note: `${n(moves.filter((m) => m.ch > 0).length)} items cost more on their latest bill, ${n(moves.filter((m) => m.ch < 0).length)} less (5% or more, latest bill in the last 12 months; moves over 3× left out — usually a different pack size)${moves.length > lim ? ` — the ${lim} biggest moves shown` : ""}.` });
+  }
+  // Customer value (owner, 30 Oct — phase 5): all of history (Zoho Books from Jul 2021); filters apply, the period doesn't.
+  if (spec.analysis === "customerValue") {
+    const per = new Map<string, { value: number; invoices: Set<string>; days: Set<string>; first: string; last: string; info: Row }>();
+    for (const r of keep(d, all, { filters: spec.filters })) for (const k of asList(r.customer)) {
+      if (k === BLANK || typeof r.date !== "string") continue;
+      const c = per.get(k) ?? { value: 0, invoices: new Set<string>(), days: new Set<string>(), first: r.date, last: r.date, info: r };
+      c.value += sum([r]); c.invoices.add(String(r.invoice ?? "")); c.days.add(r.date);
+      if (r.date < c.first) c.first = r.date;
+      if (r.date >= c.last) { c.last = r.date; c.info = r; }
+      per.set(k, c);
+    }
+    const list = [...per].sort((a, b) => b[1].value - a[1].value);
+    const total = list.reduce((s, [, c]) => s + c.value, 0);
+    if (spec.variant === "bands") {
+      const BANDS: [string, number][] = [["₹10 L and more", 10_00_000], ["₹5–10 L", 5_00_000], ["₹1–5 L", 1_00_000], ["₹25 K–1 L", 25_000], ["Under ₹25 K", -Infinity]];
+      const rowsOut = BANDS.map(([label, min], i) => {
+        const inBand = list.filter(([, c]) => c.value >= min && (i === 0 || c.value < BANDS[i - 1][1]));
+        return { keys: [label], values: [inBand.length, inBand.reduce((s, [, c]) => s + c.value, 0)] };
+      });
+      return out(rowsOut, [{ key: "band", label: "Revenue since Jul 2021", date: false }],
+        { measures: [{ key: "customers", label: "Customers", format: "count" }, { ...fmt, label: `${fmt.label} (all time)` }], totals: [list.length, total] });
+    }
+    const day = (x: string) => grainLabel(x, "day", true);
+    const text = (v: Row[string] | undefined) => (typeof v === "string" && v ? v : "—");
+    const lim = spec.limit || 25;
+    return out(list.slice(0, lim).map(([k, c]) => {
+      const gap = c.days.size > 1 ? Math.round(daysBetween(c.first, c.last) / (c.days.size - 1)) : null;
+      return { keys: [k, day(c.first), day(c.last), String(c.invoices.size), gap === null ? "—" : `${gap} days`, text(c.info.sector)], values: [c.value] };
+    }), [{ key: "customer", label: "Customer", date: false }, { key: "first", label: "First bought", date: false }, { key: "last", label: "Last bought", date: false }, { key: "invoices", label: "Invoices", date: false }, { key: "gap", label: "Days between orders", date: false }, { key: "sector", label: "Sector", date: false }],
+      { measures: [{ ...fmt, label: `${fmt.label} (all time)` }], totals: [total], note: `The top ${Math.min(lim, list.length)} of ${n(list.length)} customers make ${total ? Math.round((list.slice(0, lim).reduce((s, [, c]) => s + c.value, 0) / total) * 100) : 0}% of all revenue since Jul 2021.` });
   }
   // Quotes to chase: no answer yet (filters apply, the period doesn't), oldest first.
   if (spec.analysis === "followup") {

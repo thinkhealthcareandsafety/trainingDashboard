@@ -128,6 +128,9 @@ const TABS: DashboardDef[] = [
       { id: "atRisk", section: "Segments", w: 12, fixedPeriod: true, noCompare: true, note: "Bought 2+ times, last 1–2 years ago — call them first", spec: { dataset: "sales", measures: ["revenue"], by: ["customer"], limit: 12, chart: "bar", filters: [{ field: "segment", values: ["At risk"] }], title: "At risk: biggest customers by what they've spent" } },
       // Report #18 (owner, 27 Oct): the map for the shape of it, the bars for exact amounts — Delhi and Goa are big for us
       // but tiny on a map.
+      // Customer value (owner, 30 Oct — phase 5): what each customer is worth over all of Zoho Books (from Jul 2021).
+      { id: "valueBands", section: "Customer value", w: 12, fixedPeriod: true, noCompare: true, note: "Revenue before tax since Zoho Books began (Jul 2021)", spec: { dataset: "sales", measures: ["revenue"], analysis: "customerValue", variant: "bands", chart: "table", title: "Customers by what they've bought from us" } },
+      { id: "valueTop", section: "Customer value", w: 12, fixedPeriod: true, noCompare: true, spec: { dataset: "sales", measures: ["revenue"], analysis: "customerValue", chart: "table", limit: 25, title: "Most valuable customers" } },
       { id: "stateMap", section: "Where they are", w: 6, tall: true, note: "Darker = more · hover for last year · click a state to filter", spec: { dataset: "sales", measures: ["revenue"], by: ["state"], chart: "map", title: "Revenue across India" } },
       { id: "stateBars", section: "Where they are", w: 6, tall: true, spec: { dataset: "sales", measures: ["revenue"], by: ["state"], limit: 15, chart: "bar", title: "Revenue by state" } },
       { id: "cohort", section: "Do new customers come back?", w: 12, fixedPeriod: true, noCompare: true, spec: { dataset: "sales", measures: ["customers"], by: ["cohort", "fy"], chart: "matrix", relative: "first", title: "Customers by the year they first bought" } },
