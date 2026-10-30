@@ -46,7 +46,7 @@ export function GoalMeter({ today, admin }: { today: string; admin: boolean }) {
       if (!byMonth || isError(byMonth)) return setFailed(true);
       const got = new Map(byMonth.rows.map((r) => [r.keys[0], r.values[0] ?? 0]));
       const months = Array.from({ length: 7 }, (_, i) => monthsBack(month, 6 - i)).map((key) => ({ key, revenue: got.get(key) ?? 0 }));
-      setData({ goal: goal && !goal.error ? goal : { monthly: DEFAULT_GOAL, months: {} }, months, booked: open && !isError(open) ? open.totals[0] ?? 0 : 0 });
+      setData({ goal: goal && !goal.error ? goal : { monthly: DEFAULT_GOAL, months: {}, people: {} }, months, booked: open && !isError(open) ? open.totals[0] ?? 0 : 0 });
     });
   };
   useEffect(load, [month, today]); // eslint-disable-line react-hooks/exhaustive-deps

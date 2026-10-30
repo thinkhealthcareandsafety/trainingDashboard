@@ -83,3 +83,13 @@ test("a ratio over nothing is empty, not zero or infinity", () => {
   const r = q({ dataset: "sales", measures: ["avgPrice"], from: "2030-01-01", to: "2030-12-31" });
   assert.equal(r.totals[0], null);
 });
+
+test("vsTarget: revenue per sales person against the monthly target, pro-rated to the days so far", () => {
+  // 1 Apr – 15 Jun with today = 15 Jun: April + May + 15/30 of June = 2.5 months.
+  const r = q({ dataset: "sales", measures: ["revenue"], analysis: "vsTarget", from: "2026-04-01", to: "2026-06-30", asOf: "2026-06-15", targets: { "Sumit A Shah": 200_000, "Nobody Yet": 100_000 } });
+  assert.deepEqual(r.rows.map((x) => x.keys[0]), ["Sumit A Shah", "Nobody Yet"]);
+  assert.deepEqual(r.rows[0].values, [480_000, 500_000, 96]);
+  assert.deepEqual(r.rows[1].values, [0, 250_000, 0]);
+  assert.match(String(r.note), /2\.5 months/);
+  assert.equal(q({ dataset: "sales", measures: ["revenue"], analysis: "vsTarget", from: "2026-04-01", to: "2026-06-30", asOf: "2026-06-15" }).rows.length, 0);
+});

@@ -8,7 +8,7 @@ import { type Dataset, type Format, type Grain, type Measure, type Row, datasetO
 /** matrix: two splits as a pivot table (with the comparison in each cell); waterfall: steps up and down (bridge);
  * diverging: rises right in green, falls left in red (what changed). */
 export type ChartKind = "auto" | "kpi" | "column" | "bar" | "line" | "area" | "stacked" | "stacked100" | "donut" | "table" | "matrix" | "heatmap" | "waterfall" | "diverging" | "map";
-export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup" | "renewals" | "dueMonths" | "priceAlerts" | "customerValue";
+export type Analysis = "bridge" | "pareto" | "winback" | "drivers" | "funnel" | "pvm" | "reorder" | "crosssell" | "followup" | "renewals" | "dueMonths" | "priceAlerts" | "customerValue" | "vsTarget";
 /**
  * A filter (owner, 27 Oct: "custom filters"): keep rows whose field is one of `values` — or, with `exclude`, none of
  * them; or whose field `contains` a piece of text; or, on a dataset's `ranges`, whose number is within `min`–`max`.
@@ -45,6 +45,8 @@ export type Spec = {
   title?: string;
   /** Saved reports keep a relative period ("fy", "3m"…, model.ts periods) — the browser turns it into from / to. */
   period?: string;
+  /** Each sales person's monthly revenue target (set by the server for "vsTarget" — kv reports_goal.people). */
+  targets?: Record<string, number>;
   /** Today (set by the server): a period still running is compared like for like — up to the same day of the one before. */
   asOf?: string;
 };
@@ -85,7 +87,7 @@ export function checkSpec(spec: Spec): Dataset {
   const isRange = (f: string) => Boolean(d.ranges?.some((x) => x.key === f));
   for (const f of spec.filters ?? []) if (!fieldOf(d, f.field) && !isRange(f.field)) throw new SpecError(`"${f.field}" isn't a field of ${d.label}`);
   if (spec.analysis && spec.analysis !== "funnel" && spec.analysis !== "drivers" && spec.analysis !== "priceAlerts" && !fieldOf(d, "customer")) throw new SpecError(`${d.label} has no customers to analyse`);
-  if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell" || spec.analysis === "renewals" || spec.analysis === "dueMonths" || spec.analysis === "customerValue") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
+  if ((spec.analysis === "pvm" || spec.analysis === "reorder" || spec.analysis === "crosssell" || spec.analysis === "renewals" || spec.analysis === "dueMonths" || spec.analysis === "customerValue" || spec.analysis === "vsTarget") && d.key !== "sales") throw new SpecError("This analysis works on Sales");
   if (spec.analysis === "followup" && d.key !== "quotes") throw new SpecError("This analysis works on Quotes");
   if (spec.analysis === "priceAlerts" && d.key !== "purchases") throw new SpecError("This analysis works on Purchases");
   const c = spec.compare;
@@ -342,6 +344,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
  * - priceAlerts: items whose latest purchase price (last 12 months) moved 5%+ from the bill before
  * - customerValue: each customer's revenue since Jul 2021, invoices, first / last bought, days between orders
  *   (variant "bands": customers and revenue per value band)
+ * - vsTarget: each sales person's revenue in the period against their monthly target, pro-rated to the days so far
  */
 function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | null, base: Result): Result {
   const m = spec.measures[0];
@@ -435,6 +438,30 @@ function analyse(d: Dataset, spec: Spec, all: Row[], cur: Row[], prev: Row[] | n
       return { keys: [k, day(c.first), day(c.last), String(c.invoices.size), gap === null ? "—" : `${gap} days`, text(c.info.sector)], values: [c.value] };
     }), [{ key: "customer", label: "Customer", date: false }, { key: "first", label: "First bought", date: false }, { key: "last", label: "Last bought", date: false }, { key: "invoices", label: "Invoices", date: false }, { key: "gap", label: "Days between orders", date: false }, { key: "sector", label: "Sector", date: false }],
       { measures: [{ ...fmt, label: `${fmt.label} (all time)` }], totals: [total], note: `The top ${Math.min(lim, list.length)} of ${n(list.length)} customers make ${total ? Math.round((list.slice(0, lim).reduce((s, [, c]) => s + c.value, 0) / total) * 100) : 0}% of all revenue since Jul 2021.` });
+  }
+  // Sales against target (owner, 30 Oct — phase 5): the period's revenue per sales person against monthly target ×
+  // months so far (a month part-way counts its share of days, so mid-month reads fairly). People without a target are
+  // left out; a target with no sales shows 0.
+  if (spec.analysis === "vsTarget") {
+    const targets = spec.targets ?? {};
+    const today = spec.asOf ?? new Date().toISOString().slice(0, 10);
+    const from = spec.from ?? today.slice(0, 8) + "01";
+    const to = !spec.to || spec.to > today ? today : spec.to;
+    let months = 0;
+    for (let m = from.slice(0, 7); m <= to.slice(0, 7); m = addMonths(m + "-01", 1).slice(0, 7)) {
+      const len = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
+      const a = m === from.slice(0, 7) ? Number(from.slice(8, 10)) : 1, b = m === to.slice(0, 7) ? Number(to.slice(8, 10)) : len;
+      months += Math.max(0, b - a + 1) / len;
+    }
+    const got = new Map<string, number>();
+    for (const r of cur) for (const k of asList(r.salesperson)) got.set(k, (got.get(k) ?? 0) + sum([r]));
+    const list = Object.entries(targets).map(([k, t]) => ({ k, actual: got.get(k) ?? 0, target: t * months })).sort((a, b) => b.actual / (b.target || 1) - a.actual / (a.target || 1));
+    if (!list.length) return { ...base, rows: [], note: "No sales targets yet — Admin sets them with “Sales targets” on Quotes & team." };
+    return out(list.map((x) => ({ keys: [x.k], values: [x.actual, x.target, x.target ? (x.actual / x.target) * 100 : null] })),
+      [{ key: "salesperson", label: "Sales person", date: false }],
+      { measures: [{ ...fmt, label: "Revenue" }, { key: "target", label: "Target so far", format: "inr" }, { key: "pct", label: "% of target", format: "pct" }],
+        totals: [list.reduce((s, x) => s + x.actual, 0), list.reduce((s, x) => s + x.target, 0), null],
+        note: `Target so far = monthly target × ${months.toFixed(1)} months (${grainLabel(from, "day", true)} to ${grainLabel(to, "day", true)}).` });
   }
   // Quotes to chase: no answer yet (filters apply, the period doesn't), oldest first.
   if (spec.analysis === "followup") {

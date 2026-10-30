@@ -11,7 +11,8 @@ export const DEFAULT_GOAL = 50_00_000;
  * open PI value is over a year old), so they'd make the month look closer than it is. */
 export const BOOKED_DAYS = 60;
 
-export type Goal = { monthly: number; months: Record<string, number>; updatedAt?: string; updatedBy?: string };
+/** `people`: each sales person's monthly revenue target (owner, 30 Oct — phase 5), by their Zoho name. */
+export type Goal = { monthly: number; months: Record<string, number>; people: Record<string, number>; updatedAt?: string; updatedBy?: string };
 
 export const goalFor = (g: Goal, month: string) => g.months[month] ?? g.monthly;
 

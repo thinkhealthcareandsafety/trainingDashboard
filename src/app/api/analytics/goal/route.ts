@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 /*
  * The monthly revenue goal on Reports (kv `reports_goal`; ₹50 L until Admin changes it — owner, 27 Oct). GET — the
  * goal, for members who see the Sales data (Training board). POST { monthly?, month?, amount? } — Admin: the usual
- * goal, and / or a different one for one month ("YYYY-MM"; amount null = back to the usual).
+ * goal, and / or a different one for one month ("YYYY-MM"; amount null = back to the usual). { people } — Admin: each
+ * sales person's monthly target (owner, 30 Oct — phase 5), the whole list at once (a missing name = no target).
  */
 
 type Doc = Goal & { _id: string };
@@ -16,7 +17,7 @@ const KEY = "reports_goal";
 const kv = async () => (await db()).collection<Doc>("kv");
 const read = async (): Promise<Goal> => {
   const d = await (await kv()).findOne({ _id: KEY });
-  return { monthly: d?.monthly ?? DEFAULT_GOAL, months: d?.months ?? {}, updatedAt: d?.updatedAt, updatedBy: d?.updatedBy };
+  return { monthly: d?.monthly ?? DEFAULT_GOAL, months: d?.months ?? {}, people: d?.people ?? {}, updatedAt: d?.updatedAt, updatedBy: d?.updatedBy };
 };
 // ₹1 lakh to ₹100 crore: anything outside is a typo (a missing or extra zero).
 const sane = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 1e5 && n <= 1e9;
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!isAdmin(me)) return Response.json({ error: "Only Admin changes the goal" }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { monthly?: unknown; month?: unknown; amount?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { monthly?: unknown; month?: unknown; amount?: unknown; people?: unknown };
   const set: Record<string, unknown> = {};
   const unset: Record<string, ""> = {};
   if (body.monthly !== undefined) {
@@ -44,6 +45,13 @@ export async function POST(request: Request) {
     if (body.amount === null) unset[`months.${body.month}`] = "";
     else if (sane(body.amount)) set[`months.${body.month}`] = Math.round(body.amount);
     else return Response.json({ error: "Enter a goal between ₹1 lakh and ₹100 crore" }, { status: 400 });
+  }
+  if (body.people !== undefined) {
+    const list = body.people && typeof body.people === "object" ? Object.entries(body.people as Record<string, unknown>) : null;
+    // A sales person's month: ₹10 thousand to ₹10 crore.
+    if (!list || list.length > 40 || list.some(([k, v]) => !k.trim() || k.length > 80 || typeof v !== "number" || !Number.isFinite(v) || v < 1e4 || v > 1e8))
+      return Response.json({ error: "Enter each target between ₹10 thousand and ₹1 crore a month" }, { status: 400 });
+    set.people = Object.fromEntries(list.map(([k, v]) => [k.trim(), Math.round(v as number)]));
   }
   if (!Object.keys(set).length && !Object.keys(unset).length) return Response.json({ error: "Nothing to change" }, { status: 400 });
   await (await kv()).updateOne(
