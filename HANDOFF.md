@@ -1,10 +1,71 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Fri 30 Oct 2026 afternoon (session 19). **Live = `1e3f773`** (both addresses) — everything is pushed;
-the only commit after it is this docs update. Written for the next Claude Code session (and the owner,
-sshah@thinkhealth.in)._
+_Last updated: Fri 30 Oct 2026 evening (end of session 19). **Live = `f5ae851`** (both addresses). Local and not pushed
+yet: `bac217d` (labels) + this docs commit — push when the owner says. Written for the next Claude Code session (and the
+owner, sshah@thinkhealth.in)._
 
-**Session 19 — Fri 30 Oct (newest; wins over everything below):**
+**Start of the next session (20) — do these first:**
+1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. **Two Claude sessions
+   worked on Reports on 30 Oct** (this one and another the owner ran in parallel — it committed this session's
+   uncommitted files as `e805ad2` / `e34b7f8` and pushed 5 more). Pull (`--ff-only`) before touching anything, and
+   ask the owner to keep Reports work in **one** session.
+2. If `bac217d` isn't on GitHub yet, the owner decides when it goes ("push"). §11 before every push.
+3. `npm test` (69 should pass) and `npx tsc --noEmit -p tsconfig.json`.
+4. Database speed (§9 #18), Sync log, Zoho table catalog (`kv za_catalog`: `tables` ≈ 105, `partial`) — read-only.
+5. Then the owner's next pick from "Still to do" below.
+
+**Session 19, afternoon — the Tableau-style report builder (newest; wins over everything below):**
+Owner's words (30 Oct): "I should rather have columns and attributes … rows, columns, color, labels, tool tips,
+filters, ability to add aggregated columns, or parameters … these are all the tables in my Zoho Analytics … read from
+Zoho Analytics directly … remove what's there and add these tables instead". Plan agreed as an 11-point list, then
+"yeah"; `REPORT-BUILDER-PLAN.md` is the first (older) version of it.
+- **Security:** Next.js 16.3.5 → **16.4.3** (`1b928dd`, critical next/og RCE + cache advisories) + `npm audit fix`.
+  **Left:** ECharts moderate XSS — needs 5 → 6 (major), its own step with a chart-by-chart browser check.
+- **Builder screen** (`Builder.tsx`): three panes — Data (dimensions Aa / dates ◷ / measures # / Your fields ƒ /
+  Parameters) · Build (shelves Rows, Columns (crosstab), Colour, Values, Label, Tooltip, Filters, When + live preview +
+  a "You'll get …" sentence, `describe.ts`) · Format (Title, Subtitle, Axis names, Names, Chart, How many, Order).
+  A new report starts empty. Several values with no split = one card each; mixed units with a split = a table.
+- **Zoho tables as the data** (`tables.ts`, `tablesServer.ts`, `joins.ts`; mostly the other session):
+  - "Pick a Zoho table": catalog = every table / column / type / link from Zoho's metadata (`viewDetails`), kv
+    **`za_catalog`**; read in 85 s passes (`partial` until done) and **re-read only when Admin presses "Refresh from
+    Zoho"** — owner: "I don't want to overuse the Zoho tokens". Hidden: Users, User Details, SMS Notifications, System
+    Mails; personal columns (Zoho `isPIIColumn`, e-mail / phone) never reach the catalog. Money-out / bookkeeping
+    tables Admin-only (`ADMIN_TABLES`).
+  - A table's rows are copied the first time a report uses it (`za_tables` `_id` "zt:<view id>", gzipped) and again
+    after 6 h; linked tables (Customer ID → Customers …) load only when a report uses their columns; "+ Add a related
+    table" joins up to 2 more (keys "zt:<main>+<rel>…", nothing counted twice — `joins.ts`).
+  - Invoices / Quotes / Sales Orders / Bills open with a removable "Status is not Void / Draft" filter (`STATUS_COLUMN`).
+  - Any date column groups by Day / Week / Month / Quarter / FY; "When … by <date column>" (`Spec.dateField`).
+  - Measures: Sum / Average / Min / Max / Count / Count distinct on the pill (`TABLE_AGGS`); "Total BCY" etc.
+  - Old saved reports on the ready-made data still open and edit; new ones are Zoho tables only. The older
+    "every column copied" layer (`extras.ts`, `za_state.columns`, `c8c2ca1`) is still in the code for those.
+- **Calculated fields** (`calc.ts`, `/api/analytics/fields`, Mongo **`reportFields`**, `7b4d303`): "a number, only
+  where …" (`filtered`) or two numbers combined ÷ − + × "as % of" (`combine`) — picked, read back as a sentence; used
+  as `calc:<id>`; made by `hasFullAccess`, changed / deleted by the maker or Admin. A field can't use another field yet.
+- **Parameters** (`params.ts`, `/api/analytics/params`, Mongo **`reportParams`**, `ParamControls.tsx`, `f5ae851`):
+  number / word / date / list; filters follow one (is / at least / at most; dates on or after / before); `param:<id>` is
+  a number in a field; `Spec.params` = the run's values (each viewer's own — dashboards keep them in ViewState with the
+  saved filters and views; a box per parameter the page uses).
+- **Labels** (`labels.ts`, `Spec.text`, `bac217d`, local): title / subtitle / axis names take `{total} {period} {top}
+  {max} {rows} {filters} {today}` and `{<parameter name>}` via "+ Insert a value…"; Names renames columns / numbers
+  (tables, legends, tooltips, CSV). Unknown tokens stay as typed.
+- **Sales target = one team target** (`34d5e9e`): "Each person's share of the team target" uses the ₹50 L monthly goal
+  (kv `reports_goal`, one-off months too); the per-person "Sales targets" popup was removed (owner: "sales target is
+  50 lakh per month", option a).
+- **Checked:** 69 tests (`tests/{extras,tables,joins,shelves,calc,params,labels,describe}.test.ts` …); browser checks
+  of each step at 1728 (+390 for the shelves) — scripts in this session's scratchpad (rebuild from §9): builder,
+  calcui, paramui, labelui, sweep (every page), p5browser (every Reports tab). Field / parameter saves were answered
+  inside the browser test — **no test fields or parameters were written** (`reportFields` / `reportParams` are empty).
+- **Traps learned:** files are **CRLF** in the working copy since the pull — edit scripts must match on `\n` after
+  normalising; Next 16.4 allows **one dev server per folder** (a stale one on :3000 answers for all — find it with
+  Get-CimInstance Win32_Process, don't kill another session's); Git Bash rewrites "/path" CLI args (MSYS_NO_PATHCONV=1);
+  heredocs with odd quotes break the Bash tool — write scripts with the Write tool.
+- **Still to do (owner's Tableau list):** quick table calculations (running total, % of total, difference / % change,
+  rank); **⋯ → Edit report… on every dashboard tile, KPIs too**; later: level-of-detail, > 2 dimensions, a field built
+  from a field; ECharts 6. Owner-side: CRON_SECRET GitHub secret (steps given 30 Oct), #150 live quote test (skipped),
+  hello@ reconnect, Classic Citi rows, Zoho Mail filter, gratitude wording, JW Sahar rows.
+
+**Session 19, morning — Fri 30 Oct:**
 - **Nikita Shah** (member `zetm337p`) = same access as Sumit: `nikita` added to `hasFullAccess` in `roles.ts` (+ the
   "Admin, Ashish, Shikha, Sumit and Nikita" texts). `04b336f`. She is *not* a trainer / reminder / WhatsApp recipient.
 - **Reports — Save / Discard** (`46fed8e`, owner: "whenever I apply a filter … a save option … if on a view, save the
@@ -16,9 +77,8 @@ sshah@thinkhealth.in)._
 - **Reports phase 5 (§10 #162) — all built and live** (`876e8ac`…`1e3f773`), every number checked against the raw
   `za_tables` rows (scripts in the session scratchpad — rebuild from §9 #17):
   - Quotes & team → **Follow up** (quotes `waitAge`, analysis `followup`) and **Against target** (analysis `vsTarget`:
-    revenue per sales person vs monthly target × months so far, part months by days; targets = kv `reports_goal.people`,
-    set by Admin with **◎ Sales targets** (`Targets.tsx`, POST `/api/analytics/goal {people}` — whole list); the
-    analytics route injects them into the spec). **No targets set yet — owner to fill in.**
+    each person's revenue and share of the team goal × months so far, part months by days — see the afternoon block;
+    the per-person targets first built here were replaced the same day).
   - Money → **Coming in** (invoices `dueBand` / `dueWeek`, measures `due30` / `due90`) and **Purchase prices**
     (analysis `priceAlerts`, Admin: latest bill vs bill before, ≥ 5 %, ≤ 3×, catalogue goods only).
   - Customers → **Call them** (analyses `dueMonths` + `renewals`: certificates = last training invoice + 2 years —
@@ -30,9 +90,7 @@ sshah@thinkhealth.in)._
   - Trainings → **Against target** (`Tile.target`: fixed monthly line, 10 trainings / 300 people, Month only).
   - An empty tile now shows its analysis's own note instead of "Nothing here…".
 - **Checked 30 Oct:** database 4.6–8.4 MB/s; both crons ran (9:17, 9:34); 38 tests pass.
-- **Next:** #150 live test (owner skipped it for now); owner sets sales targets; phase 6 (#163), leftovers (#164) and
-  the Next.js 16.3.5 → 16.4.3 upgrade (`npm audit`: critical RCE in `next/og` + cache advisories; ECharts XSS moderate)
-  were restated to the owner — wait for "yeah".
+- **Next (superseded — see the afternoon block):** the Next.js upgrade is done; phase 6 became the Tableau-style builder.
 
 **Update — Fri 30 Oct morning (older than session 19 above):**
 - **After the session-18 docs (`2d6e2f2`), a cloud session built §10 #150 and pushed it** (live): `8924740` tests use
