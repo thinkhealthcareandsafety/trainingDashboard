@@ -47,6 +47,9 @@ export type Spec = {
   period?: string;
   /** The team's monthly revenue goal (set by the server for "vsTarget" — kv reports_goal; months = one-off months). */
   goal?: { monthly: number; months: Record<string, number> };
+  /** Which date column the period (from / to) applies to — Zoho tables have several (owner's plan, 30 Oct, point 5);
+   *  none = the dataset's own date. */
+  dateField?: string;
   /** Today (set by the server): a period still running is compared like for like — up to the same day of the one before. */
   asOf?: string;
 };
@@ -110,11 +113,13 @@ function passes(f: Filter, r: Row): boolean {
 }
 
 /** The rows a spec's date range and filters keep. */
-function keep(d: Dataset, rows: Row[], spec: Pick<Spec, "from" | "to" | "filters">): Row[] {
+function keep(d: Dataset, rows: Row[], spec: Pick<Spec, "from" | "to" | "filters" | "dateField">): Row[] {
   const filters = (spec.filters ?? []).filter(active);
+  const df = spec.dateField || d.dateField;
   return rows.filter((r) => {
-    const date = r[d.dateField];
-    if (spec.from || spec.to) {
+    const date = r[df];
+    // A table with no date at all ignores the period.
+    if (df && (spec.from || spec.to)) {
       if (typeof date !== "string" || !date) return false;
       if (spec.from && date < spec.from) return false;
       if (spec.to && date > spec.to) return false;
@@ -191,7 +196,8 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
   const withGroup = (values: string[]) => ({ ...spec, filters: [...(spec.filters ?? []), { field: group!.field, values }] });
   const kept = keep(d, rows, group ? withGroup(group.a) : spec);
   const keyOf = (r: Row, field: string): string[] => {
-    if (field === d.dateField) { const v = r[field]; return typeof v === "string" && v ? [grainKey(v, grain)] : [BLANK]; }
+    // Any date column groups by the grain (owner's plan, point 5), not only the dataset's own date.
+    if (field === d.dateField || fieldOf(d, field)?.kind === "date") { const v = r[field]; return typeof v === "string" && v ? [grainKey(v, grain)] : [BLANK]; }
     return asList(r[field]);
   };
 
@@ -209,7 +215,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
     }
   }
 
-  const isDate = (f?: string) => f === d.dateField;
+  const isDate = (f?: string) => Boolean(f) && (f === d.dateField || fieldOf(d, f!)?.kind === "date");
   const lead = spec.measures[0];
   const value = (rs: Row[]) => evaluate(d, [lead], rs)[0] ?? 0;
   const limit = spec.limit && spec.limit > 0 ? spec.limit : 0;
