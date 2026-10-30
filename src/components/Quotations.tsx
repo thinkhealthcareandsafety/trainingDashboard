@@ -26,7 +26,7 @@ type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: str
 type Detail = {
   contacts: Contact[];
   customer: { gstin: string | null; state: string | null; city: string | null; place: string | null; tax: "intra" | "inter" | "none" };
-  last: { number: string; date: string; salesperson: string | null; fields: Record<string, string>; lines: Omit<Line, "key">[] } | null;
+  last: { number: string; date: string; salesperson: string | null; fields: Record<string, string>; lines: Omit<Line, "key">[]; draftId?: string } | null;
   recent: { number: string; date: string; days: number } | null;
   salespeople: string[]; salesperson: string | null; options: Opts; notes: string; terms: string; today: string; error?: string;
 };
@@ -152,8 +152,7 @@ export function Quotations() {
           {res?.types.map((s) => <option key={s}>{s}</option>)}
         </select>
         <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Order">
-          <option value="recent">Latest quote or purchase first</option>
-          <option value="name">A–Z</option>
+          {SORTS.map(([v, w]) => <option key={v} value={v}>{w}</option>)}
         </select>
         {connectedLine(res, () => setConnecting(true))}
         <button className={btn.primary} onClick={() => setStarting(true)} disabled={!res?.connected}>+ New quotation</button>
@@ -163,10 +162,10 @@ export function Quotations() {
         <table className="w-full text-left text-[15px]">
           <thead className="border-b border-line text-[13px] text-muted">
             <tr>
-              <th className="px-4 py-3 font-medium">Customer</th>
+              <SortHead label="Customer" sort={sort} keys={["name", "name_desc"]} onSort={setSort} />
               <th className="hidden px-4 py-3 font-medium md:table-cell">Contact</th>
-              <th className="hidden px-4 py-3 font-medium lg:table-cell">Last quotation</th>
-              <th className="hidden px-4 py-3 font-medium xl:table-cell">Last bought</th>
+              <SortHead label="Last quotation" sort={sort} keys={["quote", "quote_old"]} onSort={setSort} className="hidden lg:table-cell" />
+              <SortHead label="Last bought" sort={sort} keys={["bought"]} onSort={setSort} className="hidden xl:table-cell" />
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -211,6 +210,24 @@ export function Quotations() {
       {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true }); }} onClose={() => setStarting(false)} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
     </div>
+  );
+}
+
+/** Quick sorts (owner, 30 Oct: "we need some quick sorting here") — the server orders the whole list, then pages it. */
+const SORTS: [string, string][] = [
+  ["recent", "Latest quote or purchase first"], ["name", "A–Z"], ["name_desc", "Z–A"], ["quote", "Last quotation: newest first"],
+  ["quote_old", "Last quotation: oldest first"], ["amount", "Last quotation: biggest first"], ["bought", "Last bought: newest first"], ["never", "Never quoted first"],
+];
+/** A column heading that sorts: a click picks its first order, a second click its other one (↑ / ↓). */
+function SortHead({ label, sort, keys, onSort, className = "" }: { label: string; sort: string; keys: string[]; onSort: (k: string) => void; className?: string }) {
+  const at = keys.indexOf(sort);
+  const next = keys[(at + 1) % keys.length];
+  return (
+    <th className={`px-4 py-3 font-medium ${className}`} aria-sort={at < 0 ? "none" : sort.endsWith("_desc") || sort === "quote_old" ? "ascending" : "descending"}>
+      <button className={`inline-flex items-center gap-1 hover:text-ink ${at >= 0 ? "text-ink" : ""}`} onClick={() => onSort(at >= 0 && keys.length === 1 ? "recent" : next)} title={`Sort by ${label.toLowerCase()}`}>
+        {label}<span aria-hidden className="text-[11px]">{at < 0 ? "↕" : keys.length === 1 ? "↓" : at === 0 ? (keys[0] === "name" ? "↑" : "↓") : keys[0] === "name" ? "↓" : "↑"}</span>
+      </button>
+    </th>
   );
 }
 
@@ -312,6 +329,9 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
   const [done, setDone] = useState<{ estimateId: string; number: string; total: number; url: string; ours: number; emailedTo?: string } | null>(null);
   // After "Save and email…" (#150 step 5) the done screen is the email step until it's sent or skipped.
   const [emailing, setEmailing] = useState(false);
+  // Their newest quotation is still a draft (owner, 30 Oct: "Save and email" → back → reopened → a second quotation was
+  // made): opening them continues that draft — saving updates it in Zoho; "start a new quotation" makes another.
+  const [newInstead, setNewInstead] = useState(fresh);
   const key = useRef(0);
   const row = (l: Omit<Line, "key">): Line => ({ ...l, key: ++key.current });
   const blank = () => row({ itemId: "", name: "", qty: 1, rate: 0, gst: null });
@@ -370,6 +390,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
     setFocusKey(b.key);
   };
 
+  const draftId = !newInstead ? detail?.last?.draftId : undefined;
   const filled = lines.filter((l) => l.itemId);
   const t = f && detail?.customer ? totals(lines, f, detail.customer.tax) : null;
   // Product type follows the main item until someone picks one; then the deal name follows the product type.
@@ -384,7 +405,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
   const submit = async (send: boolean) => {
     if (!f || !t) return;
     try { if (f.salesperson) localStorage.setItem(SALESPERSON_KEY, f.salesperson); } catch {}
-    if (send && detail?.recent && !confirm(`${detail.recent.number} went to ${customer.name} ${detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`}. Send another?`)) return;
+    if (send && detail?.recent && !draftId && !confirm(`${detail.recent.number} went to ${customer.name} ${detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`}. Send another?`)) return;
     setBusy(send ? "send" : "draft");
     setError("");
     try {
@@ -394,7 +415,8 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
         discount: Number(f.discount) > 0 ? { value: Number(f.discount), percent: f.discountPct } : undefined, shipping: Number(f.shipping) || undefined, adjustment: Number(f.adjustment) || undefined,
         notes: f.notes, terms: f.terms,
       };
-      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send: false, details, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
+      const estimateId = draftId ?? undefined;
+      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send: false, estimateId, details, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
       const j = (await r.json()) as { ok?: boolean; error?: string; quote?: { estimateId: string; number: string; total: number; url: string } };
       if (!r.ok || !j.quote) throw new Error(j.error ?? "Couldn't create the quotation");
       setDone({ ...j.quote, ours: t.total });
@@ -414,7 +436,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
       <div role="dialog" aria-label={`Quotation for ${customer.name}`} className="modal-in flex max-h-[96vh] w-full min-w-0 max-w-[88rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 pt-5">
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">New quotation</p>
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">{draftId && !done ? `Draft ${detail?.last?.number}` : "New quotation"}</p>
             <h3 className="truncate text-[21px] font-bold tracking-tight text-ink" title={customer.name}>{customer.name}</h3>
             {gstLine && <p className="text-[13.5px] text-muted">{gstLine}</p>}
           </div>
@@ -444,7 +466,8 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
         ) : (
           <>
             <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-3">
-              {detail.recent && <p className="mb-3 rounded-xl border border-medium/50 bg-medium-bg px-3 py-2 text-[14px] font-medium text-medium">⚑ {detail.recent.number} went to them {detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`} — a quotation is valid 15 days.</p>}
+              {draftId && <p className="mb-3 rounded-xl border border-brand/40 bg-brand-soft px-3 py-2 text-[14px] text-ink">Continuing the draft <b>{detail.last!.number}</b> ({fmtDay(detail.last!.date)}) — saving updates it in Zoho Books, no second quotation. <button className="font-semibold text-brand hover:underline" onClick={() => { setNewInstead(true); setLines([blank()]); }}>Start a new quotation instead</button></p>}
+              {detail.recent && !draftId && <p className="mb-3 rounded-xl border border-medium/50 bg-medium-bg px-3 py-2 text-[14px] font-medium text-medium">⚑ {detail.recent.number} went to them {detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`} — a quotation is valid 15 days.</p>}
 
               <p className={label}>To</p>
               <div className="mt-1 flex flex-wrap gap-1.5">
@@ -486,7 +509,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
                   <button className={`${btn.primary} !h-8`} onClick={() => setBrowsing(true)}>▦ Browse items</button>
                 </div>
                 {detail.last && fresh && <p className="text-[13px] text-muted">From scratch · <button className="font-semibold text-brand hover:underline" onClick={() => setLines(detail.last!.lines.map((l) => row(l)))}>copy {detail.last.number}</button></p>}
-                {detail.last && !fresh && <p className="text-[13px] text-muted">Started from {detail.last.number} ({fmtDay(detail.last.date)}) · <button className="font-semibold text-brand hover:underline" onClick={() => setLines([blank()])}>start empty</button></p>}
+                {detail.last && !fresh && !draftId && <p className="text-[13px] text-muted">Started from {detail.last.number} ({fmtDay(detail.last.date)}) · <button className="font-semibold text-brand hover:underline" onClick={() => setLines([blank()])}>start empty</button></p>}
               </div>
               <div>
                 <div>
@@ -566,7 +589,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
               {error && <span className="mr-auto text-[14px] font-medium text-high">{error}</span>}
               <button className={btn.ghost} onClick={() => onClose(false)} disabled={Boolean(busy)}>Cancel</button>
-              <button className={btn.ghost} onClick={() => submit(false)} disabled={Boolean(why) || Boolean(busy)} title={why || "Make it in Zoho Books without emailing it"}>{busy === "draft" ? "Saving…" : "Save as draft in Zoho"}</button>
+              <button className={btn.ghost} onClick={() => submit(false)} disabled={Boolean(why) || Boolean(busy)} title={why || "Make it in Zoho Books without emailing it"}>{busy === "draft" ? "Saving…" : draftId ? "Save the draft" : "Save as draft in Zoho"}</button>
               <button className={btn.primary} onClick={() => submit(true)} disabled={Boolean(whySend) || Boolean(busy)} title={whySend || `Save it, then check the email to ${emails} before it goes`}>{busy === "send" ? "Saving…" : "Save and email…"}</button>
             </div>
           </>
@@ -663,8 +686,10 @@ function EmailStep({ quote, live, onBack, onSent }: { quote: { estimateId: strin
         <label className="block"><span className={label}>Subject</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} /></label>
         <div>
           <span className={label}>Message</span>
+          {/* The email as the customer gets it: on white with dark text, whatever the theme (owner, 30 Oct: on a dark
+              theme Zoho's black text sat on a near-black box). */}
           <div ref={body} contentEditable suppressContentEditableWarning role="textbox" aria-multiline aria-label="Message"
-            className="mt-1 max-h-[38vh] min-h-40 overflow-y-auto rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[14.5px] leading-relaxed text-ink outline-none focus:border-brand" />
+            className="mt-1 max-h-[38vh] min-h-40 overflow-y-auto rounded-xl border border-line bg-white px-3.5 py-2.5 text-[14.5px] leading-relaxed text-[#1f2328] caret-[#1f2328] outline-none [color-scheme:light] focus:border-brand" />
         </div>
         <div>
           <span className={label}>Attachments</span>
@@ -751,6 +776,16 @@ function ItemImage({ item, onMissing }: { item: Item; onMissing: () => void }) {
   );
 }
 
+/** A titled group of fields in the new-customer form. */
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h4 className="mb-2 border-b border-line pb-1.5 text-[14px] font-semibold text-ink">{title}</h4>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+    </section>
+  );
+}
+
 /** "New quotation" (owner, 28 Oct: "another option to create quotation from scratch"): any customer, or a new one made in Zoho. */
 function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer) => void; onClose: () => void }) {
   useNoPageScroll();
@@ -758,7 +793,6 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Customer[]>([]);
   const [n, setN] = useState({ kind: "business" as "business" | "individual", company: "", displayName: "", salutation: "", firstName: "", lastName: "", email: "", phone: "", workPhone: "", state: "MH", street: "", city: "", zip: "", gstin: "", type: "New Customer", sector: "" });
-  const [more, setMore] = useState(false);
   // A whole GSTIN decides the state, PAN and GST treatment (gstin.ts) — the state picker follows it.
   const gst = GSTIN_RE.test(n.gstin) ? fromGstin(n.gstin) : null;
   const stateCode = gst?.state ?? n.state;
@@ -819,33 +853,36 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
               <p className="mt-3 text-[13.5px] text-muted">Not in Zoho yet? <button className="font-semibold text-brand hover:underline" onClick={() => { setTab("new"); setN((x) => ({ ...x, company: x.company || q })); }}>Add them as a new customer</button>.</p>
             </>
           ) : (
-            // One screen with what Zoho's "New Customer" requires (#150 step 2); the rarely used fields behind "More".
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="flex gap-1 sm:col-span-2 lg:col-span-3" role="radiogroup" aria-label="Customer type">
+            // One screen with what Zoho's "New Customer" requires (#150 step 2), in sections (owner, 30 Oct: "salutation
+            // goes before first name … make it section wise … name, number under separate heading, address under diff").
+            <div className="space-y-4">
+              <div className="flex gap-1" role="radiogroup" aria-label="Customer type">
                 {(["business", "individual"] as const).map((k) => <button key={k} role="radio" aria-checked={n.kind === k} className={`rounded-full px-3 py-1 text-[13.5px] font-medium ${n.kind === k ? "bg-ink text-surface" : "bg-surface-2 text-ink-2"}`} onClick={() => setN((x) => ({ ...x, kind: k }))}>{k === "business" ? "Business" : "Individual"}</button>)}
               </div>
-              <div className="sm:col-span-2 lg:col-span-3">
-                {field("gstin", "GSTIN (if registered)", { maxLength: 15, placeholder: "27ABCDE1234F1Z5", autoFocus: true, onChange: (e) => setN((x) => ({ ...x, gstin: e.target.value.toUpperCase().replace(/\s/g, "") })) })}
-                {n.gstin && <p className={`mt-1 text-[13px] ${gst?.state ? "text-muted" : "text-high"}`}>{!gst ? "A GSTIN has 15 characters, like 27ABCDE1234F1Z5" : !gst.state ? "Its first two digits aren't a state code" : `${res.states.find(([c]) => c === gst.state)?.[1]} · PAN ${gst.pan}`}</p>}
-              </div>
-              {n.kind === "business" && field("company", "Company *", { maxLength: 200 })}
-              {field("displayName", "Display name *", { maxLength: 200, placeholder: displayDefault || "As it shows in Zoho" })}
-              {field("firstName", "Contact first name *", { maxLength: 100 })}
-              {field("lastName", "Last name *", { maxLength: 100 })}
-              {field("email", "Email *", { type: "email", maxLength: 200 })}
-              {field("phone", "Mobile", { type: "tel", maxLength: 30 })}
-              {pick("type", "Type *", res.customerTypes.map((t) => [t, t]))}
-              {pick("sector", "Sector *", res.customerSectors.map((t) => [t, t]), "Pick the sector…")}
-              {pick("state", <>State * <span className="normal-case tracking-normal">{gst?.state ? "(from the GSTIN)" : "(decides the GST)"}</span></>, res.states, undefined, Boolean(gst?.state))}
-              {field("city", "City", { maxLength: 100 })}
-              {more ? (
-                <>
-                  {pick("salutation", "Salutation", [["", "—"], ...["Mr.", "Mrs.", "Ms.", "Miss", "Dr."].map((x): [string, string] => [x, x])])}
-                  {field("workPhone", "Work phone", { type: "tel", maxLength: 30 })}
-                  {field("street", "Street address", { maxLength: 200 })}
-                  {field("zip", "PIN code", { inputMode: "numeric", maxLength: 6 })}
-                </>
-              ) : <button className="justify-self-start text-[13.5px] font-semibold text-brand hover:underline sm:col-span-2 lg:col-span-3" onClick={() => setMore(true)}>More: salutation, work phone, address ▾</button>}
+              <Section title={n.kind === "business" ? "Company" : "Customer"}>
+                <div>
+                  {field("gstin", "GSTIN (if registered)", { maxLength: 15, placeholder: "27ABCDE1234F1Z5", autoFocus: true, onChange: (e) => setN((x) => ({ ...x, gstin: e.target.value.toUpperCase().replace(/\s/g, "") })) })}
+                  {n.gstin && <p className={`mt-1 text-[13px] ${gst?.state ? "text-muted" : "text-high"}`}>{!gst ? "A GSTIN has 15 characters, like 27ABCDE1234F1Z5" : !gst.state ? "Its first two digits aren't a state code" : `${res.states.find(([c]) => c === gst.state)?.[1]} · PAN ${gst.pan}`}</p>}
+                </div>
+                {n.kind === "business" && field("company", "Company name *", { maxLength: 200 })}
+                {field("displayName", "Display name *", { maxLength: 200, placeholder: displayDefault || "As it shows in Zoho" })}
+                {pick("type", "Type *", res.customerTypes.map((t) => [t, t]))}
+                {pick("sector", "Sector *", res.customerSectors.map((t) => [t, t]), "Pick the sector…")}
+              </Section>
+              <Section title={n.kind === "business" ? "Contact person" : "Name & contact"}>
+                {pick("salutation", "Salutation", [["", "—"], ...["Mr.", "Mrs.", "Ms.", "Miss", "Dr."].map((x): [string, string] => [x, x])])}
+                {field("firstName", "First name *", { maxLength: 100 })}
+                {field("lastName", "Last name *", { maxLength: 100 })}
+                {field("email", "Email *", { type: "email", maxLength: 200 })}
+                {field("phone", "Mobile", { type: "tel", maxLength: 30 })}
+                {field("workPhone", "Work phone", { type: "tel", maxLength: 30 })}
+              </Section>
+              <Section title="Address">
+                {pick("state", <>State * <span className="normal-case tracking-normal">{gst?.state ? "(from the GSTIN)" : "(decides the GST)"}</span></>, res.states, undefined, Boolean(gst?.state))}
+                {field("city", "City", { maxLength: 100 })}
+                {field("zip", "PIN code", { inputMode: "numeric", maxLength: 6 })}
+                <div className="sm:col-span-2 lg:col-span-3">{field("street", "Street address", { maxLength: 200 })}</div>
+              </Section>
               <p className="text-[13px] text-muted sm:col-span-2 lg:col-span-3">GST treatment: <b className="font-semibold text-ink-2">{GST_LABEL[treatment]}</b> · Tax: Taxable · Display name: <b className="font-semibold text-ink-2">{n.displayName.trim() || displayDefault || "—"}</b></p>
               <p className="text-[13px] text-muted sm:col-span-2 lg:col-span-3">The customer is created in Zoho Books with this contact as primary, then the quotation opens.{res.connected && !res.connected.newCustomers && <b className="text-medium"> Zoho Books needs one more permission for this — Admin: Reconnect on this page first.</b>}</p>
             </div>

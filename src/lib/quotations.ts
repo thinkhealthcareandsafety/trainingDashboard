@@ -42,7 +42,7 @@ type BooksRes = Record<string, unknown> & { code?: number; message?: string };
 
 /** One Zoho Books call with this connection; one retry after a 401. Throws Zoho's own message. */
 /** `body` as JSON, or a FormData sent as multipart (files: the quote email's attachments). */
-async function books(c: Conn, method: "GET" | "POST", path: string, params: Record<string, string> = {}, body?: unknown): Promise<BooksRes> {
+async function books(c: Conn, method: "GET" | "POST" | "PUT", path: string, params: Record<string, string> = {}, body?: unknown): Promise<BooksRes> {
   const url = new URL(`${API}${path}`);
   url.searchParams.set("organization_id", ORG);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -141,10 +141,10 @@ export type QuoteDetails = {
 };
 export type MadeQuote = { estimateId: string; number: string; total: number; status: string };
 
-/** Creates the quotation in Zoho Books; `send` = Zoho emails it (standard email + PDF) to the contact persons on it. */
-export async function createQuote(q: { customerId: string; contactPersonIds: string[]; lines: QuoteLine[]; details: QuoteDetails; send: boolean }): Promise<MadeQuote> {
-  const c = await (await kv()).findOne({ _id: KEY });
-  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+type QuoteInput = { customerId: string; contactPersonIds: string[]; lines: QuoteLine[]; details: QuoteDetails };
+
+/** A quotation as Zoho Books takes it — the same for a new one and for a draft saved again. */
+function quoteBody(q: QuoteInput) {
   const d = q.details;
   const F = QUOTE_FIELDS;
   const custom: [string, string | undefined][] = [
@@ -166,9 +166,29 @@ export async function createQuote(q: { customerId: string; contactPersonIds: str
     ...(d.notes !== undefined ? { notes: d.notes } : {}),
     ...(d.terms !== undefined ? { terms: d.terms } : {}),
   };
-  const j = await books(c, "POST", "/estimates", { send: String(q.send) }, body);
+  return body;
+}
+const made = (j: BooksRes): MadeQuote => {
   const e = (j.estimate ?? {}) as Record<string, unknown>;
   return { estimateId: String(e.estimate_id ?? ""), number: String(e.estimate_number ?? ""), total: Number(e.total ?? 0), status: String(e.status ?? "") };
+};
+const connection = async () => {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  return c;
+};
+
+/** Creates the quotation in Zoho Books; `send` = Zoho emails it (standard email + PDF) to the contact persons on it. */
+export async function createQuote(q: QuoteInput & { send: boolean }): Promise<MadeQuote> {
+  return made(await books(await connection(), "POST", "/estimates", { send: String(q.send) }, quoteBody(q)));
+}
+
+/**
+ * A draft saved again (owner, 30 Oct: "Save and email" → back → reopened → "Save and email" made a second quotation):
+ * PUT /estimates/{id} — same number, same draft, new lines and fields (ZohoBooks.estimates.UPDATE, in QUOTE_SCOPES).
+ */
+export async function updateQuote(estimateId: string, q: QuoteInput): Promise<MadeQuote> {
+  return made(await books(await connection(), "PUT", `/estimates/${estimateId}`, {}, quoteBody(q)));
 }
 
 /*

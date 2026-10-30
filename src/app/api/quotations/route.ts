@@ -6,19 +6,21 @@ import { copyTables } from "@/lib/analytics/source";
 import { day, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 /*
  * Quotations page (owner, 28 Oct). Admin, Ashish, Shikha, Sumit only.
- *   GET                      — connection state + one page (50) of customers: ?q= &sector= &type= &sort=quote|name &page=
+ *   GET                      — connection state + one page (50) of customers: ?q= &sector= &type= &sort= &page=
+ *                              (sort: recent | name | name_desc | quote | quote_old | amount | bought | never)
  *   GET ?customer=<id>       — the popup: contact persons, GST state, their last quotation (lines and fields, to start
  *                              from), quoted lately?, sales people, the quote fields' options, Zoho's notes and terms
  *   GET ?items=1             — the item picker (Zoho items, active, with price, GST %, stock)
  *   GET ?item=<id>           — one item's description (read when it's picked — descriptions are long)
- *   POST {customerId, contactPersonIds, lines, details, send}  — creates the quotation in Zoho Books (emails it when send)
+ *   POST {customerId, contactPersonIds, lines, details, send, estimateId?}  — creates the quotation in Zoho Books (emails
+ *                              it when send); with estimateId, saves that draft again instead (no second quotation)
  *   PUT {code, clientId?, clientSecret?}               — Admin connects Zoho Books for quotations
  * Customers come from the Zoho copy (zohoCustomers); last quote / invoice from the Reports copy (Zoho Analytics, ≤ 6 h
  * old) plus quotations sent from here (`quotationsSent`). The popup's look-ups are live Zoho reads (sync's token).
@@ -62,14 +64,41 @@ async function histories(): Promise<Map<string, History>> {
 }
 
 /** Quotations sent from here lately — newer than the Reports copy, so they count for "quoted lately" at once. */
-async function recentSent(): Promise<Map<string, Last>> {
+async function recentSent(gone?: Span): Promise<Map<string, Last>> {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const out = new Map<string, Last>();
   for (const s of await (await sentCol()).find({ at: { $gte: since } }).sort({ at: 1 }).toArray()) {
+    if (goneFrom(gone, s._id, s.at)) continue; // deleted in Zoho since
     out.set(s.customerId, { date: new Date(Date.parse(s.at) + 5.5 * 3600_000).toISOString().slice(0, 10), number: s.number, amount: s.total, status: s.sent ? "sent" : "draft" });
   }
   return out;
 }
+
+/**
+ * What Zoho deleted lately (owner, 30 Oct: "if quotes … or customers do not exist, that should not show up"): Zoho's
+ * newest 200 customers and quotations (2 calls, kept 10 minutes) — one of ours created within that span but missing from
+ * it was deleted there. Older deletions leave with the sync's full check (9 am / 2 pm / Sync now). Unreachable = hide nothing.
+ */
+type Span = { ids: Set<string>; since: number };
+let zohoNow: { at: number; customers: Span; quotes: Span } | null = null;
+const zohoTime = (t: unknown) => Date.parse(String(t ?? "").replace(/([+-]\d\d)(\d\d)$/, "$1:$2"));
+async function zohoLatest(): Promise<{ customers: Span; quotes: Span } | null> {
+  if (zohoNow && Date.now() - zohoNow.at < 600_000) return zohoNow;
+  try {
+    const [c, e] = await Promise.all([
+      zohoGet<{ contacts?: Record<string, unknown>[] }>("/contacts", { contact_type: "customer", filter_by: "Status.All", sort_column: "created_time", sort_order: "D", per_page: 200 }),
+      zohoGet<{ estimates?: Record<string, unknown>[] }>("/estimates", { sort_column: "created_time", sort_order: "D", per_page: 200 }),
+    ]);
+    // A full page: only what was created since its oldest can be judged. Less than a page: that's everything.
+    const span = (rows: Record<string, unknown>[], id: string): Span => ({ ids: new Set(rows.map((r) => String(r[id]))), since: rows.length >= 200 ? zohoTime(rows.at(-1)!.created_time) || Infinity : -Infinity });
+    zohoNow = { at: Date.now(), customers: span(c.contacts ?? [], "contact_id"), quotes: span(e.estimates ?? [], "estimate_id") };
+    return zohoNow;
+  } catch (e) {
+    console.error("[quotations] Zoho's latest customers / quotations:", e);
+    return null;
+  }
+}
+const goneFrom = (s: Span | undefined, id: string, created: string) => Boolean(s && Date.parse(created) >= s.since && !s.ids.has(id));
 
 const lastQuote = (h: History | undefined, mine: Last | undefined) => (mine && (!h?.quote || mine.date >= h.quote.date) ? mine : h?.quote);
 
@@ -176,7 +205,7 @@ export async function GET(request: Request) {
       const [ct, list, h, mine, people, nt] = await Promise.all([
         zohoGet<{ contact?: Record<string, unknown> & { contact_persons?: Record<string, unknown>[]; billing_address?: { city?: string; state?: string } } }>(`/contacts/${customerId}`),
         zohoGet<{ estimates?: Record<string, unknown>[] }>("/estimates", { customer_id: customerId, sort_column: "date", sort_order: "D", per_page: 1 }),
-        histories(), recentSent(), salespeople(), defaultNotesTerms(),
+        histories(), zohoLatest().then((z) => recentSent(z?.quotes)), salespeople(), defaultNotesTerms(),
       ]);
       const c = ct.contact ?? {};
       const contacts = (c.contact_persons ?? []).map((p) => ({
@@ -192,12 +221,14 @@ export async function GET(request: Request) {
       };
       const e = list.estimates?.[0];
       type LastLine = QuoteLine & { name: string; gst: number | null };
-      let last: { number: string; date: string; lines: LastLine[]; salesperson: string | null; fields: Record<string, string> } | null = null;
+      // `draftId`: their newest quotation is still a draft — the popup saves that one again instead of making another.
+      let last: { number: string; date: string; lines: LastLine[]; salesperson: string | null; fields: Record<string, string>; draftId?: string } | null = null;
       if (e?.estimate_id) {
         const d = await zohoGet<{ estimate?: { line_items?: Record<string, unknown>[]; custom_fields?: CF[] } }>(`/estimates/${e.estimate_id}`);
         const cf = (api: string) => String(d.estimate?.custom_fields?.find((f) => f.api_name === api)?.value ?? "");
         last = {
           number: String(e.estimate_number ?? ""), date: String(e.date ?? ""), salesperson: (e.salesperson_name as string) || null,
+          ...(e.status === "draft" ? { draftId: String(e.estimate_id) } : {}),
           lines: (d.estimate?.line_items ?? []).filter((l) => l.item_id).map((l) => ({
             itemId: String(l.item_id), name: String(l.name ?? ""), qty: Number(l.quantity) || 1, rate: Number(l.rate) || 0,
             description: (l.description as string) || undefined, gst: l.tax_percentage === undefined || l.tax_percentage === "" ? null : Number(l.tax_percentage),
@@ -205,7 +236,9 @@ export async function GET(request: Request) {
           fields: { sendToCrm: cf("cf_send_to_crm"), reminderFrequency: cf("cf_reminder_frequency"), productType: cf("cf_category"), leadSource: cf("cf_lead_source") },
         };
       }
-      const lq = lastQuote(h.get(customerId), mine.get(customerId));
+      // "Went to them N days ago" counts quotations that went — a draft never left (owner, 30 Oct).
+      const m = mine.get(customerId);
+      const lq = lastQuote(h.get(customerId), m?.status === "draft" ? undefined : m);
       const recent = lq && daysSince(lq.date) <= RECENT_DAYS ? { number: lq.number, date: lq.date, days: daysSince(lq.date) } : null;
       // Sales person: you, when Zoho has you as one; else whoever made their last quote.
       const same = (a: string | null | undefined, b: string) => (a ?? "").toLowerCase().replace(/\s+/g, " ") === b.toLowerCase().replace(/\s+/g, " ");
@@ -214,7 +247,9 @@ export async function GET(request: Request) {
     }
 
     // The list: search, filters, sort, one page.
-    const [{ docs }, h, mine, info] = await Promise.all([readAll<ZohoLead>("zohoCustomers"), histories(), recentSent(), quotesInfo()]);
+    const [{ docs: all }, h, z, info] = await Promise.all([readAll<ZohoLead>("zohoCustomers"), histories(), zohoLatest(), quotesInfo()]);
+    const mine = await recentSent(z?.quotes);
+    const docs = all.filter((c) => !goneFrom(z?.customers, c.contactId, c.createdAt));
     const text = nameKey(q.get("q") ?? "");
     const words = (q.get("q") ?? "").toLowerCase().trim();
     const sector = q.get("sector") ?? "";
@@ -223,9 +258,24 @@ export async function GET(request: Request) {
     const rows = docs.filter((c) => (!sector || c.sector === sector) && (!type || c.type === type)
       && (!words || nameKey(c.name).includes(text) || (c.email ?? "").toLowerCase().includes(words) || (digits.length >= 4 && (c.mobile ?? c.phone ?? "").replace(/\D/g, "").includes(digits))));
     const withLast = rows.map((c) => ({ c, quote: lastQuote(h.get(c.contactId), mine.get(c.contactId)), invoice: h.get(c.contactId)?.invoice ?? null }));
-    // Default: customers quoted or billed most recently first (the ones you're working with), then A–Z.
-    const latest = (x: (typeof withLast)[number]) => [x.quote?.date ?? "", x.invoice ?? ""].sort().at(-1)!;
-    withLast.sort((a, b) => (q.get("sort") === "name" ? 0 : latest(b).localeCompare(latest(a))) || a.c.name.localeCompare(b.c.name));
+    // Default: customers quoted or billed most recently first (the ones you're working with), then A–Z. Quick sorts
+    // (owner, 30 Oct): by name, by last quotation (newest / oldest / biggest), by last bought, never quoted first.
+    type Row = (typeof withLast)[number];
+    const latest = (x: Row) => [x.quote?.date ?? "", x.invoice ?? ""].sort().at(-1)!;
+    const az = (a: Row, b: Row) => a.c.name.localeCompare(b.c.name);
+    const has = (v: unknown) => (v ? 0 : 1); // the ones without go last
+    const SORTS: Record<string, (a: Row, b: Row) => number> = {
+      recent: (a, b) => latest(b).localeCompare(latest(a)),
+      name: () => 0,
+      name_desc: (a, b) => b.c.name.localeCompare(a.c.name),
+      quote: (a, b) => has(a.quote) - has(b.quote) || (b.quote?.date ?? "").localeCompare(a.quote?.date ?? ""),
+      quote_old: (a, b) => has(a.quote) - has(b.quote) || (a.quote?.date ?? "").localeCompare(b.quote?.date ?? ""),
+      amount: (a, b) => has(a.quote) - has(b.quote) || (b.quote?.amount ?? 0) - (a.quote?.amount ?? 0),
+      bought: (a, b) => has(a.invoice) - has(b.invoice) || (b.invoice ?? "").localeCompare(a.invoice ?? ""),
+      never: (a, b) => has(!a.quote) - has(!b.quote) || latest(b).localeCompare(latest(a)),
+    };
+    const order = SORTS[q.get("sort") ?? ""] ?? SORTS.recent;
+    withLast.sort((a, b) => order(a, b) || az(a, b));
     const page = Math.max(0, Number(q.get("page")) || 0);
     const count = (k: "sector" | "type") => [...docs.reduce((m, c) => (c[k] ? m.set(c[k]!, (m.get(c[k]!) ?? 0) + 1) : m), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([v]) => v);
     return Response.json({
@@ -249,7 +299,7 @@ export async function POST(request: Request) {
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) return sendEmail(await request.formData().catch(() => null));
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer> };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string };
   if (body.newCustomer) return newCustomer(body.newCustomer);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
@@ -267,13 +317,26 @@ export async function POST(request: Request) {
     const customer = docs.find((c) => c.contactId === customerId)
       ?? await zohoGet<{ contact?: { contact_name?: string } }>(`/contacts/${customerId}`).then((r) => (r.contact?.contact_name ? { name: r.contact.contact_name } : null)).catch(() => null);
     if (!customer) return Response.json({ error: "That customer isn't in Zoho Books" }, { status: 404 });
+    // The sales person picked in the popup — only one of Zoho's (else Zoho's default).
+    if (details.salesperson && !(await salespeople()).includes(details.salesperson)) return Response.json({ error: "Pick a sales person from the list" }, { status: 400 });
+    const quoteLines = lines.map((l) => ({ itemId: String(l.itemId), qty: Number(l.qty), rate: Number(l.rate), description: l.description?.slice(0, 2000) }));
+    // Their draft saved again (owner, 30 Oct) — only while it's still a draft of this customer's in Zoho.
+    if (body.estimateId) {
+      const id = String(body.estimateId);
+      if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+      const had = (await zohoGet<{ estimate?: { status?: string; customer_id?: string; estimate_number?: string } }>(`/estimates/${id}`).catch(() => ({ estimate: undefined }))).estimate;
+      if (!had || String(had.customer_id) !== customerId) return Response.json({ error: "That draft isn't in Zoho Books any more — close this and quote again" }, { status: 404 });
+      if (had.status !== "draft") return Response.json({ error: `${had.estimate_number ?? "That quotation"} isn't a draft any more — make a new one with “start a new quotation”` }, { status: 409 });
+      const saved = await updateQuote(id, { customerId, contactPersonIds: people, lines: quoteLines, details });
+      const now = new Date().toISOString();
+      await (await sentCol()).updateOne({ _id: id }, { $set: { number: saved.number, customerId, customerName: customer.name, total: saved.total, status: saved.status, lines: lines.length }, $setOnInsert: { sent: false, by: me.name, byId: me.id, at: now } }, { upsert: true });
+      return Response.json({ ok: true, quote: { ...saved, url: zohoLink(id), sent: false } });
+    }
     // No double clicks / two people at once: a second quotation for the same customer within 2 minutes is refused.
     const twoMin = new Date(Date.now() - 120_000).toISOString();
     const just = await (await sentCol()).findOne({ customerId, at: { $gte: twoMin } });
     if (just && !body.again) return Response.json({ error: `${just.number} was just made for this customer by ${just.by} — check Zoho first` }, { status: 409 });
-    // The sales person picked in the popup — only one of Zoho's (else Zoho's default).
-    if (details.salesperson && !(await salespeople()).includes(details.salesperson)) return Response.json({ error: "Pick a sales person from the list" }, { status: 400 });
-    const made = await createQuote({ customerId, contactPersonIds: people, lines: lines.map((l) => ({ itemId: String(l.itemId), qty: Number(l.qty), rate: Number(l.rate), description: l.description?.slice(0, 2000) })), details, send });
+    const made = await createQuote({ customerId, contactPersonIds: people, lines: quoteLines, details, send });
     await (await sentCol()).insertOne({ _id: made.estimateId, number: made.number, customerId, customerName: customer.name, total: made.total, sent: send, status: made.status, by: me.name, byId: me.id, at: new Date().toISOString(), lines: lines.length });
     return Response.json({ ok: true, quote: { ...made, url: zohoLink(made.estimateId), sent: send } });
   } catch (e) {
@@ -298,6 +361,8 @@ async function sendEmail(form: FormData | null): Promise<Response> {
   if (files.reduce((n, f) => n + f.size, 0) > EMAIL_MAX_BYTES) return Response.json({ error: "Attachments are over 4 MB together — leave some out" }, { status: 400 });
   try {
     await emailQuote(id, { to, cc, subject, body, fileName: str("fileName", 120) || undefined, files });
+    // Zoho marked it Sent — so does our record ("went to them N days ago" counts it from now).
+    await (await sentCol()).updateOne({ _id: id }, { $set: { sent: true, status: "sent" } }).catch(() => undefined);
     return Response.json({ ok: true });
   } catch (e) {
     console.error("[quotations] email failed:", e);
