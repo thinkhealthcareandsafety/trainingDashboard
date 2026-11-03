@@ -7,6 +7,7 @@ import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
+import { type QuoteEmailInput, TEMPLATES, type TopicId, buildQuoteEmail, suggestTemplate, textToHtml, topicsOf } from "@/lib/quoteEmails";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -471,6 +472,11 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
 
         {done && emailing ? (
           <EmailStep quote={done} live={live} onBack={() => setEmailing(false)}
+            compose={{
+              company: customer.name, number: done.number, total: done.total, expiry: f?.expiry || null, salesperson: f?.salesperson || null,
+              contact: detail?.contacts?.find((x) => to.includes(x.id))?.name ?? null,
+              lines: lines.filter((l) => l.itemId).map((l) => ({ name: l.name, qty: l.qty, group: byId.get(l.itemId)?.group ?? null })),
+            }}
             onSent={(list, from) => { setDone((d) => d && { ...d, emailedTo: list }); setEmailing(false); celebrate(from); toast({ text: `${done.number} emailed to ${list}` }); }} />
         ) : done ? (
           // The done screen (#150 step 4): Zoho's PDF to download, and the email step.
@@ -668,7 +674,7 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Zoho's template, the quote's PDF attached by Zoho; + attachments from this computer (4 MB together). Sent through
  * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
  */
-function EmailStep({ quote, live, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
+function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
   type Draft = { subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
@@ -685,10 +691,25 @@ function EmailStep({ quote, live, onBack, onSent }: { quote: { estimateId: strin
       setDraft(j);
       if (j.error) return;
       setPicked(j.to.filter((x) => x.selected).map((x) => x.email));
-      setSubject(j.subject);
     }).catch(() => setDraft({ subject: "", body: "", fileName: null, maxBytes: 0, to: [], error: "Couldn't reach the server" }));
   }, [quote.estimateId]);
-  useEffect(() => { if (draft && !draft.error && body.current) body.current.innerHTML = cleanHtml(draft.body); }, [draft]);
+  // Templates (owner, 3 Nov): the tone is picked here, a paragraph per kind of item comes from the quote's items (each
+  // can be switched off), names / numbers / dates filled in. "Zoho's standard email" is Zoho's own template.
+  const topics = useMemo(() => topicsOf(compose.lines), [compose.lines]);
+  const [tpl, setTpl] = useState(() => (compose.lines.length ? suggestTemplate(compose.lines) : "zoho"));
+  const [skip, setSkip] = useState<TopicId[]>([]);
+  const edited = useRef(false); // typed into the message — switching template asks first
+  const fill = (t: string, s: TopicId[]) => {
+    if (!draft || draft.error || !body.current) return;
+    if (t === "zoho") { setSubject(draft.subject); body.current.innerHTML = cleanHtml(draft.body); }
+    else { const e = buildQuoteEmail(t, compose, s); setSubject(e.subject); body.current.innerHTML = textToHtml(e.text); }
+    edited.current = false;
+  };
+  const choose = (t: string, s: TopicId[]) => {
+    if (edited.current && !window.confirm("Replace the message you've edited?")) return;
+    setTpl(t); setSkip(s); fill(t, s);
+  };
+  useEffect(() => { fill(tpl, skip); }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps -- once Zoho's email is in
   const size = files.reduce((n, f) => n + f.size, 0);
   const max = draft?.maxBytes || 4 * 1024 * 1024;
   const to = [...picked, ...extra.split(/[,;\s]+/).filter(Boolean)];
@@ -732,12 +753,27 @@ function EmailStep({ quote, live, onBack, onSent }: { quote: { estimateId: strin
           </div>
         </div>
         <label className="block"><span className={label}>Cc</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Comma between" /></label>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={label}>Template</span>
+          <select className={`${inputCls} !h-9 !w-auto text-[14px]`} value={tpl} onChange={(e) => choose(e.target.value, skip)} aria-label="Email template">
+            {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            <option value="zoho">Zoho&apos;s standard email</option>
+          </select>
+          {tpl !== "zoho" && tpl !== "formal" && tpl !== "short" && topics.map((t) => {
+            const on = !skip.includes(t.id);
+            return (
+              <button key={t.id} type="button" title={`${on ? "Leave out" : "Add"} the paragraph about ${t.names.join(", ")}`}
+                className={`rounded-full border px-3 py-1 text-[13.5px] ${on ? "border-brand bg-brand-soft text-ink" : "border-line text-muted line-through"}`}
+                onClick={() => choose(tpl, on ? [...skip, t.id] : skip.filter((x) => x !== t.id))}>{t.label}</button>
+            );
+          })}
+        </div>
         <label className="block"><span className={label}>Subject</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} /></label>
         <div>
           <span className={label}>Message</span>
           {/* The email as the customer gets it: on white with dark text, whatever the theme (owner, 30 Oct: on a dark
               theme Zoho's black text sat on a near-black box). */}
-          <div ref={body} contentEditable suppressContentEditableWarning role="textbox" aria-multiline aria-label="Message"
+          <div ref={body} contentEditable suppressContentEditableWarning role="textbox" aria-multiline aria-label="Message" onInput={() => { edited.current = true; }}
             className="mt-1 max-h-[38vh] min-h-40 overflow-y-auto rounded-xl border border-line bg-white px-3.5 py-2.5 text-[14.5px] leading-relaxed text-[#1f2328] caret-[#1f2328] outline-none [color-scheme:light] focus:border-brand" />
         </div>
         <div>
