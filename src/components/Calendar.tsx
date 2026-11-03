@@ -13,7 +13,7 @@ import { WhatsAppSetup } from "./WhatsAppSetup";
 import { Combobox, IconButton, Segmented, btn, inputCls } from "./ui";
 import {
   type CertChoice, ChangeLog, DocsSection, DueChip, FormRow, Header, NotesPanel, type PeopleChoice, Row, ScheduleRows, Section, Shell, TrainingSection,
-  certEvents, certOf, dateAllowed, minTrainingDate, peopleStart, scheduleMissing, scheduleText, trainingDateEvents,
+  MAX_DATE, certEvents, certOf, dateAllowed, dateProblem, maxTrainingDate, minTrainingDate, peopleStart, scheduleMissing, scheduleText, trainingDateEvents,
 } from "./followups/CardModal";
 import { AedCardModal } from "./followups/AedModal";
 import { StatePill } from "./followups/FulfilCerts";
@@ -806,8 +806,9 @@ function NewAedTraining({ date, member, cards, tabs, onClose }: { date: string; 
         </FormRow>
         <FormRow label="Date & time" hint="Priyanka gives the training" required>
           <span className="flex flex-wrap gap-2">
-            <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={day} min={minTrainingDate()} onChange={(e) => setDay(e.target.value)} aria-label="Training date" />
+            <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={day} min={minTrainingDate()} max={maxTrainingDate()} onChange={(e) => setDay(e.target.value)} aria-label="Training date" />
             <input type="time" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={time} onChange={(e) => setTime(e.target.value)} aria-label="Training time" />
+            {dateProblem(day) && <span className="basis-full text-[13px] font-medium text-high">{dateProblem(day)}</span>}
           </span>
         </FormRow>
       </div>
@@ -908,7 +909,7 @@ function EntryForm({ date, member, type, entry, tabs, onClose }: { date: string;
         </FormRow>
         <FormRow label="When" hint={type === "event" ? "A time, or all day" : "Date and time"} required>
           <span className="flex flex-wrap items-center gap-2">
-            <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={d} onChange={(e) => setD(e.target.value)} aria-label="Date" />
+            <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={d} max={MAX_DATE} onChange={(e) => setD(e.target.value)} aria-label="Date" />
             {timed && <>
               <input type="time" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={start} onChange={(e) => setStart(e.target.value)} aria-label="Starts" />
               <span className="text-[13px] text-muted">to</span>

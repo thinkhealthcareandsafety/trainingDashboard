@@ -14,7 +14,7 @@ import { canMarkDelivered, canRevert } from "@/lib/roles";
 import { btn, inputCls } from "../ui";
 import {
   type BoardOptions, type Draft, AskLink, ChangeLog, ContactSection, CustomerSection, DueChip, Editor, Header, Lock, Row, SCHEDULE_TONE,
-  NotesPanel, Section, Shell, dateAllowed, diff, minTrainingDate,
+  NotesPanel, Section, Shell, dateAllowed, dateProblem, diff, maxTrainingDate, minTrainingDate,
 } from "./CardModal";
 
 // Priyanka's AedSmartx board: one modal per AED invoice. Phase 1 schedules the training (date + time, she trains
@@ -48,7 +48,7 @@ export function AedTrainingSection({ card, member }: { card: CardView; member: M
   const undoToast = (text: string, id: string) => toast({ text, actionLabel: "Undo", onAction: () => revertCardEvent(id, member.name) });
   const open = (change = false) => {
     const [d, t] = (postponing ? s!.date ?? "" : "").split("T");
-    setDate(d ?? "");
+    setDate(d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : ""); // a broken stored date (2 Nov: "20206-…") starts empty
     setTime(t ?? "");
     setChanging(change);
     setPicking(true);
@@ -123,10 +123,13 @@ export function AedTrainingSection({ card, member }: { card: CardView; member: M
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {picking ? (
               <>
-                <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={minTrainingDate()} onChange={(e) => setDate(e.target.value)} aria-label="Training date" autoFocus />
+                <input type="date" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={date} min={minTrainingDate()} max={maxTrainingDate()} onChange={(e) => setDate(e.target.value)} aria-label="Training date" autoFocus />
                 <input type="time" className={`${inputCls} !h-9 !w-auto text-[13px]`} value={time} onChange={(e) => setTime(e.target.value)} aria-label="Training time" />
                 <button className={btn.primary} onClick={schedule} disabled={!valid}>{changing ? "Change date" : postponing ? "Postpone" : "Schedule"}</button>
                 <button className={btn.quiet} onClick={() => setPicking(false)}>Cancel</button>
+                {dateProblem(date) ? <span className="basis-full text-[13px] font-medium text-high">{dateProblem(date)}</span>
+                  : date && !time ? <span className="basis-full text-[13px] text-muted">Pick a time too.</span>
+                  : value && value === s?.date ? <span className="basis-full text-[13px] text-muted">That's the date it already has.</span> : null}
               </>
             ) : !s ? (
               <>

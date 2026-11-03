@@ -123,11 +123,11 @@ function FilterModal({ value, onApply, onClose }: { value: DateFilterValue | nul
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1.5 block text-[13px] font-medium text-ink-2">From</span>
-            <input type="date" className={`${inputCls} !h-9 text-[13px]`} value={from} onChange={(e) => setFrom(e.target.value)} />
+            <input type="date" className={`${inputCls} !h-9 text-[13px]`} value={from} max="9999-12-31" onChange={(e) => setFrom(e.target.value)} />
           </label>
           <label className="block">
             <span className="mb-1.5 block text-[13px] font-medium text-ink-2">To</span>
-            <input type="date" className={`${inputCls} !h-9 text-[13px]`} value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+            <input type="date" className={`${inputCls} !h-9 text-[13px]`} value={to} min={from || undefined} max="9999-12-31" onChange={(e) => setTo(e.target.value)} />
           </label>
           <p className={`col-span-2 flex min-h-[20px] items-center justify-between gap-2 text-[13px] ${swapped ? "font-medium text-high" : "text-muted"}`}>
             {swapped ? "“From” is after “To”." : "Leave one side empty for an open range."}

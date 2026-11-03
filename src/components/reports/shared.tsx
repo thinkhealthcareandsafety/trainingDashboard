@@ -240,7 +240,7 @@ export function PeriodSelect({ today, value, onChange }: { today: string; value:
         <>
           <input type="date" aria-label="From" className={dateCls} value={own.from} max={own.to} onChange={(e) => e.target.value && onChange(`range:${e.target.value}:${own.to}`)} />
           <span className="text-muted">to</span>
-          <input type="date" aria-label="To" className={dateCls} value={own.to} min={own.from} onChange={(e) => e.target.value && onChange(`range:${own.from}:${e.target.value}`)} />
+          <input type="date" aria-label="To" className={dateCls} value={own.to} min={own.from} max="9999-12-31" onChange={(e) => e.target.value && onChange(`range:${own.from}:${e.target.value}`)} />
         </>
       )}
     </span>

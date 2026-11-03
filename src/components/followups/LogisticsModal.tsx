@@ -152,7 +152,7 @@ function ReachedPrompt({ card, onAnswer, onClose }: { card: CardView; onAnswer: 
       <div className="mt-3 rounded-xl border border-line p-3">
         <div className="text-[13px] font-semibold text-ink-2">Not yet — expected on</div>
         <div className="mt-2 flex gap-2">
-          <input type="date" className={`${inputCls} !h-9 flex-1 text-[13px]`} value={date} min={todayYmd()} onChange={(e) => setDate(e.target.value)} aria-label="Expected date" />
+          <input type="date" className={`${inputCls} !h-9 flex-1 text-[13px]`} value={date} min={todayYmd()} max="9999-12-31" onChange={(e) => setDate(e.target.value)} aria-label="Expected date" />
           <button className={btn.ghost} disabled={!date} onClick={() => onAnswer(`expected:${date}`)}>Set date</button>
         </div>
       </div>

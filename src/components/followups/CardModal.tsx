@@ -269,7 +269,7 @@ function MonthInput({ value, onChange, autoFocus }: { value: string; onChange: (
       {mode === "month" ? (
         <input type="month" className={cls} value={value.slice(0, 7)} min={thisMonth()} onChange={(e) => onChange(e.target.value)} aria-label="Expected training month" autoFocus={autoFocus} />
       ) : (
-        <input type="date" className={cls} value={value.length === 10 ? value : ""} min={new Date().toLocaleDateString("en-CA")} onChange={(e) => onChange(e.target.value)} aria-label="Expected training date" autoFocus={autoFocus} />
+        <input type="date" className={cls} value={value.length === 10 ? value : ""} min={new Date().toLocaleDateString("en-CA")} max={maxTrainingDate()} onChange={(e) => onChange(e.target.value)} aria-label="Expected training date" autoFocus={autoFocus} />
       )}
     </div>
   );
@@ -423,8 +423,14 @@ const todayYmd = () => new Date().toLocaleDateString("en-CA");
 // Set to false to go back to “dates can’t be in the past”.
 const ALLOW_PAST_TRAINING_DATES = true;
 export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
+/** The latest training date: 2 years ahead. As a date box's max it also keeps the year to 4 digits (a typed "222222" got in). */
+export const maxTrainingDate = () => `${Number(todayYmd().slice(0, 4)) + 2}-12-31`;
+/** Any other date box: only a 4-digit year. */
+export const MAX_DATE = "9999-12-31";
+/** Why a picked training date isn't accepted, for the line under the box ("" = fine or nothing picked yet). */
+export const dateProblem = (d: string) => (!d || dateAllowed(d) ? "" : `Pick a date from ${fmtDate(minTrainingDate() ?? todayYmd(), { day: "numeric", month: "short", year: "numeric" })} to ${fmtDate(maxTrainingDate(), { day: "numeric", month: "short", year: "numeric" })}.`);
 // A real date with a 4-digit year (a typed "20206" passed before, 2 Nov) and not more than 2 years ahead.
-export const dateAllowed = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= `${Number(todayYmd().slice(0, 4)) + 2}-12-31` && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
+export const dateAllowed = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= maxTrainingDate() && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
 /**
  * Certificates, per training (owner, 15 Oct): the certificate location name printed as "course conducted at" ("" = the
