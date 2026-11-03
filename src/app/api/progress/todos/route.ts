@@ -5,7 +5,7 @@ import { boardsNow } from "@/lib/fulfilServer";
 import { buildFulfillmentBoard } from "@/lib/pipeline";
 import { buildLogisticsBoard } from "@/lib/logistics";
 import { ENTRY_DONE_FROM, seesWholeCalendar } from "@/lib/roles";
-import { type Comment, type PtRequest, teamDay } from "@/lib/progress/model";
+import { type Comment, type PtRequest, isAdminId, teamDay } from "@/lib/progress/model";
 import { commentsCol, fromDoc, requestsCol, team } from "@/lib/progress/server";
 import { DONE_DAYS, buildDone, buildTodos } from "@/lib/progress/todos";
 import type { CalendarEntry } from "@/lib/types";
@@ -45,7 +45,8 @@ export async function GET(request: Request) {
   for (const cards of [board.cards, aedBoard!.cards, ful.cards, logi.cards]) for (const c of cards.values()) if (!names.has(c.id)) names.set(c.id, c.certLocation || c.name);
   const done = buildDone(members, events, (id) => names.get(id), reqs, now, cal);
   const all = seesWholeCalendar(me);
-  const people = all ? members : members.filter((m) => m.id === me.id);
+  // No to-do list for Admin (owner, 3 Nov: "remove the tracker for admin") — Admin still sees everyone's.
+  const people = (all ? members : members.filter((m) => m.id === me.id)).filter((m) => !isAdminId(m.id));
   const theirs = (who: string) => people.some((p) => p.id === who);
   return Response.json({ today, all, people, todos: todos.filter((t) => theirs(t.who)), done: done.filter((d) => theirs(d.who)) });
 }

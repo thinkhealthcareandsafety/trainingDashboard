@@ -268,7 +268,12 @@ function RequestRow({ r, me, now, onOpen, needsMe }: { r: PtRequest; me: Who; no
 
 /** Who waits (rows) on whom (columns) [S6, A28]; a cell = open requests, coloured by the most pressing one; click = filter. */
 function BlockedMatrix({ snap, now, filter, setFilter }: { snap: Snapshot; now: Date; filter: Filter; setFilter: (f: Filter) => void }) {
-  const m = useMemo(() => matrix(snap.team, snap.requests, now), [snap, now]);
+  // Admin isn't a person with work of their own (owner, 3 Nov: "remove the tracker for admin") — no row / column,
+  // unless an open request involves Admin (then it would vanish from the grid).
+  const m = useMemo(() => {
+    const adminIn = snap.requests.some((r) => r.status === "open" && (isAdminId(r.requesterId) || isAdminId(r.waitingOnId)));
+    return matrix(adminIn ? snap.team : snap.team.filter((w) => !isAdminId(w.id)), snap.requests, now);
+  }, [snap, now]);
   const short = (w: Who) => (w.id === "admin" ? "Admin" : firstName(w.name));
   return (
     <div>
@@ -391,8 +396,9 @@ function StatusCards({ snap, now, onlyActive, setFilter }: { snap: Snapshot; now
   const pres = new Map(snap.presence.map((p) => [p.id, p]));
   const open = snap.requests.filter((r) => r.status === "open");
   const people = snap.team
+    .filter((m) => !isAdminId(m.id)) // no status card for Admin (owner, 3 Nov)
     .map((m) => ({ m, a: availability(pres.get(m.id), now) }))
-    .filter((x) => !onlyActive || (x.a.state === "active" && !isAdminId(x.m.id)))
+    .filter((x) => !onlyActive || x.a.state === "active")
     // You first, then whoever is active, then by last seen.
     .sort((x, y) => Number(y.m.id === snap.me.id) - Number(x.m.id === snap.me.id) || Number(y.a.state === "active") - Number(x.a.state === "active") || (y.a.lastSeenAt ?? "").localeCompare(x.a.lastSeenAt ?? ""));
   return (
