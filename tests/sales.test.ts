@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { CardEvent, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "@/lib/types";
 import { buildSalesBoard, saleId } from "@/lib/sales";
-import { buildBoard, kindOfId } from "@/lib/pipeline";
+import { buildBoard, kindOfId, zohoNotices } from "@/lib/pipeline";
 
 const lead: ZohoLead = { contactId: "c1", name: "Acme Hotels", createdAt: "2026-01-01T00:00:00.000Z", lastModified: "2026-01-01T00:00:00.000Z", mobile: "9876543210" };
 const base = { createdAt: "2026-10-01T00:00:00.000Z", customerId: "c1", customerName: "Acme Hotels", contacts: [], items: [] };
@@ -89,4 +89,13 @@ test("Work done counts a Merge all once (per person per day)", async () => {
   assert.equal(done.length, 1);
   assert.equal(done[0].count, 3);
   assert.equal(done[0].tag, "Merged all flagged cards");
+});
+
+test("Sales merges never get a \"no longer in Zoho Books\" notice from the Training board (31 Oct: 2,650 false ones)", () => {
+  const training = buildBoard([lead], [quote], [pi], [inv], [pay], []);
+  const sale = merge(saleId("quote", "q1"), saleId("pi", "p1"));
+  assert.deepEqual(zohoNotices([sale], training.exists, training.cards, "2026-11-01T00:00:00.000Z"), []);
+  // A Training board merge whose document is gone still gets its notice.
+  const gone = merge("quote:q1", "pi:gone");
+  assert.equal(zohoNotices([gone], training.exists, training.cards, "2026-11-01T00:00:00.000Z").length, 1);
 });

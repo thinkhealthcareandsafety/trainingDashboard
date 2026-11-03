@@ -1048,6 +1048,8 @@ export function cardLabel(c: CardView | undefined): string {
  * derived from the merge so every browser records the same notice only once.
  * `dataAt` = when the Zoho copy the board shows was synced: a merge made after that can't be judged by it (a tab woken
  * from sleep pulls the team's changes before its Zoho data — on 12–13 Oct that wrote 8 false notices).
+ * Sales board merges (`sale:` cards) are left alone: `exists` is the Training board's, which never holds them — on 31 Oct
+ * every "Merge all flagged" merge got a false notice (2,650).
  */
 export function zohoNotices(events: CardEvent[], exists: Set<string>, cards: Map<string, CardView>, dataAt: string): CardEvent[] {
   const noted = new Set(events.filter((e) => e.kind === "zoho_change").map((e) => e.ref));
@@ -1056,6 +1058,7 @@ export function zohoNotices(events: CardEvent[], exists: Set<string>, cards: Map
   if (!dataAt) return out;
   for (const e of events) {
     if (e.kind !== "merge" || e.revertedAt || noted.has(e.id) || e.at > dataAt) continue;
+    if (e.cardIds.some((id) => id.startsWith("sale:"))) continue;
     const [from, to] = e.cardIds;
     const fromGone = !exists.has(from);
     const toGone = !exists.has(to);
