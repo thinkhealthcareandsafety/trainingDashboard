@@ -5,7 +5,7 @@ import { boardsNow, recordServerEvent } from "./fulfilServer";
 import { getSnapshot } from "./zohoSync";
 import { type CardView, isCustomerCard, peopleOf } from "./pipeline";
 import { type DatesInfo, datesInfo, istDay, reminderDays, reminderKey, reminderRecipients, whatsappKey } from "./reminderPlan";
-import { sendWaTemplate, waPublic, waStored } from "./whatsapp";
+import { sendWaTemplate, waFor, waPublic, waStored } from "./whatsapp";
 import type { CardEvent } from "./types";
 
 /*
@@ -228,7 +228,7 @@ export async function runTrainingReminders(): Promise<ReminderRun> {
       if (!wa.ready) continue;
       const waDone = new Set(events.filter((e) => e.kind === "training_whatsapp").map((e) => e.value));
       for (const p of mailTo) {
-        const number = wa.numbers[p.key];
+        const number = waFor(p.key) ? wa.numbers[p.key] : undefined; // Priyanka: email only (3 Nov)
         if (!number) continue; // no WhatsApp number for them yet
         const postponedKey = whatsappKey("postponed", info.event.id, p.key);
         const dueKey = due ? whatsappKey("reminder", reminderKey(info.dates, due), p.key) : null;

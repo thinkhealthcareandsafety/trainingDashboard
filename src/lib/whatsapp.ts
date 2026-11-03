@@ -18,13 +18,17 @@ const API = process.env.ANANTYA_API ?? "https://apiv1.anantya.ai";
 export type WaKind = "reminder" | "postponed";
 /** How many {{n}} each message fills (trainingReminders.ts whatsappValues has the order). */
 export const WA_VARS: Record<WaKind, number> = { reminder: 11, postponed: 11 };
-/** Who can get one: the trainers with a reminder email (reminderPlan.ts TRAINER_EMAILS), by the same key. */
+/**
+ * Who can get one: the trainers with a reminder email (reminderPlan.ts TRAINER_EMAILS), by the same key. Priyanka gets
+ * her reminders by email only (owner, 3 Nov: "turn off whatsapp messages for priyanka. only keep mail for her") — a
+ * number saved for her earlier is ignored.
+ */
 export const WA_PEOPLE = [
   { key: "sumit", name: "Sumit A Shah" },
   { key: "shikha", name: "Shikha Dixit" },
   { key: "ashish", name: "Ashish Dalal" },
-  { key: "priyanka", name: "Priyanka" },
 ];
+export const waFor = (key: string) => WA_PEOPLE.some((p) => p.key === key);
 
 type Stored = {
   _id: string;
