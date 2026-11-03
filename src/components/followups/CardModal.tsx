@@ -53,7 +53,7 @@ export function Lock() {
 }
 
 /** Inside the narrow merge panels, sections go flat and labels sit above values. */
-const Compact = createContext(false);
+export const Compact = createContext(false);
 /** Merge view with 3 or more cards open: every panel puts labels above values (narrow panels), the same in all of them. */
 const Stacked = createContext(false);
 

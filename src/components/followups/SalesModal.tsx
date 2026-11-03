@@ -11,7 +11,7 @@ import type { SalesDetail } from "@/lib/salesSync";
 import { btn } from "../ui";
 import {
   type BoardOptions, AskLink, ChainSection, ChangeLog, ContactSection, CustomerSection, DocsSection, Editor, FlagBadge, Header, NotesSection, PaymentSection,
-  Lock, Section, SalesSection, Shell, diff, flagText,
+  Compact, Lock, Section, SalesSection, Shell, diff, flagText,
 } from "./CardModal";
 
 type Cards = Map<string, CardView>;
@@ -94,21 +94,44 @@ export function SalesModal({ card, cards, member, options, onClose, onReviewMerg
             <button className="font-semibold text-brand hover:underline" onClick={onReviewMerge}>Review &amp; merge</button>
           </div>
         )}
-        <div className="grid gap-3 xl:grid-cols-2">
+        {/* Owner, 3 Nov: "customer details | IDs and dates, then the quote / PI / invoice … in a table" — the document gets
+            the whole width, the customer folds away until clicked. */}
+        <div className="grid items-start gap-3 xl:grid-cols-2">
           <div className="space-y-3">
-            {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
-            <NotesSection card={card} member={member} options={options} />
-            <ChainSection card={card} cards={cards} onUnmerge={unmerge} canUnmerge={canUnmerge} />
-            <PaymentSection card={card} cards={cards} />
-          </div>
-          <div className="space-y-3">
+            <CustomerFold card={card} open={Boolean(draft)}>
+              {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
+            </CustomerFold>
             <SalesSection card={card} />
-            <DocumentSection card={card} />
-            <DocsSection card={card} options={options} />
+            <NotesSection card={card} member={member} options={options} />
           </div>
+          <DocsSection card={card} options={options} />
+        </div>
+        <DocumentSection card={card} />
+        <div className="grid items-start gap-3 empty:hidden xl:grid-cols-2">
+          <ChainSection card={card} cards={cards} onUnmerge={unmerge} canUnmerge={canUnmerge} />
+          <PaymentSection card={card} cards={cards} />
         </div>
       </div>
     </Shell>
+  );
+}
+
+/** Customer + contact, folded to one line until clicked (open while editing). */
+function CustomerFold({ card, open, children }: { card: CardView; open: boolean; children: React.ReactNode }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => setShown(false), [card.id]);
+  const isOpen = open || shown;
+  const gist = [card.type, card.sector, card.phones[0]?.value, card.emails[0]?.value].filter(Boolean).join(" · ");
+  return (
+    <section className="rounded-2xl border border-line bg-surface">
+      <button type="button" aria-expanded={isOpen} disabled={open} onClick={() => setShown(!isOpen)}
+        className="flex w-full min-w-0 items-center gap-2 rounded-2xl px-4 py-3.5 text-left hover:bg-surface-2/60">
+        <svg viewBox="0 0 20 20" className={`size-4 shrink-0 text-muted transition ${isOpen ? "rotate-90" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M7.5 5l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <h3 className="shrink-0 text-[16px] font-bold tracking-tight text-ink">Customer details</h3>
+        {!isOpen && <span className="ml-auto min-w-0 truncate text-[13px] text-muted" title={gist}>{gist}</span>}
+      </button>
+      {isOpen && <div className="space-y-2.5 px-4 pb-3.5"><Compact.Provider value={true}>{children}</Compact.Provider></div>}
+    </section>
   );
 }
 
@@ -148,32 +171,43 @@ function DocumentSection({ card }: { card: CardView }) {
   if (!d) return <Section title={title} aside={aside}><div className="h-24 animate-pulse rounded-lg bg-surface-2" /></Section>;
   if ("error" in d) return <Section title={title} aside={aside}><p className="text-[13px] text-high">{d.error}</p></Section>;
   const row = "flex justify-between gap-3";
+  const th = "px-3 py-2 text-[12px] font-semibold text-muted";
+  const td = "num px-3 py-2.5 text-[13.5px] text-ink-2";
   return (
     <Section title={`${title} · ${d.number}`} aside={aside}>
-      <table className="w-full table-fixed text-[13px]">
-        <thead className="text-left text-[11.5px] text-muted">
-          <tr className="border-b border-line">
-            <th className="w-[44%] pb-1.5 font-medium">Item &amp; description</th><th className="pb-1.5 font-medium">HSN/SAC</th><th className="w-[9%] pb-1.5 text-right font-medium">Qty</th>
-            <th className="pb-1.5 text-right font-medium">Rate</th><th className="w-[10%] pb-1.5 text-right font-medium">GST</th><th className="pb-1.5 text-right font-medium">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          {d.lines.map((l, i) => (
-            <tr key={i} className="border-b border-line align-top last:border-b-0">
-              <td className="py-1.5 pr-2">
-                <div className="font-medium text-ink [overflow-wrap:anywhere]">{l.name}</div>
-                {l.description && <div className="line-clamp-2 whitespace-pre-line text-[12px] text-muted" title={l.description}>{l.description}</div>}
-              </td>
-              <td className="num py-1.5 pr-1 text-ink-2">{l.hsn ?? "—"}</td>
-              <td className="num py-1.5 text-right text-ink-2">{l.qty}{l.unit ? <span className="block text-[11px] text-muted">{l.unit}</span> : null}</td>
-              <td className="num py-1.5 text-right text-ink-2">{money(l.rate)}</td>
-              <td className="num py-1.5 text-right text-ink-2">{l.gst === undefined ? "—" : `${l.gst}%`}</td>
-              <td className="num py-1.5 text-right font-medium text-ink">{money(l.amount)}</td>
+      {/* A real table (owner, 3 Nov: "it will look better in a table"): ruled cells, a header band, full width. */}
+      <div className="overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[640px] border-collapse">
+          <thead className="bg-surface-2 text-left">
+            <tr className="border-b border-line">
+              <th className={`${th} w-10 text-right`}>#</th>
+              <th className={th}>Item &amp; description</th>
+              <th className={`${th} w-28`}>HSN/SAC</th>
+              <th className={`${th} w-20 text-right`}>Qty</th>
+              <th className={`${th} w-32 text-right`}>Rate</th>
+              <th className={`${th} w-16 text-right`}>GST</th>
+              <th className={`${th} w-36 text-right`}>Amount</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="ml-auto mt-2 w-full max-w-[17rem] space-y-0.5 border-t border-line pt-2 text-[13px]">
+          </thead>
+          <tbody>
+            {d.lines.map((l, i) => (
+              <tr key={i} className="border-b border-line align-top last:border-b-0 even:bg-surface-2/40">
+                <td className={`${td} text-right text-muted`}>{i + 1}</td>
+                <td className="px-3 py-2.5">
+                  <div className="text-[13.5px] font-semibold text-ink [overflow-wrap:anywhere]">{l.name}</div>
+                  {l.description && <div className="mt-0.5 line-clamp-3 whitespace-pre-line text-[12.5px] leading-snug text-muted" title={l.description}>{l.description}</div>}
+                </td>
+                <td className={td}>{l.hsn ?? "—"}</td>
+                <td className={`${td} text-right`}>{l.qty}{l.unit ? <span className="ml-1 text-[12px] text-muted">{l.unit}</span> : null}</td>
+                <td className={`${td} text-right`}>{money(l.rate)}</td>
+                <td className={`${td} text-right`}>{l.gst === undefined ? "—" : `${l.gst}%`}</td>
+                <td className={`${td} text-right font-semibold text-ink`}>{money(l.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="ml-auto mt-3 w-full max-w-[22rem] space-y-1 px-3 text-[13.5px]">
         <div className={row}><span className="text-muted">Sub total</span><span className="num text-ink-2">{money(d.subTotal)}</span></div>
         {d.discount ? <div className={row}><span className="text-muted">Discount</span><span className="num text-ink-2">−{money(d.discount)}</span></div> : null}
         {d.shipping ? <div className={row}><span className="text-muted">Shipping</span><span className="num text-ink-2">{money(d.shipping)}</span></div> : null}
