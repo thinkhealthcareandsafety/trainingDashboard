@@ -242,7 +242,7 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
 /** Plain text → the email step's HTML (paragraphs, line breaks, escaped). */
 export function textToHtml(text: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return text.split(/\n{2,}/).map((para) => `<p>${esc(para).replace(/\n/g, "<br>")}</p>`).join("");
+  return text.split(/\n{2,}/).map((para) => `<p style="margin:0 0 1em">${esc(para).replace(/\n/g, "<br>")}</p>`).join("");
 }
 
 /* Zia (owner, 3 Nov): Zoho Mail's Zia writes the email — the dashboard leaves this brief as a draft in Zoho Mail. */

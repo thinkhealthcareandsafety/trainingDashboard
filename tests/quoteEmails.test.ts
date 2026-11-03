@@ -58,7 +58,7 @@ test("switched-off topics leave no gap; formal lists the items; pads only → re
 });
 
 test("text becomes safe HTML paragraphs", () => {
-  assert.equal(textToHtml("Hi <b>,\n\nLine 1\nLine 2"), "<p>Hi &lt;b&gt;,</p><p>Line 1<br>Line 2</p>");
+  assert.equal(textToHtml("Hi <b>,\n\nLine 1\nLine 2"), "<p style=\"margin:0 0 1em\">Hi &lt;b&gt;,</p><p style=\"margin:0 0 1em\">Line 1<br>Line 2</p>");
 });
 
 test("the Zia brief carries the request, items, total and the quote number in its subject", () => {
