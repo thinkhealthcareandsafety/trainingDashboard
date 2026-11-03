@@ -108,3 +108,31 @@ test("every column newest first; same day: the higher number first (owner, 3 Nov
   const pays = [b.cards.get(saleId("quote", "a"))!, b.cards.get(saleId("quote", "d"))!].map((c, i) => ({ ...c, docDate: "2026-11-02", docNumber: ["Payment #998", "Payment #1970"][i] }));
   assert.deepEqual(pays.sort(recentFirst).map((c) => c.docNumber), ["Payment #1970", "Payment #998"]);
 });
+
+test("Fire Safety (owner, 3 Nov): a deal with a Fire Safety item anywhere goes to the Fire Safety board, whole, and off Sales", async () => {
+  const { fireDeals, splitForBoard } = await import("@/lib/sales");
+  const q2: ZohoQuote = { ...quote, estimateId: "q2", number: "Quotation-24-2" };
+  // The PI (not the quote) holds the Fire Safety item: quote, PI, invoice and payment all go.
+  const fire = fireDeals([quote, q2], [pi], [inv], [pay], [], ["salesorders:p1"]);
+  assert.deepEqual([...fire].sort(), [saleId("invoice", "i1"), saleId("payment", "y1"), saleId("pi", "p1"), saleId("quote", "q1")].sort());
+  const salesSide = splitForBoard("sales", fire, [lead], [quote, q2], [pi], [inv], [pay]);
+  assert.deepEqual(salesSide.quotes.map((q) => q.number), ["Quotation-24-2"]);
+  assert.equal(salesSide.leads.length, 1);
+  assert.equal(salesSide.pis.length + salesSide.invoices.length + salesSide.payments.length, 0);
+  const fireSide = splitForBoard("fire", fire, [lead], [quote, q2], [pi], [inv], [pay]);
+  assert.equal(fireSide.leads.length, 0); // no Potential Customers on the Fire Safety board
+  assert.deepEqual(fireSide.quotes.map((q) => q.number), ["Quotation-24-1"]);
+  // A merge joins documents the references don't (q2 merged into the fire PI by hand).
+  const joined = fireDeals([quote, q2], [pi], [inv], [pay], [merge(saleId("quote", "q2"), saleId("pi", "p1"))], ["salesorders:p1"]);
+  assert.ok(joined.has(saleId("quote", "q2")));
+  // Nothing marked: nothing moves.
+  assert.equal(fireDeals([quote], [pi], [inv], [pay], [], []).size, 0);
+});
+
+test("a customer merged into a Fire Safety deal doesn't come back to Sales' Potential Customers", async () => {
+  const { fireDeals, splitForBoard } = await import("@/lib/sales");
+  const m = merge(saleId("lead", "c1"), saleId("quote", "q1"));
+  const fire = fireDeals([quote], [], [], [], [m], ["estimates:q1"]);
+  assert.equal(splitForBoard("sales", fire, [lead], [quote], [], [], [], [m]).leads.length, 0);
+  assert.equal(splitForBoard("sales", fire, [lead], [quote], [], [], [], []).leads.length, 1);
+});

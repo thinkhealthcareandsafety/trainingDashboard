@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("sales")) return Response.json({ error: "The Sales board isn't on your boards" }, { status: 403 });
+  if (!boardsFor(me).some((b) => b === "sales" || b === "fire")) return Response.json({ error: "The Sales board isn't on your boards" }, { status: 403 });
   const empty: SalesResponse = { syncedAt: "", windowStart: ymd(syncWindowStart(new Date())), quotes: [], pis: [], invoices: [], payments: [] };
   if (!zohoConfigured()) return Response.json(empty);
   const doc = new URL(request.url).searchParams.get("doc");

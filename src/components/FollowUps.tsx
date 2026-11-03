@@ -11,7 +11,7 @@ import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
 import { useAedInvoices, usePipeline, useSalesData } from "./followups/useBoards";
-import { SALES_COLUMN, buildSalesBoard, isSaleCard, mergeAllSteps } from "@/lib/sales";
+import { SALES_COLUMN, buildSalesBoard, fireDeals, isSaleCard, mergeAllSteps, splitForBoard } from "@/lib/sales";
 import { docStatus } from "@/lib/docStatus";
 import { SalesModal } from "./followups/SalesModal";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
@@ -75,7 +75,7 @@ const LOGI_COLUMNS: { key: Stage; label: string; header: string; dot: string }[]
 ];
 
 /** Who sees which board: roles.ts (Priyanka AedSmartx, Arti Logistics, Shreya Fulfillment; Ashish, Shikha, Sumit, Admin all four). */
-const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", sales: "Sales", aed: "AedSmartx", fulfil: "Fulfillment", logistics: "Logistics" };
+const BOARD_LABEL: Record<BoardKind, string> = { training: "Training", sales: "Sales", fire: "Fire Safety", aed: "AedSmartx", fulfil: "Fulfillment", logistics: "Logistics" };
 
 // As many columns as fit at MIN_COL_W (enough for the column name); the rest slide in with ◀ ▶,
 // the arrow keys or a swipe. A wide screen shows every column.
@@ -749,14 +749,16 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
   const aedMode = boardKind === "aed";
   const fulfilMode = boardKind === "fulfil";
   const logiMode = boardKind === "logistics";
-  const salesMode = boardKind === "sales";
+  // The Fire Safety board is the Sales board for the deals with Fire Safety items (owner, 3 Nov) — same cards, popup, tools.
+  const fireMode = boardKind === "fire";
+  const salesMode = boardKind === "sales" || fireMode;
   const aed = useAedInvoices(aedMode || logiMode);
   const sales = useSalesData(salesMode);
   // Loading state and sync errors follow the board that's showing (Fulfillment is built from the training data;
   // Logistics from both).
   const loading = aedMode ? aed.loading : logiMode ? aed.loading || pipeline.loading : salesMode ? (sales.loading && !sales.data) || pipeline.loading : pipeline.loading;
   const sync = aedMode ? aed.data : logiMode && aed.data?.error ? aed.data : salesMode ? sales.data : data;
-  const stages = aedMode ? AED_STAGES : fulfilMode ? FULFIL_COLUMNS : logiMode ? LOGI_COLUMNS : salesMode ? SALES_STAGES : STAGES;
+  const stages = aedMode ? AED_STAGES : fulfilMode ? FULFIL_COLUMNS : logiMode ? LOGI_COLUMNS : salesMode ? (fireMode ? SALES_STAGES.filter((s) => s.key !== "s_lead") : SALES_STAGES) : STAGES;
   const [q, setQ] = useState(initialQuery);
   const [showDeleted, setShowDeleted] = useState(false);
   // Logistics: "Unhide cards" shows the AED cards Arti hid, so one can be opened and brought back.
@@ -785,8 +787,13 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
   const fulBoard = useMemo(() => (fulfilMode || logiMode ? buildFulfillmentBoard(board, cardEvents) : null), [fulfilMode, logiMode, board, cardEvents]);
   const logiBoard = useMemo(() => (logiMode && fulBoard && aedBoard ? buildLogisticsBoard(board, fulBoard, aedBoard, cardEvents) : null), [logiMode, board, fulBoard, aedBoard, cardEvents]);
   // Sales: the customers (Potential Customers) from the Training board's copy, the documents from the Sales copy.
-  const salesBoard = useMemo(() => (salesMode && sales.data ? buildSalesBoard(data?.leads ?? [], sales.data.quotes, sales.data.pis, sales.data.invoices, sales.data.payments, cardEvents, aliases, contacts) : null),
-    [salesMode, data, sales.data, cardEvents, aliases, contacts]);
+  // The Fire Safety deals (sales.ts fireDeals): on the Fire Safety board, and off the Sales board.
+  const fireSet = useMemo(() => (sales.data ? fireDeals(sales.data.quotes, sales.data.pis, sales.data.invoices, sales.data.payments, cardEvents, sales.data.fire ?? []) : new Set<string>()), [sales.data, cardEvents]);
+  const salesBoard = useMemo(() => {
+    if (!salesMode || !sales.data) return null;
+    const d = splitForBoard(fireMode ? "fire" : "sales", fireSet, data?.leads ?? [], sales.data.quotes, sales.data.pis, sales.data.invoices, sales.data.payments, cardEvents);
+    return buildSalesBoard(d.leads, d.quotes, d.pis, d.invoices, d.payments, cardEvents, aliases, contacts);
+  }, [salesMode, fireMode, fireSet, data, sales.data, cardEvents, aliases, contacts]);
   const options = { typeOptions: data?.typeOptions ?? [], sectorOptions: data?.sectorOptions ?? [], orgId: data?.orgId };
 
   // A merged quote/PI that disappeared from Zoho moves its cards apart — log why, once.
@@ -856,16 +863,16 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
   useEffect(() => {
     const id = wantOpen.current;
     if (!id) return;
-    const homes: BoardKind[] = isSaleCard(id) ? ["sales"] : id.startsWith("aed:") ? ["aed", "logistics"] : id.startsWith("fulfil:") ? ["fulfil"] : /^logi(pay)?:/.test(id) ? ["logistics"] : ["training"];
+    const homes: BoardKind[] = isSaleCard(id) ? (sales.data ? [fireSet.has(id) ? "fire" : "sales"] : []) : id.startsWith("aed:") ? ["aed", "logistics"] : id.startsWith("fulfil:") ? ["fulfil"] : /^logi(pay)?:/.test(id) ? ["logistics"] : ["training"];
     const kind = homes.find((k) => allowed.includes(k));
     if (!kind) return void (wantOpen.current = null);
     if (boardKind !== kind) return setBoardKind(kind);
-    const cards = kind === "aed" ? aedBoard?.cards : kind === "fulfil" ? fulBoard?.cards : kind === "logistics" ? logiBoard?.cards : kind === "sales" ? salesBoard?.cards : board.cards;
+    const cards = kind === "aed" ? aedBoard?.cards : kind === "fulfil" ? fulBoard?.cards : kind === "logistics" ? logiBoard?.cards : kind === "sales" || kind === "fire" ? salesBoard?.cards : board.cards;
     if (cards?.has(id)) {
       wantOpen.current = null;
       setOpen({ id, merge: false });
     }
-  }, [boardKind, board, aedBoard, fulBoard, logiBoard, salesBoard]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [boardKind, board, aedBoard, fulBoard, logiBoard, salesBoard, fireSet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A flagged card opens the side-by-side merge view; anything else opens its details.
   const openCard = (c: CardView) => setOpen({ id: c.id, merge: c.flaggedWith.length > 0 });
@@ -877,12 +884,12 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
     <div ref={pageRef} className="fu-page" style={colH ? ({ "--fu-col-h": `${colH}px` } as React.CSSProperties) : undefined}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">{aedMode ? "AedSmartx Training" : fulfilMode ? "Fulfillment" : logiMode ? "Logistics" : salesMode ? "Sales" : "Follow-ups"}</h1>
+          <h1 className="text-[20px] font-semibold leading-tight tracking-tight">{aedMode ? "AedSmartx Training" : fulfilMode ? "Fulfillment" : logiMode ? "Logistics" : fireMode ? "Fire Safety" : salesMode ? "Sales" : "Follow-ups"}</h1>
           <p className="text-[12.5px] text-muted">
             {salesMode ? (
               <>
-                {salesCols.s_lead.length.toLocaleString("en-IN")} potential customers · {salesCols.s_quote.length} quotations · {salesCols.s_pi.length} performa invoices · {salesCols.s_invoice.length} invoices · {salesCols.s_paid.length} payments · {salesCols.s_lost.length} lost
-                {sales.data?.windowStart && <> · everything but training, since {fmtDate(sales.data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
+                {!fireMode && <>{salesCols.s_lead.length.toLocaleString("en-IN")} potential customers · </>}{salesCols.s_quote.length} quotations · {salesCols.s_pi.length} performa invoices · {salesCols.s_invoice.length} invoices · {salesCols.s_paid.length} payments · {salesCols.s_lost.length} lost
+                {sales.data?.windowStart && <> · {fireMode ? "deals with Fire Safety items" : "everything but training and Fire Safety"}, since {fmtDate(sales.data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
                 {sales.data?.pending ? <> · payments of {sales.data.pending} paid invoices still being read from Zoho</> : null}
               </>
             ) : logiMode ? (

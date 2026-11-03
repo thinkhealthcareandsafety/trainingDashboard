@@ -72,6 +72,54 @@ function liveMerges(active: CardEvent[], exists: Set<string>, paid: Set<string>)
   return into;
 }
 
+/**
+ * The Fire Safety board (owner, 3 Nov: "a separate fire safety dashboard … sales diff, and fire safety diff … any quote
+ * that consist of fire safety items, they go in this dashboard"). `fireDocs` = the documents with at least one item whose
+ * Zoho "identifier" is Fire Safety ("estimates:<id>", "salesorders:<id>", "invoices:<id>" — salesSync.ts). A whole deal
+ * goes together: a quotation, the PIs citing it, the invoices citing those (or the quotation), their payments — and
+ * documents merged together on the board. If any of them has a Fire Safety item, the whole deal is on the Fire Safety
+ * board and off the Sales board. Returns the card ids ("sale:<kind>:<id>") of those deals.
+ */
+export function fireDeals(quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[], fireDocs: Iterable<string>): Set<string> {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => { let r = x; while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!; parent.set(x, r); return r; };
+  const join = (a?: string, b?: string) => { if (!a || !b) return; const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  const quoteRef = (r?: string) => r?.match(/Quotation-[\w-]+/i)?.[0];
+  const piRef = (r?: string) => r?.match(/Performa-[\w-]+/i)?.[0];
+  const quoteBy = new Map(quotes.map((q) => [q.number, saleId("quote", q.estimateId)]));
+  const piBy = new Map(pis.map((p) => [p.number, saleId("pi", p.salesorderId)]));
+  for (const p of pis) join(saleId("pi", p.salesorderId), quoteBy.get(quoteRef(p.reference) ?? ""));
+  for (const i of invoices) {
+    const me = saleId("invoice", i.invoiceId);
+    join(me, piBy.get(piRef(i.reference) ?? ""));
+    join(me, quoteBy.get(quoteRef(i.reference) ?? ""));
+  }
+  for (const p of payments) join(saleId("payment", p.paymentId), saleId("invoice", p.invoiceId));
+  // Documents merged on the board belong together too (leads aside — a customer isn't a deal).
+  for (const e of events) if (e.kind === "merge" && !e.revertedAt && e.cardIds.every((id) => isSaleCard(id) && kindOfId(id) !== "lead")) join(e.cardIds[0], e.cardIds[1]);
+  const KIND: Record<string, CardKind> = { estimates: "quote", salesorders: "pi", invoices: "invoice" };
+  const fireRoots = new Set<string>();
+  for (const k of fireDocs) { const [kind, id] = k.split(":"); if (KIND[kind] && id) fireRoots.add(find(saleId(KIND[kind], id))); }
+  const all = [...quotes.map((q) => saleId("quote", q.estimateId)), ...pis.map((p) => saleId("pi", p.salesorderId)), ...invoices.map((i) => saleId("invoice", i.invoiceId)), ...payments.map((p) => saleId("payment", p.paymentId))];
+  return new Set(all.filter((id) => fireRoots.has(find(id))));
+}
+
+/**
+ * The Sales board without the Fire Safety deals, or the Fire Safety board (those deals only, no Potential Customers).
+ * A customer merged into a Fire Safety deal stays off Sales too — else it would come back as a Potential Customer.
+ */
+export function splitForBoard(board: "sales" | "fire", fire: Set<string>, leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[] = []) {
+  const keep = (id: string) => (board === "fire") === fire.has(id);
+  const intoFire = new Set(events.filter((e) => e.kind === "merge" && !e.revertedAt && kindOfId(e.cardIds[0]) === "lead" && fire.has(e.cardIds[1])).map((e) => e.cardIds[0]));
+  return {
+    leads: board === "fire" ? [] : leads.filter((l) => !intoFire.has(saleId("lead", l.contactId))),
+    quotes: quotes.filter((q) => keep(saleId("quote", q.estimateId))),
+    pis: pis.filter((p) => keep(saleId("pi", p.salesorderId))),
+    invoices: invoices.filter((i) => keep(saleId("invoice", i.invoiceId))),
+    payments: payments.filter((p) => keep(saleId("payment", p.paymentId))),
+  };
+}
+
 export function buildSalesBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[], invoices: ZohoInvoice[], payments: ZohoPayment[], events: CardEvent[], aliases?: Map<string, string[]>, contacts?: CustomerContacts) {
   const active = events.filter((e) => !e.revertedAt && e.cardIds.some(isSaleCard)).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
   const byCard = new Map<string, CardEvent[]>();

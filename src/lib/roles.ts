@@ -15,7 +15,7 @@ import type { CardEvent } from "./types";
  * when someone else made them — the flow must stay in order.
  */
 
-export type BoardKind = "training" | "sales" | "aed" | "fulfil" | "logistics";
+export type BoardKind = "training" | "sales" | "fire" | "aed" | "fulfil" | "logistics";
 type Who = { id: string; name: string };
 
 const named = (m: Who, re: RegExp) => re.test(m.name.trim());
@@ -28,8 +28,9 @@ const isSalesOnly = (m: Who) => named(m, /^pranjal\b/i);
 export const canQuote = (m: Who) => hasFullAccess(m) || isSalesOnly(m);
 
 export function boardsFor(m: Who): BoardKind[] {
-  if (hasFullAccess(m)) return ["training", "sales", "aed", "fulfil", "logistics"];
-  if (isSalesOnly(m)) return ["sales"];
+  // "fire": the Fire Safety board (owner, 3 Nov) — the Sales board's deals with Fire Safety items; the same people.
+  if (hasFullAccess(m)) return ["training", "sales", "fire", "aed", "fulfil", "logistics"];
+  if (isSalesOnly(m)) return ["sales", "fire"];
   if (named(m, /^priyanka\b/i)) return ["aed"];
   if (named(m, /^arti\b/i)) return ["logistics"];
   if (named(m, /^shreya\b/i)) return ["fulfil"];

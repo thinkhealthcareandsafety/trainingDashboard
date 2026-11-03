@@ -1,4 +1,5 @@
 import "server-only";
+import { gunzipSync } from "node:zlib";
 import type { ZohoInvoice, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { syncWindowStart, ymd } from "./dates";
 import { db } from "./db";
@@ -21,6 +22,52 @@ import { type Kind, type ZDoc, type ZItem, KINDS, docIdOf, fetchDetail, fetchInv
  */
 
 const PAY_BATCH = 150;
+/**
+ * Fire Safety (owner, 3 Nov: the Fire Safety board takes "any quote that consist of fire safety items", by the Zoho item's
+ * "item identifier"). Which items a document holds comes from the Reports copy of Zoho Analytics (Quote / Sales Order /
+ * Invoice Items — no Books calls); a document newer than that copy has its lines read from Books once (at most
+ * LINES_BATCH a sync, only documents from the last LINES_DAYS days), kept in `salesDetails`.
+ */
+const FIRE = "Fire Safety";
+const LINES_BATCH = 30;
+const LINES_DAYS = 14;
+const ITEM_TABLES = [["estimates", "quoteItems", "Quote ID"], ["salesorders", "salesOrderItems", "Sales order ID"], ["invoices", "invoiceItems", "Invoice ID"]] as const;
+type Lines = Map<string, Set<string>>; // "estimates:<id>" → its items' Zoho ids
+
+type ItemTable = { _id: string; rows?: Record<string, unknown>[]; gz?: { buffer: Uint8Array } };
+const GL = globalThis as unknown as { __thSaleLines?: { at: string; pairs: [string, string][] } };
+/** The Analytics copy's document → item pairs, read once per refresh (three tables, ~0.2 MB gzipped). */
+async function analyticsItems(): Promise<[string, string][]> {
+  const at = String((await (await kv()).findOne({ _id: "za_state" }, { projection: { refreshedAt: 1 } }))?.refreshedAt ?? "");
+  if (GL.__thSaleLines?.at === at) return GL.__thSaleLines.pairs;
+  const docs = await (await db()).collection<ItemTable>("za_tables").find({ _id: { $in: ITEM_TABLES.map((t) => t[1]) } }).toArray();
+  const pairs: [string, string][] = [];
+  for (const [kind, table, idCol] of ITEM_TABLES) {
+    const d = docs.find((x) => x._id === table);
+    const rows: Record<string, unknown>[] = d?.gz ? JSON.parse(gunzipSync(d.gz.buffer).toString("utf8")) : d?.rows ?? [];
+    for (const r of rows) if (r[idCol] && r["Product ID"]) pairs.push([`${kind}:${r[idCol]}`, String(r["Product ID"])]);
+  }
+  GL.__thSaleLines = { at, pairs };
+  return pairs;
+}
+
+/** Each document's item ids: the Analytics copy, the Training board's copy (it has training documents' lines), and Books reads. */
+async function docItems(): Promise<Lines> {
+  const out: Lines = new Map();
+  const add = (key: string, item: unknown) => { if (item === undefined || item === null || item === "") return; const s = out.get(key) ?? new Set<string>(); s.add(String(item)); out.set(key, s); };
+  try {
+    for (const [k, item] of await analyticsItems()) add(k, item);
+  } catch (e) {
+    console.error(`[sales] Analytics copy unavailable for Fire Safety: ${e instanceof Error ? e.message : e}`);
+  }
+  for (const d of await (await col<TrainingDoc>("zohoDocs")).find({ "doc.line_items.0": { $exists: true } }, { projection: { "doc.line_items.item_id": 1 } }).toArray())
+    for (const li of (d.doc?.line_items as ZDoc[]) ?? []) add(d._id, li.item_id);
+  for (const d of await (await col<Detail>("salesDetails")).find({}, { projection: { "doc.line_items.item_id": 1 } }).toArray())
+    for (const li of (d.doc?.line_items as ZDoc[]) ?? []) add(d._id, li.item_id);
+  return out;
+}
+const fireItemIds = async () => new Set((((await (await kv()).findOne({ _id: "zoho_items" }))?.items as (ZItem & { identifier?: string })[] | undefined) ?? [])
+  .filter((i) => i.identifier === FIRE).map((i) => String(i.id)));
 /** List fields the board uses — the rest of Zoho's list row isn't kept (a whole row is ~1.5 KB; this is ~300 B). */
 const KEEP = ["estimate_id", "salesorder_id", "invoice_id", "estimate_number", "salesorder_number", "invoice_number", "date", "created_time", "last_modified_time",
   "status", "customer_id", "customer_name", "salesperson_name", "reference_number", "total", "balance", "due_date", "payment_made"];
@@ -97,7 +144,23 @@ export async function syncSales(full: boolean): Promise<{ docs: number; payments
     await pays.replaceOne({ _id: d.id }, { lmt: d.lmt, rows: await fetchInvoicePaymentRows(d.id) }, { upsert: true });
   });
 
-  if (changed || stale.length) state.version = (state.version ?? 0) + 1;
+  // Lines of new documents the Analytics copy doesn't have yet (Fire Safety board) — newest first, a few a sync.
+  let linesRead = 0;
+  try {
+    const known = await docItems();
+    const recent = ymd(new Date(Date.now() - LINES_DAYS * 86_400_000));
+    const missing = (await docs.find({ date: { $gte: recent } }, { projection: { kind: 1, id: 1, date: 1, lmt: 1 } }).toArray())
+      .filter((d) => !known.has(d._id) && !only.has(d._id)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, LINES_BATCH);
+    const details = await col<Detail>("salesDetails");
+    await pool(missing, 4, async (d) => {
+      const full = await fetchDetail(d.kind, d.id);
+      if (full) { await details.replaceOne({ _id: d._id }, { lmt: d.lmt, doc: full }, { upsert: true }); linesRead++; }
+    });
+  } catch (e) {
+    console.error(`[sales] reading new documents' lines failed: ${e instanceof Error ? e.message : e}`);
+  }
+
+  if (changed || stale.length || linesRead) state.version = (state.version ?? 0) + 1;
   state.syncedAt = new Date().toISOString();
   await (await kv()).replaceOne({ _id: "sales_state" }, state as unknown as Record<string, unknown>, { upsert: true });
   return { docs: changed, payments: stale.length };
@@ -105,21 +168,26 @@ export async function syncSales(full: boolean): Promise<{ docs: number; payments
 
 /* ---------------- Reading the copy ---------------- */
 
-export type SalesResponse = { syncedAt: string; windowStart: string; quotes: ZohoQuote[]; pis: ZohoPI[]; invoices: ZohoInvoice[]; payments: ZohoPayment[]; pending?: number; error?: string };
-/** Bumped when the board data changes shape (e.g. 30 Oct: quote / PI totals) — a server keeps its copy across code reloads. */
-const SHAPE = 2;
+/** `fire`: the documents holding a Fire Safety item ("estimates:<id>" …) — sales.ts fireDeals splits the boards by them. */
+export type SalesResponse = { syncedAt: string; windowStart: string; quotes: ZohoQuote[]; pis: ZohoPI[]; invoices: ZohoInvoice[]; payments: ZohoPayment[]; fire?: string[]; pending?: number; error?: string };
+/** Bumped when the board data changes shape (e.g. 30 Oct: quote / PI totals; 3 Nov: fire) — a server keeps its copy across code reloads. */
+const SHAPE = 3;
 const G = globalThis as unknown as { __thSales?: { key: string; data: SalesResponse } | null };
 
 /** The board's data, rebuilt only when the Sales copy (or the Training board's copy, for training-only) changed. */
 export async function salesData(): Promise<SalesResponse> {
-  const [state, zoho] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_state" }, { projection: { version: 1 } })]);
-  const key = `${SHAPE}|${state.version}|${zoho?.version ?? 0}`;
+  const [state, zoho, za] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_state" }, { projection: { version: 1 } }), (await kv()).findOne({ _id: "za_state" }, { projection: { refreshedAt: 1 } })]);
+  // The Analytics copy's refresh counts too: it says which documents hold Fire Safety items.
+  const key = `${SHAPE}|${state.version}|${zoho?.version ?? 0}|${za?.refreshedAt ?? ""}`;
   if (G.__thSales?.key === key) return { ...G.__thSales.data, syncedAt: state.syncedAt ?? G.__thSales.data.syncedAt };
-  const [rows, payRows, only] = await Promise.all([
+  const [rows, payRows, only, items, fireItems] = await Promise.all([
     (await col<SalesRow>("salesDocs")).find({}).toArray(),
     (await col<SalesPays>("salesPayments")).find({}).toArray(),
     trainingOnly(),
+    docItems(),
+    fireItemIds(),
   ]);
+  const fire = [...items].filter(([k, ids]) => [...ids].some((i) => fireItems.has(i)) && !only.has(k)).map(([k]) => k);
   const none = new Set<string>();
   const of = (kind: Kind) => rows.filter((r) => r.kind === kind && !only.has(r._id)).sort((a, b) => b.date.localeCompare(a.date));
   const invoices = of("invoices").map((r) => toInvoice(r.row, none));
@@ -131,6 +199,7 @@ export async function salesData(): Promise<SalesResponse> {
     pis: of("salesorders").map((r) => ({ ...toPI(r.row, none), total: Number(r.row.total) || 0 })),
     invoices,
     payments: invoices.flatMap((i) => toPayments(i, byInvoice.get(i.invoiceId) ?? [])),
+    fire,
     // Paid invoices whose payments aren't read yet (the first fill goes PAY_BATCH a sync).
     pending: of("invoices").filter((r) => paidSome(r.row) && !byInvoice.has(r.id)).length || undefined,
   };
