@@ -17,7 +17,7 @@ import { SalesModal } from "./followups/SalesModal";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
 import { StatePill } from "./followups/FulfilCerts";
 import { LogiAedModal, LogisticsModal } from "./followups/LogisticsModal";
-import { type DateFilterValue, DateFilterButton, matchesDateFilter } from "./followups/DateFilter";
+import { type DateFilterValue, DateFilterButton, matchesDateFilter, thisWeek } from "./followups/DateFilter";
 import { AddPotentialModal, CardModal, DUE_TONE, DueChip, FlagBadge, MergeModal, SCHEDULE_TONE, scheduleText } from "./followups/CardModal";
 
 type Stage = "lead" | "quotation" | "performa" | "training" | "training_completed" | "invoiced" | "paid" | "lost" | "potential"
@@ -761,7 +761,12 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
   const [showDeleted, setShowDeleted] = useState(false);
   // Logistics: "Unhide cards" shows the AED cards Arti hid, so one can be opened and brought back.
   const [showHidden, setShowHidden] = useState(false);
-  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null);
+  // The Sales board opens on this week (owner, 3 Nov: "by default it should show this week"); × shows everything. The
+  // other boards start unfiltered (the Training board must show next week's trainings), each keeping its own choice.
+  const [boardFilter, setBoardFilter] = useState<DateFilterValue | null>(null);
+  const [salesFilter, setSalesFilter] = useState<DateFilterValue | null>(() => thisWeek());
+  const dateFilter = salesMode ? salesFilter : boardFilter;
+  const setDateFilter = salesMode ? setSalesFilter : setBoardFilter;
   const [open, setOpen] = useState<{ id: string; merge: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
   const { viewRef, perView, offset, maxOffset, move, swipe } = useColumnWindow(stages.length);

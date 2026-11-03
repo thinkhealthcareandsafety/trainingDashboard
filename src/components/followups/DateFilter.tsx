@@ -33,7 +33,16 @@ export function matchesDateFilter(c: CardView, f: DateFilterValue | null): boole
 }
 
 /** "Sep 2026" · "Sep, Oct 2026" · "Dec 2025, Jan 2026" · "5 Sep – 20 Oct 2026" · "From 5 Sep 2026". */
+/** Monday to Sunday of the week we're in (the browser's day — IST for the team). */
+export function thisWeek(now = new Date()): DateFilterValue {
+  const day = (d: Date) => d.toLocaleDateString("en-CA");
+  const mon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  return { kind: "range", from: day(mon), to: day(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6)) };
+}
+
 export function describeDateFilter(f: DateFilterValue): string {
+  const w = thisWeek();
+  if (f.kind === "range" && w.kind === "range" && f.from === w.from && f.to === w.to) return "This week";
   if (f.kind === "range") return f.from && f.to ? `${dayLong(f.from)} – ${dayLong(f.to)}` : f.from ? `From ${dayLong(f.from)}` : `Until ${dayLong(f.to)}`;
   const ms = [...f.months].sort();
   const oneYear = ms.every((m) => m.slice(0, 4) === ms[0].slice(0, 4));
@@ -120,8 +129,10 @@ function FilterModal({ value, onApply, onClose }: { value: DateFilterValue | nul
             <span className="mb-1.5 block text-[13px] font-medium text-ink-2">To</span>
             <input type="date" className={`${inputCls} !h-9 text-[13px]`} value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
           </label>
-          <p className={`col-span-2 min-h-[20px] text-[13px] ${swapped ? "font-medium text-high" : "text-muted"}`}>
+          <p className={`col-span-2 flex min-h-[20px] items-center justify-between gap-2 text-[13px] ${swapped ? "font-medium text-high" : "text-muted"}`}>
             {swapped ? "“From” is after “To”." : "Leave one side empty for an open range."}
+            <button type="button" className="shrink-0 font-semibold text-brand hover:underline"
+              onClick={() => { const w = thisWeek(); if (w.kind === "range") { setFrom(w.from); setTo(w.to); } }}>This week</button>
           </p>
         </div>
       )}
