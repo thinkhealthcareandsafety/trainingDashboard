@@ -231,10 +231,18 @@ export function buildSalesBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: Zoh
   applyCustomerAliases(cards, aliases ?? new Map());
   applyCustomerContacts(cards, contacts ?? new Map());
 
-  const live = [...cards.values()].filter((c) => !c.mergedInto);
+  // Every column newest first (owner, 3 Nov: "sort it all by recency, the latest comes on top") — a customer box sits
+  // where its newest card does.
+  const live = [...cards.values()].filter((c) => !c.mergedInto).sort(recentFirst);
   const column = (k: CardKind) => live.filter((c) => c.kind === k && !c.lost);
   return {
     cards, exists, leadCards: column("lead"), quoteCards: column("quote"), piCards: column("pi"),
     invoiceCards: column("invoice"), paymentCards: column("payment"), lostCards: live.filter((c) => c.lost),
   };
 }
+
+/** A card's own date: the document's date, or when the customer was created in Zoho (Potential Customers, to the second). */
+const cardWhen = (c: CardView) => c.docDate ?? c.customerSince ?? "";
+/** Same day: the higher document number first ("Payment #1970" before "#998" — numbers compared as numbers). */
+export const recentFirst = (a: CardView, b: CardView) =>
+  cardWhen(b).localeCompare(cardWhen(a)) || (b.docNumber ?? "").localeCompare(a.docNumber ?? "", undefined, { numeric: true }) || a.id.localeCompare(b.id);

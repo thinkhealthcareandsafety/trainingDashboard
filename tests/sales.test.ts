@@ -99,3 +99,12 @@ test("Sales merges never get a \"no longer in Zoho Books\" notice from the Train
   const gone = merge("quote:q1", "pi:gone");
   assert.equal(zohoNotices([gone], training.exists, training.cards, "2026-11-01T00:00:00.000Z").length, 1);
 });
+
+test("every column newest first; same day: the higher number first (owner, 3 Nov)", async () => {
+  const { recentFirst } = await import("@/lib/sales");
+  const q = (id: string, date: string, number: string) => ({ ...quote, estimateId: id, date, number });
+  const b = buildSalesBoard([lead], [q("a", "2026-03-27", "Quotation-24-001794"), q("b", "2026-11-02", "Quotation-24-002746"), q("c", "2026-11-02", "Quotation-24-002745"), q("d", "2026-10-29", "Quotation-24-002729")], [], [], [], []);
+  assert.deepEqual(b.quoteCards.map((c) => c.docNumber), ["Quotation-24-002746", "Quotation-24-002745", "Quotation-24-002729", "Quotation-24-001794"]);
+  const pays = [b.cards.get(saleId("quote", "a"))!, b.cards.get(saleId("quote", "d"))!].map((c, i) => ({ ...c, docDate: "2026-11-02", docNumber: ["Payment #998", "Payment #1970"][i] }));
+  assert.deepEqual(pays.sort(recentFirst).map((c) => c.docNumber), ["Payment #1970", "Payment #998"]);
+});
