@@ -98,8 +98,10 @@ function useCalendarItems(kind: KindFilter, who: WhoFilter) {
       if (!pickWho(entryWho(e), ownsEntry(member, e))) continue;
       add({ kind: "entry", key: `e:${e.id}`, date: e.date, time: e.allDay ? undefined : e.startTime, who: entryWho(e), e });
     }
-    // Priority is the time of day: all-day first, then by time.
-    m.forEach((v) => v.sort((a, b) => (a.time ?? "").localeCompare(b.time ?? "") || label(a).localeCompare(label(b))));
+    // Your own first (owner, 3 Nov: "each person should see their things first … before anyone else's"), then the time
+    // of day: all-day first, then by time.
+    const mine = (it: Item) => (it.kind === "training" ? ownsTraining(member, it.t) : ownsEntry(member, it.e));
+    m.forEach((v) => v.sort((a, b) => Number(mine(b)) - Number(mine(a)) || (a.time ?? "").localeCompare(b.time ?? "") || label(a).localeCompare(label(b))));
     return m;
   }, [entries, data, member, kind, who, known]);
   return { byDate, whole, known, member };
@@ -110,7 +112,7 @@ const label = (it: Item) => (it.kind === "training" ? it.t.alias || it.t.custome
  * The people in what's shown, for the legend (and the Who filter): the team by name; anyone else (external trainers)
  * as one "External trainers" entry (owner, 19 Oct).
  */
-function peopleOf(byDate: Map<string, Item[]>, known: Set<string>): { key: string; name: string; colour: string }[] {
+function peopleOf(byDate: Map<string, Item[]>, known: Set<string>, me?: string): { key: string; name: string; colour: string }[] {
   const seen = new Map<string, string>();
   let external = false;
   for (const list of byDate.values()) for (const it of list) for (const n of it.who) {
@@ -118,7 +120,9 @@ function peopleOf(byDate: Map<string, Item[]>, known: Set<string>): { key: strin
     if (!known.has(first(n).toLowerCase())) external = true;
     else if (!seen.has(first(n).toLowerCase())) seen.set(first(n).toLowerCase(), n);
   }
-  const team = [...seen.values()].sort((a, b) => a.localeCompare(b)).map((n) => ({ key: n, name: n, colour: personColour(n) }));
+  // You first in the legend, then A–Z.
+  const isMe = (n: string) => Boolean(me && first(n).toLowerCase() === first(me).toLowerCase());
+  const team = [...seen.values()].sort((a, b) => Number(isMe(b)) - Number(isMe(a)) || a.localeCompare(b)).map((n) => ({ key: n, name: n, colour: personColour(n) }));
   return external ? [...team, { key: EXTERNAL_KEY, name: "External trainers", colour: EXTERNAL }] : team;
 }
 
@@ -345,8 +349,8 @@ export function FullCalendar({ initialDate, openCard, openEntry }: { initialDate
   const gridKey = `${ymd(days[0])}:${days.length}`;
   const people = useMemo(() => {
     const inGrid = new Set(days.map(ymd));
-    return peopleOf(new Map([...unfiltered].filter(([d]) => inGrid.has(d))), known);
-  }, [unfiltered, known, gridKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    return peopleOf(new Map([...unfiltered].filter(([d]) => inGrid.has(d))), known, member?.name);
+  }, [unfiltered, known, gridKey, member?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Opened from a link (Overview, ticker, a reminder): the training card or the meeting / event straight away.
   const opened = useRef(false);
