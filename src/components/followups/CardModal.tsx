@@ -1312,7 +1312,9 @@ export function SalesSection({ card }: { card: CardView }) {
   );
 }
 
-export function DocsSection({ card, options }: { card: CardView; options: BoardOptions }) {
+/** `dense`: tighter rows (the Sales popup, owner 3 Nov: "fit in one window"). */
+export function DocsSection({ card, options, dense }: { card: CardView; options: BoardOptions; dense?: boolean }) {
+  const cell = dense ? "py-1.5" : "py-2.5";
   const q = card.linkedQuote;
   const p = card.pi ?? card.linkedPI;
   const inv = card.invoice ?? card.linkedInvoice;
@@ -1329,23 +1331,23 @@ export function DocsSection({ card, options }: { card: CardView; options: BoardO
   const status = pay ? undefined : card.invoice?.status ?? card.pi?.status ?? card.quote?.status;
   return (
     <Section title="IDs & dates" aside={<span className="inline-flex items-center gap-1 text-[12px] text-faint"><Lock /> from Zoho Books — read only</span>}>
-      <table className="w-full text-[14px]">
+      <table className={`w-full ${dense ? "text-[13.5px]" : "text-[14px]"}`}>
         <thead className="text-left text-[12px] font-medium text-muted">
-          <tr className="border-b border-line"><th className="pb-2 font-medium">Document</th><th className="pb-2 font-medium">Number</th><th className="pb-2 font-medium">Date</th></tr>
+          <tr className="border-b border-line"><th className={`${dense ? "pb-1.5" : "pb-2"} font-medium`}>Document</th><th className="pb-2 font-medium">Number</th><th className="pb-2 font-medium">Date</th></tr>
         </thead>
         <tbody>
           {rows.map(([k, no, date, href]) => (
             <tr key={k} className="border-b border-line last:border-b-0">
-              <td className="py-2.5 pr-3 font-medium text-muted">{k}</td>
-              <td className="py-2.5 pr-3 text-ink-2">
+              <td className={`${cell} pr-3 font-medium text-muted`}>{k}</td>
+              <td className={`${cell} pr-3 text-ink-2 ${dense ? "whitespace-nowrap" : ""}`}>
                 {no === PENDING ? <span className="italic text-muted">{no}</span> : no ? (href ? <a href={href} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">{no}</a> : no) : <span className="text-faint">—</span>}
               </td>
-              <td className="num py-2.5 text-ink-2">{date === PENDING ? <span className="italic text-muted">{date}</span> : date ? dateLong(date) : <span className="text-faint">—</span>}</td>
+              <td className={`num ${cell} text-ink-2 ${dense ? "whitespace-nowrap" : ""}`}>{date === PENDING ? <span className="italic text-muted">{date}</span> : date ? dateLong(date) : <span className="text-faint">—</span>}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      {status && <p className="mt-3 text-[12.5px] text-muted">Zoho status: <span className="font-medium capitalize text-ink-2">{status.replace(/_/g, " ")}</span></p>}
+      {status && <p className={`${dense ? "mt-2" : "mt-3"} text-[12.5px] text-muted`}>Zoho status: <span className="font-medium capitalize text-ink-2">{status.replace(/_/g, " ")}</span></p>}
       {pay && (
         <p className="mt-3 text-[12.5px] text-muted">
           Amount received: <span className="num font-semibold text-ink-2">{fmtINR(pay.amount)}</span>{pay.mode && <> · {pay.mode}</>}{pay.reference && <> · Ref# {pay.reference}</>}

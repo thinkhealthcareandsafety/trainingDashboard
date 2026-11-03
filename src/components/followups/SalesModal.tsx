@@ -79,9 +79,12 @@ export function SalesModal({ card, cards, member, options, onClose, onReviewMerg
 
   return (
     <Shell label={`${card.name} details`} onClose={onClose} footer={footer} side={<ChangeLog cardIds={card.historyIds} cards={cards} member={member} />}>
+      {/* Wide screens: one window, no scrolling (owner, 3 Nov: "fit in one window") — the top row keeps its height, the
+          document takes what's left and only its lines scroll when there are many. Phones scroll as before. */}
+      <div className="xl:flex xl:h-full xl:flex-col">
       <Header kind={card.kind} sub={sub} title={card.name} flagged={card.flaggedWith.length > 0}
         ask={<AskLink cardId={card.id} title={`${card.name}${card.docNumber ? ` · ${card.docNumber}` : ""}`} search={card.name} />} onClose={onClose} />
-      <div className="space-y-3 p-4">
+      <div className="space-y-3 p-4 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:gap-3 xl:space-y-0">
         {card.deleted && (
           <div className="flex items-center justify-between gap-3 rounded-xl bg-high-bg px-4 py-3 text-[14px] text-high">
             {ownDelete ? "This card is deleted; the customer is back in Potential Customers." : "Hidden because the card it was merged into was deleted — restore that card to bring it back."}
@@ -96,21 +99,23 @@ export function SalesModal({ card, cards, member, options, onClose, onReviewMerg
         )}
         {/* Owner, 3 Nov: "customer details | IDs and dates, then the quote / PI / invoice … in a table" — the document gets
             the whole width, the customer folds away until clicked. */}
-        <div className="grid items-start gap-3 xl:grid-cols-2">
-          <div className="space-y-3">
+        {/* Two columns of the same height: each column's last box stretches, so the bottoms line up (owner, 3 Nov). */}
+        <div className="grid gap-3 xl:grid-cols-2">
+          <div className="flex flex-col gap-3 [&>*:last-child]:flex-1">
             <CustomerFold card={card} open={Boolean(draft)}>
               {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
             </CustomerFold>
             <SalesSection card={card} />
+            <PaymentSection card={card} cards={cards} />
             <NotesSection card={card} member={member} options={options} />
           </div>
-          <DocsSection card={card} options={options} />
+          <div className="flex flex-col gap-3 [&>*:last-child]:flex-1">
+            <ChainSection card={card} cards={cards} onUnmerge={unmerge} canUnmerge={canUnmerge} />
+            <DocsSection card={card} options={options} dense />
+          </div>
         </div>
         <DocumentSection card={card} />
-        <div className="grid items-start gap-3 empty:hidden xl:grid-cols-2">
-          <ChainSection card={card} cards={cards} onUnmerge={unmerge} canUnmerge={canUnmerge} />
-          <PaymentSection card={card} cards={cards} />
-        </div>
+      </div>
       </div>
     </Shell>
   );
@@ -171,31 +176,43 @@ function DocumentSection({ card }: { card: CardView }) {
   if (!d) return <Section title={title} aside={aside}><div className="h-24 animate-pulse rounded-lg bg-surface-2" /></Section>;
   if ("error" in d) return <Section title={title} aside={aside}><p className="text-[13px] text-high">{d.error}</p></Section>;
   const row = "flex justify-between gap-3";
-  const th = "px-3 py-2 text-[12px] font-semibold text-muted";
-  const td = "num px-3 py-2.5 text-[13.5px] text-ink-2";
+  // Number columns take only the width they need, so the item's name gets the rest.
+  const th = "w-px whitespace-nowrap px-2.5 py-2 text-[12px] font-semibold text-muted";
+  const td = "num w-px whitespace-nowrap px-2.5 py-2 text-[13.5px] text-ink-2";
   return (
-    <Section title={`${title} · ${d.number}`} aside={aside}>
-      {/* A real table (owner, 3 Nov: "it will look better in a table"): ruled cells, a header band, full width. */}
-      <div className="overflow-x-auto rounded-xl border border-line">
-        <table className="w-full min-w-[640px] border-collapse">
-          <thead className="bg-surface-2 text-left">
+    // Its own box (not Section) so it can fill what's left of the window and let only the lines scroll.
+    <section className="rounded-2xl border border-line bg-surface px-4 py-3.5 xl:flex xl:min-h-0 xl:flex-col">
+      <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+        <h3 className="text-[16px] font-bold tracking-tight text-ink">
+          {`${title} · ${d.number}`}
+          <span className="ml-2 text-[13px] font-medium text-muted">{d.lines.length} item{d.lines.length === 1 ? "" : "s"}</span>
+        </h3>
+        {aside}
+      </div>
+      {/* Wide screens: the totals sit beside the lines, so the lines get the height (owner, 3 Nov: "fit in one window"). */}
+      <div className="xl:grid xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_17rem] xl:grid-rows-[minmax(0,1fr)] xl:items-start xl:gap-4">
+      {/* A real table (owner, 3 Nov: "it will look better in a table"): ruled cells, a header band. At least ~3 lines
+          show; more scroll inside the box under a header that stays. */}
+      <div className="no-scrollbar overflow-auto rounded-xl border border-line xl:max-h-full xl:min-h-[15rem]">
+        <table className="w-full min-w-[600px] border-collapse">
+          <thead className="sticky top-0 z-[1] bg-surface-2 text-left">
             <tr className="border-b border-line">
-              <th className={`${th} w-10 text-right`}>#</th>
-              <th className={th}>Item &amp; description</th>
-              <th className={`${th} w-28`}>HSN/SAC</th>
-              <th className={`${th} w-20 text-right`}>Qty</th>
-              <th className={`${th} w-32 text-right`}>Rate</th>
-              <th className={`${th} w-16 text-right`}>GST</th>
-              <th className={`${th} w-36 text-right`}>Amount</th>
+              <th className={`${th} text-right`}>#</th>
+              <th className="px-2.5 py-2 text-[12px] font-semibold text-muted">Item &amp; description</th>
+              <th className={th}>HSN/SAC</th>
+              <th className={`${th} text-right`}>Qty</th>
+              <th className={`${th} text-right`}>Rate</th>
+              <th className={`${th} text-right`}>GST</th>
+              <th className={`${th} text-right`}>Amount</th>
             </tr>
           </thead>
           <tbody>
             {d.lines.map((l, i) => (
               <tr key={i} className="border-b border-line align-top last:border-b-0 even:bg-surface-2/40">
                 <td className={`${td} text-right text-muted`}>{i + 1}</td>
-                <td className="px-3 py-2.5">
+                <td className="px-2.5 py-2">
                   <div className="text-[13.5px] font-semibold text-ink [overflow-wrap:anywhere]">{l.name}</div>
-                  {l.description && <div className="mt-0.5 line-clamp-3 whitespace-pre-line text-[12.5px] leading-snug text-muted" title={l.description}>{l.description}</div>}
+                  {l.description && <div className="mt-0.5 line-clamp-2 whitespace-pre-line text-[12.5px] leading-snug text-muted" title={l.description}>{l.description}</div>}
                 </td>
                 <td className={td}>{l.hsn ?? "—"}</td>
                 <td className={`${td} text-right`}>{l.qty}{l.unit ? <span className="ml-1 text-[12px] text-muted">{l.unit}</span> : null}</td>
@@ -207,7 +224,8 @@ function DocumentSection({ card }: { card: CardView }) {
           </tbody>
         </table>
       </div>
-      <div className="ml-auto mt-3 w-full max-w-[22rem] space-y-1 px-3 text-[13.5px]">
+      <div className="mt-2.5 space-y-2 xl:mt-0">
+      <div className="ml-auto w-full max-w-[22rem] space-y-0.5 rounded-xl border border-line px-3 py-2 text-[13.5px] xl:max-w-none">
         <div className={row}><span className="text-muted">Sub total</span><span className="num text-ink-2">{money(d.subTotal)}</span></div>
         {d.discount ? <div className={row}><span className="text-muted">Discount</span><span className="num text-ink-2">−{money(d.discount)}</span></div> : null}
         {d.shipping ? <div className={row}><span className="text-muted">Shipping</span><span className="num text-ink-2">{money(d.shipping)}</span></div> : null}
@@ -215,8 +233,17 @@ function DocumentSection({ card }: { card: CardView }) {
         {d.adjustment ? <div className={row}><span className="text-muted">Adjustment</span><span className="num text-ink-2">{money(d.adjustment)}</span></div> : null}
         <div className={`${row} border-t border-line pt-1 text-[14px] font-bold text-ink`}><span>Total</span><span className="num">{money(d.total)}</span></div>
       </div>
-      {d.shipTo && (
-        <details className="group mt-2 border-t border-line pt-2">
+      <ShipTo d={d} />
+      </div>
+      </div>
+    </section>
+  );
+}
+
+function ShipTo({ d }: { d: SalesDetail }) {
+  if (!d.shipTo) return <span />;
+  return (
+        <details className="group px-3">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[13px] font-semibold text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
             <svg viewBox="0 0 20 20" className="size-3.5 transition group-open:rotate-90" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M7.5 5l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             Ship to
@@ -228,7 +255,5 @@ function DocumentSection({ card }: { card: CardView }) {
             {d.placeOfSupply && <div className="text-muted">Place of supply: {d.placeOfSupply}</div>}
           </div>
         </details>
-      )}
-    </Section>
   );
 }
