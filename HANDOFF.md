@@ -1,9 +1,96 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Tue 3 Nov 2026 (end of session 20, worked 30 Oct). **Live = GitHub = `18a73b7`** (both addresses), plus
-this docs commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: Tue 3 Nov 2026 (end of session 21). **Live = GitHub = `945c38c`** (both addresses), plus this docs
+commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Start of the next session (21) — do these first:**
+**Start of the next session (22) — do these first:**
+1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: all at this
+   docs commit (pushed only if the owner said "push" after it was written).
+2. `npm test` (**99** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. Read-only checks: database speed (§9 #18; 7.1 MB/s on 3 Nov), Sync log (also `salesError`), Zoho calls today (kv
+   `zoho_calls:<IST day>`, limit 2500 — the item list is now read hourly, ~6 calls, and new Sales documents' lines up
+   to 30 a sync), Sales copy (kv `sales_state`, `salesDocs` ≈ 1,920 / 1,050 / 1,060).
+4. **Fire Safety board** (new): kv `zoho_items` items with identifier "Fire Blankets" (16 on 3 Nov, compared without
+   case); live `GET /api/sales` → `fire` (47 documents on 3 Nov: 31 quotes, 10 sales orders, 6 invoices) and the Fire
+   Safety tab's header counts. `salesDetails` grows by the Books line reads (≤ 30 a sync, documents from the last 14
+   days the Analytics copy doesn't have yet) — it should stay small.
+5. **Calendar "Mark done"** (new): meetings / events dated from 3 Nov (`ENTRY_DONE_FROM`) whose day passed without
+   `doneAt` → Shikha's red "Mark done" to-dos. Only one entry existed on 3 Nov (29 Oct, before the cut-off).
+6. Training dates: no `set_training_date` with a malformed value should appear any more (the server refuses them since
+   `eb6b5fd`). The one bad one (Tata Motors Pune, "20206-11-03T11:00") was reverted by Priyanka and re-set to 4 Nov 10:00.
+7. Then the owner's next pick. Open, unasked: should the Training board also sort by recency (only Sales was asked)?
+   Keep the board name "Fire Safety" now that the identifier is "Fire Blankets"? The Sales flag cut-off question is
+   moot (both Merge alls pressed).
+
+**Session 21 (3 Nov) — newest; wins over everything below.** Owner's prompts, in order (every one pushed and live, one
+commit per step, §11 before each push; push from Git Bash; deploy checked with
+`curl https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status` — no `gh` CLI here):
+- **Checks:** `22083e5` was unpushed (pushed with the first fix); 90 tests; DB 7.1 MB/s; Sync log clean. The owner had
+  pressed **Merge all flagged twice**: 30 Oct 2,650 merges, 3 Nov 08:06 IST 812 (798 Invoice ↔ Payment).
+- **False "no longer in Zoho Books" notices** (found in the checks, "yes go ahead"): `zohoNotices` judged Sales
+  (`sale:`) merges against the Training board's `exists` → 2,650 false `zoho_change` events on 31 Oct (log clutter, no
+  card moved). `0e803ee` (pipeline skips `sale:` merges), `8a40232` (store route refuses `zoho_change` on `sale:` cards;
+  `tests/store-route.test.ts`; fake db gained `bulkWrite`, fake auth `memberIdOf`). Then, with the owner's "yes", the
+  2,650 were **archived to `cardEventsArchive`** (`clearedScope` "false Zoho Books notices on Sales cards (31 Oct)",
+  `clearedBy` "Claude (owner OK, session 21)") and deleted (guard: kind + by "Zoho Books" + all `sale:` ids).
+- **Sales popup** ("looks ugly and congested … customer details | IDs and dates … in a table", then "align everything
+  properly, fit in one window", "all this stuff at the bottom, move it up"): `6371663`, `2129b75` — `SalesModal.tsx`:
+  left column Customer details (`CustomerFold`, one line until clicked, open while editing; `Compact` exported from
+  CardModal) · Sales person · Payment · Notes; right Merged · IDs & dates (`DocsSection dense`). Each column's last box
+  stretches. The document fills the rest (xl: flex column, `h-full`): a ruled table (number columns `w-px nowrap`),
+  "N items", ≥ 15rem then scrolls inside under a sticky header; totals + Ship to beside it (19rem → 17rem column).
+  Fits 1728×958 without scrolling; 1366×768 scrolls a little.
+- **"sort it all by recency"** → `1eda9b2`: Sales columns newest first (`recentFirst` in sales.ts: docDate, or
+  customerSince for Potential Customers; same day → higher number, numeric compare).
+- **"by default it should show this week"** → `ec6727e`: the Sales (and Fire) board's own date filter starts at
+  `thisWeek()` (DateFilter.tsx, Mon–Sun, chip "This week"); other boards unfiltered; "This week" shortcut in the range.
+- **Meetings / events can be marked done, "also shikha's responsibility"** (restated in 4 points; owner "push it … also
+  remove the tracker for admin, duh" = yeah) → `764d91d` (CalendarEntry `doneAt` / `doneBy`; entry popup Mark done /
+  "✓ Done · Reopen" + Undo; tick on the calendar; red dot when past and unmarked — `entryOverdue`, `ENTRY_DONE_FROM`
+  in roles.ts), `4757ee6` (todos.ts: Shikha "Mark done", tone bad; Work done "Meeting done" / "Event done"; the to-do
+  route reads entries from 3 Nov + done ones; `tests/entries.test.ts`), `11f37c5` (no status card / to-do list /
+  matrix row for Admin — kept in the matrix only while an open request involves Admin).
+- **"Invalid Date" on Priyanka's tracker** → Priyanka typed year "20206" on 2 Nov; "20206-…" sorts after today so
+  `dateAllowed` passed it. `eb6b5fd` (`dateAllowed` needs a 4-digit year, ≤ 2 years ahead; server `goodTrainingDate`
+  refuses malformed `set_training_date`). Then "postponing not working … why does it let you add 6 digits" →
+  `edbbc44`: **every date box has a `max`** (Chrome then keeps the year to 4 digits — tested: 222222 → 2222);
+  `maxTrainingDate`, `MAX_DATE`, `dateProblem` (CardModal) — the AedSmartx Schedule / Postpone / Change date box and the
+  calendar's New AED training say why the button is grey; a broken stored date no longer pre-fills. The Training
+  board's `DaysPicker` is click-only. Priyanka fixed Tata Motors herself (4 Nov 10:00).
+- **"each person should see their things first"** → `b1a170c`: calendar days list your own (ownsTraining /
+  ownsEntry) first, you first in the legend. The tracker already put you first.
+- **"turn off whatsapp messages for priyanka. only keep mail"** → `47892ee`: `WA_PEOPLE` without her, `waFor` in the
+  send loop (a saved number is ignored).
+- **Fire Safety board** ("a separate fire safety dashboard … sales diff, fire safety diff … item identifier"; plan in
+  5 points, "yessir" = defaults) → `968b035`, then "item identifier: fire blankets, ive changed it" → `19c56b0`, then
+  "they dont show up" → `af59399`:
+  - BoardKind **`fire`** (roles.ts; same people as Sales — full access + Pranjal); FollowUps: `fireMode` is a
+    `salesMode` (same cards `sale:<kind>:<id>`, popup, tools), no Potential Customers column, title "Fire Safety".
+  - Which documents: salesSync.ts `docItems()` = document → item ids from the **Analytics copy's Quote / Sales Order /
+    Invoice Items** (`analyticsItems()` reads the three `za_tables` docs directly, memo per `za_state.refreshedAt` —
+    `quoteItems` is in `STOCK_TABLES`, which `copyTables` skips unless asked; the item id there is **"Product ID"**,
+    "Item ID" is the line id), plus zohoDocs lines and `salesDetails`. `fireItemIds()` = items whose identifier is
+    `FIRE` ("fire blankets", no case). `salesData().fire` = document keys; `SHAPE` 3; memo key includes the Analytics
+    refresh. syncSales reads lines of new documents the copy lacks (≤ `LINES_BATCH` 30, last `LINES_DAYS` 14) into
+    `salesDetails`.
+  - sales.ts `fireDeals()` (union of quote ↔ PI ↔ invoice by reference, payments by invoice, board merges) and
+    `splitForBoard()` (a customer merged into a fire deal stays off Sales' Potential Customers). Tests in sales.test.ts.
+  - zohoSync.ts: **the item list is read again hourly** (`ITEMS_EVERY_MS`), counted as a change only when it differs.
+- **"these item rows should be movable … hold n pull them up n down"** → `945c38c`: Quotations lines have a ⠿ grip
+  (pointer drag with a drop line; arrow keys), from two lines on; the order is the quote's order in Zoho.
+- **Traps learned:**
+  - The auto-mode classifier **refused pressing Sync now on the live site by script** — ask the owner to press it.
+  - Edit scripts through heredocs / `sed` / `node -e` **lost regex backslashes three more times** (`\d` → `d`). Write
+    edit scripts with the Write tool; grep the result for the regex afterwards.
+  - `next dev` hangs on the Sales board (3,000+ cards) — browser checks use `next build` + `next start -p 3001`; stop it
+    by PID afterwards (Get-CimInstance … `trainingDashboard` + `next`).
+  - Browser scripts: the boards page is **`/follow-up`**; the Quotations list opens a quote from each row's **Quote**
+    button; type into a date box after clicking its first segment.
+  - Puppeteer + Chrome: a date box without `max` accepts 6-digit years.
+- **Still to do / ideas:** none asked. Owner-side list unchanged (CRON_SECRET, hello@ reconnect, Classic Citi rows,
+  Zoho Mail filter, gratitude wording, JW Sahar rows).
+
+**Start of the next session (21) — superseded by the block above:**
 1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: all at this
    docs commit. More than one Claude session has pushed to this repo before — always check before committing / pushing.
 2. `npm test` (**90** should pass) and `npx tsc --noEmit -p tsconfig.json`.
