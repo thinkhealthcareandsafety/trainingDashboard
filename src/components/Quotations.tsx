@@ -327,6 +327,25 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
   const [items, setItems] = useState<Item[]>([]);
   const [to, setTo] = useState<string[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
+  // Dragging a line by its grip (owner, 3 Nov: "let me hold n pull them up n down"): where it started, how far it moved,
+  // and the rows' middles then — the drop goes where the dragged row's middle ends up.
+  const rowEls = useRef(new Map<number, HTMLDivElement>());
+  const [drag, setDrag] = useState<{ key: number; from: number; startY: number; dy: number; mids: number[] } | null>(null);
+  const dropAt = drag ? drag.mids.filter((m, i) => i !== drag.from && m < drag.mids[drag.from] + drag.dy).length : -1;
+  const moveLine = (from: number, to: number) => setLines((ls) => {
+    if (to < 0 || to >= ls.length || to === from) return ls;
+    const a = [...ls];
+    const [x] = a.splice(from, 1);
+    a.splice(to, 0, x);
+    return a;
+  });
+  const startDrag = (e: React.PointerEvent<HTMLButtonElement>, key: number) => {
+    const from = lines.findIndex((l) => l.key === key);
+    const mids = lines.map((l) => { const r = rowEls.current.get(l.key)?.getBoundingClientRect(); return r ? r.top + r.height / 2 : 0; });
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({ key, from, startY: e.clientY, dy: 0, mids });
+  };
+  const endDrag = () => { if (drag) moveLine(drag.from, dropAt); setDrag(null); };
   const [f, setF] = useState<Form | null>(null);
   const [more, setMore] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -520,12 +539,35 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
               </div>
               <div>
                 <div>
-                  <div className={`${GRID} mt-1 !hidden text-[13px] text-muted sm:!grid`}>
+                  <div className={`${GRID} mt-1 !hidden pl-7 text-[13px] text-muted sm:!grid`}>
                     <span>Item</span><span>Stock</span><span className="text-right">Qty</span><span className="text-right">Rate (before tax)</span><span className="text-right">GST</span><span className="text-right">Amount</span><span />
                   </div>
                   <div className="mt-1 space-y-1.5">
-                    {lines.map((l) => (
-                      <div key={l.key}>
+                    {lines.map((l, i) => (
+                      <div
+                        key={l.key}
+                        ref={(el) => { if (el) rowEls.current.set(l.key, el); else rowEls.current.delete(l.key); }}
+                        className={`relative rounded-lg pl-7 ${drag?.key === l.key ? "z-10 bg-surface shadow-pop" : ""}`}
+                        style={drag?.key === l.key ? { transform: `translateY(${drag.dy}px)` } : undefined}
+                      >
+                        {/* Where the dragged line will land: above this row, or below it. */}
+                        {drag && dropAt !== drag.from && i === dropAt && dropAt < drag.from && <span className="pointer-events-none absolute -top-1 left-0 right-0 h-0.5 rounded bg-brand" />}
+                        {drag && dropAt !== drag.from && i === dropAt && dropAt > drag.from && <span className="pointer-events-none absolute -bottom-1 left-0 right-0 h-0.5 rounded bg-brand" />}
+                        {lines.length > 1 && (
+                          <button
+                            type="button"
+                            className={`absolute left-0 top-1.5 grid h-6 w-6 touch-none place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-ink ${drag?.key === l.key ? "cursor-grabbing" : "cursor-grab"}`}
+                            aria-label={`Move ${l.name || "this line"} — drag, or use the arrow keys`}
+                            title="Hold and drag to move this line"
+                            onPointerDown={(e) => startDrag(e, l.key)}
+                            onPointerMove={(e) => drag?.key === l.key && setDrag({ ...drag, dy: e.clientY - drag.startY })}
+                            onPointerUp={endDrag}
+                            onPointerCancel={() => setDrag(null)}
+                            onKeyDown={(e) => { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); moveLine(i, i + (e.key === "ArrowUp" ? -1 : 1)); } }}
+                          >
+                            <svg viewBox="0 0 20 20" className="size-4" fill="currentColor" aria-hidden><circle cx="7.5" cy="5" r="1.4" /><circle cx="12.5" cy="5" r="1.4" /><circle cx="7.5" cy="10" r="1.4" /><circle cx="12.5" cy="10" r="1.4" /><circle cx="7.5" cy="15" r="1.4" /><circle cx="12.5" cy="15" r="1.4" /></svg>
+                          </button>
+                        )}
                         <div className={GRID}>
                           <div className="col-span-full min-w-0 sm:col-span-1">
                             <ItemPicker items={items} value={l.name} autoFocus={l.key === focusKey} onPick={(i) => { pick(l.key, i); focusQty(l.key); }} />
