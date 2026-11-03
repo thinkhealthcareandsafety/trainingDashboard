@@ -1,20 +1,115 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Fri 30 Oct 2026 evening (end of session 19). **Live = `f5ae851`** (both addresses). Local and not pushed
-yet: `bac217d` (labels) + this docs commit — push when the owner says. Written for the next Claude Code session (and the
-owner, sshah@thinkhealth.in)._
+_Last updated: Tue 3 Nov 2026 (end of session 20, worked 30 Oct). **Live = GitHub = `18a73b7`** (both addresses), plus
+this docs commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Start of the next session (20) — do these first:**
-1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. **Two Claude sessions
-   worked on Reports on 30 Oct** (this one and another the owner ran in parallel — it committed this session's
-   uncommitted files as `e805ad2` / `e34b7f8` and pushed 5 more). Pull (`--ff-only`) before touching anything, and
-   ask the owner to keep Reports work in **one** session.
-2. If `bac217d` isn't on GitHub yet, the owner decides when it goes ("push"). §11 before every push.
-3. `npm test` (69 should pass) and `npx tsc --noEmit -p tsconfig.json`.
-4. Database speed (§9 #18), Sync log, Zoho table catalog (`kv za_catalog`: `tables` ≈ 105, `partial`) — read-only.
-5. Then the owner's next pick from "Still to do" below.
+**Start of the next session (21) — do these first:**
+1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: all at this
+   docs commit. More than one Claude session has pushed to this repo before — always check before committing / pushing.
+2. `npm test` (**90** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. Read-only checks: database speed (§9 #18), Sync log (look for `salesError` on the lines too), Zoho calls today
+   (kv `zoho_calls:<IST day>`, limit 2500), **Sales copy** (kv `sales_state`: `version`, `fullAt`; `salesDocs` ≈ 1,900
+   estimates / 1,050 sales orders / 1,050 invoices; `salesPayments` — the first fill reads 150 paid invoices a sync,
+   853 were left on 30 Oct, so it should be done; `/api/sales` → `pending` should be gone).
+4. **Did the owner press "Merge all flagged" on the Sales board?** Count `cardEvents` with `kind: "merge"`, `mode: "all"`
+   (read-only). If yes, invoices whose payments were read later have new Invoice ↔ Payment flags — pressing it again
+   merges those.
+5. **Open question to the owner (unanswered):** Sales board — instead of merging history, should documents dated before
+   a cut-off (suggested 1 Oct 2026) start without flags? Moot if they pressed Merge all.
+6. Then the owner's next pick. HANDOFF §5 has no table for session 20 — the prompts are in the block below.
 
-**Session 19, afternoon — the Tableau-style report builder (newest; wins over everything below):**
+**Session 20 (30 Oct) — newest; wins over everything below.** Owner's prompts, in order, and what came of them (all
+pushed and live; every commit one step, §11 before each push):
+- **Checks** (start of session): clean — GitHub = live `2f72793` (`bac217d` had been pushed by then), 69 tests, DB
+  7.3 MB/s, Sync log ok, `za_catalog` 106 tables, `reportFields` / `reportParams` empty.
+- **"yeah"** to the Tableau list a/b/c with defaults → built:
+  - **a) Quick table calculations** (`97bfdd6`): value pill ⋯ → Show as Running total / % of total / Difference /
+    % change / Rank. `src/lib/analytics/tablecalc.ts` (`applyTableCalcs`, run at the end of `runQuery` after totals,
+    down the rows as shown, per series with a split; comparison gets the same; totals: running = total, % = 100, others
+    none). `Spec.calcs` (measure key → calc). Sentence / title name it ("Revenue (running total)"). KPI trend lines
+    drop `calcs`. Tests `tests/tablecalc.test.ts`.
+  - **b) ⋯ → Edit report… on every tile, KPIs too** (`946dc25`): the team's version of a built-in tile = Mongo
+    **`reportTileEdits`** (`_id` "<tab>.<tile>"), `src/lib/analytics/tileEdits.ts` (`applyTileEdits` on `builtIns` in
+    Reports.tsx — so it shows on its tab, edited tabs, My dashboards, the library), route
+    `/api/analytics/tile-edits` (GET all; POST `hasFullAccess`, same dataset only; DELETE = Restore original). Builder
+    `tile` mode: data fixed, "Save for the team", analysis tiles lock rows / values. "edited" chip; KPI band / canvas
+    numbers got a ⋯ (`KpiHead`). Saved reports on a dashboard: Edit for author / Admin. Dashboard `Tile` gained
+    `ref` (custom.ts `toDef`) and `edited`. Tests `tests/tileEdits.test.ts`; **test loader fix** (`tests/register.mjs`:
+    the extension regex lost its backslash inside a template string — "tileEdits" passed for a .ts file); fake db
+    `replaceOne` keeps `_id` like Mongo.
+  - **Reports crash guard** (`73131c0`): an `/api/analytics` answer without `datasets` (401, 503) showed "This page
+    couldn't load" — now shows its message. Was latent on live too.
+  - **c) ECharts 5.6 → 6.1.0** (`6170d4d`, npm audit 0): **`features.LegacyGridContainLabel` must stay in `core.use`**
+    (Chart.tsx) — without it v6 lays out `grid.containLabel` its new way (wider label column, thinned axis amounts).
+    Checked every Reports page vs live v5 (pixel diff + side by side); left: v6 hides an axis amount that touches its
+    neighbour, shows a few more letters of long names.
+- **"push"** ×2, then: **"training scheduling is shikha's work and should show in her tracker"** → Progress tracker
+  to-do for Shikha: PIs Ready to schedule → "Schedule the training" (`3ffd908`); **"moving any Flagged card in training
+  dashboard is shikha's work"** → every Training-board flag group → "Review & merge", once per group (`79f61a6`).
+  `src/lib/progress/todos.ts`.
+- **Quotations feedback** (owner tried it live; "the customer creation is working, good work mate") → `aceb7fc`:
+  - Save and email → back → reopened → Save and email made a **second quotation**: opening a customer whose newest
+    quote is a **draft** now continues it (banner, "Save the draft"; POST `estimateId` → `updateQuote` = PUT
+    `/estimates/{id}`, only while still a draft of theirs; ZohoBooks.estimates.UPDATE was in the scopes from day one).
+    "Went to them N days ago" counts only sent quotes; the email step marks `quotationsSent.sent`.
+  - Email message box white with dark text in every theme. New customer form in sections (Company / Contact person
+    / Address), salutation before first name, no "More".
+  - Deleted customers / quotes hidden: `zohoLatest()` in the route — Zoho's newest 200 contacts + estimates (2 read
+    calls, 10 min) — ours created in that span but missing = deleted. Older ones leave with the full sync.
+  - Quick sorting: A–Z / Z–A / last quote newest / oldest / biggest / last bought / never quoted; headings sort.
+- **"make a sales dashboard too …"** (plan restated in 8 points, owner: "push all of it … big brain time" = yeah) →
+  `2366f10`…`6a1ba7a`, then **"I want to see their quote status too"** → `2c97a1f`:
+  - **Roles:** `BoardKind` `sales`; full access gets it; **Pranjal Nikalje** (`/^pranjal\b/`) = Sales only, plus
+    Quotations via `canQuote` (AppShell nav, quotations page + route). **Pranjal was added on live 30 Oct** (POST
+    `/api/members/pin` like the admin screen, with the PIN the owner gave — not written here); checked: Sales 200,
+    Quotations 200.
+  - **Renames:** Training board's Leads column = **"Potential Leads"**; Sales = **"Potential Customers"**.
+  - **Data — `src/lib/salesSync.ts`:** its own copy, never zohoDocs (§11 #7): Mongo **`salesDocs`** (list rows trimmed
+    to `KEEP` fields), **`salesPayments`** (per invoice, `/invoices/{id}/payments` — the token can't list customer
+    payments), **`salesDetails`** (one document's full detail, read when a card opens, kept until it changes), kv
+    **`sales_state`**. Runs inside `runSync` (zohoSync.ts) in its own try/catch → Sync log `sales` / `salesError`.
+    List pages only: quiet hour 3 calls; full check (9 am / 2 pm / Sync now) `listAll` ~25 calls; payments ≤ 150
+    invoices a sync (`PAY_BATCH`). **Training-only** documents (every non-travel/freight line a Training Services item,
+    judged from zohoDocs' lines) stay off; mixed ones are on both boards. `salesData()` memo keyed
+    `SHAPE|sales version|zoho version` — **bump `SHAPE` when the data shape changes** (server memos on `globalThis`
+    survive dev reloads). `/api/sales` (boards include sales) and `?doc=<kind>:<id>`. First fill: local Sync now on
+    30 Oct (179 calls).
+  - **Board — `src/lib/sales.ts`** (`buildSalesBoard`, pure, `tests/sales.test.ts`): card ids **`sale:<kind>:<id>`**
+    (`kindOfId` in pipeline.ts reads them; roles `boardOfCard` → "sales"). Flags: Lead ↔ Quote, Quote ↔ PI (reference),
+    Lead ↔ PI, PI (or quote) ↔ Invoice by reference — **no training step** — Invoice ↔ Payment once paid in full.
+    Declined quote = Deal lost. Columns Potential Customers → Quotations → Performa invoice → Invoice sent → Payment
+    received → Deal lost. Pipeline helpers (`apply`, `absorb`, `leadDraft`, `docDraft`, `applyCustomer*`,
+    `sortEntries`, `Draft`) are exported for it. MergeModal: a `sale:` invoice merges with its payment without a
+    training step. Cards show amount (`ZohoQuote.total` / `ZohoPI.total`, Sales only) and status chip (`docStatus.ts`).
+  - **Popup — `SalesModal.tsx`:** the Training popup minus the training block + **DocumentSection** (items with
+    description, HSN/SAC, qty, rate, GST %, amount; sub total, discount, shipping, each tax "CGST 9%", total; **Ship to**
+    = a `<details>` heading). Number by kind (an invoice also carries its sales order's number).
+  - **Status chips** (`src/lib/docStatus.ts`): Quotations page last quotation (status from `salesDocs`,
+    `freshQuoteStatus()` re-read only when `sales_state.version` changes) and Sales quote / PI cards.
+- **"light with light, dark with dark … no need to keep them experimental"** → `c022220`: the full themes (`full: true`
+  in AppShell `THEMES`) sit in the Light / Dark groups; the full Plum is "Plum night". Ids unchanged.
+- **"these are so many, just give me a merge all button"** → `18a73b7`: Sales toolbar **Merge all flagged**
+  (full access) → `mergeAllSteps` (sales.ts): Quote → its PI, Lead → newest quote (else PI), PI / quote → the invoice
+  citing it, Invoice → newest payment; one card into one card. Confirm shows counts (30 Oct: 2,650 = 923 / 805 / 852 /
+  70); events are ordinary merges with **`mode: "all"`**, Undo takes all back; tracker Work done counts them once
+  ("Merged all flagged cards ×n"). Checked with saves blocked: 2.3 s, no flags left. ~920 invoices cite no PI and stay
+  unflagged in Invoice sent.
+- **Traps learned this session:**
+  - **Sign-in is cookie-based** (`th_session`): browser scripts must `page.setCookie` as well as set `th.session`,
+    else the first API call is a 401.
+  - `next start -p 3001` leaves an orphan child after the task is stopped — stop it by PID (Get-CimInstance; don't
+    touch the dev server's own `start-server.js`).
+  - Edits through `node -e` / heredocs still mangle `\` and quotes — write edit scripts with the Write tool; replace
+    with `s.split(a).join(b)` after normalising CRLF.
+  - Checking "is it live" by grepping page chunks doesn't work for code behind sign-in — poll an API route that's new
+    in the push instead (e.g. `/api/sales`, `/api/analytics/tile-edits`).
+  - Never put a member's PIN (or any secret) into HANDOFF.md or a commit.
+- **Still to do / ideas:** the Sales flag cut-off question (step 5); Training-board quote cards could show the status
+  chip too (owner asked only for Quotations + Sales); KPI names truncate sooner on phones since the ⋯; Tableau extras
+  only if asked (level-of-detail, > 2 dimensions, field from a field); owner-side list unchanged (CRON_SECRET,
+  hello@ reconnect, Classic Citi rows, Zoho Mail filter, gratitude wording, JW Sahar rows).
+
+**Session 19, afternoon — the Tableau-style report builder (session 20 above is newer; this wins over what's below):**
 Owner's words (30 Oct): "I should rather have columns and attributes … rows, columns, color, labels, tool tips,
 filters, ability to add aggregated columns, or parameters … these are all the tables in my Zoho Analytics … read from
 Zoho Analytics directly … remove what's there and add these tables instead". Plan agreed as an 11-point list, then
