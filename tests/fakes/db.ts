@@ -29,6 +29,13 @@ const coll = (name: string) => {
       return structuredClone(d);
     },
     deleteOne: async (q: { _id: string }) => { m.delete(q._id); },
+    // /api/store's writes: replaceOne (upsert) and deleteOne by _id.
+    bulkWrite: async (ops: ({ replaceOne?: { filter: { _id: string }; replacement: Doc }; deleteOne?: { filter: { _id: string } } })[]) => {
+      for (const o of ops) {
+        if (o.replaceOne) m.set(o.replaceOne.filter._id, structuredClone({ ...o.replaceOne.replacement, _id: o.replaceOne.filter._id }));
+        if (o.deleteOne) m.delete(o.deleteOne.filter._id);
+      }
+    },
     countDocuments: async () => m.size,
   };
 };

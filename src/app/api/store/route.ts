@@ -44,6 +44,8 @@ export async function GET(request: Request) {
  * reverted (recorded under the signed-in name) — your own entries, plus the later steps of their flow that go with them
  * (cascade.ts); Admin may revert any. Only Admin may delete entries. Members are managed by Admin only.
  */
+const onSaleCard = (d: Doc) => ((d.cardIds as string[] | undefined) ?? []).some((id) => id.startsWith("sale:"));
+
 async function stampCardEvents(upserts: Doc[], me: { id: string; name: string }): Promise<Doc[]> {
   const col = (await db()).collection<Doc & { _id: string }>("cardEvents");
   const existing = new Map((await col.find({ _id: { $in: upserts.map((u) => u.id) } }).toArray()).map((e) => [e._id, e]));
@@ -58,12 +60,14 @@ async function stampCardEvents(upserts: Doc[], me: { id: string; name: string })
       for (const e of cascadeOf(own as unknown as CardEvent[], all)) allowed.add(e.id);
     }
   }
-  const exists = await zohoCardsNow(upserts.some((d) => !existing.has(d.id) && d.kind === "zoho_change"));
+  const exists = await zohoCardsNow(upserts.some((d) => !existing.has(d.id) && d.kind === "zoho_change" && !onSaleCard(d)));
   return upserts.flatMap((doc): Doc[] => {
     const had = existing.get(doc.id);
     if (!had) {
       if (!canWriteEvent(me, doc as unknown as CardEvent)) return []; // not this member's board / action
       if (missingCertFields(doc as unknown as CardEvent)) return []; // a training date without its location + concerned email
+      // Sales board cards are never in the Training board's copy: a notice on them is always false (31 Oct: 2,650 from old tabs).
+      if (doc.kind === "zoho_change" && onSaleCard(doc)) return [];
       if (doc.kind === "zoho_change" && exists && (doc.cardIds as string[]).every((id) => exists.has(id))) return []; // both still in Zoho: a stale tab's false notice
       return [{ ...doc, by: doc.kind === "zoho_change" ? "Zoho Books" : me.name, revertedAt: undefined, revertedBy: undefined }];
     }
