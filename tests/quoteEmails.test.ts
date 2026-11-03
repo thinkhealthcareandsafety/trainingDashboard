@@ -1,7 +1,7 @@
 // Quotation email templates (src/lib/quoteEmails.ts): items → topics, names filled in, templates, HTML.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brandsOf, buildQuoteEmail, listNames, suggestTemplate, textToHtml, topicOf, topicsOf } from "@/lib/quoteEmails";
+import { brandsOf, buildQuoteEmail, listNames, suggestTemplate, textToHtml, topicOf, topicsOf, ziaBrief } from "@/lib/quoteEmails";
 
 const base = { company: "Tata Motors", contact: "Mr. Rajesh Kumar", number: "QT-001234", total: 185000, expiry: "2026-12-03", salesperson: "Pranjal" };
 
@@ -59,4 +59,12 @@ test("switched-off topics leave no gap; formal lists the items; pads only → re
 
 test("text becomes safe HTML paragraphs", () => {
   assert.equal(textToHtml("Hi <b>,\n\nLine 1\nLine 2"), "<p>Hi &lt;b&gt;,</p><p>Line 1<br>Line 2</p>");
+});
+
+test("the Zia brief carries the request, items, total and the quote number in its subject", () => {
+  const b = ziaBrief("AED email, mention <warranty>", { ...base, lines: [{ name: "Zoll AED Plus", qty: 2, group: "All AEDs" }] });
+  assert.equal(b.subject, "Zia · QT-001234 · Tata Motors");
+  assert.match(b.html, /What to write: AED email, mention &lt;warranty&gt;/);
+  assert.match(b.html, /• Zoll AED Plus × 2<br>/);
+  assert.match(b.html, /₹1,85,000 including GST/);
 });

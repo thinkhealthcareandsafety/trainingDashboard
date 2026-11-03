@@ -8,6 +8,8 @@ import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
+import { findDraft, saveDraft } from "@/lib/zohoMail";
+import { type QuoteEmailInput, ZIA_MAILBOX, ziaBrief } from "@/lib/quoteEmails";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,8 @@ export const dynamic = "force-dynamic";
  *   GET ?item=<id>           — one item's description (read when it's picked — descriptions are long)
  *   POST {customerId, contactPersonIds, lines, details, send, estimateId?}  — creates the quotation in Zoho Books (emails
  *                              it when send); with estimateId, saves that draft again instead (no second quotation)
+ *   POST {zia: {request, quote}}                       — leaves a brief for Zia as a draft in learn@'s Zoho Mail (3 Nov)
+ *   GET ?zia=<quote number>  — that draft once Zia wrote it and it was saved (subject + HTML)
  *   PUT {code, clientId?, clientSecret?}               — Admin connects Zoho Books for quotations
  * Customers come from the Zoho copy (zohoCustomers); last quote / invoice from the Reports copy (Zoho Analytics, ≤ 6 h
  * old) plus quotations sent from here (`quotationsSent`). The popup's look-ups are live Zoho reads (sync's token).
@@ -192,6 +196,16 @@ export async function GET(request: Request) {
       return new Response(await estimatePdf(pdfId), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${name}.pdf"`, "Cache-Control": "private, no-store" } });
     }
 
+    // Zia (owner, 3 Nov): the draft Zia wrote in Zoho Mail for this quote (found by the quote number in its subject).
+    const ziaFor = q.get("zia");
+    if (ziaFor) {
+      if (!/^[A-Za-z0-9/_-]{1,40}$/.test(ziaFor)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+      const d = await findDraft(ZIA_MAILBOX, ziaFor).catch((e: Error) => ({ error: e.message }));
+      if (!d) return Response.json({ error: `No draft for ${ziaFor} in ${ZIA_MAILBOX}'s Zoho Mail yet — have Zia write it there and save the draft` }, { status: 404 });
+      if ("error" in d) return Response.json({ error: d.error }, { status: 502 });
+      return Response.json({ subject: d.subject, html: d.html });
+    }
+
     // The email step's starting point: Zoho's quote email template filled for this quote (#150 step 5).
     const emailId = q.get("email");
     if (emailId) {
@@ -313,8 +327,9 @@ export async function POST(request: Request) {
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) return sendEmail(await request.formData().catch(() => null));
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput } };
   if (body.newCustomer) return newCustomer(body.newCustomer);
+  if (body.zia) return ziaDraft(body.zia);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
   const lines = (body.lines ?? []).filter((l) => l && /^\d+$/.test(String(l.itemId)));
@@ -356,6 +371,25 @@ export async function POST(request: Request) {
   } catch (e) {
     console.error("[quotations] create failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't create the quotation" }, { status: 502 });
+  }
+}
+
+/** Zia (owner, 3 Nov): leaves the brief as a draft in Zoho Mail for Zia to write the email from. Checked and trimmed. */
+async function ziaDraft(z: { request?: string; quote?: QuoteEmailInput }): Promise<Response> {
+  const q = z.quote;
+  const s = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
+  if (!q || !/^[A-Za-z0-9/_-]{1,40}$/.test(String(q.number ?? ""))) return Response.json({ error: "Save the quotation first" }, { status: 400 });
+  const lines = (Array.isArray(q.lines) ? q.lines : []).slice(0, 100).map((l) => ({ name: s(l?.name, 300), qty: Number(l?.qty) || 1, group: null }));
+  const quote: QuoteEmailInput = {
+    company: s(q.company, 200), contact: s(q.contact, 100) || null, number: String(q.number), total: Number(q.total) || 0,
+    expiry: s(q.expiry, 10) || null, salesperson: s(q.salesperson, 100) || null, lines,
+  };
+  try {
+    await saveDraft(ZIA_MAILBOX, ziaBrief(s(z.request, 1000), quote));
+    return Response.json({ ok: true, mailbox: ZIA_MAILBOX });
+  } catch (e) {
+    console.error("[quotations] zia draft failed:", e);
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't save the draft in Zoho Mail" }, { status: 502 });
   }
 }
 

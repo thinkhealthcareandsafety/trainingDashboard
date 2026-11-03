@@ -201,3 +201,31 @@ export async function mailContent(address: string, folderId: string, messageId: 
   const data = await mailboxGet<{ content?: string }>(m, `/folders/${folderId}/messages/${messageId}/content`);
   return data?.content ?? "";
 }
+
+/* ---------------- Zia drafts (owner, 3 Nov — quotation emails written by Zoho Mail's Zia) ---------------- */
+// Zia can't be called from outside Zoho, so: the dashboard leaves a draft with the brief in the mailbox, someone opens
+// it in Zoho Mail and has Zia write the email, saves, and the dashboard pulls the saved draft back (found by subject).
+
+/** Saves a draft (addressed to the mailbox itself, so a slip of Send in Zoho Mail reaches no customer). */
+export async function saveDraft(address: string, d: { subject: string; html: string }): Promise<void> {
+  const m = await mailbox(address);
+  await mailboxCall(m, "/messages", { method: "POST", body: JSON.stringify({ fromAddress: m.address, toAddress: m.address, subject: d.subject, content: d.html, mailFormat: "html", mode: "draft" }) });
+}
+
+/** The newest draft whose subject contains `marker` (e.g. the quote number): its subject and HTML, or null. */
+export async function findDraft(address: string, marker: string): Promise<{ subject: string; html: string } | null> {
+  const m = await mailbox(address);
+  let drafts = m.folders?.named?.["__drafts"];
+  if (!drafts) {
+    const list = await mailboxGet<Folder[]>(m, "/folders");
+    const f = list.find((x) => (x.folderType ?? x.folderName ?? "").toLowerCase() === "drafts");
+    if (!f) throw new Error("Zoho Mail: couldn't find the Drafts folder");
+    drafts = String(f.folderId);
+    await (await kv()).updateOne({ _id: m._id }, { $set: { "folders.named.__drafts": drafts } });
+  }
+  const rows = (await mailboxGet<RawItem[]>(m, `/messages/view?folderId=${drafts}&limit=50&sortorder=false`)) ?? [];
+  const hit = rows.find((r) => r.messageId != null && (r.subject ?? "").toLowerCase().includes(marker.toLowerCase()));
+  if (!hit) return null;
+  const data = await mailboxGet<{ content?: string }>(m, `/folders/${drafts}/messages/${hit.messageId}/content`);
+  return { subject: hit.subject ?? "", html: data?.content ?? "" };
+}

@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
-import { type QuoteEmailInput, TEMPLATES, type TopicId, buildQuoteEmail, suggestTemplate, textToHtml, topicsOf } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, suggestTemplate, textToHtml, topicsOf, ziaSubject } from "@/lib/quoteEmails";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -710,6 +710,32 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
     setTpl(t); setSkip(s); fill(t, s);
   };
   useEffect(() => { fill(tpl, skip); }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps -- once Zoho's email is in
+  // Zia (owner, 3 Nov): Zoho Mail's Zia can't be called from here — "Send to Zia" leaves the brief as a draft in
+  // learn@'s Zoho Mail, someone has Zia write it there and saves, "Pull from Zia" brings the saved draft in.
+  const [ziaText, setZiaText] = useState("");
+  const [ziaBusy, setZiaBusy] = useState(false);
+  const [ziaMsg, setZiaMsg] = useState("");
+  const toZia = async () => {
+    setZiaBusy(true); setZiaMsg("");
+    const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ zia: { request: ziaText, quote: compose } }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; mailbox?: string; error?: string }) : { error: "Couldn't reach the server" };
+    setZiaBusy(false);
+    setZiaMsg(j.ok ? `Draft “${ziaSubject(compose)}” is in ${j.mailbox}'s Zoho Mail → open it, have Zia write the email, save the draft, then Pull from Zia.` : j.error ?? "Couldn't save the draft");
+  };
+  const fromZia = async () => {
+    setZiaBusy(true); setZiaMsg("");
+    const r = await fetch(`/api/quotations?zia=${encodeURIComponent(quote.number)}`).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { subject?: string; html?: string; error?: string }) : { error: "Couldn't reach the server" };
+    setZiaBusy(false);
+    if (j.error || j.html == null) return setZiaMsg(j.error ?? "Nothing came back");
+    if (edited.current && !window.confirm("Replace the message you've edited?")) return;
+    // Zia may have written a subject; the draft's own one ("Zia · QT-… · …") isn't for the customer.
+    const subj = (j.subject ?? "").trim();
+    if (subj && subj !== ziaSubject(compose)) setSubject(subj.replace(/^Zia\s*·\s*/, ""));
+    if (body.current) body.current.innerHTML = cleanHtml(j.html);
+    edited.current = false;
+    setZiaMsg("Pulled from Zia — check it before sending.");
+  };
   const size = files.reduce((n, f) => n + f.size, 0);
   const max = draft?.maxBytes || 4 * 1024 * 1024;
   const to = [...picked, ...extra.split(/[,;\s]+/).filter(Boolean)];
@@ -767,6 +793,15 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
                 onClick={() => choose(tpl, on ? [...skip, t.id] : skip.filter((x) => x !== t.id))}>{t.label}</button>
             );
           })}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={label}>Zia</span>
+          <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-64 text-[14px]`} value={ziaText} onChange={(e) => setZiaText(e.target.value)} maxLength={1000}
+            placeholder="Tell Zia what to write — e.g. AED email, mention training and warranty" aria-label="What Zia should write" />
+          <button className={`${btn.ghost} !h-9`} onClick={toZia} disabled={!live || ziaBusy} title={live ? `Leaves a draft in ${ZIA_MAILBOX}'s Zoho Mail` : "Only the live site writes to Zoho Mail"}>Send to Zia</button>
+          <a className={`${btn.ghost} !h-9`} href="https://mail.zoho.in/zm/#mail/folder/drafts" target="_blank" rel="noreferrer">Open Zoho Mail ↗</a>
+          <button className={`${btn.ghost} !h-9`} onClick={fromZia} disabled={ziaBusy}>{ziaBusy ? "…" : "Pull from Zia"}</button>
+          {ziaMsg && <p className="basis-full text-[13px] text-muted">{ziaMsg}</p>}
         </div>
         <label className="block"><span className={label}>Subject</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} /></label>
         <div>

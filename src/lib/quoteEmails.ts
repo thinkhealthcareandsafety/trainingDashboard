@@ -244,3 +244,28 @@ export function textToHtml(text: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return text.split(/\n{2,}/).map((para) => `<p>${esc(para).replace(/\n/g, "<br>")}</p>`).join("");
 }
+
+/* Zia (owner, 3 Nov): Zoho Mail's Zia writes the email — the dashboard leaves this brief as a draft in Zoho Mail. */
+export const ZIA_MAILBOX = "learn@thinkhealth.in"; // owner's pick, 3 Nov (an alias on Shikha's mailbox)
+export const ziaSubject = (q: Pick<QuoteEmailInput, "number" | "company">) => `Zia · ${q.number} · ${q.company}`;
+
+/** The draft's subject and HTML: what to write (the person's words) and everything Zia needs from the quote. */
+export function ziaBrief(request: string, q: QuoteEmailInput): { subject: string; html: string } {
+  const valid = day(q.expiry);
+  const text = [
+    "Zia: write a quotation email from the details below. Keep only the email (delete this note).",
+    `What to write: ${request.trim() || "a warm, friendly quotation email"}`,
+    [
+      `Customer: ${q.company}`,
+      q.contact ? `Addressed to: ${q.contact}` : "",
+      `Quotation: ${q.number} (the PDF is attached separately)`,
+      "Items:",
+      ...q.lines.map((l) => `• ${l.name} × ${l.qty}`),
+      `Total: ${inr(q.total)} including GST`,
+      valid ? `Valid until: ${valid}` : "",
+      `From: ${q.salesperson?.trim() || "the team"}, ${COMPANY}`,
+    ].filter(Boolean).join("\n"),
+    "Tone: human and warm, short paragraphs, no placeholders in square brackets.",
+  ].join("\n\n");
+  return { subject: ziaSubject(q), html: textToHtml(text) };
+}
