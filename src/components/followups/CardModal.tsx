@@ -423,7 +423,8 @@ const todayYmd = () => new Date().toLocaleDateString("en-CA");
 // Set to false to go back to “dates can’t be in the past”.
 const ALLOW_PAST_TRAINING_DATES = true;
 export const minTrainingDate = () => (ALLOW_PAST_TRAINING_DATES ? undefined : todayYmd());
-export const dateAllowed = (d: string) => Boolean(d) && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
+// A real date with a 4-digit year (a typed "20206" passed before, 2 Nov) and not more than 2 years ahead.
+export const dateAllowed = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= `${Number(todayYmd().slice(0, 4)) + 2}-12-31` && (ALLOW_PAST_TRAINING_DATES || d >= todayYmd());
 
 /**
  * Certificates, per training (owner, 15 Oct): the certificate location name printed as "course conducted at" ("" = the

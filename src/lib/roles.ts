@@ -105,6 +105,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * 15 Oct) — so a tab still running old code can't schedule without them. Not for To be decided, AedSmartx (no
  * certificates there) or a training recorded on its invoice date (before the dashboard).
  */
+/**
+ * A training date the server keeps: "TBD", or days "YYYY-MM-DD" (optionally "THH:mm") with a 4-digit year, comma-separated.
+ * On 2 Nov a typed year came through as "20206-11-03T11:00" — it sorts after today, so the popup let it pass.
+ */
+const DAY_RE = new RegExp("^[12][0-9]{3}-[01][0-9]-[0-3][0-9](T[0-2][0-9]:[0-5][0-9])?$");
+export const goodTrainingDate = (v?: string) => !v || v === "TBD" || v.split(",").every((d) => DAY_RE.test(d.trim()));
 export const missingCertFields = (e: Pick<CardEvent, "kind" | "cardIds" | "value" | "mode" | "location" | "email">) =>
   e.kind === "set_training_date" && Boolean(e.value) && e.value !== "TBD" && e.mode !== "invoice" && !e.cardIds[0]?.startsWith("aed")
   && (typeof e.location !== "string" || !EMAIL_RE.test(e.email?.trim() ?? ""));

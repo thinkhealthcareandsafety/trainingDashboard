@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { readAll } from "@/lib/cachedRead";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
-import { SERVER_KINDS, canRevert, canSeeEntry, canWriteEvent, isAdmin, missingCertFields } from "@/lib/roles";
+import { SERVER_KINDS, canRevert, canSeeEntry, canWriteEvent, goodTrainingDate, isAdmin, missingCertFields } from "@/lib/roles";
 import { cascadeOf } from "@/lib/cascade";
 import { boardsNow } from "@/lib/fulfilServer";
 import { getSnapshot } from "@/lib/zohoSync";
@@ -66,6 +66,7 @@ async function stampCardEvents(upserts: Doc[], me: { id: string; name: string })
     if (!had) {
       if (!canWriteEvent(me, doc as unknown as CardEvent)) return []; // not this member's board / action
       if (missingCertFields(doc as unknown as CardEvent)) return []; // a training date without its location + concerned email
+      if (doc.kind === "set_training_date" && !goodTrainingDate(doc.value as string | undefined)) return []; // not a real date (e.g. year "20206")
       // Sales board cards are never in the Training board's copy: a notice on them is always false (31 Oct: 2,650 from old tabs).
       if (doc.kind === "zoho_change" && onSaleCard(doc)) return [];
       if (doc.kind === "zoho_change" && exists && (doc.cardIds as string[]).every((id) => exists.has(id))) return []; // both still in Zoho: a stale tab's false notice

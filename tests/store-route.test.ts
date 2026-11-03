@@ -22,3 +22,12 @@ test("a \"no longer in Zoho Books\" notice on Sales board cards is refused (31 O
   const kept = await (await db()).collection<{ _id: string; kind: string }>("cardEvents").find({}).toArray();
   assert.deepEqual(kept.map((e) => e.kind), ["merge"]);
 });
+
+test("a training date with a typed 5-digit year (2 Nov: \"20206-11-03T11:00\") is refused; a real one is kept", async () => {
+  const at = "2026-11-02T04:01:40.682Z";
+  assert.equal((await post([{ id: "d1", kind: "set_training_date", cardIds: ["aed:1"], value: "20206-11-03T11:00", at, by: "Admin" }])).upserted, 0);
+  // A real date passes the rule (kept dates start the reminder step, which only runs on the real server — so checked here directly).
+  const { goodTrainingDate } = await import("@/lib/roles");
+  for (const v of ["2026-11-03T11:00", "2026-11-03", "TBD", "2026-11-03T10:00,2026-11-04T10:00"]) assert.ok(goodTrainingDate(v), v);
+  for (const v of ["20206-11-03T11:00", "2026-1-3", "Invalid Date"]) assert.ok(!goodTrainingDate(v), v);
+});
