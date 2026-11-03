@@ -87,6 +87,12 @@ export const inEntry = (m: Who, e: EntryWho) => Boolean(e.everyone || e.people?.
 /** A meeting / event is this member's: they made it or are in it. */
 export const ownsEntry = (m: Who, e: EntryWho) => inEntry(m, e) || Boolean(e.createdBy && samePerson(e.createdBy, m.name));
 export const canSeeEntry = (m: Who, e: EntryWho) => seesWholeCalendar(m) || ownsEntry(m, e);
+/**
+ * Meetings / events are marked done (owner, 3 Nov — Shikha's to-do while they aren't). Only those from the day this
+ * started count, so older entries don't all turn red.
+ */
+export const ENTRY_DONE_FROM = "2026-11-03";
+export const entryOverdue = (e: { date: string; doneAt?: string; demo?: boolean }, today: string) => !e.doneAt && !e.demo && e.date < today && e.date >= ENTRY_DONE_FROM;
 /** Gives this training — they get its reminder. AedSmartx trainings are the AedSmartx trainer's. */
 export const givesTraining = (m: Who, t: TrainingWho) => (t.board === "aed" && named(m, /^priyanka\b/i)) || t.trainers.some((n) => samePerson(n, m.name));
 /** A training is this member's: they give it, or set its date. */

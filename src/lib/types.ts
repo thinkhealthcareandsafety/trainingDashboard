@@ -104,6 +104,8 @@ export interface CalendarEntry {
   reminderMinutes?: number | null;
   createdAt: string;
   demo?: boolean; // sample data, removed once Zoho is live
+  doneAt?: string; // marked done (owner, 3 Nov: "meetings and events … can be marked done"); absent = not done
+  doneBy?: string; // member name
 }
 
 export type FollowUpStatus = "pending" | "in_progress" | "snoozed" | "overdue" | "completed" | "cancelled";

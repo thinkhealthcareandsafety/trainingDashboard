@@ -8,7 +8,7 @@ import { addDays, daysBetween, fmtDate, parseYmd, startOfDay, ymd } from "@/lib/
 import { type CardView, TRAINERS, busyTrainers, salespersonLabel, cardDue, daysValue, fmtDays, fulfilCardId, orderTrainers } from "@/lib/pipeline";
 import { newId, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
-import { boardsFor, canSeeTraining, isAdmin, ownsEntry, ownsTraining, seesWholeCalendar } from "@/lib/roles";
+import { boardsFor, canSeeTraining, entryOverdue, isAdmin, ownsEntry, ownsTraining, seesWholeCalendar } from "@/lib/roles";
 import { WhatsAppSetup } from "./WhatsAppSetup";
 import { Combobox, IconButton, Segmented, btn, inputCls } from "./ui";
 import {
@@ -132,8 +132,8 @@ function Chip({ it, known, today, onOpen, draggable }: { it: Item; known: Set<st
   const line2 = it.kind === "training"
     ? `${it.t.board === "aed" ? "AED training" : shortTraining(it.t.training)}${it.t.dates.length > 1 ? ` · day ${it.t.dates.indexOf(it.date) + 1}/${it.t.dates.length}` : ""} · ${names || "trainer not set"}`
     : `${TYPE_LABEL[it.e.type]}${it.e.allDay ? " · all day" : it.e.endTime ? ` – ${it.e.endTime}` : ""} · ${names}`;
-  const done = it.kind === "training" && it.t.status === "completed";
-  const late = it.kind === "training" && unmarked(it.t, today);
+  const done = it.kind === "training" ? it.t.status === "completed" : Boolean(it.e.doneAt);
+  const late = it.kind === "training" ? unmarked(it.t, today) : entryOverdue(it.e, today);
   return (
     <button
       type="button"
@@ -142,7 +142,7 @@ function Chip({ it, known, today, onOpen, draggable }: { it: Item; known: Set<st
       onClick={(ev) => { ev.stopPropagation(); onOpen(it); }}
       className={`block w-full min-w-0 rounded-md border-l-[3px] px-1.5 py-[3px] text-left text-[11.5px] leading-[1.3] transition hover:brightness-95 ${done ? "opacity-60" : ""}`}
       style={{ borderLeftColor: c, background: tint(c) }}
-      title={`${line1}\n${line2}${done ? "\nCompleted" : late ? "\nDay passed — mark it completed" : it.kind === "training" && it.t.status === "postponed" ? "\nPostponed" : ""}`}
+      title={`${line1}\n${line2}${done ? (it.kind === "training" ? "\nCompleted" : "\nDone") : late ? `\nDay passed — mark it ${it.kind === "training" ? "completed" : "done"}` : it.kind === "training" && it.t.status === "postponed" ? "\nPostponed" : ""}`}
     >
       <span className="flex min-w-0 items-center gap-1">
         <span className="truncate font-semibold text-ink">{line1}</span>
@@ -834,7 +834,7 @@ function PeoplePicker({ value, everyone, onChange }: { value: string[]; everyone
 }
 
 function EntryForm({ date, member, type, entry, tabs, onClose }: { date: string; member: Member; type: EntryType; entry?: CalendarEntry; tabs: React.ReactNode; onClose: () => void }) {
-  const { saveEntry, deleteEntry, customers } = useStore();
+  const { saveEntry, deleteEntry, customers, toast } = useStore();
   const [title, setTitle] = useState(entry?.title ?? "");
   const [d, setD] = useState(entry?.date ?? date);
   const [allDay, setAllDay] = useState(entry?.allDay ?? false);
@@ -863,13 +863,23 @@ function EntryForm({ date, member, type, entry, tabs, onClose }: { date: string;
       description: notes.trim() || undefined,
       linkedCustomer: customer || undefined,
       createdAt: entry?.createdAt ?? new Date().toISOString(),
+      doneAt: entry?.doneAt,
+      doneBy: entry?.doneBy,
     });
+    onClose();
+  };
+  // Mark done (owner, 3 Nov) — saved on the entry as it is (unsaved edits in the form aside), with Undo.
+  const markDone = (done: boolean) => {
+    if (!entry) return;
+    const { doneAt: _a, doneBy: _b, ...rest } = entry;
+    saveEntry(done ? { ...rest, doneAt: new Date().toISOString(), doneBy: member.name } : rest);
+    toast({ text: done ? `"${entry.title}" marked done` : `"${entry.title}" is open again`, actionLabel: "Undo", onAction: () => saveEntry(entry) });
     onClose();
   };
   return (
     <Popup
       title={entry ? `${TYPE_LABEL[type]}` : "New"}
-      sub={entry ? `${entry.createdBy ? `Added by ${entry.createdBy}` : ""}` : "Everyone picked sees it on their calendar and gets a reminder that day."}
+      sub={entry ? [entry.createdBy && `Added by ${entry.createdBy}`, entry.doneAt && `Done${entry.doneBy ? ` by ${entry.doneBy}` : ""} · ${fmtDate(entry.doneAt.slice(0, 10), { day: "numeric", month: "short" })}`].filter(Boolean).join(" · ") : "Everyone picked sees it on their calendar and gets a reminder that day."}
       onClose={onClose}
       width={720}
       footer={<>
@@ -880,6 +890,9 @@ function EntryForm({ date, member, type, entry, tabs, onClose }: { date: string;
             <button className={btn.quiet} onClick={() => setConfirmDelete(false)}>Keep</button>
           </span>
         ) : <button className={`${btn.danger} mr-auto`} onClick={() => setConfirmDelete(true)}>Delete</button>)}
+        {entry && !confirmDelete && (entry.doneAt
+          ? <button className={btn.ghost} onClick={() => markDone(false)} title={`Done${entry.doneBy ? ` · ${entry.doneBy}` : ""}`}>✓ Done · Reopen</button>
+          : <button className={btn.ghost} onClick={() => markDone(true)}>Mark done</button>)}
         <button className={btn.ghost} onClick={onClose}>Cancel</button>
         <button className={btn.primary} disabled={!valid} onClick={save}>{entry ? "Save changes" : `Add ${TYPE_LABEL[type].toLowerCase()}`}</button>
       </>}
