@@ -124,6 +124,7 @@ export type SyncLogEntry = SyncTrigger & {
   whatsappError?: string;
 };
 const LOG_DAYS = 90;
+const ITEMS_EVERY_MS = 60 * 60_000; // the item list (identifiers) is read again at least this often
 const LOG_LIST_MAX = 60; // names kept per entry (counts stay exact)
 const NUMBER_KEY: Record<Kind, string> = { estimates: "estimate_number", salesorders: "salesorder_number", invoices: "invoice_number" };
 const G2 = globalThis as unknown as { __thLogIndex?: Promise<unknown> };
@@ -313,11 +314,16 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     const fullDue = full || !state.reconcileAt || state.reconcileAt < lastSlot(FULL_HOURS, now) || KINDS.some((k) => !state.cursors[k]);
     log.mode = fullDue ? "full" : "quick";
     let items = ((await store.findOne({ _id: "zoho_items" }))?.items as ZItem[] | undefined) ?? undefined;
-    if (!items?.length || fullDue) {
-      items = await fetchItems();
-      await store.replaceOne({ _id: "zoho_items" }, { items }, { upsert: true });
+    // Also once an hour (~6 calls): an item's identifier changed in Zoho (owner, 3 Nov: "Fire Blankets") shows without
+    // waiting for 2 pm. Only a real change counts as one — else every open tab would re-download the board hourly.
+    const itemsStale = now - (state.itemsAt ?? 0) > ITEMS_EVERY_MS;
+    if (!items?.length || fullDue || itemsStale) {
+      const fresh = await fetchItems();
+      const differs = JSON.stringify(fresh) !== JSON.stringify(items ?? []);
+      if (differs) await store.replaceOne({ _id: "zoho_items" }, { items: fresh }, { upsert: true });
+      items = fresh;
       state.itemsAt = now;
-      changed++;
+      if (differs) changed++;
     }
     const sets = itemSets(items);
     // Customers.
