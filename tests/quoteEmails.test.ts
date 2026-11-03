@@ -1,7 +1,7 @@
 // Quotation email templates (src/lib/quoteEmails.ts): items → topics, names filled in, templates, HTML.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brandsOf, buildQuoteEmail, listNames, suggestTemplate, textToHtml, topicOf, topicsOf, ziaBrief } from "@/lib/quoteEmails";
+import { brandsOf, buildQuoteEmail, listNames, suggestTemplate, textToHtml, topicOf, topicsOf, splitZiaReply, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
 
 const base = { company: "Tata Motors", contact: "Mr. Rajesh Kumar", number: "QT-001234", total: 185000, expiry: "2026-12-03", salesperson: "Pranjal" };
 
@@ -67,4 +67,13 @@ test("the Zia brief carries the request, items, total and the quote number in it
   assert.match(b.html, /What to write: AED email, mention &lt;warranty&gt;/);
   assert.match(b.html, /• Zoll AED Plus × 2<br>/);
   assert.match(b.html, /₹1,85,000 including GST/);
+});
+
+test("the Flow prompt asks for the email only; Zia's reply splits into subject and text", () => {
+  const p = ziaPrompt("short and friendly", { ...base, lines: [{ name: "AED Wall Cabinet", qty: 1, group: "AED Cabinet" }] });
+  assert.match(p, /^Write a quotation email/);
+  assert.match(p, /What to write: short and friendly/);
+  assert.deepEqual(splitZiaReply("Subject: Your AED cabinet quote\n\nHi Rajesh,\n\nThanks."), { subject: "Your AED cabinet quote", text: "Hi Rajesh,\n\nThanks." });
+  assert.deepEqual(splitZiaReply("**Subject:** Quote\nHi"), { subject: "Quote", text: "Hi" });
+  assert.deepEqual(splitZiaReply("Hi Rajesh,\r\nThanks."), { subject: null, text: "Hi Rajesh,\nThanks." });
 });

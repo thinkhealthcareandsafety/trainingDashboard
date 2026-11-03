@@ -9,7 +9,8 @@ import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
-import { type QuoteEmailInput, ZIA_MAILBOX, ziaBrief } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, ZIA_MAILBOX, textToHtml, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 
 export const dynamic = "force-dynamic";
 
@@ -200,6 +201,12 @@ export async function GET(request: Request) {
     const ziaFor = q.get("zia");
     if (ziaFor) {
       if (!/^[A-Za-z0-9/_-]{1,40}$/.test(ziaFor)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+      // Through Zoho Flow: the answer it posted back (kv), or "still writing".
+      if (ziaFlowOn()) {
+        const a = await ziaAnswer(ziaFor);
+        if (a === "waiting") return Response.json({ waiting: true });
+        if (a) return Response.json({ subject: a.subject ?? "", html: textToHtml(a.text) });
+      }
       const d = await findDraft(ZIA_MAILBOX, ziaFor).catch((e: Error) => ({ error: e.message }));
       if (!d) return Response.json({ error: `No draft for ${ziaFor} in ${ZIA_MAILBOX}'s Zoho Mail yet — have Zia write it there and save the draft` }, { status: 404 });
       if ("error" in d) return Response.json({ error: d.error }, { status: 502 });
@@ -214,7 +221,7 @@ export async function GET(request: Request) {
       const j = await zohoGet<Record<string, unknown> & { data?: Record<string, unknown> }>(`/estimates/${emailId}/email`);
       const d = (j.data ?? j) as { subject?: string; body?: string; file_name?: string; to_contacts?: ToContact[] };
       return Response.json({
-        subject: d.subject ?? "", body: d.body ?? "", fileName: d.file_name ?? null, maxBytes: EMAIL_MAX_BYTES,
+        ziaVia: ziaFlowOn() ? "flow" : "mail", subject: d.subject ?? "", body: d.body ?? "", fileName: d.file_name ?? null, maxBytes: EMAIL_MAX_BYTES,
         to: (d.to_contacts ?? []).filter((x) => x.email).map((x) => ({ email: x.email!, name: [x.first_name, x.last_name].filter(Boolean).join(" ") || null, selected: x.selected !== false })),
       });
     }
@@ -385,8 +392,13 @@ async function ziaDraft(z: { request?: string; quote?: QuoteEmailInput }): Promi
     expiry: s(q.expiry, 10) || null, salesperson: s(q.salesperson, 100) || null, lines,
   };
   try {
+    // Zoho Flow set up (owner, 3 Nov): Zia writes it there and the answer comes back by itself — no Zoho Mail step.
+    if (ziaFlowOn()) {
+      await askZia(quote.number, ziaPrompt(s(z.request, 1000), quote));
+      return Response.json({ ok: true, via: "flow" });
+    }
     await saveDraft(ZIA_MAILBOX, ziaBrief(s(z.request, 1000), quote));
-    return Response.json({ ok: true, mailbox: ZIA_MAILBOX });
+    return Response.json({ ok: true, via: "mail", mailbox: ZIA_MAILBOX });
   } catch (e) {
     console.error("[quotations] zia draft failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't save the draft in Zoho Mail" }, { status: 502 });

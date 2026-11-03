@@ -251,9 +251,17 @@ export const ziaSubject = (q: Pick<QuoteEmailInput, "number" | "company">) => `Z
 
 /** The draft's subject and HTML: what to write (the person's words) and everything Zia needs from the quote. */
 export function ziaBrief(request: string, q: QuoteEmailInput): { subject: string; html: string } {
+  return { subject: ziaSubject(q), html: textToHtml(ziaPrompt(request, q, "Zia: write a quotation email from the details below. Keep only the email (delete this note).")) };
+}
+
+/**
+ * The same brief as one instruction — what Zoho Flow hands to Zia (owner, 3 Nov: "it has her do it anyway without
+ * needing me to open zoho mail"). Asks for the email only, so what comes back can go straight in the message box.
+ */
+export function ziaPrompt(request: string, q: QuoteEmailInput, head = "Write a quotation email to a customer from the details below. Reply with the email only: first line \"Subject: …\", then the email, starting with the greeting and ending with the sign-off."): string {
   const valid = day(q.expiry);
-  const text = [
-    "Zia: write a quotation email from the details below. Keep only the email (delete this note).",
+  return [
+    head,
     `What to write: ${request.trim() || "a warm, friendly quotation email"}`,
     [
       `Customer: ${q.company}`,
@@ -267,5 +275,11 @@ export function ziaBrief(request: string, q: QuoteEmailInput): { subject: string
     ].filter(Boolean).join("\n"),
     "Tone: human and warm, short paragraphs, no placeholders in square brackets.",
   ].join("\n\n");
-  return { subject: ziaSubject(q), html: textToHtml(text) };
+}
+
+/** What Zia sent back → subject (from a "Subject:" first line, if any) and the email's text. */
+export function splitZiaReply(raw: string): { subject: string | null; text: string } {
+  const t = raw.replace(/\r\n/g, "\n").trim();
+  const m = t.match(/^\**\s*subject\s*:\**\s*(.+)\n+/i);
+  return m ? { subject: m[1].trim().replace(/\*+$/, "").trim(), text: t.slice(m[0].length).trim() } : { subject: null, text: t };
 }

@@ -675,7 +675,7 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
  */
 function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
-  type Draft = { subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string };
+  type Draft = { subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail" };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [extra, setExtra] = useState("");
@@ -718,23 +718,39 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
   const toZia = async () => {
     setZiaBusy(true); setZiaMsg("");
     const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ zia: { request: ziaText, quote: compose } }) }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; mailbox?: string; error?: string }) : { error: "Couldn't reach the server" };
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; via?: string; mailbox?: string; error?: string }) : { error: "Couldn't reach the server" };
+    if (j.ok && j.via === "flow") {
+      // Through Zoho Flow: Zia's email comes back by itself — check every 3 s for up to 2 minutes.
+      setZiaMsg("Zia is writing it…");
+      for (let i = 0; i < 40 && alive.current; i++) {
+        await new Promise((res) => setTimeout(res, 3000));
+        if (await fromZia(true)) return setZiaBusy(false);
+      }
+      setZiaBusy(false);
+      if (alive.current) setZiaMsg("Zia hasn't answered in 2 minutes — check the flow in Zoho Flow, or try again.");
+      return;
+    }
     setZiaBusy(false);
     setZiaMsg(j.ok ? `Draft “${ziaSubject(compose)}” is in ${j.mailbox}'s Zoho Mail → open it, have Zia write the email, save the draft, then Pull from Zia.` : j.error ?? "Couldn't save the draft");
   };
-  const fromZia = async () => {
-    setZiaBusy(true); setZiaMsg("");
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  /** Brings Zia's email in; `quiet` (while polling the flow): false = not there yet, no message. */
+  const fromZia = async (quiet = false): Promise<boolean> => {
+    if (!quiet) { setZiaBusy(true); setZiaMsg(""); }
     const r = await fetch(`/api/quotations?zia=${encodeURIComponent(quote.number)}`).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { subject?: string; html?: string; error?: string }) : { error: "Couldn't reach the server" };
-    setZiaBusy(false);
-    if (j.error || j.html == null) return setZiaMsg(j.error ?? "Nothing came back");
-    if (edited.current && !window.confirm("Replace the message you've edited?")) return;
+    const j = r ? ((await r.json().catch(() => ({}))) as { subject?: string; html?: string; error?: string; waiting?: boolean }) : { error: "Couldn't reach the server" };
+    if (!quiet) setZiaBusy(false);
+    if (j.waiting || (quiet && (j.error || j.html == null))) return false;
+    if (j.error || j.html == null) { setZiaMsg(j.error ?? "Nothing came back"); return false; }
+    if (edited.current && !window.confirm("Replace the message you've edited?")) { setZiaMsg("Zia's email is ready — Pull from Zia to put it in."); return true; }
     // Zia may have written a subject; the draft's own one ("Zia · QT-… · …") isn't for the customer.
     const subj = (j.subject ?? "").trim();
     if (subj && subj !== ziaSubject(compose)) setSubject(subj.replace(/^Zia\s*·\s*/, ""));
     if (body.current) body.current.innerHTML = cleanHtml(j.html);
     edited.current = false;
-    setZiaMsg("Pulled from Zia — check it before sending.");
+    setZiaMsg("Zia wrote it — check it before sending.");
+    return true;
   };
   const size = files.reduce((n, f) => n + f.size, 0);
   const max = draft?.maxBytes || 4 * 1024 * 1024;
@@ -799,8 +815,8 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
           <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-64 text-[14px]`} value={ziaText} onChange={(e) => setZiaText(e.target.value)} maxLength={1000}
             placeholder="Tell Zia what to write — e.g. AED email, mention training and warranty" aria-label="What Zia should write" />
           <button className={`${btn.ghost} !h-9`} onClick={toZia} disabled={!live || ziaBusy} title={live ? `Leaves a draft in ${ZIA_MAILBOX}'s Zoho Mail` : "Only the live site writes to Zoho Mail"}>Send to Zia</button>
-          <a className={`${btn.ghost} !h-9`} href="https://mail.zoho.in/zm/#mail/folder/drafts" target="_blank" rel="noreferrer">Open Zoho Mail ↗</a>
-          <button className={`${btn.ghost} !h-9`} onClick={fromZia} disabled={ziaBusy}>{ziaBusy ? "…" : "Pull from Zia"}</button>
+          {draft.ziaVia !== "flow" && <a className={`${btn.ghost} !h-9`} href="https://mail.zoho.in/zm/#mail/folder/drafts" target="_blank" rel="noreferrer">Open Zoho Mail ↗</a>}
+          <button className={`${btn.ghost} !h-9`} onClick={() => fromZia()} disabled={ziaBusy}>{ziaBusy && draft.ziaVia === "flow" ? "Zia is writing…" : ziaBusy ? "…" : "Pull from Zia"}</button>
           {ziaMsg && <p className="basis-full text-[13px] text-muted">{ziaMsg}</p>}
         </div>
         <label className="block"><span className={label}>Subject</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} /></label>
