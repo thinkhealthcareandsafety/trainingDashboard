@@ -1,7 +1,7 @@
 import type { CardView, buildAedBoard, buildBoard, buildFulfillmentBoard } from "../pipeline";
 import type { buildLogisticsBoard } from "../logistics";
 import type { CalendarEntry, CardEvent } from "../types";
-import { boardsFor, inEntry } from "../roles";
+import { boardsFor, entryOverdue, inEntry } from "../roles";
 import { CATEGORIES, type Comment, type PtRequest, type Who, isAdminId, isSevere, needsReply } from "./model";
 
 /*
@@ -18,6 +18,8 @@ import { CATEGORIES, type Comment, type PtRequest, type Who, isAdminId, isSevere
  *   Shreya (certs)     gratitude emails to send, replies waiting, certificates to send to Logistics / on hold
  *   Arti (logistics)   AEDs to mark delivered, merges, packing, shipping, deliveries to confirm
  *   Everyone           their meetings / events, requests waiting on them
+ *   Shikha (again)     meetings / events whose day has passed and nobody marked done (owner, 3 Nov: "also shikha's
+ *                      responsibility") — from 3 Nov on (ENTRY_DONE_FROM)
  * Sales items (quotes, PIs, invoices) are left out (owner: "exclude it"). Window: overdue, today, the next 7 days.
  */
 
@@ -149,7 +151,11 @@ export function buildTodos(today: string, team: Who[], b: Boards, entries: Calen
 
   // ---- Everyone: meetings and events, requests waiting on them ----
   for (const e of entries) {
-    if (e.demo || e.date < today || e.date > last) continue;
+    if (entryOverdue(e, today)) {
+      for (const m of shikha) add({ id: `entrydone:${e.id}`, who: m.id, tag: "Mark done", title: e.title, detail: [e.type === "meeting" ? "Meeting" : "Event", e.allDay ? "all day" : e.startTime, e.linkedCustomer].filter(Boolean).join(" · "), date: e.date, tone: "bad", href: `/calendar?date=${e.date}&entry=${encodeURIComponent(e.id)}` });
+      continue;
+    }
+    if (e.demo || e.doneAt || e.date < today || e.date > last) continue;
     for (const m of team) if (inEntry(m, e)) add({ id: `entry:${e.id}:${m.id}`, who: m.id, tag: e.type === "meeting" ? "Meeting" : "Event", title: e.title, detail: [e.allDay ? "All day" : e.startTime, e.linkedCustomer].filter(Boolean).join(" · ") || undefined, date: e.date, tone: "info", href: `/calendar?date=${e.date}&entry=${encodeURIComponent(e.id)}` });
   }
   // Requests: tagged and not answered yet → red "Reply needed" / "Mentioned you" (owner: until they reply or resolve);
@@ -218,7 +224,7 @@ function doneTag(e: CardEvent): string | null {
   }
 }
 
-export function buildDone(team: Who[], events: CardEvent[], nameOf: (cardId: string) => string | undefined, requests: PtRequest[], now: Date): Done[] {
+export function buildDone(team: Who[], events: CardEvent[], nameOf: (cardId: string) => string | undefined, requests: PtRequest[], now: Date, entries: CalendarEntry[] = []): Done[] {
   const since = new Date(now.getTime() - DONE_DAYS * 86_400_000).toISOString();
   const byName = new Map(team.map((m) => [m.name.trim().toLowerCase(), m]));
   const out = new Map<string, Done>();
@@ -238,6 +244,11 @@ export function buildDone(team: Who[], events: CardEvent[], nameOf: (cardId: str
     const detail = e.kind === "set_training_date" && e.value && e.value !== "TBD" ? `for ${e.value.split(",").map((d) => fmtDay(d.slice(0, 10))).join(", ")}` : e.kind === "merge" ? `${e.before ?? ""} → ${e.value ?? ""}`.trim() : undefined;
     // Several of the same on one card the same day (three calls, two edits) show once with ×n.
     add({ id: e.id, who: m.id, at: e.at, tag, title, detail, href: open(card) }, `${m.id}|${tag}|${card}|${e.at.slice(0, 10)}`);
+  }
+  for (const e of entries) {
+    if (!e.doneAt || !e.doneBy || e.doneAt < since) continue;
+    const m = byName.get(e.doneBy.trim().toLowerCase());
+    if (m) add({ id: `entry:${e.id}`, who: m.id, at: e.doneAt, tag: e.type === "meeting" ? "Meeting done" : "Event done", title: e.title, detail: fmtDay(e.date), href: `/calendar?date=${e.date}&entry=${encodeURIComponent(e.id)}` }, `entry:${e.id}`);
   }
   for (const r of requests) {
     for (const l of r.log) {
