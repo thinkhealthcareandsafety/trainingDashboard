@@ -28,7 +28,8 @@ const PAY_BATCH = 150;
  * Invoice Items — no Books calls); a document newer than that copy has its lines read from Books once (at most
  * LINES_BATCH a sync, only documents from the last LINES_DAYS days), kept in `salesDetails`.
  */
-const FIRE = "Fire Safety";
+// The identifier the Fire Safety board goes by — owner, 3 Nov: "item identifier: fire blankets, ive changed it" (was "Fire Safety").
+const FIRE = "fire blankets";
 const LINES_BATCH = 30;
 const LINES_DAYS = 14;
 const ITEM_TABLES = [["estimates", "quoteItems", "Quote ID"], ["salesorders", "salesOrderItems", "Sales order ID"], ["invoices", "invoiceItems", "Invoice ID"]] as const;
@@ -67,7 +68,7 @@ async function docItems(): Promise<Lines> {
   return out;
 }
 const fireItemIds = async () => new Set((((await (await kv()).findOne({ _id: "zoho_items" }))?.items as (ZItem & { identifier?: string })[] | undefined) ?? [])
-  .filter((i) => i.identifier === FIRE).map((i) => String(i.id)));
+  .filter((i) => i.identifier?.trim().toLowerCase() === FIRE).map((i) => String(i.id)));
 /** List fields the board uses — the rest of Zoho's list row isn't kept (a whole row is ~1.5 KB; this is ~300 B). */
 const KEEP = ["estimate_id", "salesorder_id", "invoice_id", "estimate_number", "salesorder_number", "invoice_number", "date", "created_time", "last_modified_time",
   "status", "customer_id", "customer_name", "salesperson_name", "reference_number", "total", "balance", "due_date", "payment_made"];
