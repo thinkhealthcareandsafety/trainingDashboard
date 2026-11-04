@@ -33,6 +33,18 @@ Later on 4 Nov:
 - **Zia:** History output says "Zia Utilities says Content can't be null": the Zia step's prompt field is empty or mapped wrongly. We send JSON
   `{quote, prompt}` in lowercase. The fix is in Flow.
 
+Later still on 4 Nov (supersedes the brochure note above):
+- **Upload works, undocumented:** `POST /documents` (multipart field `document`) answers `documents` as one object with `document_id`; `PUT /items/{id}` with
+  that id on custom field 982417000023514003 attaches it and answers `custom_field_hash.cf_product_brochure` = the file name. Tested on Hot Water Bag
+  Standard (982417000007512064, the owner's test item) and read back through the Books connector. `/items/{id}/documents` and `/items/{id}/attachment`
+  answer "Invalid URL". `POST /documents` answered "not authorized" until the connection had **`ZohoBooks.fullaccess.all`**, the owner's choice after
+  being told the risk; `QUOTE_SCOPES` is now that. A narrower scope may exist but isn't documented.
+- **Item pictures:** `GET /items/{id}/images/{document}` returns a picture from the item's `documents` when `/items/{id}/image` has none (15 of 487 items).
+- **Self Client:** a code only works with the Self Client that made it. The connection's is the owner's own, not the app's: `clientsToTry`.
+- **Traps:** `.sr-only` inputs inside a scrolling table escape it and stretch the page unless their parent is `relative`. A shell chain ran the upload test
+  after a failed push, against old code, leaving stray files: confirm the deploy before anything that writes.
+- **Temporary, remove:** `cleanTestBrochures` and `cleanBrochureTests` once the stray `test-brochure.pdf` files are gone.
+
 ## Owner's side
 
 | # | What | State |
