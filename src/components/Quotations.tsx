@@ -116,7 +116,8 @@ export function Quotations() {
   const [page, setPage] = useState(0);
   const [res, setRes] = useState<ListRes | null>(null);
   const [loading, setLoading] = useState(false);
-  const [quoting, setQuoting] = useState<{ c: Customer; fresh: boolean } | null>(null);
+  const [quoting, setQuoting] = useState<{ c: Customer; fresh: boolean; start?: Item[] } | null>(null);
+  const [startItems, setStartItems] = useState<Item[] | null>(null); // ticked on Items, waiting for the customer
   const [connecting, setConnecting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [tick, setTick] = useState(0);
@@ -147,7 +148,7 @@ export function Quotations() {
       {res && !res.live && <p className="mb-4 rounded-2xl bg-surface-2 px-4 py-2.5 text-[14px] text-muted">This is a local copy — quotations are created in Zoho Books only from the live site.</p>}
 
       <div className="mb-4"><Segmented value={view} onChange={setView} options={[{ value: "customers", label: "Customers" }, { value: "items", label: "Items" }]} /></div>
-      {view === "items" ? <ItemsSection /> : <>
+      {view === "items" ? <ItemsSection clear={tick} canQuote={Boolean(res?.connected)} onQuote={(list) => { setStartItems(list); setStarting(true); }} /> : <>
       <div className="flex flex-wrap items-center gap-2">
         <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-72 text-[15px]`} placeholder="Search a customer, email or phone…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" autoFocus />
         <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={sector} onChange={(e) => setSector(e.target.value)} aria-label="Sector">
@@ -214,8 +215,8 @@ export function Quotations() {
         </div>
       )}
       </>}
-      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
-      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true }); }} onClose={() => setStarting(false)} />, document.body)}
+      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} start={quoting.start} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
+      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true, start: startItems ?? undefined }); setStartItems(null); }} onClose={() => { setStarting(false); setStartItems(null); }} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
     </div>
   );
@@ -327,7 +328,7 @@ function StockCell({ item }: { item: Item | undefined }) {
 const GRID = "grid grid-cols-[4.5rem_minmax(0,1fr)_6.5rem_2rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_5rem_7.5rem_4.5rem_7.5rem_2rem]";
 
 /** `fresh` ("New quotation"): from scratch — no lines or fields from their last quote (it can still be copied in). */
-function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Customer; fresh?: boolean; live: boolean; onClose: (sent: boolean) => void }) {
+function QuotePopup({ customer, fresh = false, start, live, onClose }: { customer: Customer; fresh?: boolean; start?: Item[]; live: boolean; onClose: (sent: boolean) => void }) {
   useNoPageScroll();
   const { toast } = useStore();
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -381,7 +382,10 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
       const withMail = j.contacts.filter((c) => c.email);
       const first = withMail.find((c) => c.primary) ?? withMail[0];
       setTo(first ? [first.id] : []);
-      setLines(!fresh && j.last?.lines.length ? j.last.lines.map((l) => row(l)) : [blank()]);
+      // Ticked on the Items page (owner, 4 Nov): those, with their rate and GST; the descriptions come as when picked.
+      const ticked = start?.map((i) => ({ i, line: row({ itemId: i.id, name: i.name, qty: 1, rate: i.rate || 0, gst: i.gst }) }));
+      setLines(ticked?.length ? ticked.map((x) => x.line) : !fresh && j.last?.lines.length ? j.last.lines.map((l) => row(l)) : [blank()]);
+      ticked?.forEach((x) => describe(x.line.key, x.i));
       // The quote's fields: Send to CRM Yes (owner, 28 Oct); the rest from their last quotation where it had them.
       const was = (k: keyof Opts, fallback: string) => { const v = (!fresh && j.last?.fields[k]) || ""; return j.options[k].includes(v) ? v : fallback; };
       setF({
@@ -395,7 +399,10 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
   const set = (k: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === k ? { ...l, ...patch } : l)));
   const pick = (k: number, i: Item) => {
     set(k, { itemId: i.id, name: i.name, rate: i.rate || 0, gst: i.gst, description: undefined });
-    // Zoho puts the item's description on the line — read it now (and the GST %, if the item list is older than the item).
+    describe(k, i);
+  };
+  // Zoho puts the item's description on the line — read it now (and the GST %, if the item list is older than the item).
+  const describe = (k: number, i: Item) => {
     fetch(`/api/quotations?item=${i.id}`).then((r) => r.json()).then((j: { description?: string; gst?: number | null }) => {
       setLines((ls) => ls.map((l) => (l.key === k && l.itemId === i.id ? { ...l, description: l.description ?? j.description ?? "", gst: l.gst ?? j.gst ?? null } : l)));
     }).catch(() => {});
@@ -920,13 +927,14 @@ function Catalogue({ items, lines, onAdd, onClose }: { items: Item[]; lines: Lin
  * Items, under Quotations (owner, 4 Nov): active items only, most in demand first (quote lines in the last 12 months). No
  * pictures in the list: each costs a Zoho call, so only the item you open shows one.
  */
-function ItemsSection() {
+function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: boolean; onQuote: (items: Item[]) => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [open, setOpen] = useState<Item | null>(null);
   useEffect(() => { loadItems().then(setItems); }, []);
+  useEffect(() => { setPicked([]); }, [clear]); // a quotation was made from them
   const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
   const groups = useMemo(() => [...new Set((items ?? []).map(groupOf))].sort((a, b) => a.localeCompare(b)), [items]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -942,8 +950,9 @@ function ItemsSection() {
           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         {picked.length > 0 && <span className="flex items-center gap-2 text-[14px] text-ink-2">{picked.length} ticked <button className={btn.quiet} onClick={() => setPicked([])}>Clear</button></span>}
+        <button className={btn.primary} disabled={!picked.length || !canQuote} title={!canQuote ? "Zoho Books isn't connected for quotations yet" : !picked.length ? "Tick the items first" : undefined} onClick={() => onQuote(picked.map((id) => items!.find((i) => i.id === id)!).filter(Boolean))}>Create quotation</button>
       </div>
-      <div className="card no-scrollbar mt-4 max-h-[calc(100dvh-19rem)] min-h-64 overflow-y-auto">
+      <div className="card no-scrollbar mt-4 max-h-[calc(100dvh-27rem)] min-h-64 overflow-y-auto">
         <table className="w-full text-left text-[15px]">
           <thead className="sticky top-0 z-10 border-b border-line bg-surface text-[13px] text-muted">
             <tr>
