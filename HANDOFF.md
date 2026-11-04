@@ -3,7 +3,7 @@
 _Last updated: Wed 4 Nov 2026 (end of session 22). **Live = GitHub = `87a4247`** (both addresses), plus this docs
 commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Session 23 (4 Nov) — newest; wins over everything below.** All pushed and live at the end of the session; `git log` has one commit per step. **Start from
+**Session 23 (4 Nov) — newest; wins over everything below.** All pushed; `git log` has one commit per step. Vercel started no deploy for `574f4e7` (no status at all on the commit, after 30 minutes), so check what's live before trusting it: a picture request with a bad item id answers "Unknown item" on the new build, "Unknown quotation" on the old one. **Start from
 QUOTATIONS-PLAN.md "Left to do"**, then its "Status, session 23" for how things work and where they differ from the plan. Plan steps 1-7 and brochures are built, plus
 Add email, the Items page at `/items`, item Edit, Add PDF, Add picture, and the certificate name's Edit. The owner confirmed the quotations@ sender works. The push needs the
 owner to say "push" outright: the permission check refuses anything vaguer, and it refused a bulk delete by file name. Traps: `TaskStop` on `npx next start` leaves the server alive and `Get-NetTCPConnection` can miss it, so start the test server
