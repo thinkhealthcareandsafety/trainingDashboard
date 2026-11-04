@@ -69,7 +69,10 @@ export async function connectQuotes(input: { code: string; clientId?: string; cl
   const t = await tokenRequest({ grant_type: "authorization_code", code: input.code.trim(), client_id: clientId, client_secret: clientSecret });
   if (!t.refresh_token) throw new Error("Zoho gave no refresh token — generate a new code and try again");
   const c: Conn = { _id: KEY, clientId, clientSecret, refreshToken: t.refresh_token, token: { value: t.access_token!, expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000 }, connectedAt: new Date().toISOString(), connectedBy: by, scopes: QUOTE_SCOPES };
-  await books(c, "GET", "/contacts", { per_page: "1" }); // the right organisation, and the scope works
+  // The right organisation, and the scope works. Failing here leaves the working connection as it was: it's replaced only below.
+  await books(c, "GET", "/contacts", { per_page: "1" }).catch((e: Error) => {
+    throw /not authori[sz]ed/i.test(e.message) ? new Error("Zoho took the code, but it can't read your customers, so nothing changed. Generate a new code with the whole Scope line, signed in as the Zoho user who has Books access. Your current connection still works.") : e;
+  });
   await (await kv()).replaceOne({ _id: KEY }, c, { upsert: true });
   return { connectedAt: c.connectedAt, connectedBy: by, newCustomers: true };
 }

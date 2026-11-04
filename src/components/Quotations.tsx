@@ -1353,6 +1353,7 @@ function ConnectBooks({ scopes, onClose }: { scopes: string; onClose: (ok: boole
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [state, setState] = useState<{ busy?: boolean; error?: string; done?: string }>({});
+  const [copied, setCopied] = useState(false);
   const connect = async () => {
     setState({ busy: true });
     const r = await fetch("/api/quotations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, clientId, clientSecret }) }).catch(() => null);
@@ -1363,7 +1364,8 @@ function ConnectBooks({ scopes, onClose }: { scopes: string; onClose: (ok: boole
   const steps = useMemo(() => [
     <>Sign in to <a className="font-semibold text-brand underline" href="https://api-console.zoho.in" target="_blank" rel="noreferrer">api-console.zoho.in</a> with the Zoho account that uses Zoho Books.</>,
     <>Open <b>Self Client</b> → <b>Generate Code</b>.</>,
-    <>Scope: <code className="select-all rounded bg-surface-2 px-1 text-[13px]">{scopes}</code> · Time: 10 minutes · Description: Quotations · Create.</>,
+    // The whole line has to go in, so it wraps instead of running out of the popup (4 Nov: a cut-off line was hard to copy whole).
+    <>Scope, all of it <button type="button" className="font-semibold text-brand hover:underline" onClick={() => navigator.clipboard?.writeText(scopes).then(() => setCopied(true)).catch(() => {})}>{copied ? "Copied ✓" : "Copy"}</button>: <code className="select-all block break-all rounded bg-surface-2 px-2 py-1 text-[13px]">{scopes}</code> Time: 10 minutes · Description: Quotations · Create.</>,
     <>Paste the code here. If that Self Client isn&apos;t the one used for Zoho Books, also paste its Client ID and Secret (Client Secret tab).</>,
   ], [scopes]);
   return (
