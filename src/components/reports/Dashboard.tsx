@@ -98,7 +98,7 @@ export function compose(tile: Tile, today: string, periodKey: string, filters: R
       if (r && !tile.fixedPeriod) spec = { ...spec, from: r.from, to: r.to };
     } else if (has(pick.field)) list.push({ field: pick.field, values: [pick.value] });
   }
-  const cmp: Compare | undefined = compare === "none" || tile.noCompare ? undefined : typeof compare === "object" ? (has(compare.field) ? compare : undefined) : compare;
+  const cmp: Compare | undefined = tile.ownCompare ? base.compare : compare === "none" || tile.noCompare ? undefined : typeof compare === "object" ? (has(compare.field) ? compare : undefined) : compare;
   return { ...spec, filters: list, compare: cmp };
 }
 
@@ -783,7 +783,7 @@ function ViewsButton({ views, current, open, setOpen, onSave, onApply, onAdded }
 }
 
 // Columns that leave no half-empty row: 4 → 4 / 2, 6 → 3 / 2, 8 → 4 / 2 (phones always 2).
-const BAND_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-1 sm:grid-cols-3", 4: "grid-cols-2 xl:grid-cols-4", 6: "grid-cols-2 xl:grid-cols-3", 8: "grid-cols-2 xl:grid-cols-4" };
+const BAND_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-1 sm:grid-cols-3", 4: "grid-cols-2 xl:grid-cols-4", 6: "grid-cols-2 xl:grid-cols-3", 8: "grid-cols-2 xl:grid-cols-4", 9: "grid-cols-2 xl:grid-cols-3" };
 
 /** Numbers side by side in one card, parted by hairlines (the grid's 1 px gaps over the line colour). */
 function KpiBand({ tiles, specOf, answers, skippedOf, sparkOf, menuOf, className = "" }: { tiles: Tile[]; specOf: (t: Tile) => Spec; answers: Record<string, Answer>; skippedOf?: (t: Tile) => string[]; sparkOf?: (t: Tile) => (number | null)[] | undefined; menuOf?: (t: Tile) => MenuItem[]; className?: string }) {

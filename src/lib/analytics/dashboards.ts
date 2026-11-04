@@ -16,6 +16,8 @@ export type Tile = { id: string; spec: Spec; w: 3 | 4 | 6 | 12; fixedPeriod?: bo
   target?: number;
   /** Never compared (cohorts, seasonality, lists over all of history) — the dashboard's "Compare" leaves it alone. */
   noCompare?: boolean;
+  /** Keeps its own comparison, whatever the page's "Compared with" says. */
+  ownCompare?: boolean;
   /** A taller chart (the India map, and the bars beside it). */
   tall?: boolean;
   /** Keeps its own grouping when the dashboard's "Show by" changes (stock levels: months can't be added up). */
@@ -67,6 +69,8 @@ const TABS: DashboardDef[] = [
       kpi("inv", "sales", "invoices", "Invoices"),
       kpi("cust", "sales", "customers", "Customers billed"),
       kpi("avg", "sales", "avgInvoice", "Average invoice"),
+      // Owner, 4 Nov: this month's average invoice against last month's, the whole month (not the same days).
+      { id: "avgMonth", w: 3, fixedPeriod: true, ownCompare: true, spec: { dataset: "sales", measures: ["avgInvoice"], chart: "kpi", compare: true, prevWhole: true, period: "month", title: "Average invoice: this month vs all of last month" } },
       // Second row (owner, 27 Oct: "add more KPIs").
       kpi("new", "sales", "newCustomers", "New customers"),
       kpi("repeat", "sales", "repeatShare", "Repeat revenue share"),

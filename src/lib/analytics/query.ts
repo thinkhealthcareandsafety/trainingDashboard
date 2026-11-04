@@ -70,6 +70,8 @@ export type Spec = {
   dateField?: string;
   /** Today (set by the server): a period still running is compared like for like — up to the same day of the one before. */
   asOf?: string;
+  /** Compare with the whole period before, even while this one runs (owner, 4 Nov, average invoice: "the whole month"). */
+  prevWhole?: boolean;
 };
 /** `prev`: the same row in the comparison (one split only). */
 export type ResultRow = { keys: string[]; values: (number | null)[]; prev?: (number | null)[] };
@@ -343,7 +345,7 @@ export function runQuery(spec: Spec, rows: Row[]): Result {
     const p = mode === "lastYear" ? { from: addMonths(spec.from, -12), to: addMonths(spec.to, -12) } : previousPeriod(spec.from, spec.to);
     // Still running (e.g. this FY): today's position against the same number of days into the period before — never
     // a part period against a whole one (the Overview's rule too).
-    const running = spec.asOf && spec.asOf >= spec.from && spec.asOf < spec.to;
+    const running = !spec.prevWhole && spec.asOf && spec.asOf >= spec.from && spec.asOf < spec.to;
     const prevTo = running ? addDays(p.from, daysBetween(spec.from, spec.asOf!)) : p.to;
     if (running) { curRows = keep(d, rows, { ...spec, to: spec.asOf }); result.toDate = evaluate(d, spec.measures, curRows); }
     prevRows = keep(d, rows, { ...spec, from: p.from, to: prevTo });

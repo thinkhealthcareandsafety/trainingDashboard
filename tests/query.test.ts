@@ -73,6 +73,16 @@ test("a period still running is compared like for like (up to the same day last 
   assert.equal(r.previous?.[0], 80_000);
 });
 
+test("prevWhole: a running month against the whole month before, not the same days", () => {
+  const spec = { dataset: "sales", measures: ["revenue"], from: "2026-05-01", to: "2026-05-31", compare: true, asOf: "2026-05-06" };
+  assert.equal(q(spec).previous?.[0], 0); // 1–6 Apr: nothing yet
+  const whole = q({ ...spec, prevWhole: true });
+  assert.equal(whole.previous?.[0], 150_000); // all of April
+  assert.equal(whole.prevTo, "2026-04-30");
+  assert.equal(whole.toDate, undefined);
+  assert.equal(whole.totals[0], 300_000);
+});
+
 test("unknown measures and fields are refused — a report can't invent a number", () => {
   assert.throws(() => checkSpec({ dataset: "sales", measures: ["profitMadeUp"] }), SpecError);
   assert.throws(() => checkSpec({ dataset: "sales", measures: ["revenue"], by: ["shoeSize"] }), SpecError);
