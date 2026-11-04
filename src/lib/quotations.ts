@@ -196,19 +196,6 @@ export async function uploadPicture(id: string, file: File): Promise<{ pictures:
   return { pictures, added };
 }
 
-/** TEMPORARY: removes the blank test-brochure.pdf files the 4 Nov tests left in Books' Documents area (that exact name only). */
-export async function cleanTestBrochures(): Promise<{ deleted: number; failed: string[] }> {
-  const c = await (await kv()).findOne({ _id: KEY });
-  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
-  const list = ((await books(c, "GET", "/documents", { per_page: "200" })).documents ?? []) as { document_id?: unknown; file_name?: unknown }[];
-  let deleted = 0;
-  const failed: string[] = [];
-  for (const d of list.filter((x) => x.file_name === "test-brochure.pdf" && x.document_id)) {
-    try { await books(c, "DELETE", `/documents/${d.document_id}`); deleted++; } catch (e) { failed.push(e instanceof Error ? e.message.slice(0, 100) : "failed"); }
-  }
-  return { deleted, failed };
-}
-
 export type AddedPerson = { id: string; name: string | null; email: string; existed: boolean };
 export async function addContactPerson(p: { contactId: string; firstName: string; lastName: string; email: string }): Promise<AddedPerson> {
   const c = await (await kv()).findOne({ _id: KEY });

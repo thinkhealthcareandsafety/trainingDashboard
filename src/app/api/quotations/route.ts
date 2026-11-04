@@ -6,7 +6,7 @@ import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, cleanTestBrochures, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
@@ -349,12 +349,10 @@ export async function POST(request: Request) {
     const form = await request.formData().catch(() => null);
     return form?.get("brochure") ? saveBrochure(form, me) : form?.get("picture") ? savePicture(form, me) : sendEmail(form);
   }
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; cleanBrochureTests?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> } };
   if (body.newCustomer) return newCustomer(body.newCustomer);
   if (body.addEmail) return addEmail(body.addEmail, me.name);
   if (body.editItem) return saveItem(body.editItem, me);
-  // TEMPORARY: clears the 4 Nov upload tests' blank files.
-  if (body.cleanBrochureTests) return isAdmin(me) ? Response.json(await cleanTestBrochures().catch((e: Error) => ({ error: e.message }))) : Response.json({ error: "Admin only" }, { status: 403 });
   if (body.zia) return ziaDraft(body.zia);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
