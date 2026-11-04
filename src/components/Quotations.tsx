@@ -178,7 +178,7 @@ export function Quotations() {
           </thead>
           <tbody className={`divide-y divide-line ${loading ? "opacity-60" : ""}`}>
             {res?.customers.map((c) => (
-              <tr key={c.id} className="hover:bg-surface-2/60">
+              <tr key={c.id} className={`hover:bg-surface-2/60 ${res.connected ? "cursor-pointer" : ""}`} onClick={(e) => { if (res.connected && !(e.target as Element).closest("a, button, input")) setQuoting({ c, fresh: false }); }}>
                 <td className="px-4 py-2.5">
                   <div className="font-medium text-ink">{c.name}</div>
                   <div className="text-[13px] text-muted">{[c.type, c.sector].filter(Boolean).join(" · ") || "—"}</div>
@@ -965,8 +965,27 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
     && (!brochure || (brochure === "added" ? Boolean(i.brochure) : i.brochure === "")))
     .sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.name.localeCompare(b.name));
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  // The list fills the window to just above the note under it, on any screen (owner, 4 Nov: "make it fit the window"), so the page itself doesn't scroll.
+  const list = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+  useEffect(() => {
+    const fit = () => {
+      if (!list.current) return;
+      const main = list.current.closest("main");
+      const note = list.current.nextElementSibling as HTMLElement;
+      const below = (main ? parseFloat(getComputedStyle(main).paddingBottom) : 0) + parseFloat(getComputedStyle(list.current.parentElement!).marginBottom) + note.offsetHeight + parseFloat(getComputedStyle(note).marginTop); // the page's padding, what's pulled back from it, the note
+      setHeight(Math.max(256, Math.floor(window.innerHeight - (list.current.getBoundingClientRect().top + window.scrollY) - below)));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    // Anything appearing above the list (a notice) moves it down: measure again.
+    const watch = new ResizeObserver(fit);
+    const page = list.current?.closest("main");
+    if (page) watch.observe(page);
+    return () => { window.removeEventListener("resize", fit); watch.disconnect(); };
+  }, []);
   return (
-    <div>
+    <div className="lg:-mb-10">
       <div className="flex flex-wrap items-center gap-2">
         <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-72 text-[15px]`} placeholder="Search items…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search items" />
         <select className={`select-chevron ${inputCls} !h-10 !w-auto max-w-[16rem] text-[14px]`} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Category">
@@ -981,7 +1000,7 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
         {picked.length > 0 && <span className="flex items-center gap-2 text-[14px] text-ink-2">{picked.length} ticked <button className={btn.quiet} onClick={() => setPicked([])}>Clear</button></span>}
         <button className={btn.primary} disabled={!picked.length || !canQuote} title={!canQuote ? "Zoho Books isn't connected for quotations yet" : !picked.length ? "Tick the items first" : undefined} onClick={() => onQuote(picked.map((id) => items!.find((i) => i.id === id)!).filter(Boolean))}>Create quotation</button>
       </div>
-      <div className="card no-scrollbar mt-4 max-h-[calc(100dvh-24rem)] min-h-64 overflow-y-auto">
+      <div ref={list} className="card no-scrollbar mt-4 overflow-y-auto" style={{ maxHeight: height }}>
         <table className="w-full text-left text-[15px]">
           <thead className="sticky top-0 z-10 border-b border-line bg-surface text-[13px] text-muted">
             <tr>
@@ -1046,19 +1065,21 @@ function ItemDetails({ item, ticked, onTick, onClose }: { item: Item; ticked: bo
   ];
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={onClose}>
-      <div role="dialog" aria-label={item.name} className="modal-in flex max-h-[92vh] w-full min-w-0 max-w-[44rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label={item.name} className="modal-in flex max-h-[92vh] w-full min-w-0 max-w-[64rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 pt-5">
           <h3 className="min-w-0 text-[20px] font-bold tracking-tight text-ink">{item.name}</h3>
           <button className={btn.quiet} onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
-          <div className="grid gap-4 sm:grid-cols-[14rem_minmax(0,1fr)]">
-            <div className="overflow-hidden rounded-xl border border-line"><ItemImage item={item} onMissing={() => {}} /></div>
+          <div className="grid gap-5 sm:grid-cols-[22rem_minmax(0,1fr)]">
+            <div className="self-start overflow-hidden rounded-xl border border-line"><ItemImage item={item} tall onMissing={() => {}} /></div>
+            <div className="min-w-0">
             <dl className="space-y-1.5 text-[14.5px]">
               {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
             </dl>
+            <p className="mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2">{description === null ? "Getting the description…" : description || "No description in Zoho."}</p>
+            </div>
           </div>
-          <p className="mt-4 whitespace-pre-line text-[14.5px] leading-relaxed text-ink-2">{description === null ? "Getting the description…" : description || "No description in Zoho."}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-line px-6 py-4">
           <button className={btn.ghost} onClick={onClose}>Close</button>
@@ -1074,10 +1095,10 @@ const noPicture = new Set<string>();
 const hasPicture = (i: Item) => i.image !== false && !noPicture.has(i.id); // unknown until the next full sync: try it
 
 /** Zoho's picture of the item (through our server); the initials when it has none. */
-function ItemImage({ item, onMissing }: { item: Item; onMissing: () => void }) {
+function ItemImage({ item, tall = false, onMissing }: { item: Item; tall?: boolean; onMissing: () => void }) {
   const [failed, setFailed] = useState(!hasPicture(item));
   return (
-    <span className="relative grid h-32 shrink-0 place-items-center overflow-hidden bg-white">
+    <span className={`relative grid shrink-0 place-items-center overflow-hidden ${tall ? "h-64" : "h-32"} ${failed ? "bg-surface-2" : "bg-white"}`}>
       {failed ? <span className="text-[22px] font-bold text-faint">{item.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
         // eslint-disable-next-line @next/next/no-img-element
         : <img src={`/api/quotations?image=${item.id}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => { setFailed(true); noPicture.add(item.id); onMissing(); }} />}
