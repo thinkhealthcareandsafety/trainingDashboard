@@ -28,6 +28,22 @@ export type TopicId =
 
 const COMPANY = "Think Health Care and Safety";
 
+/** The sign-off on every template (owner, 4 Nov, word for word: "include all this in all the templates"). */
+export const SIGNATURE = `Sumit A Shah
+Proprietor
+THINK HEALTH CARE AND SAFETY
+302 Rainbow plaza, Pimple Saudagar, Near Shivar Garden, Pune 411027
+Contact: 9823101908 / 9356080806 / 8007000884
+Email: sales@thinkhealth.in / sshah@thinkhealth.in
+
+Contact Numbers:
+9823101908/ 8007700006/ 9356080806
+
+Website- www.thinkhealth.in
+Company Profile- www.thinkhealth.in/Profile
+View All Products- www.thinkhealth.in/Products
+CPR AED FIRST AID Training- https://www.thinkhealth.in/trainings`;
+
 /** Which topic an item belongs to: a few name checks first (the identifiers are loose — "AED Trainer" sits under All AEDs). */
 export function topicOf(name: string, group: string | null): TopicId {
   const n = name.toLowerCase();
@@ -230,7 +246,7 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
     what,
     total: inr(q.total),
     valid: day(q.expiry),
-    sign: `Warm regards,\n${q.salesperson?.trim() || "Team"}\n${COMPANY}`,
+    sign: `Warm regards,\n${SIGNATURE}`,
     topics: on.map((t) => TOPICS.find((x) => x.id === t.id)!.text({ names: listNames(t.names), many: new Set(t.names).size > 1, has })).join("\n\n"),
     list: q.lines.map((l) => `• ${l.name} — ${l.qty} ${l.qty === 1 ? "no." : "nos."}`).join("\n"),
   };
@@ -242,7 +258,9 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
 /** Plain text → the email step's HTML (paragraphs, line breaks, escaped). */
 export function textToHtml(text: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return text.split(/\n{2,}/).map((para) => `<p style="margin:0 0 1em">${esc(para).replace(/\n/g, "<br>")}</p>`).join("");
+  // The signature's web addresses are clickable.
+  const links = (s: string) => s.replace(/https?:\/\/[^\s<]+|www\.[^\s<]+/g, (u) => `<a href="${u.startsWith("www.") ? `https://${u}` : u}">${u}</a>`);
+  return text.split(/\n{2,}/).map((para) => `<p style="margin:0 0 1em">${links(esc(para)).replace(/\n/g, "<br>")}</p>`).join("");
 }
 
 /* Zia (owner, 3 Nov): Zoho Mail's Zia writes the email — the dashboard leaves this brief as a draft in Zoho Mail. */
@@ -258,7 +276,7 @@ export function ziaBrief(request: string, q: QuoteEmailInput): { subject: string
  * The same brief as one instruction — what Zoho Flow hands to Zia (owner, 3 Nov: "it has her do it anyway without
  * needing me to open zoho mail"). Asks for the email only, so what comes back can go straight in the message box.
  */
-export function ziaPrompt(request: string, q: QuoteEmailInput, head = "Write a quotation email to a customer from the details below. Reply with the email only: first line \"Subject: …\", then the email, starting with the greeting and ending with the sign-off."): string {
+export function ziaPrompt(request: string, q: QuoteEmailInput, head = "Write a quotation email to a customer from the details below. Reply with the email only: first line \"Subject: …\", then the email, starting with the greeting and ending with the line \"Warm regards,\" — no name or signature after it, that is added automatically."): string {
   const valid = day(q.expiry);
   return [
     head,

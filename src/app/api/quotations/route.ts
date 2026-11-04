@@ -9,7 +9,7 @@ import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
-import { type QuoteEmailInput, ZIA_MAILBOX, textToHtml, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, SIGNATURE, ZIA_MAILBOX, textToHtml, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
 import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 
 export const dynamic = "force-dynamic";
@@ -205,7 +205,7 @@ export async function GET(request: Request) {
       if (ziaFlowOn()) {
         const a = await ziaAnswer(ziaFor);
         if (a === "waiting") return Response.json({ waiting: true });
-        if (a) return Response.json({ subject: a.subject ?? "", html: textToHtml(a.text) });
+        if (a) return Response.json({ subject: a.subject ?? "", html: textToHtml(`${a.text}\n\n${SIGNATURE}`) });
       }
       const d = await findDraft(ZIA_MAILBOX, ziaFor).catch((e: Error) => ({ error: e.message }));
       if (!d) return Response.json({ error: `No draft for ${ziaFor} in ${ZIA_MAILBOX}'s Zoho Mail yet — have Zia write it there and save the draft` }, { status: 404 });

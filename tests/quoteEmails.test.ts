@@ -1,7 +1,7 @@
 // Quotation email templates (src/lib/quoteEmails.ts): items → topics, names filled in, templates, HTML.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brandsOf, buildQuoteEmail, listNames, suggestTemplate, textToHtml, topicOf, topicsOf, splitZiaReply, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { SIGNATURE, TEMPLATES, brandsOf, buildQuoteEmail, listNames, suggestTemplate, textToHtml, topicOf, topicsOf, splitZiaReply, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
 
 const base = { company: "Tata Motors", contact: "Mr. Rajesh Kumar", number: "QT-001234", total: 185000, expiry: "2026-12-03", salesperson: "Pranjal" };
 
@@ -41,7 +41,8 @@ test("an AED + training quote names the models and the training, in order", () =
   assert.doesNotMatch(e.text, /we can also train your team/); // training is already on the quote
   assert.match(e.text, /₹1,85,000 including GST/);
   assert.match(e.text, /3 December 2026/);
-  assert.match(e.text, /Pranjal\nThink Health Care and Safety$/);
+  assert.match(e.text, /Warm regards,\nSumit A Shah\nProprietor\nTHINK HEALTH CARE AND SAFETY\n/);
+  assert.match(e.text, /CPR AED FIRST AID Training- https:\/\/www\.thinkhealth\.in\/trainings$/);
 });
 
 test("switched-off topics leave no gap; formal lists the items; pads only → repeat order", () => {
@@ -53,12 +54,23 @@ test("switched-off topics leave no gap; formal lists the items; pads only → re
   const formal = buildQuoteEmail("formal", { ...base, contact: null, lines });
   assert.match(formal.text, /^Dear Sir \/ Madam,/);
   assert.match(formal.text, /• Defibtech Pad DDP100 — 4 nos\./);
-  assert.match(formal.text, /Yours sincerely,\nPranjal\n/);
+  assert.match(formal.text, /Yours sincerely,\nSumit A Shah\n/);
   assert.equal(buildQuoteEmail("short", { ...base, contact: null, lines }).text.split("\n")[0], "Hello,");
 });
 
 test("text becomes safe HTML paragraphs", () => {
   assert.equal(textToHtml("Hi <b>,\n\nLine 1\nLine 2"), "<p style=\"margin:0 0 1em\">Hi &lt;b&gt;,</p><p style=\"margin:0 0 1em\">Line 1<br>Line 2</p>");
+});
+
+test("every template carries the whole signature, and its web addresses are links", () => {
+  const lines = [{ name: "Zoll AED Plus", qty: 1, group: "All AEDs" }];
+  for (const t of TEMPLATES) {
+    const { text } = buildQuoteEmail(t.id, { ...base, lines });
+    assert.ok(text.endsWith(SIGNATURE), t.id);
+  }
+  const html = textToHtml(SIGNATURE);
+  assert.match(html, /<a href="https:\/\/www\.thinkhealth\.in\/Profile">www\.thinkhealth\.in\/Profile<\/a>/);
+  assert.match(html, /<a href="https:\/\/www\.thinkhealth\.in\/trainings">https:\/\/www\.thinkhealth\.in\/trainings<\/a>/);
 });
 
 test("the Zia brief carries the request, items, total and the quote number in its subject", () => {
