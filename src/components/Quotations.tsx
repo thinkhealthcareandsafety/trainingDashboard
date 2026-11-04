@@ -1126,6 +1126,8 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
   const canEdit = Boolean(member && hasFullAccess(member));
   const [description, setDescription] = useState<string | null>(null);
   const [fields, setFields] = useState<ItemFields | null>(null); // Zoho's current values, when opened
+  const [allDescription, setAllDescription] = useState(false);
+  const longDescription = Boolean(description && (description.replace(/\n\s*\n+/g, "\n").split("\n").length > 4 || description.length > 320));
   const [pictures, setPictures] = useState<string[]>([]); // its pictures in Zoho
   const [shownPicture, setShownPicture] = useState<string>();
   const [form, setForm] = useState<(Omit<ItemFields, "rate"> & { rate: string }) | null>(null); // editing
@@ -1207,7 +1209,9 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
               {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
             </dl>
             <div className="mt-1 text-right text-[14px]"><AddBrochure item={item} live={live} label={item.brochure ? "Replace PDF" : "Add PDF"} onAdded={onBrochure} /></div>
-            <p className="mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2">{description === null ? "Getting the description…" : description || "No description in Zoho."}</p>
+            {/* Four lines at first (owner, 4 Nov: the description was "taking all the space"); blank lines closed up here only. */}
+            <p className={`mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2 ${longDescription && !allDescription ? "line-clamp-4" : ""}`}>{description === null ? "Getting the description…" : description.replace(/\n\s*\n+/g, "\n") || "No description in Zoho."}</p>
+            {longDescription && <button type="button" className="mt-1 text-[14px] font-semibold text-brand hover:underline" onClick={() => setAllDescription((v) => !v)}>{allDescription ? "Show less" : "Show all"}</button>}
             </div>
             )}
           </div>
