@@ -112,20 +112,20 @@ type Ctx = { names: string; many: boolean; has: Set<TopicId> };
 export const TOPICS: { id: TopicId; label: string; headline: (brands: string[]) => string; text: (c: Ctx) => string }[] = [
   {
     id: "aed", label: "AEDs", headline: (b) => (b.length ? `${b.join(" / ")} AED` : "AED"),
-    text: (c) => `The quotation is for the ${c.names}. ${c.many ? "These are" : "It's an AED"} made for people with no medical background — once the pads are on, it talks you through every step and only lets you give a shock if the heart actually needs one. With a cardiac arrest, the first few minutes decide everything, so having one close by really does save lives.`
+    text: (c) => `The quotation is for the ${c.names}. ${c.many ? "These are" : "It's an AED"} made for people with no medical background. Once the pads are on, it talks you through every step and only lets you give a shock if the heart actually needs one. With a cardiac arrest, the first few minutes decide everything, so having one close by really does save lives.`
       + (c.has.has("training") ? "" : `\n\nIf it helps, we can also train your team on CPR and using the AED, and suggest where to place it so it can be reached within a couple of minutes from anywhere on site.`),
   },
   {
     id: "aedRental", label: "AED on rent", headline: () => "AED on rent",
-    text: (c) => `I've included the ${c.names}, which works well for events and short-term needs. Once you confirm the dates, we'll share the delivery and pick-up details.`,
+    text: (c) => `I've included the ${c.names}, which works well for events and short term needs. Once you confirm the dates, we'll share the delivery and collection details.`,
   },
   {
     id: "aedPads", label: "AED pads", headline: () => "AED pads",
-    text: (c) => `I've added ${c.names}. Pads are single-use and have an expiry date, so it's worth checking the date on the ones in your AED today — expired pads may not work when they're needed most.`,
+    text: (c) => `I've added ${c.names}. Pads can only be used once and have an expiry date, so it's worth checking the date on the ones in your AED today. Expired pads may not work when they're needed most.`,
   },
   {
     id: "aedBattery", label: "AED batteries", headline: () => "AED batteries",
-    text: (c) => `The quotation also has ${c.names}. A low battery is the most common reason an AED shows a warning on its daily self-check, so it's good to have a fresh one ready before it runs out.`,
+    text: (c) => `The quotation also has ${c.names}. A low battery is the most common reason an AED shows a warning during its daily check, so it's good to have a fresh one ready before it runs out.`,
   },
   {
     id: "aedCabinet", label: "AED cabinets & accessories", headline: () => "AED accessories",
@@ -133,15 +133,15 @@ export const TOPICS: { id: TopicId; label: string; headline: (brands: string[]) 
   },
   {
     id: "aedSoftware", label: "AED tracking (AEDSmartX)", headline: () => "AED tracking",
-    text: (c) => `I've also included ${c.names}, so you can keep an eye on every AED's pads, battery and self-checks in one place, with a reminder well before anything expires.`,
+    text: (c) => `I've also included ${c.names}, so you can keep an eye on every AED's pads, battery and daily checks in one place, with a reminder well before anything expires.`,
   },
   {
     id: "training", label: "Training", headline: () => "training",
-    text: (c) => `The quotation covers ${c.names}. Our sessions are hands-on — everyone practises on manikins instead of just watching slides — so people leave feeling they can actually act in a real emergency. Once you confirm, we'll fix a date that suits your team.`,
+    text: (c) => `The quotation covers ${c.names}. Our sessions are practical: everyone practises on manikins instead of just watching slides, so people leave feeling they can actually act in a real emergency. Once you confirm, we'll fix a date that suits your team.`,
   },
   {
     id: "trainingKit", label: "Training equipment", headline: () => "training equipment",
-    text: (c) => `For practice, I've added ${c.names}. Regular hands-on practice is what keeps CPR skills fresh, and ${c.many ? "these make" : "this makes"} it easy to run refreshers in-house.`,
+    text: (c) => `For practice, I've added ${c.names}. Regular practice is what keeps CPR skills fresh, and ${c.many ? "these make" : "this makes"} it easy to run refreshers yourselves.`,
   },
   {
     id: "fire", label: "Fire safety", headline: () => "fire safety equipment",
@@ -149,11 +149,11 @@ export const TOPICS: { id: TopicId; label: string; headline: (brands: string[]) 
   },
   {
     id: "fireBlanket", label: "Fire blankets (vehicle / battery)", headline: () => "fire blankets",
-    text: (c) => `The ${c.names} ${c.many ? "are" : "is"} made for vehicle and battery fires, which are very hard to put out with a regular extinguisher. A blanket smothers the fire and stops it spreading to the cars parked next to it — especially useful wherever EVs are parked or charged.`,
+    text: (c) => `The ${c.names} ${c.many ? "are" : "is"} made for vehicle and battery fires, which are very hard to put out with a regular extinguisher. A blanket smothers the fire and stops it spreading to the cars parked next to it. That's especially useful wherever EVs are parked or charged.`,
   },
   {
     id: "trauma", label: "First aid & trauma", headline: () => "first aid supplies",
-    text: (c) => `For first aid, I've included ${c.names}. They're chosen for the injuries that actually happen at work — cuts, burns, sprains and heavy bleeding — so your first aiders have the right things at hand.`,
+    text: (c) => `For first aid, I've included ${c.names}. They're chosen for the injuries that actually happen at work, such as cuts, burns, sprains and heavy bleeding, so your first aiders have the right things at hand.`,
   },
   {
     id: "evacuation", label: "Evacuation & stretchers", headline: () => "evacuation equipment",
@@ -169,7 +169,7 @@ export const TOPICS: { id: TopicId; label: string; headline: (brands: string[]) 
   },
   {
     id: "road", label: "Road safety", headline: () => "road safety equipment",
-    text: (c) => `For road and traffic safety, I've included ${c.names} — useful for marking hazards and keeping vehicles and people apart on site.`,
+    text: (c) => `For road and traffic safety, I've included ${c.names}, useful for marking hazards and keeping vehicles and people apart on site.`,
   },
   {
     id: "pool", label: "Pool safety", headline: () => "pool safety equipment",
@@ -204,23 +204,23 @@ type Parts = { hi: string; ref: string; what: string; total: string; valid: stri
 export const TEMPLATES: { id: string; label: string; subject: (p: Parts) => string; body: (p: Parts) => string }[] = [
   {
     id: "new", label: "New quotation",
-    subject: (p) => `${p.ref} – ${p.what}`,
+    subject: (p) => `${p.ref}: ${p.what}`,
     body: (p) => `${p.hi}\n\nThank you for reaching out to us. Please find attached our ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If you'd like to change quantities or add anything, just reply to this email and I'll send a revised quote right away.\n\nLooking forward to hearing from you.\n\n${p.sign}`,
   },
   {
     id: "call", label: "After our call / meeting",
-    subject: (p) => `${p.ref} – ${p.what}, as discussed`,
-    body: (p) => `${p.hi}\n\nThank you for your time today — it was good speaking with you. As discussed, I've attached ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. If anything we spoke about isn't reflected here, let me know and I'll update it straight away.\n\n${p.sign}`,
+    subject: (p) => `${p.ref}: ${p.what}, as discussed`,
+    body: (p) => `${p.hi}\n\nThank you for your time today. It was good speaking with you. As discussed, I've attached ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. If anything we spoke about isn't reflected here, let me know and I'll update it straight away.\n\n${p.sign}`,
   },
   {
     id: "revised", label: "Revised quotation",
-    subject: (p) => `Revised ${p.ref} – ${p.what}`,
+    subject: (p) => `Revised ${p.ref}: ${p.what}`,
     body: (p) => `${p.hi}\n\nAs discussed, here's the revised ${p.ref} with the changes we talked about.\n\n${p.table}\n\n${p.topics}\n\nThe revised total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Do have a look, and if everything's in order we can go ahead whenever you're ready.\n\n${p.sign}`,
   },
   {
     id: "repeat", label: "Repeat order / replacement",
-    subject: (p) => `${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nThank you for coming back to us — it's always good to hear from you. Please find attached ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Once you confirm, we'll dispatch at the earliest.\n\n${p.sign}`,
+    subject: (p) => `${p.ref}: ${p.what}`,
+    body: (p) => `${p.hi}\n\nThank you for coming back to us. It's always good to hear from you. Please find attached ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Once you confirm, we'll dispatch at the earliest.\n\n${p.sign}`,
   },
   {
     id: "formal", label: "Formal (purchase / tender)",
@@ -229,13 +229,13 @@ export const TEMPLATES: { id: string; label: string; subject: (p: Parts) => stri
   },
   {
     id: "short", label: "Short and simple",
-    subject: (p) => `${p.ref} – ${p.what}`,
+    subject: (p) => `${p.ref}: ${p.what}`,
     body: (p) => `${p.hi}\n\nPlease find attached ${p.ref} for ${p.what}. The total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}.\n\n${p.table}\n\nLet me know if you have any questions.\n\n${p.sign}`,
   },
   {
     id: "reminder", label: "Gentle reminder (resend)",
-    subject: (p) => `Following up: ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nI'm following up on our ${p.ref}, attached again here for easy reference.\n\n${p.table}\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If anything needs changing — quantities, models or delivery dates — just let me know and I'll update it. Happy to get on a quick call too.\n\n${p.sign}`,
+    subject: (p) => `Following up on ${p.ref}: ${p.what}`,
+    body: (p) => `${p.hi}\n\nI'm following up on our ${p.ref}, attached again here for easy reference.\n\n${p.table}\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If anything needs changing, whether quantities, models or delivery dates, just let me know and I'll update it. Happy to get on a quick call too.\n\n${p.sign}`,
   },
 ];
 
@@ -334,7 +334,7 @@ export function ziaBrief(request: string, q: QuoteEmailInput): { subject: string
  * The same brief as one instruction — what Zoho Flow hands to Zia (owner, 3 Nov: "it has her do it anyway without
  * needing me to open zoho mail"). Asks for the email only, so what comes back can go straight in the message box.
  */
-export function ziaPrompt(request: string, q: QuoteEmailInput, head = "Write a quotation email to a customer from the details below. Reply with the email only: first line \"Subject: …\", then the email, starting with the greeting and ending with the line \"Warm regards,\" — no name or signature after it, that is added automatically. Don't write a table or a price list either: a table of the items with their prices is added automatically."): string {
+export function ziaPrompt(request: string, q: QuoteEmailInput, head = "Write a quotation email to a customer from the details below. Reply with the email only: first line \"Subject: …\", then the email, starting with the greeting and ending with the line \"Warm regards,\". No name or signature after it, that is added automatically. Don't write a table or a price list either: a table of the items with their prices is added automatically. Don't use dashes or hyphens between words or phrases: use full stops and commas."): string {
   const valid = day(q.expiry);
   return [
     head,

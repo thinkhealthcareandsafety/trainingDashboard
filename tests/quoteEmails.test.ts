@@ -34,10 +34,10 @@ test("an AED + training quote names the models and the training, in order", () =
   ];
   assert.deepEqual(topicsOf(lines).map((t) => t.id), ["aed", "training"]);
   const e = buildQuoteEmail("new", { ...base, lines });
-  assert.equal(e.subject, "Quotation QT-001234 for Tata Motors – Zoll AED + training");
+  assert.equal(e.subject, "Quotation QT-001234 for Tata Motors: Zoll AED + training");
   assert.match(e.text, /^Hi Rajesh,/);
   assert.match(e.text, /Zoll AED Plus/);
-  assert.match(e.text, /hands-on/);
+  assert.match(e.text, /practises on manikins/);
   assert.doesNotMatch(e.text, /we can also train your team/); // training is already on the quote
   assert.match(e.text, /₹1,85,000 including GST/);
   assert.match(e.text, /3 December 2026/);
@@ -50,7 +50,7 @@ test("switched-off topics leave no gap; formal lists the items; pads only → re
   assert.equal(suggestTemplate(lines), "repeat");
   const off = buildQuoteEmail("new", { ...base, lines }, ["aedPads"]);
   assert.doesNotMatch(off.text, /\n\n\n/);
-  assert.doesNotMatch(off.text, /single-use/);
+  assert.doesNotMatch(off.text, /used once/);
   const formal = buildQuoteEmail("formal", { ...base, contact: null, lines });
   assert.match(formal.text, /^Dear Sir \/ Madam,/);
   assert.match(formal.html, /<td[^>]*>Defibtech Pad DDP100<\/td>/);
@@ -122,6 +122,19 @@ test("Zia's email: the words, the table, then the sign-off and the sender's sign
   assert.match(ziaEmailHtml("Hi,\n\nHere it is.", q), /<\/table><p[^>]*>Warm regards,<br>Ashish Dalal/); // no sign-off from Zia: ours
   assert.match(ziaEmailHtml("Hi,\n\nThanks,", q), /<\/table><p[^>]*>Thanks,<br>Ashish Dalal/); // its own one stays
   assert.match(ziaPrompt("", q), /Don't write a table/);
+});
+
+test("no dash or hyphen in our own words, in any template or paragraph; the signature stays word for word", () => {
+  const lines = [["Zoll AED Plus", "All AEDs"], ["AED Rental", "All AEDs"], ["AED Pads", "AED Pads"], ["AED Battery", "AED Batteries"], ["AED Cabinet", "AED Cabinet"], ["AED SMARTX License", "General Safety"],
+    ["CPR Training", "Training Services"], ["Manikin", "Training Equipment"], ["Extinguisher", "Fire Safety"], ["Car Blanket", "Fire Blankets"], ["Burn Cream", "Medical Safety"], ["Stretcher", "Evacuation"],
+    ["Gloves", "PPE"], ["Camera", "Security Equipment"], ["Cone", "Road Safety"], ["Ring Buoy", "Pool Safety"], ["Bubble Roll", null]].map(([name, group]) => ({ name: name as string, qty: 1, group }));
+  assert.equal(topicsOf(lines).length, 17); // every paragraph
+  for (const t of TEMPLATES) {
+    const { subject, text } = buildQuoteEmail(t.id, { ...base, number: "QT1", signer: "Ashish Dalal", lines });
+    const ours = `${subject}\n${text.replace(signature("Ashish Dalal"), "")}`;
+    assert.doesNotMatch(ours, /[—–]|\w-\w| - /, t.id);
+  }
+  assert.match(ziaPrompt("", { ...base, lines }), /Don't use dashes/);
 });
 
 test("the signature is the sender's: first line their name, Proprietor only for Sumit, the rest unchanged", () => {
