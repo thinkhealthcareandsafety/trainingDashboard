@@ -822,10 +822,11 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
         <label className="block"><span className={label}>Subject</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} /></label>
         <div>
           <span className={label}>Message</span>
-          {/* The email as the customer gets it: on white with dark text, whatever the theme (owner, 30 Oct: on a dark
-              theme Zoho's black text sat on a near-black box). */}
+          {/* Follows the theme (owner, 4 Nov: the white box "is burning my eyes"). Zoho's and Zia's HTML can carry its own
+              black text (owner, 30 Oct: unreadable on dark), so inside this box every colour is the theme's — by CSS
+              only: what's sent is the HTML untouched, so the customer gets the email as written. */}
           <div ref={body} contentEditable suppressContentEditableWarning role="textbox" aria-multiline aria-label="Message" onInput={() => { edited.current = true; }}
-            className="mt-1 max-h-[38vh] min-h-40 overflow-y-auto rounded-xl border border-line bg-white px-3.5 py-2.5 text-[14.5px] leading-relaxed text-[#1f2328] caret-[#1f2328] outline-none [color-scheme:light] focus:border-brand" />
+            className="mt-1 max-h-[38vh] min-h-40 overflow-y-auto rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-[14.5px] leading-relaxed text-ink caret-[var(--ink)] outline-none focus:border-brand [&_*]:!bg-transparent [&_*]:!text-ink [&_a]:!text-brand [&_a]:underline" />
         </div>
         <div>
           <span className={label}>Attachments</span>
