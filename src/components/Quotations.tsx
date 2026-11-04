@@ -7,7 +7,8 @@ import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
-import { isAdmin } from "@/lib/roles";
+import { hasFullAccess, isAdmin } from "@/lib/roles";
+import { type ItemFields, STOCK_OPTIONS } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -942,14 +943,14 @@ export function ItemsPage() {
   return (
     <div>
       {res && !res.live && <p className="mb-4 rounded-2xl bg-surface-2 px-4 py-2.5 text-[14px] text-muted">This is a local copy — quotations are created in Zoho Books only from the live site.</p>}
-      <ItemsSection clear={clear} canQuote={Boolean(res?.connected)} onQuote={setStarting} />
+      <ItemsSection clear={clear} live={Boolean(res?.live)} canQuote={Boolean(res?.connected)} onQuote={setStarting} />
       {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setQuoting({ c, items: starting }); setStarting(null); }} onClose={() => setStarting(null)} />, document.body)}
       {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh start={quoting.items} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setClear((n) => n + 1); }} />, document.body)}
     </div>
   );
 }
 
-function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: boolean; onQuote: (items: Item[]) => void }) {
+function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live: boolean; canQuote: boolean; onQuote: (items: Item[]) => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
@@ -1032,9 +1033,21 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
         {shown.length > 200 && <p className="py-3 text-center text-[13px] text-muted">{shown.length - 200} more — search to narrow it down.</p>}
       </div>
       <p className="mt-2 text-[13px] text-muted">{items ? `${shown.length} active items` : ""} · Quoted: quote lines in the last 12 months, from the Zoho Analytics copy.</p>
-      {open && createPortal(<ItemDetails item={open} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)} />, document.body)}
+      {open && createPortal(<ItemDetails item={open} live={live} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)}
+        onSaved={(f) => {
+          // The list and the quote popup's item search follow at once.
+          const update = (i: Item): Item => (i.id === open.id ? { ...i, name: f.name, rate: f.rate, group: f.identifier || i.group, stock: f.stock || null } : i);
+          itemsOnce = null;
+          setItems((all) => all && all.map(update).filter(onItemsPage));
+          setOpen(update(open));
+        }} />, document.body)}
     </div>
   );
+}
+
+/** One labelled box in the item's edit form. */
+function EditField({ name, wide, children }: { name: string; wide?: boolean; children: React.ReactNode }) {
+  return <label className={`block min-w-0 ${wide ? "sm:col-span-2" : ""}`}><span className="mb-1 block text-[12.5px] font-bold uppercase tracking-wide text-muted">{name}</span>{children}</label>;
 }
 
 /** Added / Missing, from Books' Product Brochure field; nothing yet while the copy predates it (the hourly item read fills it). */
@@ -1046,25 +1059,47 @@ function BrochureState({ item }: { item: Item }) {
 }
 
 /** One item: its picture, figures and Zoho's description (one Zoho call each, when opened). */
-function ItemDetails({ item, ticked, onTick, onClose }: { item: Item; ticked: boolean; onTick: () => void; onClose: () => void }) {
+function ItemDetails({ item, live, ticked, onTick, onClose, onSaved }: { item: Item; live: boolean; ticked: boolean; onTick: () => void; onClose: () => void; onSaved: (f: ItemFields) => void }) {
+  const { member } = useSession();
+  const canEdit = Boolean(member && hasFullAccess(member));
   const [description, setDescription] = useState<string | null>(null);
+  const [fields, setFields] = useState<ItemFields | null>(null); // Zoho's current values, when opened
+  const [form, setForm] = useState<(Omit<ItemFields, "rate"> & { rate: string }) | null>(null); // editing
+  const [identifiers, setIdentifiers] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const edit = () => {
+    if (!fields) return;
+    setForm({ ...fields, rate: String(fields.rate) }); setError("");
+    loadItems().then((all) => setIdentifiers([...new Set(all.map((i) => i.group).filter((g): g is string => Boolean(g)))].sort((a, b) => a.localeCompare(b))));
+  };
+  const save = async () => {
+    if (!form || saving) return;
+    setSaving(true); setError("");
+    const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ editItem: { id: item.id, fields: { ...form, rate: form.rate.trim() === "" ? NaN : Number(form.rate) } } }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { saved?: ItemFields; error?: string }) : { error: "Couldn't reach the server" };
+    setSaving(false);
+    if (!j.saved) return setError(j.error ?? "Couldn't save the item");
+    setFields(j.saved); setDescription(j.saved.description); setForm(null);
+    onSaved(j.saved);
+  };
   useEffect(() => {
-    let live = true;
-    fetch(`/api/quotations?item=${item.id}`).then((r) => r.json()).then((j: { description?: string }) => { if (live) setDescription(j.description ?? ""); }).catch(() => live && setDescription(""));
-    return () => { live = false; };
+    let current = true;
+    fetch(`/api/quotations?item=${item.id}`).then((r) => r.json()).then((j: { description?: string; fields?: ItemFields }) => { if (current) { setDescription(j.description ?? ""); setFields(j.fields ?? null); } }).catch(() => current && setDescription(""));
+    return () => { current = false; };
   }, [item.id]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !form) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, form]);
   const rows: [string, string][] = [
     ["Category", item.group ?? item.category ?? "—"], ["Price", item.rate ? inr(item.rate) : "—"], ["GST", item.gst === null ? "—" : `${item.gst}%`], ["Unit", item.unit ?? "—"],
     ["On hand", item.service ? "Service" : (item.onHand ?? 0).toLocaleString("en-IN")], ["Quoted, last 12 months", (item.demand ?? 0).toLocaleString("en-IN")],
     ["Brochure", item.brochure == null ? "—" : item.brochure || "Missing"],
   ];
   return (
-    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={onClose}>
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={form ? undefined : onClose}>
       <div role="dialog" aria-label={item.name} className="modal-in flex max-h-[92vh] w-full min-w-0 max-w-[64rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 pt-5">
           <h3 className="min-w-0 text-[20px] font-bold tracking-tight text-ink">{item.name}</h3>
@@ -1073,17 +1108,40 @@ function ItemDetails({ item, ticked, onTick, onClose }: { item: Item; ticked: bo
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
           <div className="grid gap-5 sm:grid-cols-[22rem_minmax(0,1fr)]">
             <div className="self-start overflow-hidden rounded-xl border border-line"><ItemImage item={item} tall onMissing={() => {}} /></div>
+            {form ? (
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <EditField name="Name" wide><input className={`${inputCls} !h-10 text-[14.5px]`} maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-label="Name" autoFocus /></EditField>
+                <EditField name="Price (before tax)"><input className={`${inputCls} !h-10 text-[14.5px]`} inputMode="decimal" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} aria-label="Price" /></EditField>
+                <EditField name="Offer price"><input className={`${inputCls} !h-10 text-[14.5px]`} inputMode="decimal" value={form.offerPrice} onChange={(e) => setForm({ ...form, offerPrice: e.target.value })} aria-label="Offer price" /></EditField>
+                <EditField name="Item Identifier"><select className={`select-chevron ${inputCls} !h-10 text-[14.5px]`} value={form.identifier} onChange={(e) => setForm({ ...form, identifier: e.target.value })} aria-label="Item Identifier">{!identifiers.includes(form.identifier) && <option value={form.identifier}>{form.identifier || "Pick one"}</option>}{identifiers.map((g) => <option key={g} value={g}>{g}</option>)}</select></EditField>
+                <EditField name="Stock Status"><select className={`select-chevron ${inputCls} !h-10 text-[14.5px]`} value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} aria-label="Stock Status"><option value="">Not set</option>{STOCK_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}</select></EditField>
+                <EditField name="HSN code"><input className={`${inputCls} !h-10 text-[14.5px]`} maxLength={20} value={form.hsn} onChange={(e) => setForm({ ...form, hsn: e.target.value })} aria-label="HSN code" /></EditField>
+                <EditField name="Description" wide><textarea className={`${inputCls} min-h-40 py-2 text-[14.5px]`} maxLength={2000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} aria-label="Description" /></EditField>
+                {error && <p className="text-[14px] font-medium text-high sm:col-span-2">{error}</p>}
+              </div>
+            ) : (
             <div className="min-w-0">
             <dl className="space-y-1.5 text-[14.5px]">
               {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
             </dl>
             <p className="mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2">{description === null ? "Getting the description…" : description || "No description in Zoho."}</p>
             </div>
+            )}
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-line px-6 py-4">
-          <button className={btn.ghost} onClick={onClose}>Close</button>
-          <button className={btn.primary} onClick={() => { onTick(); onClose(); }}>{ticked ? "Untick" : "Tick"}</button>
+          {form ? (
+            <>
+              <button className={btn.ghost} disabled={saving} onClick={() => { setForm(null); setError(""); }}>Cancel</button>
+              <button className={btn.primary} disabled={saving || !live} title={live ? "Saves to Zoho Books straight away" : "Only the live site changes Zoho Books"} onClick={save}>{saving ? "Saving…" : "Save to Zoho Books"}</button>
+            </>
+          ) : (
+            <>
+              {canEdit && <button className={`${btn.ghost} mr-auto`} disabled={!fields} onClick={edit}>Edit</button>}
+              <button className={btn.ghost} onClick={onClose}>Close</button>
+              <button className={btn.primary} onClick={() => { onTick(); onClose(); }}>{ticked ? "Untick" : "Tick"}</button>
+            </>
+          )}
         </div>
       </div>
     </div>

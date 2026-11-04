@@ -1,4 +1,6 @@
 import "server-only";
+import { zohoGet } from "./zoho";
+import { type ItemChanges, type ItemFields, itemBody, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
 import { clientOf, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
@@ -17,7 +19,8 @@ import { fromGstin, gstTreatment } from "./gstin";
 const API = process.env.ZOHO_API_BASE ?? "https://www.zohoapis.in/books/v3";
 const ORG = process.env.ZOHO_ORG_ID ?? "60016330017";
 // contacts.CREATE (28 Oct): "New quotation" can add a new customer in Zoho first. Older connections lack it (`scopes`).
-export const QUOTE_SCOPES = "ZohoBooks.estimates.CREATE,ZohoBooks.estimates.UPDATE,ZohoBooks.contacts.READ,ZohoBooks.contacts.CREATE";
+// settings.UPDATE (4 Nov): the Items page edits items. Older connections lack it: saving says so and Admin reconnects.
+export const QUOTE_SCOPES = "ZohoBooks.estimates.CREATE,ZohoBooks.estimates.UPDATE,ZohoBooks.contacts.READ,ZohoBooks.contacts.CREATE,ZohoBooks.settings.UPDATE";
 const KEY = "zoho_books:quotes";
 
 type Conn = { _id: string; clientId: string; clientSecret: string; refreshToken: string; token?: { value: string; expiresAt: number }; connectedAt: string; connectedBy: string; scopes?: string };
@@ -107,6 +110,25 @@ export type NewCustomer = {
  * zoho books"): a new contact person, never the primary. An email already on the customer is simply returned. Zoho needs a
  * first name, the CRM sync a last name. POST /contacts/contactpersons, scope ZohoBooks.contacts.CREATE.
  */
+/**
+ * Saves an item's edits to Zoho Books and checks what Zoho answered. Read with the sync's read-only token, written with this
+ * connection (PUT /items/{id}, scope ZohoBooks.settings.UPDATE). Nothing changed: no write.
+ */
+export async function editItem(id: string, after: ItemFields): Promise<{ changes: ItemChanges; saved: ItemFields }> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const before = itemFieldsOf((await zohoGet<{ item?: Record<string, unknown> }>(`/items/${id}`)).item ?? {});
+  const changes = itemChanges(before, after);
+  if (!Object.keys(changes).length) return { changes, saved: before };
+  const j = await books(c, "PUT", `/items/${id}`, {}, itemBody(after, changes)).catch((e: Error) => {
+    throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs one more permission to edit items — Admin: Reconnect on the Quotations page") : e;
+  });
+  const saved = itemFieldsOf((j.item ?? {}) as Record<string, unknown>);
+  const missed = Object.keys(itemChanges(saved, after));
+  if (missed.length) throw new Error(`Zoho Books answered, but these didn't change: ${missed.join(", ")}. Check the item.`);
+  return { changes, saved };
+}
+
 export type AddedPerson = { id: string; name: string | null; email: string; existed: boolean };
 export async function addContactPerson(p: { contactId: string; firstName: string; lastName: string; email: string }): Promise<AddedPerson> {
   const c = await (await kv()).findOne({ _id: KEY });

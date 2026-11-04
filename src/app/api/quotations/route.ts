@@ -1,15 +1,16 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { canQuote, isAdmin } from "@/lib/roles";
+import { canQuote, isAdmin, hasFullAccess } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, editItem, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { cleanItemFields, itemFieldsOf, itemProblem, type ItemFields } from "@/lib/itemEdit";
 import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 
 export const dynamic = "force-dynamic";
@@ -238,7 +239,7 @@ export async function GET(request: Request) {
       if (!/^\d+$/.test(itemId)) return Response.json({ error: "Unknown item" }, { status: 400 });
       const d = await zohoGet<{ item?: Record<string, unknown> }>(`/items/${itemId}`);
       const i = d.item ?? {};
-      return Response.json({ description: (i.description as string) ?? "", gst: itemGst(i) ?? null, unit: (i.unit as string) || null, rate: Number(i.rate) || null });
+      return Response.json({ description: (i.description as string) ?? "", gst: itemGst(i) ?? null, unit: (i.unit as string) || null, rate: Number(i.rate) || null, fields: itemFieldsOf(i) });
     }
 
     const customerId = q.get("customer");
@@ -341,9 +342,10 @@ export async function POST(request: Request) {
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) return sendEmail(await request.formData().catch(() => null));
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string } };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> } };
   if (body.newCustomer) return newCustomer(body.newCustomer);
   if (body.addEmail) return addEmail(body.addEmail, me.name);
+  if (body.editItem) return saveItem(body.editItem, me);
   if (body.zia) return ziaDraft(body.zia);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
@@ -410,6 +412,31 @@ async function ziaDraft(z: { request?: string; quote?: QuoteEmailInput }): Promi
   } catch (e) {
     console.error("[quotations] zia draft failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't save the draft in Zoho Mail" }, { status: 502 });
+  }
+}
+
+/**
+ * The Items page's Edit (owner, 4 Nov). Zoho shows every edit under the connected user, so `itemEdits` keeps who changed what. The
+ * list's copy follows at once; the hourly item read would otherwise show the old values for up to an hour.
+ */
+async function saveItem(e: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }, me: { id: string; name: string }): Promise<Response> {
+  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita can edit items" }, { status: 403 });
+  const id = String(e.id ?? "");
+  if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown item" }, { status: 400 });
+  const fields = cleanItemFields(e.fields ?? {});
+  const problem = itemProblem(fields);
+  if (problem) return Response.json({ error: problem }, { status: 400 });
+  try {
+    const { changes, saved } = await editItem(id, fields);
+    if (Object.keys(changes).length) {
+      const d = await db();
+      await d.collection<{ at: string; by: string; itemId: string; changes: object }>("itemEdits").insertOne({ at: new Date().toISOString(), by: me.name, itemId: id, changes }).catch((x) => console.error("[quotations] item edit log failed:", x));
+      await d.collection<{ _id: string }>("kv").updateOne({ _id: "zoho_items", "items.id": id } as object, { $set: { "items.$.name": saved.name, "items.$.rate": saved.rate, "items.$.identifier": saved.identifier || null, "items.$.stock": saved.stock || null } }).catch((x) => console.error("[quotations] item copy failed:", x));
+    }
+    return Response.json({ ok: true, saved, changed: Object.keys(changes) });
+  } catch (x) {
+    console.error("[quotations] item edit failed:", x);
+    return Response.json({ error: x instanceof Error ? x.message : "Couldn't save the item" }, { status: 502 });
   }
 }
 
