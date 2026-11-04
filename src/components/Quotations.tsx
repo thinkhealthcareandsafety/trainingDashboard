@@ -8,10 +8,9 @@ import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { hasFullAccess, isAdmin } from "@/lib/roles";
-import { type ItemFields, STOCK_OPTIONS, UPLOAD_TEST_ITEM } from "@/lib/itemEdit";
+import { BROCHURE_MAX_BYTES, type ItemFields, STOCK_OPTIONS } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
-import { zohoUrl } from "@/lib/zohoLinks";
 import { onItemsPage } from "@/lib/itemsPage";
 import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 
@@ -966,6 +965,11 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
     && (!brochure || (brochure === "added" ? Boolean(i.brochure) : i.brochure === "")))
     .sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.name.localeCompare(b.name));
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const addedBrochure = (id: string, brochure: string) => {
+    itemsOnce = null;
+    setItems((all) => all && all.map((i) => (i.id === id ? { ...i, brochure } : i)));
+    setOpen((o) => (o?.id === id ? { ...o, brochure } : o));
+  };
   // The list fills the window to just above the note under it, on any screen (owner, 4 Nov: "make it fit the window"), so the page itself doesn't scroll.
   const list = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number>();
@@ -1022,7 +1026,7 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
                 <td className="num whitespace-nowrap px-3 py-2.5 text-right text-ink-2">{i.rate ? inr(i.rate) : "—"}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.gst === null ? "—" : `${i.gst}%`}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.service ? "Service" : (i.onHand ?? 0).toLocaleString("en-IN")}</td>
-                <td className="whitespace-nowrap px-3 py-2.5 text-[14px]"><BrochureState item={i} /></td>
+                <td className="whitespace-nowrap px-3 py-2.5 text-[14px]"><BrochureState item={i} live={live} onAdded={(b) => addedBrochure(i.id, b)} /></td>
                 <td className="num px-3 py-2.5 pr-4 text-right font-semibold text-ink">{i.demand ? i.demand.toLocaleString("en-IN") : "—"}</td>
               </tr>
             ))}
@@ -1033,7 +1037,7 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
         {shown.length > 200 && <p className="py-3 text-center text-[13px] text-muted">{shown.length - 200} more — search to narrow it down.</p>}
       </div>
       <p className="mt-2 text-[13px] text-muted">{items ? `${shown.length} active items` : ""} · Quoted: quote lines in the last 12 months, from the Zoho Analytics copy.</p>
-      {open && createPortal(<ItemDetails item={open} live={live} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)}
+      {open && createPortal(<ItemDetails item={open} live={live} onBrochure={(b) => addedBrochure(open.id, b)} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)}
         onSaved={(f) => {
           // The list and the quote popup's item search follow at once.
           const update = (i: Item): Item => (i.id === open.id ? { ...i, name: f.name, rate: f.rate, group: f.identifier || i.group, stock: f.stock || null } : i);
@@ -1051,15 +1055,41 @@ function EditField({ name, wide, children }: { name: string; wide?: boolean; chi
 }
 
 /** Added / Missing, from Books' Product Brochure field; nothing yet while the copy predates it (the hourly item read fills it). */
-function BrochureState({ item }: { item: Item }) {
+function BrochureState({ item, live, onAdded }: { item: Item; live: boolean; onAdded: (brochure: string) => void }) {
   if (item.brochure == null) return <span className="text-muted">—</span>;
   if (item.brochure) return <span className="font-medium text-low" title={item.brochure}>✓ Added</span>;
-  // Zoho publishes no call to upload to this field (tested 4 Nov), so it's added in Books: PDF, under 1 MB by the field's own note.
-  return <span className="text-medium">Missing · <a className="font-semibold text-brand hover:underline" href={zohoUrl("item", item.id)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Open this item in Zoho Books to add its brochure (PDF under 1 MB)">Add in Books ↗</a></span>;
+  return <span className="text-medium">Missing · <AddBrochure item={item} live={live} onAdded={onAdded} /></span>;
+}
+
+/** Picks a PDF and puts it on the item in Zoho Books (the Product Brochure field). PDF, under 1 MB: Books' own note on the field. */
+function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; live: boolean; label?: string; onAdded: (brochure: string) => void }) {
+  const { toast } = useStore();
+  const [busy, setBusy] = useState(false);
+  const add = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size >= BROCHURE_MAX_BYTES) return toast({ text: `${file.name} is over 1 MB: Zoho Books takes brochures under 1 MB` });
+    setBusy(true);
+    const form = new FormData();
+    form.set("brochure", item.id);
+    form.set("file", file);
+    const r = await fetch("/api/quotations", { method: "POST", body: form }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { brochure?: string; error?: string }) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!j.brochure) return toast({ text: j.error ?? "Couldn't add the brochure" });
+    onAdded(j.brochure);
+    toast({ text: `${j.brochure} added to ${item.name} in Zoho Books` });
+  };
+  return (
+    // relative: keeps the hidden input inside the row, or every row's input stretches the page.
+    <label className={`relative font-semibold text-brand ${!live || busy ? "cursor-default opacity-60" : "cursor-pointer hover:underline"}`} title={live ? "A PDF under 1 MB. It goes on this item in Zoho Books." : "Only the live site changes Zoho Books"} onClick={(e) => e.stopPropagation()}>
+      {busy ? "Uploading…" : label}
+      <input type="file" accept="application/pdf" className="sr-only" disabled={!live || busy} onChange={(e) => { add(e.target.files?.[0]); e.target.value = ""; }} aria-label={`${label} for ${item.name}`} />
+    </label>
+  );
 }
 
 /** One item: its picture, figures and Zoho's description (one Zoho call each, when opened). */
-function ItemDetails({ item, live, ticked, onTick, onClose, onSaved }: { item: Item; live: boolean; ticked: boolean; onTick: () => void; onClose: () => void; onSaved: (f: ItemFields) => void }) {
+function ItemDetails({ item, live, onBrochure, ticked, onTick, onClose, onSaved }: { item: Item; live: boolean; onBrochure: (brochure: string) => void; ticked: boolean; onTick: () => void; onClose: () => void; onSaved: (f: ItemFields) => void }) {
   const { member } = useSession();
   const canEdit = Boolean(member && hasFullAccess(member));
   const [description, setDescription] = useState<string | null>(null);
@@ -1068,20 +1098,6 @@ function ItemDetails({ item, live, ticked, onTick, onClose, onSaved }: { item: I
   const [identifiers, setIdentifiers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  // TEMPORARY: the brochure upload test, on the test item only.
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<string[]>([]);
-  const testUpload = async (file: File | undefined) => {
-    if (!file) return;
-    setTesting(true); setTestResult([]);
-    const body = new FormData();
-    body.set("brochureTest", item.id);
-    body.set("file", file);
-    const r = await fetch("/api/quotations", { method: "POST", body }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { attempts?: string[]; brochure?: string | null; error?: string }) : { error: "Couldn't reach the server" };
-    setTesting(false);
-    setTestResult(j.error ? [j.error] : [...(j.attempts ?? []), j.brochure ? `Brochure now: ${j.brochure}` : "No brochure was attached"]);
-  };
   const edit = () => {
     if (!fields) return;
     setForm({ ...fields, rate: String(fields.rate) }); setError("");
@@ -1138,16 +1154,8 @@ function ItemDetails({ item, live, ticked, onTick, onClose, onSaved }: { item: I
             <dl className="space-y-1.5 text-[14.5px]">
               {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
             </dl>
+            <div className="mt-1 text-right text-[14px]"><AddBrochure item={item} live={live} label={item.brochure ? "Replace PDF" : "Add PDF"} onAdded={onBrochure} /></div>
             <p className="mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2">{description === null ? "Getting the description…" : description || "No description in Zoho."}</p>
-            {canEdit && item.id === UPLOAD_TEST_ITEM && (
-              <div className="mt-3 rounded-xl border border-line p-3 text-[13.5px]">
-                <label className={`${btn.ghost} inline-flex cursor-pointer items-center ${!live || testing ? "pointer-events-none opacity-50" : ""}`}>
-                  {testing ? "Testing…" : "Test brochure upload (PDF under 1 MB)"}
-                  <input type="file" accept="application/pdf" className="sr-only" disabled={!live || testing} onChange={(e) => { testUpload(e.target.files?.[0]); e.target.value = ""; }} />
-                </label>
-                {testResult.length > 0 && <ul className="mt-2 space-y-1 break-words text-ink-2">{testResult.map((t, n) => <li key={n}>{t}</li>)}</ul>}
-              </div>
-            )}
             </div>
             )}
           </div>

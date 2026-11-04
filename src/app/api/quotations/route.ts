@@ -6,7 +6,7 @@ import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, editItem, tryBrochureUpload, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, cleanTestBrochures, editItem, uploadBrochure, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
@@ -343,12 +343,14 @@ export async function POST(request: Request) {
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
     const form = await request.formData().catch(() => null);
-    return form?.get("brochureTest") ? brochureTest(form, me) : sendEmail(form);
+    return form?.get("brochure") ? saveBrochure(form, me) : sendEmail(form);
   }
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> } };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; cleanBrochureTests?: boolean };
   if (body.newCustomer) return newCustomer(body.newCustomer);
   if (body.addEmail) return addEmail(body.addEmail, me.name);
   if (body.editItem) return saveItem(body.editItem, me);
+  // TEMPORARY: clears the 4 Nov upload tests' blank files.
+  if (body.cleanBrochureTests) return isAdmin(me) ? Response.json(await cleanTestBrochures().catch((e: Error) => ({ error: e.message }))) : Response.json({ error: "Admin only" }, { status: 403 });
   if (body.zia) return ziaDraft(body.zia);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
@@ -443,19 +445,23 @@ async function saveItem(e: { id?: string; fields?: Partial<Record<keyof ItemFiel
   }
 }
 
-/** TEMPORARY: the brochure upload test (tryBrochureUpload), full access only, a real PDF under 1 MB. */
-async function brochureTest(form: FormData, me: { id: string; name: string }): Promise<Response> {
-  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita can do this" }, { status: 403 });
+/** "Add PDF" on the Items page, for everyone who can use that page: a real PDF under 1 MB (Books' own limit for the field). The list's copy follows at once. */
+async function saveBrochure(form: FormData, me: { id: string; name: string }): Promise<Response> {
+  const id = String(form.get("brochure") ?? "");
   const file = form.get("file");
+  if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown item" }, { status: 400 });
   if (!(file instanceof File) || !file.size) return Response.json({ error: "Pick a PDF" }, { status: 400 });
   if (file.size >= BROCHURE_MAX_BYTES) return Response.json({ error: "The PDF must be under 1 MB" }, { status: 400 });
   if (Buffer.from(await file.slice(0, 5).arrayBuffer()).toString("latin1") !== "%PDF-") return Response.json({ error: "That file isn't a PDF" }, { status: 400 });
   try {
-    const out = await tryBrochureUpload(String(form.get("brochureTest")), file);
-    console.log(`[quotations] brochure test by ${me.name}:`, out.attempts.join(" | "));
-    return Response.json(out);
+    const brochure = await uploadBrochure(id, file);
+    const d = await db();
+    await d.collection<{ at: string; by: string; itemId: string; changes: object }>("itemEdits").insertOne({ at: new Date().toISOString(), by: me.name, itemId: id, changes: { brochure: { to: brochure } } }).catch((x) => console.error("[quotations] brochure log failed:", x));
+    await d.collection<{ _id: string }>("kv").updateOne({ _id: "zoho_items", "items.id": id } as object, { $set: { "items.$.brochure": brochure } }).catch((x) => console.error("[quotations] item copy failed:", x));
+    return Response.json({ ok: true, brochure });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "The test failed" }, { status: 502 });
+    console.error("[quotations] brochure failed:", e);
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't add the brochure" }, { status: 502 });
   }
 }
 

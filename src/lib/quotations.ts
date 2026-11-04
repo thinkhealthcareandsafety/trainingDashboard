@@ -1,6 +1,6 @@
 import "server-only";
 import { zohoGet } from "./zoho";
-import { type ItemChanges, type ItemFields, UPLOAD_TEST_ITEM, itemBody, itemChanges, itemFieldsOf } from "./itemEdit";
+import { type ItemChanges, type ItemFields, itemBody, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
@@ -19,8 +19,9 @@ import { fromGstin, gstTreatment } from "./gstin";
 const API = process.env.ZOHO_API_BASE ?? "https://www.zohoapis.in/books/v3";
 const ORG = process.env.ZOHO_ORG_ID ?? "60016330017";
 // contacts.CREATE (28 Oct): "New quotation" can add a new customer in Zoho first. Older connections lack it (`scopes`).
-// settings.UPDATE (4 Nov): the Items page edits items. Older connections lack it: saving says so and Admin reconnects.
-export const QUOTE_SCOPES = "ZohoBooks.estimates.CREATE,ZohoBooks.estimates.UPDATE,ZohoBooks.contacts.READ,ZohoBooks.contacts.CREATE,ZohoBooks.settings.UPDATE";
+// fullaccess (owner, 4 Nov: "ill just give you full access"): the Items page edits items and uploads brochures. POST /documents, which the upload
+// needs, answered "not authorized" with narrower scopes, and Zoho documents none for it.
+export const QUOTE_SCOPES = "ZohoBooks.fullaccess.all";
 const KEY = "zoho_books:quotes";
 
 type Conn = { _id: string; clientId: string; clientSecret: string; refreshToken: string; token?: { value: string; expiresAt: number }; connectedAt: string; connectedBy: string; scopes?: string };
@@ -29,7 +30,7 @@ const kv = async () => (await db()).collection<Conn>("kv");
 
 export async function quotesInfo(): Promise<QuotesInfo | null> {
   const c = await (await kv()).findOne({ _id: KEY });
-  return c ? { connectedAt: c.connectedAt, connectedBy: c.connectedBy, newCustomers: Boolean(c.scopes?.includes("contacts.CREATE")) } : null;
+  return c ? { connectedAt: c.connectedAt, connectedBy: c.connectedBy, newCustomers: /contacts\.CREATE|fullaccess/.test(c.scopes ?? "") } : null;
 }
 
 async function accessFor(c: Conn, force = false): Promise<string> {
@@ -45,7 +46,7 @@ type BooksRes = Record<string, unknown> & { code?: number; message?: string };
 
 /** One Zoho Books call with this connection; one retry after a 401. Throws Zoho's own message. */
 /** `body` as JSON, or a FormData sent as multipart (files: the quote email's attachments). */
-async function books(c: Conn, method: "GET" | "POST" | "PUT", path: string, params: Record<string, string> = {}, body?: unknown): Promise<BooksRes> {
+async function books(c: Conn, method: "GET" | "POST" | "PUT" | "DELETE", path: string, params: Record<string, string> = {}, body?: unknown): Promise<BooksRes> {
   const url = new URL(`${API}${path}`);
   url.searchParams.set("organization_id", ORG);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -143,48 +144,45 @@ export async function editItem(id: string, after: ItemFields): Promise<{ changes
 }
 
 /**
- * TEMPORARY (owner, 4 Nov: "i want to upload here"). Zoho documents no way to upload to the Product Brochure field: it takes a
- * document id and refuses one already used. This tries the likely uploads on the test item only and reports each answer, so
- * the real button can be built on what works. Remove once that's known.
+ * A PDF on an item's Product Brochure field, from the Items page (owner, 4 Nov: "i want to add pdf in my dashboard"). Zoho documents no call
+ * for this; tested on Hot Water Bag Standard the same day: POST /documents takes the file (multipart "document", needs full access), then
+ * PUT /items/{id} takes its id in the field, and Zoho's answer names the file. If attaching fails the uploaded file is removed again.
  */
-export async function tryBrochureUpload(id: string, file: File): Promise<{ attempts: string[]; brochure: string | null }> {
-  if (id !== UPLOAD_TEST_ITEM) throw new Error("This test only runs on the test item");
+const BROCHURE_FIELD = "982417000023514003";
+export async function uploadBrochure(id: string, file: File): Promise<string> {
   const c = await (await kv()).findOne({ _id: KEY });
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
-  const attempts: string[] = [];
-  let doc = "";
-  for (const [path, field] of [["/documents", "document"]]) { // full access, 4 Nov: this one takes the file
-    const form = new FormData();
-    form.append(field, file, file.name);
-    try {
-      const j = (await books(c, "POST", path, {}, form)) as Record<string, unknown> & { document?: { document_id?: unknown }; documents?: unknown; document_id?: unknown };
-      const first = (Array.isArray(j.documents) ? j.documents[0] : j.documents) as Record<string, unknown> | string | undefined;
-      doc = String((typeof first === "object" ? first?.document_id ?? first?.id : first) ?? j.document?.document_id ?? j.document_id ?? "");
-      attempts.push(`${path} [${field}]: accepted, documents is ${Array.isArray(j.documents) ? "a list" : typeof j.documents}${first && typeof first === "object" ? `, fields ${Object.keys(first).join(",").slice(0, 160)}` : ""}, document ${doc ? "yes" : "no"}`);
-      if (doc) break;
-    } catch (e) {
-      attempts.push(`${path.replace(id, "#")} [${field}]: ${e instanceof Error ? e.message.slice(0, 120) : "failed"}`);
-    }
-  }
-  // What these tests left in the Documents area (file names only).
+  const form = new FormData();
+  form.append("document", file, file.name);
+  const up = await books(c, "POST", "/documents", {}, form).catch((e: Error) => {
+    throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs more permission to take files — Admin: Reconnect on the Quotations page") : e;
+  });
+  const docs = up.documents as { document_id?: unknown } | { document_id?: unknown }[] | undefined;
+  const doc = String((Array.isArray(docs) ? docs[0] : docs)?.document_id ?? "");
+  if (!doc) throw new Error("Zoho Books took the file but didn't say where it put it");
   try {
-    const all = await books(c, "GET", "/documents", { per_page: "200" });
-    const list = (Array.isArray(all.documents) ? all.documents : []) as { file_name?: unknown; name?: unknown }[];
-    attempts.push(`documents area: ${list.length} listed, ${list.filter((x) => (x.file_name ?? x.name) === "test-brochure.pdf").length} named test-brochure.pdf`);
-  } catch (e) {
-    attempts.push(`documents area: ${e instanceof Error ? e.message.slice(0, 120) : "failed"}`);
-  }
-  if (!doc) return { attempts, brochure: null };
-  const now = (await zohoGet<{ item?: Record<string, unknown> }>(`/items/${id}`)).item ?? {};
-  try {
-    const j = await books(c, "PUT", `/items/${id}`, {}, { name: now.name, rate: now.rate, custom_fields: [{ customfield_id: "982417000023514003", value: doc }] });
+    const item = (await zohoGet<{ item?: Record<string, unknown> }>(`/items/${id}`)).item ?? {};
+    const j = await books(c, "PUT", `/items/${id}`, {}, { name: item.name, rate: item.rate, custom_fields: [{ customfield_id: BROCHURE_FIELD, value: doc }] });
     const brochure = String((j.item as { custom_field_hash?: Record<string, unknown> } | undefined)?.custom_field_hash?.cf_product_brochure ?? "");
-    attempts.push(`put on the field: saved, reads back "${brochure}"`);
-    return { attempts, brochure: brochure || null };
+    if (!brochure) throw new Error("Zoho Books answered, but the brochure isn't on the item");
+    return brochure;
   } catch (e) {
-    attempts.push(`put on the field: ${e instanceof Error ? e.message.slice(0, 120) : "failed"}`);
-    return { attempts, brochure: null };
+    await books(c, "DELETE", `/documents/${doc}`).catch(() => undefined);
+    throw e;
   }
+}
+
+/** TEMPORARY: removes the blank test-brochure.pdf files the 4 Nov tests left in Books' Documents area (that exact name only). */
+export async function cleanTestBrochures(): Promise<{ deleted: number; failed: string[] }> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const list = ((await books(c, "GET", "/documents", { per_page: "200" })).documents ?? []) as { document_id?: unknown; file_name?: unknown }[];
+  let deleted = 0;
+  const failed: string[] = [];
+  for (const d of list.filter((x) => x.file_name === "test-brochure.pdf" && x.document_id)) {
+    try { await books(c, "DELETE", `/documents/${d.document_id}`); deleted++; } catch (e) { failed.push(e instanceof Error ? e.message.slice(0, 100) : "failed"); }
+  }
+  return { deleted, failed };
 }
 
 export type AddedPerson = { id: string; name: string | null; email: string; existed: boolean };

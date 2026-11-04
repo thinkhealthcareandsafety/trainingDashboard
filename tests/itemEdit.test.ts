@@ -50,6 +50,26 @@ const fields = { name: "Bag", rate: 249, description: "", hsn: "", identifier: "
 
 beforeEach(() => { resetFakeDb(); process.env.VERCEL_ENV = "production"; });
 
+const upload = async (who: { id: string; name: string }, id: string, file?: File) => {
+  const form = new FormData();
+  form.set("brochure", id);
+  if (file) form.set("file", file);
+  const r = await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(who) }, body: form }));
+  return { s: r.status, j: await r.json() };
+};
+const pdf = (bytes: Uint8Array | string) => new File([bytes as BlobPart], "brochure.pdf", { type: "application/pdf" });
+
+test("add PDF: a real PDF under 1 MB, for everyone who can use the page; else on to Zoho (not connected here)", async () => {
+  assert.match((await upload(sumit, "abc", pdf("%PDF-1.4"))).j.error, /Unknown item/);
+  assert.match((await upload(sumit, "1")).j.error, /Pick a PDF/);
+  assert.match((await upload(sumit, "1", pdf("not a pdf at all"))).j.error, /isn't a PDF/);
+  assert.match((await upload(sumit, "1", pdf(new Uint8Array(1024 * 1024)))).j.error, /under 1 MB/);
+  const ok = await upload({ id: "pranjal", name: "Pranjal Nikalje" }, "1", pdf("%PDF-1.4 small"));
+  assert.equal(ok.s, 502);
+  assert.match(ok.j.error, /isn't connected/);
+  assert.equal((await upload({ id: "priyanka", name: "Priyanka A" }, "1", pdf("%PDF-1.4"))).s, 403); // can't use the page
+});
+
 test("who can edit: full access, not someone who can only quote", async () => {
   assert.equal((await post({ id: "pranjal", name: "Pranjal Nikalje" }, { id: "1", fields })).s, 403);
   assert.equal((await post(sumit, { id: "abc", fields })).s, 400);

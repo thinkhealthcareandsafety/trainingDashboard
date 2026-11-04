@@ -13,8 +13,6 @@ const CUSTOM: Partial<Record<keyof ItemFields, { id: string; api: string }>> = {
 };
 const TOP: Partial<Record<keyof ItemFields, string>> = { name: "name", rate: "rate", description: "description", hsn: "hsn_or_sac" };
 export const STOCK_OPTIONS = ["In Stock", "Back order", "No Stock"];
-/** The owner's test item for brochure upload (4 Nov, "Hot Water Bag Standard"): the temporary test only runs on this one. */
-export const UPLOAD_TEST_ITEM = "982417000007512064";
 export const BROCHURE_MAX_BYTES = 1024 * 1024; // Books' note on the field: "Upload PDF less than 1 MB"
 
 /** The editable fields of a Zoho item, as Zoho answers it. */
