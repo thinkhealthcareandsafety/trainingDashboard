@@ -439,7 +439,7 @@ async function saveItem(e: { id?: string; fields?: Partial<Record<keyof ItemFiel
     if (Object.keys(changes).length) {
       const d = await db();
       await d.collection<{ at: string; by: string; itemId: string; changes: object }>("itemEdits").insertOne({ at: new Date().toISOString(), by: me.name, itemId: id, changes }).catch((x) => console.error("[quotations] item edit log failed:", x));
-      await d.collection<{ _id: string }>("kv").updateOne({ _id: "zoho_items", "items.id": id } as object, { $set: { "items.$.name": saved.name, "items.$.rate": saved.rate, "items.$.identifier": saved.identifier || null, "items.$.stock": saved.stock || null } }).catch((x) => console.error("[quotations] item copy failed:", x));
+      await d.collection<{ _id: string }>("kv").updateOne({ _id: "zoho_items", "items.id": id } as object, { $set: { "items.$.name": saved.name, "items.$.rate": saved.rate, "items.$.identifier": saved.identifier || null, "items.$.stock": saved.stock || null, "items.$.gst": saved.gst === "" ? null : Number(saved.gst) } }).catch((x) => console.error("[quotations] item copy failed:", x));
     }
     return Response.json({ ok: true, saved, changed: Object.keys(changes) });
   } catch (x) {

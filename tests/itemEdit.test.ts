@@ -1,7 +1,7 @@
 // Editing an item (src/lib/itemEdit.ts + /api/quotations): what's checked, what changed, what Zoho is sent. Nothing here reaches Zoho.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanItemFields, isPicture, itemBody, itemChanges, itemFieldsOf, itemPictures, itemProblem } from "@/lib/itemEdit";
+import { cleanItemFields, gstKnown, isPicture, itemBody, itemChanges, itemFieldsOf, itemPictures, itemProblem } from "@/lib/itemEdit";
 import { POST } from "@/app/api/quotations/route";
 import { resetFakeDb } from "./fakes/db";
 
@@ -9,7 +9,7 @@ const zoho = { name: "Hot Water Bag", rate: 249, description: "", hsn_or_sac: "4
 const before = itemFieldsOf(zoho);
 
 test("reads Zoho's answer; fields it leaves out are empty", () => {
-  assert.deepEqual(before, { name: "Hot Water Bag", rate: 249, description: "", hsn: "40149020", identifier: "Medical Safety", stock: "", offerPrice: "" });
+  assert.deepEqual(before, { name: "Hot Water Bag", rate: 249, description: "", hsn: "40149020", identifier: "Medical Safety", stock: "", offerPrice: "", gst: "" });
   assert.equal(itemFieldsOf({ name: "X", rate: 1, cf_stock_status: "In Stock" }).stock, "In Stock");
 });
 
@@ -20,6 +20,20 @@ test("only what changed goes to Zoho, with the name and rate it always wants", (
   assert.deepEqual(changes.offerPrice, { from: "", to: "200" });
   assert.deepEqual(itemBody(after, changes), { name: "Hot Water Bag", rate: 249, description: "New", custom_fields: [{ customfield_id: "982417000021532093", value: "200" }] });
   assert.deepEqual(itemBody(before, itemChanges(before, before)), { name: "Hot Water Bag", rate: 249 }); // nothing else
+});
+
+test("GST: both of Zoho's taxes go when it changes, nothing when it doesn't; a rate it doesn't list isn't sent", () => {
+  const prefs = [{ tax_specification: "inter", tax_percentage: 18 }, { tax_specification: "intra", tax_percentage: 18 }];
+  const was = itemFieldsOf({ ...zoho, item_tax_preferences: prefs });
+  assert.equal(was.gst, "18");
+  assert.equal(itemBody(was, itemChanges(was, was)).item_tax_preferences, undefined);
+  const to5 = { ...was, gst: "5" };
+  assert.deepEqual(itemBody(to5, itemChanges(was, to5)).item_tax_preferences, [{ tax_id: "982417000000014433", tax_specification: "intra" }, { tax_id: "982417000000014359", tax_specification: "inter" }]);
+  assert.equal(gstKnown("40"), true);
+  assert.equal(gstKnown("12"), false);
+  assert.equal(gstKnown("constructor"), false);
+  const to12 = { ...was, gst: "12" };
+  assert.equal(itemBody(to12, itemChanges(was, to12)).item_tax_preferences, undefined);
 });
 
 test("clearing a field is a change; the same number written differently isn't", () => {

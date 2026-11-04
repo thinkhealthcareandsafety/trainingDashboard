@@ -8,7 +8,7 @@ import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { hasFullAccess, isAdmin } from "@/lib/roles";
-import { BROCHURE_MAX_BYTES, type ItemFields, PICTURE_MAX_BYTES, STOCK_OPTIONS } from "@/lib/itemEdit";
+import { BROCHURE_MAX_BYTES, GST_OPTIONS, type ItemFields, PICTURE_MAX_BYTES, STOCK_OPTIONS } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { onItemsPage } from "@/lib/itemsPage";
@@ -1046,7 +1046,7 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
       {open && createPortal(<ItemDetails item={open} live={live} onBrochure={(b) => addedBrochure(open.id, b)} onPicture={() => { itemsOnce = null; noPicture.delete(open.id); }} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)}
         onSaved={(f) => {
           // The list and the quote popup's item search follow at once.
-          const update = (i: Item): Item => (i.id === open.id ? { ...i, name: f.name, rate: f.rate, group: f.identifier || i.group, stock: f.stock || null } : i);
+          const update = (i: Item): Item => (i.id === open.id ? { ...i, name: f.name, rate: f.rate, group: f.identifier || i.group, stock: f.stock || null, gst: f.gst === "" ? null : Number(f.gst) } : i);
           itemsOnce = null;
           setItems((all) => all && all.map(update));
           setOpen(update(open));
@@ -1196,6 +1196,8 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
                 <EditField name="Item Identifier"><select className={`select-chevron ${inputCls} !h-10 text-[14.5px]`} value={form.identifier} onChange={(e) => setForm({ ...form, identifier: e.target.value })} aria-label="Item Identifier">{!identifiers.includes(form.identifier) && <option value={form.identifier}>{form.identifier || "Pick one"}</option>}{identifiers.map((g) => <option key={g} value={g}>{g}</option>)}</select></EditField>
                 <EditField name="Stock Status"><select className={`select-chevron ${inputCls} !h-10 text-[14.5px]`} value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} aria-label="Stock Status"><option value="">Not set</option>{STOCK_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}</select></EditField>
                 <EditField name="HSN code"><input className={`${inputCls} !h-10 text-[14.5px]`} maxLength={20} value={form.hsn} onChange={(e) => setForm({ ...form, hsn: e.target.value })} aria-label="HSN code" /></EditField>
+                <EditField name="GST"><select className={`select-chevron ${inputCls} !h-10 text-[14.5px]`} value={form.gst} onChange={(e) => setForm({ ...form, gst: e.target.value })} aria-label="GST">{!GST_OPTIONS.includes(form.gst) && <option value={form.gst}>{form.gst ? `${form.gst}%` : "Not set"}</option>}{GST_OPTIONS.map((g) => <option key={g} value={g}>{g}%</option>)}</select></EditField>
+                {fields && form.gst !== fields.gst && <p className="text-[13.5px] font-medium text-medium sm:col-span-2">GST changes from {fields.gst || "not set"}{fields.gst ? "%" : ""} to {form.gst}%. New quotations use the new rate, so check it before saving.</p>}
                 <EditField name="Description" wide><textarea className={`${inputCls} min-h-40 py-2 text-[14.5px]`} maxLength={2000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} aria-label="Description" /></EditField>
                 {error && <p className="text-[14px] font-medium text-high sm:col-span-2">{error}</p>}
               </div>

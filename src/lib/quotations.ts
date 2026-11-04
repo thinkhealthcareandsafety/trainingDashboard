@@ -1,6 +1,6 @@
 import "server-only";
 import { zohoGet } from "./zoho";
-import { type ItemChanges, type ItemFields, itemBody, itemPictures, itemChanges, itemFieldsOf } from "./itemEdit";
+import { type ItemChanges, type ItemFields, gstKnown, itemBody, itemPictures, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
@@ -134,6 +134,7 @@ export async function editItem(id: string, after: ItemFields): Promise<{ changes
   const before = itemFieldsOf((await zohoGet<{ item?: Record<string, unknown> }>(`/items/${id}`)).item ?? {});
   const changes = itemChanges(before, after);
   if (!Object.keys(changes).length) return { changes, saved: before };
+  if (changes.gst && !gstKnown(after.gst)) throw new Error("Pick a GST rate from the list"); // an old rate may stay, but not be chosen
   const j = await books(c, "PUT", `/items/${id}`, {}, itemBody(after, changes)).catch((e: Error) => {
     throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs one more permission to edit items — Admin: Reconnect on the Quotations page") : e;
   });

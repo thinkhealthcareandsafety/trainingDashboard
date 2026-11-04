@@ -1,9 +1,9 @@
 /*
  * Editing an item from the Items page (owner, 4 Nov: "if i update the item's details here it gets updated in zoho books ...
  * we are trying not to open zoho"). Pure: what a form may hold, what changed, and what Zoho is sent. Only changed fields go;
- * Zoho keeps the rest (tested 4 Nov on Hot Water Bag Standard), but always wants the name and rate. GST isn't editable here.
+ * Zoho keeps the rest (tested 4 Nov on Hot Water Bag Standard, GST too), but always wants the name and rate.
  */
-export type ItemFields = { name: string; rate: number; description: string; hsn: string; identifier: string; stock: string; offerPrice: string };
+export type ItemFields = { name: string; rate: number; description: string; hsn: string; identifier: string; stock: string; offerPrice: string; gst: string };
 export type ItemChanges = Partial<Record<keyof ItemFields, { from: string | number; to: string | number }>>;
 
 const CUSTOM: Partial<Record<keyof ItemFields, { id: string; api: string }>> = {
@@ -13,6 +13,15 @@ const CUSTOM: Partial<Record<keyof ItemFields, { id: string; api: string }>> = {
 };
 const TOP: Partial<Record<keyof ItemFields, string>> = { name: "name", rate: "rate", description: "description", hsn: "hsn_or_sac" };
 export const STOCK_OPTIONS = ["In Stock", "Back order", "No Stock"];
+/** The GST rates in Zoho Books (4 Nov): in Maharashtra the GST group, elsewhere IGST. */
+const GST_TAXES: Record<string, { intra: string; inter: string }> = {
+  "0": { intra: "982417000000014429", inter: "982417000000014357" },
+  "5": { intra: "982417000000014433", inter: "982417000000014359" },
+  "18": { intra: "982417000000014417", inter: "982417000000014363" },
+  "40": { intra: "982417000006544709", inter: "982417000006544717" },
+};
+export const GST_OPTIONS = Object.keys(GST_TAXES);
+export const gstKnown = (rate: string) => Object.hasOwn(GST_TAXES, rate);
 export const PICTURE_MAX_BYTES = 4 * 1024 * 1024; // Vercel refuses request bodies over 4.5 MB
 
 type ItemDoc = { document_id?: unknown; file_type?: unknown; attachment_order?: unknown; is_back_image?: unknown };
@@ -32,17 +41,24 @@ export function isPicture(b: Uint8Array): boolean {
 
 export const BROCHURE_MAX_BYTES = 1024 * 1024; // Books' note on the field: "Upload PDF less than 1 MB"
 
+/** The item's in-state GST rate, "" when it has none. */
+function gstOf(i: Record<string, unknown>): string {
+  const prefs = (i.item_tax_preferences ?? []) as { tax_specification?: string; tax_percentage?: unknown }[];
+  const v = (prefs.find((p) => p.tax_specification === "intra") ?? prefs[0])?.tax_percentage;
+  return v === undefined || v === null || v === "" ? "" : String(Number(v));
+}
+
 /** The editable fields of a Zoho item, as Zoho answers it. */
 export function itemFieldsOf(i: Record<string, unknown>): ItemFields {
   const hash = (i.custom_field_hash ?? {}) as Record<string, unknown>;
   const cf = (k: keyof ItemFields) => String(hash[CUSTOM[k]!.api] ?? i[CUSTOM[k]!.api] ?? "");
-  return { name: String(i.name ?? ""), rate: Number(i.rate) || 0, description: String(i.description ?? ""), hsn: String(i.hsn_or_sac ?? ""), identifier: cf("identifier"), stock: cf("stock"), offerPrice: cf("offerPrice") };
+  return { name: String(i.name ?? ""), rate: Number(i.rate) || 0, description: String(i.description ?? ""), hsn: String(i.hsn_or_sac ?? ""), identifier: cf("identifier"), stock: cf("stock"), offerPrice: cf("offerPrice"), gst: gstOf(i) };
 }
 
 /** What a person sent, trimmed; a wrong type can't get through. */
 export function cleanItemFields(f: Partial<Record<keyof ItemFields, unknown>>): ItemFields {
   const s = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
-  return { name: s(f.name, 100), rate: Number(f.rate), description: String(f.description ?? "").trim().slice(0, 2000), hsn: s(f.hsn, 20), identifier: s(f.identifier, 100), stock: s(f.stock, 50), offerPrice: s(f.offerPrice, 20) };
+  return { name: s(f.name, 100), rate: Number(f.rate), description: String(f.description ?? "").trim().slice(0, 2000), hsn: s(f.hsn, 20), identifier: s(f.identifier, 100), stock: s(f.stock, 50), offerPrice: s(f.offerPrice, 20), gst: s(f.gst, 5) };
 }
 
 /** What's wrong in plain words, or null. */
@@ -71,5 +87,6 @@ export function itemBody(after: ItemFields, changes: ItemChanges): Record<string
   for (const k of Object.keys(TOP) as (keyof ItemFields)[]) if (changes[k]) body[TOP[k]!] = after[k];
   const custom = (Object.keys(CUSTOM) as (keyof ItemFields)[]).filter((k) => changes[k]).map((k) => ({ customfield_id: CUSTOM[k]!.id, value: after[k] }));
   if (custom.length) body.custom_fields = custom;
+  if (changes.gst && gstKnown(after.gst)) body.item_tax_preferences = [{ tax_id: GST_TAXES[after.gst].intra, tax_specification: "intra" }, { tax_id: GST_TAXES[after.gst].inter, tax_specification: "inter" }];
   return body;
 }
