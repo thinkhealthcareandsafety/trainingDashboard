@@ -1,9 +1,56 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Tue 3 Nov 2026 (end of session 21). **Live = GitHub = `945c38c`** (both addresses), plus this docs
+_Last updated: Wed 4 Nov 2026 (end of session 22). **Live = GitHub = `87a4247`** (both addresses), plus this docs
 commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Start of the next session (22) — do these first:**
+**Start of the next session (23) — do these first:**
+1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: all at this
+   docs commit (on GitHub only if the owner said "push" after it was written; before that, one commit ahead).
+2. `npm test` (**110** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. Read-only checks: database speed (§9 #18), Sync log (also `salesError`), Zoho calls today (kv `zoho_calls:<IST day>`,
+   limit 2500; 338 on 3 Nov, peak 981 on 31 Oct; it undercounts a little, being recorded with each sync).
+4. **Zia:** did `/api/zia` get an answer yet? kv `zia:*` docs: `askedAt`, `answeredAt`, length of `text` (don't print the text).
+   None had one on 3 Nov. The flow's failure is the owner's to look up (Flow → History); see QUOTATIONS-PLAN.md.
+5. Then **QUOTATIONS-PLAN.md**, top to bottom. The owner said "yeah" to all of it; nothing in it is started. Ask for the Flow
+   screenshot, but don't wait for it.
+6. Open questions: QUOTATIONS-PLAN.md "Owner's side" (primary email also changing invoices' sender? Zia credits?).
+   Unasked ideas: `salesDocs`' two newest estimates (982417000023535008, 982417000023585007) answered "Resource does not
+   exist" from Zoho on 4 Nov: deleted test quotes, probably still in the Sales copy until a full sync; check they've gone.
+
+**Session 22 (3–4 Nov) — newest; wins over everything below.** Owner's prompts, in order. Everything here is pushed and live.
+- **Checks:** clean. Open questions answered: "its good as it is" (Training board order and the "Fire Safety" name stay).
+- **"write quotation emails based on the items … templates … dynamic names … humanized … more flexible"** → `62c19df`:
+  `src/lib/quoteEmails.ts`. 7 templates (the tone: New, After our call, Revised, Repeat order, Formal, Short, Reminder) + one
+  paragraph per kind of item (`TOPICS`, `topicOf`: 17 topics from the Zoho identifier plus a few name checks, because identifiers are
+  loose: AED trainers sit under All AEDs). Each is a chip that can be switched off. Pads / batteries only → Repeat order. Template
+  dropdown in `EmailStep`, plus "Zoho's standard email". Changing template after typing asks first.
+- **Zia, in five rounds.** Owner wanted Zoho's own Zia, not paid AI ("we cant spend anything") and not Gemini's free tier (it may use
+  customer data). Zia has no API in Books or Mail.
+  - `73da866`: Send to Zia leaves a brief as a draft in **learn@'s Zoho Mail** (owner's pick; alias on Shikha's mailbox), addressed to
+    itself; Pull from Zia finds the newest draft by quote number. Worked live. Owner: "i dont want to open zoho mail".
+  - `6073299`: **Zoho Flow** can run Zia (Zia Utilities → Generate customized response). `src/lib/ziaFlow.ts`, `src/app/api/zia/route.ts`
+    (no sign-in; key checked; only a quote asked about within the hour). Env `ZIA_FLOW_URL` + `ZIA_FLOW_SECRET` on Vercel, set by the
+    owner. Without them the draft way stays. The email step checks every 3 s for 2 minutes. **Still failing inside Flow**, cause unknown:
+    needs the owner's History screenshot.
+- **`d4621cb`** paragraph spacing; **`523d99d`** the owner's full signature on all templates and on Zia's emails; **`84e415d`** no more
+  "Quotation Quotation-24-…" (Zoho's numbers already say it); **`87a4247`** the message box follows the theme ("burning my eyes"): inside
+  it every colour is forced to the theme by CSS only, so Zoho's black text stays readable and what's sent keeps its own HTML.
+- **Last prompts, not built:** see QUOTATIONS-PLAN.md (sender + always-CC + signature per person, item table, same trainer on the same
+  date, Overview date button, average invoice KPI, Items page, quote from items, brochures).
+- **Traps learned:**
+  - Zoho's call to read the quote email answers much more than the route passes on (`from_emails`, `from_address`, `cc_mails_list`,
+    `emailtemplates`). To look: temporary uncommitted `_raw: j`, then revert. Never read stored tokens directly.
+  - The browser check of the email step: `C:\Users\USER\AppData\Local\Temp\claude\d--Projects-Training-Dashboard-trainingDashboard\d3418fdb-315b-455a-be79-3440f23e8d36\scratchpad\emailstep.cjs`
+    (`node emailstep.cjs W H theme flow|mail`; theme = `light` or e.g. `dark-midnight`). Local `live` is false, so it fakes `live: true` on
+    the list GET and every POST in the browser, takes the first customer (some have no emailable contact), and accepts the "Send
+    another?" dialog. It needs that scratchpad's `node_modules` (puppeteer-core); copy from an older one if missing.
+  - Stopping `next start` by PID shows as a failed background task (exit 255). That's expected.
+  - `next build` output changes while a server runs from it; stop the server first.
+  - Quote email `Save and email` opens `EmailStep` from `QuotePopup`; `compose` is built where `EmailStep` is rendered.
+  - The Flow webhook URL holds a key (`zapikey`) and the owner pasted it in chat: don't copy it into files, commits or replies. The Desktop file
+    `zia-secret.txt` holds `ZIA_FLOW_SECRET` unless the owner has deleted it.
+
+**Start of the next session (22) — superseded by the block above:**
 1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: all at this
    docs commit (pushed only if the owner said "push" after it was written).
 2. `npm test` (**99** should pass) and `npx tsc --noEmit -p tsconfig.json`.
