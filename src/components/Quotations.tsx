@@ -10,6 +10,7 @@ import { docStatus } from "@/lib/docStatus";
 import { isAdmin } from "@/lib/roles";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
+import { zohoUrl } from "@/lib/zohoLinks";
 import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 
 /*
@@ -1008,7 +1009,9 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
 /** Added / Missing, from Books' Product Brochure field; nothing yet while the copy predates it (the hourly item read fills it). */
 function BrochureState({ item }: { item: Item }) {
   if (item.brochure == null) return <span className="text-muted">—</span>;
-  return item.brochure ? <span className="font-medium text-low" title={item.brochure}>✓ Added</span> : <span className="text-medium">Missing</span>;
+  if (item.brochure) return <span className="font-medium text-low" title={item.brochure}>✓ Added</span>;
+  // Zoho publishes no call to upload to this field (tested 4 Nov), so it's added in Books: PDF, under 1 MB by the field's own note.
+  return <span className="text-medium">Missing · <a className="font-semibold text-brand hover:underline" href={zohoUrl("item", item.id)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Open this item in Zoho Books to add its brochure (PDF under 1 MB)">Add in Books ↗</a></span>;
 }
 
 /** One item: its picture, figures and Zoho's description (one Zoho call each, when opened). */
