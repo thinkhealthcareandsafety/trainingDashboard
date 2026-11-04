@@ -1366,7 +1366,7 @@ function ConnectBooks({ scopes, onClose }: { scopes: string; onClose: (ok: boole
     <>Open <b>Self Client</b> → <b>Generate Code</b>.</>,
     // The whole line has to go in, so it wraps instead of running out of the popup (4 Nov: a cut-off line was hard to copy whole).
     <>Scope, all of it <button type="button" className="font-semibold text-brand hover:underline" onClick={() => navigator.clipboard?.writeText(scopes).then(() => setCopied(true)).catch(() => {})}>{copied ? "Copied ✓" : "Copy"}</button>: <code className="select-all block break-all rounded bg-surface-2 px-2 py-1 text-[13px]">{scopes}</code> Time: 10 minutes · Description: Quotations · Create.</>,
-    <>Paste the code here. If that Self Client isn&apos;t the one used for Zoho Books, also paste its Client ID and Secret (Client Secret tab).</>,
+    <>Paste the code here. Reconnecting with the same Self Client? That&apos;s all. For a different one, also paste its Client ID and Secret (Client Secret tab).</>,
   ], [scopes]);
   return (
     <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/30 p-4" onMouseDown={() => onClose(Boolean(state.done))}>
@@ -1378,7 +1378,7 @@ function ConnectBooks({ scopes, onClose }: { scopes: string; onClose: (ok: boole
           <input className={inputCls} placeholder="Code (1000.…)" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
           <div className="grid gap-2 sm:grid-cols-2">
             <input className={inputCls} placeholder="Client ID (optional)" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-            <input className={inputCls} placeholder="Client Secret (optional)" type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} />
+            <input className={inputCls} placeholder="Client Secret (optional)" type="password" autoComplete="new-password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} />
           </div>
         </div>
         {state.error && <p className="mt-2 text-[14px] font-medium text-high">{state.error}</p>}

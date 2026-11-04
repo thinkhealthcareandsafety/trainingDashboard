@@ -15,6 +15,23 @@ export async function tokenRequest(params: Record<string, string>) {
 }
 
 /** The Self Client's ID and secret: typed in the Connect popup, else the Zoho Books app's (same Zoho login only). */
+type Client = { clientId: string; clientSecret: string };
+/**
+ * Which Self Clients a reconnect tries (owner, 4 Nov: "That code has expired or was already used", for a fine code). A code only
+ * works with the Self Client that made it. Both boxes typed: those. Otherwise the connection's own, then the app's. One box alone
+ * is ignored: browsers auto-fill the secret box.
+ */
+export function clientsToTry(typed: { clientId?: string; clientSecret?: string }, saved?: Partial<Client> | null): Client[] {
+  const id = typed.clientId?.trim(), secret = typed.clientSecret?.trim();
+  if (id && secret) return [{ clientId: id, clientSecret: secret }];
+  const list: Client[] = [];
+  if (saved?.clientId && saved.clientSecret) list.push({ clientId: saved.clientId, clientSecret: saved.clientSecret });
+  const appId = process.env.ZOHO_MAIL_CLIENT_ID || process.env.ZOHO_CLIENT_ID, appSecret = process.env.ZOHO_MAIL_CLIENT_SECRET || process.env.ZOHO_CLIENT_SECRET;
+  if (appId && appSecret && appId !== saved?.clientId) list.push({ clientId: appId, clientSecret: appSecret });
+  if (!list.length) throw new Error("Client ID and secret are needed");
+  return list;
+}
+
 export function clientOf(input: { clientId?: string; clientSecret?: string }) {
   const clientId = input.clientId?.trim() || process.env.ZOHO_MAIL_CLIENT_ID || process.env.ZOHO_CLIENT_ID || "";
   const clientSecret = input.clientSecret?.trim() || process.env.ZOHO_MAIL_CLIENT_SECRET || process.env.ZOHO_CLIENT_SECRET || "";

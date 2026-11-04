@@ -2,7 +2,7 @@ import "server-only";
 import { zohoGet } from "./zoho";
 import { type ItemChanges, type ItemFields, UPLOAD_TEST_ITEM, itemBody, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
-import { clientOf, tokenRequest } from "./zohoOAuth";
+import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
 
 /*
@@ -65,8 +65,18 @@ async function books(c: Conn, method: "GET" | "POST" | "PUT", path: string, para
 
 /** Admin: swap the one-time code for a refresh token, check it can read contacts, save it. */
 export async function connectQuotes(input: { code: string; clientId?: string; clientSecret?: string }, by: string): Promise<QuotesInfo> {
-  const { clientId, clientSecret } = clientOf(input);
-  const t = await tokenRequest({ grant_type: "authorization_code", code: input.code.trim(), client_id: clientId, client_secret: clientSecret });
+  const clients = clientsToTry(input, await (await kv()).findOne({ _id: KEY }));
+  let t: Awaited<ReturnType<typeof tokenRequest>> | undefined;
+  let refused: unknown;
+  let clientId = "", clientSecret = "";
+  for (const k of clients) {
+    try {
+      t = await tokenRequest({ grant_type: "authorization_code", code: input.code.trim(), client_id: k.clientId, client_secret: k.clientSecret });
+      ({ clientId, clientSecret } = k);
+      break;
+    } catch (e) { refused = e; } // a code only works with the Self Client that made it
+  }
+  if (!t) throw refused;
   if (!t.refresh_token) throw new Error("Zoho gave no refresh token — generate a new code and try again");
   const c: Conn = { _id: KEY, clientId, clientSecret, refreshToken: t.refresh_token, token: { value: t.access_token!, expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000 }, connectedAt: new Date().toISOString(), connectedBy: by, scopes: QUOTE_SCOPES };
   // The right organisation, and the scope works. Failing here leaves the working connection as it was: it's replaced only below.
