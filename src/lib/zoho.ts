@@ -1,4 +1,5 @@
 import "server-only";
+import { itemPictures } from "./itemEdit";
 import type { AedInvoice, PipelineDoc, Priority, Training, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote, ZohoStatus } from "./types";
 import { tidyName } from "./format";
 import { db, mongoConfigured } from "./db";
@@ -257,25 +258,23 @@ export function itemGst(i: Record<string, unknown>): number | undefined {
 /** A read-only Zoho Books GET with the sync's token (retries, token refresh) — for the Quotations page's look-ups. */
 export const zohoGet = <T = Record<string, unknown>>(path: string, params: Record<string, string | number> = {}) => zget<T>(path, params);
 
-/** An item's picture from Zoho Books (the quotation item catalogue, 28 Oct); null when it has none. */
-export async function itemImage(id: string): Promise<{ bytes: ArrayBuffer; type: string } | null> {
-  const url = new URL(`${API}/items/${id}/image`);
-  url.searchParams.set("organization_id", ORG);
-  G.calls = (G.calls ?? 0) + 1;
-  const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` }, cache: "no-store" });
-  const type = res.headers.get("content-type") ?? "";
-  if (res.ok && type.startsWith("image/")) return { bytes: await res.arrayBuffer(), type };
+/** An item's picture from Zoho Books (the quotation item catalogue, 28 Oct); null when it has none. `doc`: that one of its pictures. */
+export async function itemImage(id: string, doc?: string): Promise<{ bytes: ArrayBuffer; type: string } | null> {
+  const read = async (path: string) => {
+    const url = new URL(`${API}${path}`);
+    url.searchParams.set("organization_id", ORG);
+    G.calls = (G.calls ?? 0) + 1;
+    const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` }, cache: "no-store" });
+    const type = res.headers.get("content-type") ?? "";
+    return res.ok && type.startsWith("image/") ? { bytes: await res.arrayBuffer(), type } : null;
+  };
+  if (doc) return read(`/items/${id}/images/${doc}`);
+  const main = await read(`/items/${id}/image`);
+  if (main) return main;
   // Some items have no main image, only pictures among their documents (owner, 4 Nov: the FRx AED showed "PH").
-  const d = await zget<{ item?: { documents?: { document_id?: string; file_type?: string; attachment_order?: number; is_back_image?: boolean }[] } }>(`/items/${id}`).catch(() => null);
-  const docs = (d?.item?.documents ?? []).filter((x) => x.document_id && /^(jpe?g|png|gif|webp)$/i.test(x.file_type ?? ""));
-  const pick = [...docs].sort((a, b) => Number(Boolean(a.is_back_image)) - Number(Boolean(b.is_back_image)) || (a.attachment_order ?? 0) - (b.attachment_order ?? 0))[0];
-  if (!pick) return null;
-  const u = new URL(`${API}/items/${id}/images/${pick.document_id}`);
-  u.searchParams.set("organization_id", ORG);
-  G.calls = (G.calls ?? 0) + 1;
-  const r = await fetch(u, { headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` }, cache: "no-store" });
-  const t = r.headers.get("content-type") ?? "";
-  return r.ok && t.startsWith("image/") ? { bytes: await r.arrayBuffer(), type: t } : null;
+  const d = await zget<{ item?: Record<string, unknown> }>(`/items/${id}`).catch(() => null);
+  const first = itemPictures(d?.item ?? {})[0];
+  return first ? read(`/items/${id}/images/${first}`) : null;
 }
 
 /** A quotation as Zoho's own PDF (its template, as the customer gets it) — #150 step 4. Throws in plain words. */

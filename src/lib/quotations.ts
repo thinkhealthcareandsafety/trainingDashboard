@@ -1,6 +1,6 @@
 import "server-only";
 import { zohoGet } from "./zoho";
-import { type ItemChanges, type ItemFields, itemBody, itemChanges, itemFieldsOf } from "./itemEdit";
+import { type ItemChanges, type ItemFields, itemBody, itemPictures, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
@@ -170,6 +170,30 @@ export async function uploadBrochure(id: string, file: File): Promise<string> {
     await books(c, "DELETE", `/documents/${doc}`).catch(() => undefined);
     throw e;
   }
+}
+
+/**
+ * Adds a picture to an item (owner, 4 Nov: "let me add pictures from here too"). Zoho documents replacing the main image, not adding one, so:
+ * POST /items/{id}/images, which keeps the pictures already there. Only an item with no main image may fall back to /image, which could
+ * replace it. Read back afterwards: the new picture must be on the item, and none of the old ones gone.
+ */
+export async function uploadPicture(id: string, file: File): Promise<{ pictures: string[]; added: string }> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const read = async () => (await zohoGet<{ item?: Record<string, unknown> }>(`/items/${id}`)).item ?? {};
+  const before = await read();
+  const had = itemPictures(before);
+  const send = (path: string) => { const form = new FormData(); form.append("image", file, file.name); return books(c, "POST", path, {}, form); };
+  await send(`/items/${id}/images`).catch((e: Error) => {
+    if (/invalid url/i.test(e.message) && !before.image_name && !had.length) return send(`/items/${id}/image`);
+    throw e;
+  });
+  const pictures = itemPictures(await read());
+  const added = pictures.find((p) => !had.includes(p));
+  if (!added) throw new Error("Zoho Books answered, but the new picture isn't on the item");
+  const lost = had.filter((p) => !pictures.includes(p));
+  if (lost.length) console.error(`[quotations] adding a picture to item ${id} removed ${lost.length} of its pictures`);
+  return { pictures, added };
 }
 
 /** TEMPORARY: removes the blank test-brochure.pdf files the 4 Nov tests left in Books' Documents area (that exact name only). */

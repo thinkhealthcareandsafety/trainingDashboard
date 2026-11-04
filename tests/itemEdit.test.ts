@@ -1,7 +1,7 @@
 // Editing an item (src/lib/itemEdit.ts + /api/quotations): what's checked, what changed, what Zoho is sent. Nothing here reaches Zoho.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { cleanItemFields, itemBody, itemChanges, itemFieldsOf, itemProblem } from "@/lib/itemEdit";
+import { cleanItemFields, isPicture, itemBody, itemChanges, itemFieldsOf, itemPictures, itemProblem } from "@/lib/itemEdit";
 import { POST } from "@/app/api/quotations/route";
 import { resetFakeDb } from "./fakes/db";
 
@@ -68,6 +68,48 @@ test("add PDF: a real PDF under 1 MB, for everyone who can use the page; else on
   assert.equal(ok.s, 502);
   assert.match(ok.j.error, /isn't connected/);
   assert.equal((await upload({ id: "priyanka", name: "Priyanka A" }, "1", pdf("%PDF-1.4"))).s, 403); // can't use the page
+});
+
+test("an item's pictures: main first, back images last, PDFs left out", () => {
+  const documents = [
+    { document_id: "pdf", file_type: "pdf", attachment_order: 1 },
+    { document_id: "back", file_type: "PNG", attachment_order: 2, is_back_image: true },
+    { document_id: "b", file_type: "jpg", attachment_order: 4 },
+    { document_id: "a", file_type: "jpeg", attachment_order: 3 },
+    { document_id: "main", file_type: "png", attachment_order: 5 },
+  ];
+  assert.deepEqual(itemPictures({ documents, image_document_id: "main" }), ["main", "a", "b", "back"]);
+  assert.deepEqual(itemPictures({ documents, image_document_id: "" }), ["a", "b", "main", "back"]);
+  assert.deepEqual(itemPictures({}), []);
+});
+
+test("a picture is known by its first bytes, not its name", () => {
+  assert.equal(isPicture(new Uint8Array([0xff, 0xd8, 0xff, 0xe0])), true);
+  assert.equal(isPicture(new Uint8Array([0x89, 0x50, 0x4e, 0x47])), true);
+  assert.equal(isPicture(new TextEncoder().encode("GIF89a")), true);
+  assert.equal(isPicture(new TextEncoder().encode("RIFF1234WEBP")), true);
+  assert.equal(isPicture(new TextEncoder().encode("RIFF1234WAVE")), false);
+  assert.equal(isPicture(new TextEncoder().encode("%PDF-1.4")), false);
+});
+
+const addPicture = async (who: { id: string; name: string }, id: string, file?: File) => {
+  const form = new FormData();
+  form.set("picture", id);
+  if (file) form.set("file", file);
+  const r = await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(who) }, body: form }));
+  return { s: r.status, j: await r.json() };
+};
+
+test("add picture: a real picture under 4 MB, for everyone who can use the page; else on to Zoho (not connected here)", async () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]);
+  assert.match((await addPicture(sumit, "abc", new File([png], "a.png"))).j.error, /Unknown item/);
+  assert.match((await addPicture(sumit, "1")).j.error, /Pick a picture/);
+  assert.match((await addPicture(sumit, "1", new File(["%PDF-1.4"], "a.png"))).j.error, /isn't a JPG/);
+  assert.match((await addPicture(sumit, "1", new File([new Uint8Array(4 * 1024 * 1024)], "a.png"))).j.error, /under 4 MB/);
+  const ok = await addPicture({ id: "pranjal", name: "Pranjal Nikalje" }, "1", new File([png], "a.png"));
+  assert.equal(ok.s, 502);
+  assert.match(ok.j.error, /isn't connected/);
+  assert.equal((await addPicture({ id: "priyanka", name: "Priyanka A" }, "1", new File([png], "a.png"))).s, 403);
 });
 
 test("who can edit: full access, not someone who can only quote", async () => {

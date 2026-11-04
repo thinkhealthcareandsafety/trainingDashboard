@@ -13,6 +13,23 @@ const CUSTOM: Partial<Record<keyof ItemFields, { id: string; api: string }>> = {
 };
 const TOP: Partial<Record<keyof ItemFields, string>> = { name: "name", rate: "rate", description: "description", hsn: "hsn_or_sac" };
 export const STOCK_OPTIONS = ["In Stock", "Back order", "No Stock"];
+export const PICTURE_MAX_BYTES = 4 * 1024 * 1024; // Vercel refuses request bodies over 4.5 MB
+
+type ItemDoc = { document_id?: unknown; file_type?: unknown; attachment_order?: unknown; is_back_image?: unknown };
+/** An item's pictures among its documents (PDFs live there too): the main image first, back images last, else Zoho's order. */
+export function itemPictures(i: Record<string, unknown>): string[] {
+  const docs = ((i.documents ?? []) as ItemDoc[]).filter((d) => d.document_id && /^(jpe?g|png|gif|webp)$/i.test(String(d.file_type ?? "")));
+  const main = String(i.image_document_id ?? "");
+  const rank = (d: ItemDoc) => (String(d.document_id) === main ? 0 : d.is_back_image ? 2 : 1);
+  return [...docs].sort((a, b) => rank(a) - rank(b) || Number(a.attachment_order ?? 0) - Number(b.attachment_order ?? 0)).map((d) => String(d.document_id));
+}
+
+/** The picture formats by their first bytes: a name or a browser's word isn't proof. */
+export function isPicture(b: Uint8Array): boolean {
+  const start = (...x: number[]) => x.every((v, n) => b[n] === v);
+  return start(0xff, 0xd8, 0xff) || start(0x89, 0x50, 0x4e, 0x47) || start(0x47, 0x49, 0x46, 0x38) || (start(0x52, 0x49, 0x46, 0x46) && String.fromCharCode(...b.slice(8, 12)) === "WEBP");
+}
+
 export const BROCHURE_MAX_BYTES = 1024 * 1024; // Books' note on the field: "Upload PDF less than 1 MB"
 
 /** The editable fields of a Zoho item, as Zoho answers it. */

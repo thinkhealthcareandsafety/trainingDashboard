@@ -6,11 +6,11 @@ import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, cleanTestBrochures, editItem, uploadBrochure, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, cleanTestBrochures, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
-import { BROCHURE_MAX_BYTES, cleanItemFields, itemFieldsOf, itemProblem, type ItemFields } from "@/lib/itemEdit";
+import { BROCHURE_MAX_BYTES, PICTURE_MAX_BYTES, cleanItemFields, isPicture, itemFieldsOf, itemPictures, itemProblem, type ItemFields } from "@/lib/itemEdit";
 import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 
 export const dynamic = "force-dynamic";
@@ -187,8 +187,11 @@ export async function GET(request: Request) {
     const imageId = q.get("image");
     if (imageId) {
       if (!/^\d+$/.test(imageId)) return new Response(null, { status: 400 });
-      const img = images.get(imageId) ?? (await itemImage(imageId).catch(() => null));
-      if (!images.has(imageId)) { images.set(imageId, img); if (images.size > 400) images.delete(images.keys().next().value!); }
+      const doc = q.get("doc");
+      if (doc && !/^\d+$/.test(doc)) return new Response(null, { status: 400 });
+      const cacheKey = doc ? `${imageId}:${doc}` : imageId;
+      const img = images.get(cacheKey) ?? (await itemImage(imageId, doc ?? undefined).catch(() => null));
+      if (!images.has(cacheKey)) { images.set(cacheKey, img); if (images.size > 400) images.delete(images.keys().next().value!); }
       if (!img) return new Response(null, { status: 404, headers: { "Cache-Control": "private, max-age=86400" } });
       return new Response(img.bytes, { headers: { "Content-Type": img.type, "Cache-Control": "private, max-age=604800" } });
     }
@@ -239,7 +242,7 @@ export async function GET(request: Request) {
       if (!/^\d+$/.test(itemId)) return Response.json({ error: "Unknown item" }, { status: 400 });
       const d = await zohoGet<{ item?: Record<string, unknown> }>(`/items/${itemId}`);
       const i = d.item ?? {};
-      return Response.json({ description: (i.description as string) ?? "", gst: itemGst(i) ?? null, unit: (i.unit as string) || null, rate: Number(i.rate) || null, fields: itemFieldsOf(i) });
+      return Response.json({ description: (i.description as string) ?? "", gst: itemGst(i) ?? null, unit: (i.unit as string) || null, rate: Number(i.rate) || null, fields: itemFieldsOf(i), pictures: itemPictures(i) });
     }
 
     const customerId = q.get("customer");
@@ -343,7 +346,7 @@ export async function POST(request: Request) {
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
     const form = await request.formData().catch(() => null);
-    return form?.get("brochure") ? saveBrochure(form, me) : sendEmail(form);
+    return form?.get("brochure") ? saveBrochure(form, me) : form?.get("picture") ? savePicture(form, me) : sendEmail(form);
   }
   const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; cleanBrochureTests?: boolean };
   if (body.newCustomer) return newCustomer(body.newCustomer);
@@ -462,6 +465,27 @@ async function saveBrochure(form: FormData, me: { id: string; name: string }): P
   } catch (e) {
     console.error("[quotations] brochure failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't add the brochure" }, { status: 502 });
+  }
+}
+
+/** "Add picture" in the item popup, for everyone who can use the Items page: a real picture under 4 MB. The list's copy follows at once. */
+async function savePicture(form: FormData, me: { id: string; name: string }): Promise<Response> {
+  const id = String(form.get("picture") ?? "");
+  const file = form.get("file");
+  if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown item" }, { status: 400 });
+  if (!(file instanceof File) || !file.size) return Response.json({ error: "Pick a picture" }, { status: 400 });
+  if (file.size >= PICTURE_MAX_BYTES) return Response.json({ error: "The picture must be under 4 MB" }, { status: 400 });
+  if (!isPicture(new Uint8Array(await file.slice(0, 12).arrayBuffer()))) return Response.json({ error: "That file isn't a JPG, PNG, GIF or WebP picture" }, { status: 400 });
+  try {
+    const out = await uploadPicture(id, file);
+    images.delete(id); // the item may have a main picture now
+    const d = await db();
+    await d.collection<{ at: string; by: string; itemId: string; changes: object }>("itemEdits").insertOne({ at: new Date().toISOString(), by: me.name, itemId: id, changes: { picture: { to: file.name } } }).catch((x) => console.error("[quotations] picture log failed:", x));
+    await d.collection<{ _id: string }>("kv").updateOne({ _id: "zoho_items", "items.id": id } as object, { $set: { "items.$.image": true } }).catch((x) => console.error("[quotations] item copy failed:", x));
+    return Response.json({ ok: true, ...out });
+  } catch (e) {
+    console.error("[quotations] picture failed:", e);
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't add the picture" }, { status: 502 });
   }
 }
 

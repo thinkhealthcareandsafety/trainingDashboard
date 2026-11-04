@@ -8,7 +8,7 @@ import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { hasFullAccess, isAdmin } from "@/lib/roles";
-import { BROCHURE_MAX_BYTES, type ItemFields, STOCK_OPTIONS } from "@/lib/itemEdit";
+import { BROCHURE_MAX_BYTES, type ItemFields, PICTURE_MAX_BYTES, STOCK_OPTIONS } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { onItemsPage } from "@/lib/itemsPage";
@@ -1037,7 +1037,7 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
         {shown.length > 200 && <p className="py-3 text-center text-[13px] text-muted">{shown.length - 200} more — search to narrow it down.</p>}
       </div>
       <p className="mt-2 text-[13px] text-muted">{items ? `${shown.length} active items` : ""} · Quoted: quote lines in the last 12 months, from the Zoho Analytics copy.</p>
-      {open && createPortal(<ItemDetails item={open} live={live} onBrochure={(b) => addedBrochure(open.id, b)} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)}
+      {open && createPortal(<ItemDetails item={open} live={live} onBrochure={(b) => addedBrochure(open.id, b)} onPicture={() => { itemsOnce = null; noPicture.delete(open.id); }} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)}
         onSaved={(f) => {
           // The list and the quote popup's item search follow at once.
           const update = (i: Item): Item => (i.id === open.id ? { ...i, name: f.name, rate: f.rate, group: f.identifier || i.group, stock: f.stock || null } : i);
@@ -1088,12 +1088,40 @@ function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; l
   );
 }
 
+/** Adds a picture to the item in Zoho Books; those already there stay. */
+function AddPicture({ item, live, onAdded }: { item: Item; live: boolean; onAdded: (pictures: string[], added: string) => void }) {
+  const { toast } = useStore();
+  const [busy, setBusy] = useState(false);
+  const add = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size >= PICTURE_MAX_BYTES) return toast({ text: `${file.name} is over 4 MB` });
+    setBusy(true);
+    const form = new FormData();
+    form.set("picture", item.id);
+    form.set("file", file);
+    const r = await fetch("/api/quotations", { method: "POST", body: form }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { pictures?: string[]; added?: string; error?: string }) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!j.pictures || !j.added) return toast({ text: j.error ?? "Couldn't add the picture" });
+    onAdded(j.pictures, j.added);
+    toast({ text: `${file.name} added to ${item.name} in Zoho Books` });
+  };
+  return (
+    <label className={`relative font-semibold text-brand ${!live || busy ? "cursor-default opacity-60" : "cursor-pointer hover:underline"}`} title={live ? "A JPG, PNG, GIF or WebP under 4 MB. The pictures already there stay." : "Only the live site changes Zoho Books"}>
+      {busy ? "Uploading…" : "+ Add picture"}
+      <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="sr-only" disabled={!live || busy} onChange={(e) => { add(e.target.files?.[0]); e.target.value = ""; }} aria-label={`Add a picture to ${item.name}`} />
+    </label>
+  );
+}
+
 /** One item: its picture, figures and Zoho's description (one Zoho call each, when opened). */
-function ItemDetails({ item, live, onBrochure, ticked, onTick, onClose, onSaved }: { item: Item; live: boolean; onBrochure: (brochure: string) => void; ticked: boolean; onTick: () => void; onClose: () => void; onSaved: (f: ItemFields) => void }) {
+function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClose, onSaved }: { item: Item; live: boolean; onBrochure: (brochure: string) => void; onPicture: () => void; ticked: boolean; onTick: () => void; onClose: () => void; onSaved: (f: ItemFields) => void }) {
   const { member } = useSession();
   const canEdit = Boolean(member && hasFullAccess(member));
   const [description, setDescription] = useState<string | null>(null);
   const [fields, setFields] = useState<ItemFields | null>(null); // Zoho's current values, when opened
+  const [pictures, setPictures] = useState<string[]>([]); // its pictures in Zoho
+  const [shownPicture, setShownPicture] = useState<string>();
   const [form, setForm] = useState<(Omit<ItemFields, "rate"> & { rate: string }) | null>(null); // editing
   const [identifiers, setIdentifiers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -1115,7 +1143,7 @@ function ItemDetails({ item, live, onBrochure, ticked, onTick, onClose, onSaved 
   };
   useEffect(() => {
     let current = true;
-    fetch(`/api/quotations?item=${item.id}`).then((r) => r.json()).then((j: { description?: string; fields?: ItemFields }) => { if (current) { setDescription(j.description ?? ""); setFields(j.fields ?? null); } }).catch(() => current && setDescription(""));
+    fetch(`/api/quotations?item=${item.id}`).then((r) => r.json()).then((j: { description?: string; fields?: ItemFields; pictures?: string[] }) => { if (current) { setDescription(j.description ?? ""); setFields(j.fields ?? null); setPictures(j.pictures ?? []); } }).catch(() => current && setDescription(""));
     return () => { current = false; };
   }, [item.id]);
   useEffect(() => {
@@ -1137,7 +1165,23 @@ function ItemDetails({ item, live, onBrochure, ticked, onTick, onClose, onSaved 
         </div>
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
           <div className="grid gap-5 sm:grid-cols-[22rem_minmax(0,1fr)]">
-            <div className="self-start overflow-hidden rounded-xl border border-line"><ItemImage item={item} tall onMissing={() => {}} /></div>
+            <div className="min-w-0 self-start">
+              <div className="overflow-hidden rounded-xl border border-line"><ItemImage key={shownPicture ?? "main"} item={item} doc={shownPicture} tall onMissing={() => {}} /></div>
+              {pictures.length > 1 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {pictures.map((p, n) => {
+                    const on = (shownPicture ?? pictures[0]) === p;
+                    return (
+                      <button key={p} type="button" aria-label={`Show picture ${n + 1}`} aria-pressed={on} onClick={() => setShownPicture(p)} className={`size-12 overflow-hidden rounded-lg border bg-white ${on ? "border-brand ring-1 ring-brand" : "border-line"}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`/api/quotations?image=${item.id}&doc=${p}`} alt="" loading="lazy" className="size-full object-contain" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="mt-2 text-[14px]"><AddPicture item={item} live={live} onAdded={(list, added) => { setPictures(list); setShownPicture(added); onPicture(); }} /></div>
+            </div>
             {form ? (
               <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                 <EditField name="Name" wide><input className={`${inputCls} !h-10 text-[14.5px]`} maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} aria-label="Name" autoFocus /></EditField>
@@ -1184,13 +1228,13 @@ const noPicture = new Set<string>();
 const hasPicture = (i: Item) => i.image !== false && !noPicture.has(i.id); // unknown until the next full sync: try it
 
 /** Zoho's picture of the item (through our server); the initials when it has none. */
-function ItemImage({ item, tall = false, onMissing }: { item: Item; tall?: boolean; onMissing: () => void }) {
-  const [failed, setFailed] = useState(!hasPicture(item));
+function ItemImage({ item, doc, tall = false, onMissing }: { item: Item; doc?: string; tall?: boolean; onMissing: () => void }) {
+  const [failed, setFailed] = useState(!doc && !hasPicture(item));
   return (
     <span className={`relative grid shrink-0 place-items-center overflow-hidden ${tall ? "h-64" : "h-32"} ${failed ? "bg-surface-2" : "bg-white"}`}>
       {failed ? <span className="text-[22px] font-bold text-faint">{item.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
         // eslint-disable-next-line @next/next/no-img-element
-        : <img src={`/api/quotations?image=${item.id}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => { setFailed(true); noPicture.add(item.id); onMissing(); }} />}
+        : <img src={`/api/quotations?image=${item.id}${doc ? `&doc=${doc}` : ""}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => { setFailed(true); noPicture.add(item.id); onMissing(); }} />}
     </span>
   );
 }
