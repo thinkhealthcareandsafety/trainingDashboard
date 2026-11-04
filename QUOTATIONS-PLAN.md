@@ -7,6 +7,19 @@ except where marked. Read HANDOFF.md's top blocks and §11 first; §11 applies t
 `next build`, `npm test`, the secret scan, a read-only browser check. Never write test data to the shared database and
 never email or WhatsApp a customer. The owner is short on credits, so keep replies short.
 
+## Status, session 23 (4 Nov)
+
+Steps 1–7 and the Added / Missing half of step 8 are built and committed, not pushed. Where they differ from the text below:
+- **Step 1:** `from_emails` shows quotations@ with `is_org_email_id: true`, not selected (the Gmail is). So `emailQuote` sends
+  `send_from_org_email_id: true` rather than `from_address`. Written from memory of Zoho's docs and **unproven until a real quote reaches
+  the owner's own address.** If it still comes from the Gmail, that's the plan's "ask the owner first" case.
+- **Step 5:** owner, 4 Nov: "id rather have the whole month". The tile compares with the **whole of last month** (`prevWhole`,
+  `ownCompare`). It sits on Sales & growth, which Admin has hidden; it won't show on My dashboard until someone adds it.
+- **Step 8:** brochures are **not attachments**. Books has a file custom field, `cf_product_brochure` (name in the value, file id in
+  `_unformatted`), and `has_attachment` stays false on an item that has one. It comes with the `/items` list, so Added / Missing costs no
+  extra calls and no new collection. **Upload is not built:** it must write that field, how is unknown, and it needs a test item and
+  (possibly `ZohoBooks.settings.*`) an Admin reconnect. Both are the owner's to give.
+
 ## Owner's side
 
 | # | What | State |
