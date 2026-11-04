@@ -9,7 +9,7 @@ import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
-import { type QuoteEmailInput, SIGNATURE, ZIA_MAILBOX, textToHtml, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
 import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 
 export const dynamic = "force-dynamic";
@@ -205,7 +205,8 @@ export async function GET(request: Request) {
       if (ziaFlowOn()) {
         const a = await ziaAnswer(ziaFor);
         if (a === "waiting") return Response.json({ waiting: true });
-        if (a) return Response.json({ subject: a.subject ?? "", html: textToHtml(`${a.text}\n\n${SIGNATURE}`) });
+        // Just Zia's words: the email step adds the signature of whoever is sending.
+        if (a) return Response.json({ subject: a.subject ?? "", text: a.text });
       }
       const d = await findDraft(ZIA_MAILBOX, ziaFor).catch((e: Error) => ({ error: e.message }));
       if (!d) return Response.json({ error: `No draft for ${ziaFor} in ${ZIA_MAILBOX}'s Zoho Mail yet — have Zia write it there and save the draft` }, { status: 404 });
@@ -219,8 +220,11 @@ export async function GET(request: Request) {
       if (!/^\d+$/.test(emailId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
       type ToContact = { email?: string; first_name?: string; last_name?: string; selected?: boolean };
       const j = await zohoGet<Record<string, unknown> & { data?: Record<string, unknown> }>(`/estimates/${emailId}/email`);
-      const d = (j.data ?? j) as { subject?: string; body?: string; file_name?: string; to_contacts?: ToContact[] };
+      type FromEmail = { email?: string; selected?: boolean; is_org_email_id?: boolean };
+      const d = (j.data ?? j) as { subject?: string; body?: string; file_name?: string; to_contacts?: ToContact[]; from_emails?: FromEmail[] };
+      const senders = d.from_emails ?? [];
       return Response.json({
+        from: (senders.find((x) => x.is_org_email_id) ?? senders.find((x) => x.selected))?.email ?? null, // emailQuote sends from the organisation's email
         ziaVia: ziaFlowOn() ? "flow" : "mail", subject: d.subject ?? "", body: d.body ?? "", fileName: d.file_name ?? null, maxBytes: EMAIL_MAX_BYTES,
         to: (d.to_contacts ?? []).filter((x) => x.email).map((x) => ({ email: x.email!, name: [x.first_name, x.last_name].filter(Boolean).join(" ") || null, selected: x.selected !== false })),
       });
@@ -410,7 +414,7 @@ async function sendEmail(form: FormData | null): Promise<Response> {
   if (!form) return Response.json({ error: "Nothing to send" }, { status: 400 });
   const str = (k: string, max: number) => String(form.get(k) ?? "").trim().slice(0, max);
   const mails = (k: string) => str(k, 2000).split(/[,;\s]+/).map((x) => x.toLowerCase()).filter(Boolean);
-  const id = str("estimateId", 30), to = mails("to"), cc = mails("cc"), subject = str("subject", 300), body = str("body", 100_000);
+  const id = str("estimateId", 30), to = mails("to"), cc = mergeCc(to, mails("cc")), subject = str("subject", 300), body = str("body", 100_000);
   const files = form.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
   const bad = [...to, ...cc].find((m) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown quotation" }, { status: 400 });

@@ -7,7 +7,9 @@ import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
-import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, suggestTemplate, textToHtml, topicsOf, ziaSubject } from "@/lib/quoteEmails";
+import { isAdmin } from "@/lib/roles";
+import { useSession } from "@/lib/session";
+import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, quoteSignature, suggestTemplate, textToHtml, topicsOf, ziaSubject } from "@/lib/quoteEmails";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -455,6 +457,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
     setBusy("");
   };
 
+  const { member } = useSession();
   const emails = detail?.contacts?.filter((c) => to.includes(c.id)).map((c) => c.email).join(", ");
   const c = detail?.customer;
   const gstLine = c && (c.tax === "none" ? "Outside India · no GST" : [c.gstin && `GSTIN ${c.gstin}`, c.state, c.tax === "intra" ? "CGST + SGST" : "IGST (outside Maharashtra)"].filter(Boolean).join(" · "));
@@ -474,6 +477,7 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
           <EmailStep quote={done} live={live} onBack={() => setEmailing(false)}
             compose={{
               company: customer.name, number: done.number, total: done.total, expiry: f?.expiry || null, salesperson: f?.salesperson || null,
+              signer: member && !isAdmin(member) ? member.name : null,
               contact: detail?.contacts?.find((x) => to.includes(x.id))?.name ?? null,
               lines: lines.filter((l) => l.itemId).map((l) => ({ name: l.name, qty: l.qty, group: byId.get(l.itemId)?.group ?? null })),
             }}
@@ -675,7 +679,7 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
  */
 function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
-  type Draft = { subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail" };
+  type Draft = { from?: string | null; subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail" };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [extra, setExtra] = useState("");
@@ -739,15 +743,17 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
   const fromZia = async (quiet = false): Promise<boolean> => {
     if (!quiet) { setZiaBusy(true); setZiaMsg(""); }
     const r = await fetch(`/api/quotations?zia=${encodeURIComponent(quote.number)}`).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { subject?: string; html?: string; error?: string; waiting?: boolean }) : { error: "Couldn't reach the server" };
+    const j = r ? ((await r.json().catch(() => ({}))) as { subject?: string; html?: string; text?: string; error?: string; waiting?: boolean }) : { error: "Couldn't reach the server" };
     if (!quiet) setZiaBusy(false);
-    if (j.waiting || (quiet && (j.error || j.html == null))) return false;
-    if (j.error || j.html == null) { setZiaMsg(j.error ?? "Nothing came back"); return false; }
+    // Through Zoho Flow it's just Zia's words: the signature is the sender's. A Zoho Mail draft is the whole email.
+    const html = j.text != null ? textToHtml(`${j.text}\n\n${quoteSignature(compose)}`) : j.html;
+    if (j.waiting || (quiet && (j.error || html == null))) return false;
+    if (j.error || html == null) { setZiaMsg(j.error ?? "Nothing came back"); return false; }
     if (edited.current && !window.confirm("Replace the message you've edited?")) { setZiaMsg("Zia's email is ready — Pull from Zia to put it in."); return true; }
     // Zia may have written a subject; the draft's own one ("Zia · QT-… · …") isn't for the customer.
     const subj = (j.subject ?? "").trim();
     if (subj && subj !== ziaSubject(compose)) setSubject(subj.replace(/^Zia\s*·\s*/, ""));
-    if (body.current) body.current.innerHTML = cleanHtml(j.html);
+    if (body.current) body.current.innerHTML = cleanHtml(html);
     edited.current = false;
     setZiaMsg("Zia wrote it — check it before sending.");
     return true;
@@ -782,6 +788,7 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
   return (
     <>
       <div className="no-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
+        {draft.from && <p className="text-[14px] text-ink-2"><span className={label}>From</span> <span className="ml-1">{draft.from}</span></p>}
         <div>
           <span className={label}>To</span>
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -794,7 +801,14 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
             <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-56 text-[14px]`} placeholder="Other emails, comma between" value={extra} onChange={(e) => setExtra(e.target.value)} aria-label="Other emails" />
           </div>
         </div>
-        <label className="block"><span className={label}>Cc</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Comma between" /></label>
+        <div>
+          <span className={label}>Cc</span>
+          {/* On every quote email (owner, 4 Nov): the server adds them, so they can't be taken off. */}
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {mergeCc(to, []).map((m) => <span key={m} className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title="Always copied on quote emails">{m}</span>)}
+            <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-56 text-[14px]`} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Other emails, comma between" aria-label="Other Cc emails" />
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={label}>Template</span>
           <select className={`${inputCls} !h-9 !w-auto text-[14px]`} value={tpl} onChange={(e) => choose(e.target.value, skip)} aria-label="Email template">

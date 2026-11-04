@@ -1,7 +1,7 @@
 // Quotation email templates (src/lib/quoteEmails.ts): items → topics, names filled in, templates, HTML.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SIGNATURE, TEMPLATES, brandsOf, buildQuoteEmail, listNames, suggestTemplate, textToHtml, topicOf, topicsOf, splitZiaReply, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { TEMPLATES, brandsOf, buildQuoteEmail, listNames, mergeCc, signature, suggestTemplate, textToHtml, topicOf, topicsOf, splitZiaReply, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
 
 const base = { company: "Tata Motors", contact: "Mr. Rajesh Kumar", number: "QT-001234", total: 185000, expiry: "2026-12-03", salesperson: "Pranjal" };
 
@@ -41,7 +41,7 @@ test("an AED + training quote names the models and the training, in order", () =
   assert.doesNotMatch(e.text, /we can also train your team/); // training is already on the quote
   assert.match(e.text, /₹1,85,000 including GST/);
   assert.match(e.text, /3 December 2026/);
-  assert.match(e.text, /Warm regards,\nSumit A Shah\nProprietor\nTHINK HEALTH CARE AND SAFETY\n/);
+  assert.match(e.text, /Warm regards,\nPranjal\nTHINK HEALTH CARE AND SAFETY\n/);
   assert.match(e.text, /CPR AED FIRST AID Training- https:\/\/www\.thinkhealth\.in\/trainings$/);
 });
 
@@ -54,7 +54,7 @@ test("switched-off topics leave no gap; formal lists the items; pads only → re
   const formal = buildQuoteEmail("formal", { ...base, contact: null, lines });
   assert.match(formal.text, /^Dear Sir \/ Madam,/);
   assert.match(formal.text, /• Defibtech Pad DDP100 — 4 nos\./);
-  assert.match(formal.text, /Yours sincerely,\nSumit A Shah\n/);
+  assert.match(formal.text, /Yours sincerely,\nPranjal\n/);
   assert.equal(buildQuoteEmail("short", { ...base, contact: null, lines }).text.split("\n")[0], "Hello,");
 });
 
@@ -75,12 +75,36 @@ test("a number that already says Quotation isn't doubled, in any template", () =
 test("every template carries the whole signature, and its web addresses are links", () => {
   const lines = [{ name: "Zoll AED Plus", qty: 1, group: "All AEDs" }];
   for (const t of TEMPLATES) {
-    const { text } = buildQuoteEmail(t.id, { ...base, lines });
-    assert.ok(text.endsWith(SIGNATURE), t.id);
+    const { text } = buildQuoteEmail(t.id, { ...base, signer: "Ashish Dalal", lines });
+    if (t.id === "formal") assert.ok(text.endsWith(signature("Ashish Dalal")), t.id); // "Yours sincerely," instead of "Warm regards,"
+    else assert.ok(text.endsWith(`Warm regards,\n${signature("Ashish Dalal")}`), t.id);
   }
-  const html = textToHtml(SIGNATURE);
+  const html = textToHtml(signature("Sumit A Shah"));
   assert.match(html, /<a href="https:\/\/www\.thinkhealth\.in\/Profile">www\.thinkhealth\.in\/Profile<\/a>/);
   assert.match(html, /<a href="https:\/\/www\.thinkhealth\.in\/trainings">https:\/\/www\.thinkhealth\.in\/trainings<\/a>/);
+});
+
+test("the signature is the sender's: first line their name, Proprietor only for Sumit, the rest unchanged", () => {
+  for (const n of ["Ashish Dalal", "Pranjal Nikalje", "Shikha Dixit", "Nikita Shah"]) {
+    const s = signature(n).split("\n");
+    assert.equal(s[0], n);
+    assert.equal(s[1], "THINK HEALTH CARE AND SAFETY");
+    assert.ok(!signature(n).includes("Proprietor"));
+  }
+  assert.deepEqual(signature("Sumit A Shah").split("\n").slice(0, 3), ["Sumit A Shah", "Proprietor", "THINK HEALTH CARE AND SAFETY"]);
+  assert.match(signature("Ashish Dalal"), /9823101908 \/ 9356080806 \/ 8007000884/);
+  assert.match(signature("Ashish Dalal"), /9823101908\/ 8007700006\/ 9356080806/);
+  assert.equal(signature(null).split("\n")[0], "THINK HEALTH CARE AND SAFETY"); // nobody to name
+  // Admin sends no signer: the quote's Sales person signs.
+  const lines = [{ name: "Zoll AED Plus", qty: 1, group: "All AEDs" }];
+  assert.match(buildQuoteEmail("new", { ...base, salesperson: "Pranjal Nikalje", lines }).text, /Warm regards,\nPranjal Nikalje\nTHINK HEALTH/);
+  assert.match(buildQuoteEmail("new", { ...base, salesperson: "Pranjal Nikalje", signer: "Ashish Dalal", lines }).text, /Warm regards,\nAshish Dalal\nTHINK HEALTH/);
+});
+
+test("Cc: always sales@ and sshah@, each address once, none already in To", () => {
+  assert.deepEqual(mergeCc(["a@x.in"], []), ["sales@thinkhealth.in", "sshah@thinkhealth.in"]);
+  assert.deepEqual(mergeCc(["a@x.in"], ["b@x.in", "SALES@thinkhealth.in", "b@x.in"]), ["sales@thinkhealth.in", "sshah@thinkhealth.in", "b@x.in"]);
+  assert.deepEqual(mergeCc(["sshah@thinkhealth.in"], []), ["sales@thinkhealth.in"]);
 });
 
 test("the Zia brief carries the request, items, total and the quote number in its subject", () => {

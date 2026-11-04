@@ -31,5 +31,5 @@ test("Zia's answer is kept and the email step gets it, subject split off", async
   assert.equal((await back({ quote: "QT-9", text: "Subject: Your AED quote\n\nHi Rajesh,\n\nThanks." })).status, 200);
   const j = await get();
   assert.equal(j.subject, "Your AED quote");
-  assert.match(j.html, /^<p style="margin:0 0 1em">Hi Rajesh,<\/p>/);
+  assert.equal(j.text, "Hi Rajesh,\n\nThanks."); // no signature: the email step adds the sender's
 });

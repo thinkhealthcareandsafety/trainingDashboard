@@ -57,3 +57,10 @@ test("the quote email: To, a subject and 4 MB of attachments at most; else on to
   assert.equal(ok.s, 502);
   assert.match(ok.j.error, /isn't connected/);
 });
+
+test("the two fixed Cc addresses count towards the 20-address limit", async () => {
+  const list = (n: number) => Array.from({ length: n }, (_, i) => `p${i}@example.com`).join(",");
+  assert.match((await email({ ...mail, to: list(19) })).j.error, /At most 20/); // 19 + 2
+  assert.match((await email({ ...mail, to: list(18) })).j.error, /isn't connected/); // 18 + 2
+  assert.match((await email({ ...mail, to: `${list(18)},sales@thinkhealth.in,sshah@thinkhealth.in` })).j.error, /isn't connected/); // they're in To: not twice
+});

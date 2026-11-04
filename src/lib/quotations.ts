@@ -203,7 +203,8 @@ export type QuoteEmail = { to: string[]; cc: string[]; subject: string; body: st
 export async function emailQuote(estimateId: string, m: QuoteEmail): Promise<void> {
   const c = await (await kv()).findOne({ _id: KEY });
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
-  const fields = { to_mail_ids: m.to, cc_mail_ids: m.cc, subject: m.subject, body: m.body };
+  // Sent from the organisation's email, quotations@ since 4 Nov (owner). Without this Zoho uses the connected user's Gmail.
+  const fields = { send_from_org_email_id: true, to_mail_ids: m.to, cc_mail_ids: m.cc, subject: m.subject, body: m.body };
   const params: Record<string, string> = m.fileName ? { file_name: m.fileName } : {};
   if (!m.files.length) { await books(c, "POST", `/estimates/${estimateId}/email`, params, fields); return; }
   const form = new FormData();

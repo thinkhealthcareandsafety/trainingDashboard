@@ -19,6 +19,7 @@ export type QuoteEmailInput = {
   total: number; // incl. GST, Zoho's
   expiry: string | null; // YYYY-MM-DD
   salesperson: string | null;
+  signer?: string | null; // who signs: the signed-in person; Admin has no name of their own, so the quote's Sales person signs
   lines: QuoteEmailLine[];
 };
 
@@ -28,10 +29,20 @@ export type TopicId =
 
 const COMPANY = "Think Health Care and Safety";
 
-/** The sign-off on every template (owner, 4 Nov, word for word: "include all this in all the templates"). */
-export const SIGNATURE = `Sumit A Shah
-Proprietor
-THINK HEALTH CARE AND SAFETY
+/** On every quote email, whoever sends it (owner, 4 Nov). */
+export const ALWAYS_CC = ["sales@thinkhealth.in", "sshah@thinkhealth.in"];
+/** The Cc list as sent: the fixed two, then the others; each address once, and none that's already in To. */
+export function mergeCc(to: string[], cc: string[]): string[] {
+  const seen = new Set(to.map((m) => m.toLowerCase()));
+  return [...ALWAYS_CC, ...cc].map((m) => m.toLowerCase()).filter((m) => !seen.has(m) && Boolean(seen.add(m)));
+}
+
+/**
+ * The sign-off on every template (owner, 4 Nov, word for word: "include all this in all the templates"; then "if ashish
+ * does it, then him, if pranjal does it then her, if sumit does it then his too"). Only the name line changes, plus
+ * "Proprietor" for Sumit. Both contact lists are right as they are (owner, 4 Nov: 8007000884 and 8007700006).
+ */
+const SIGNATURE_DETAILS = `THINK HEALTH CARE AND SAFETY
 302 Rainbow plaza, Pimple Saudagar, Near Shivar Garden, Pune 411027
 Contact: 9823101908 / 9356080806 / 8007000884
 Email: sales@thinkhealth.in / sshah@thinkhealth.in
@@ -43,6 +54,12 @@ Website- www.thinkhealth.in
 Company Profile- www.thinkhealth.in/Profile
 View All Products- www.thinkhealth.in/Products
 CPR AED FIRST AID Training- https://www.thinkhealth.in/trainings`;
+export function signature(person: string | null | undefined): string {
+  const name = (person ?? "").trim();
+  return [...(name ? [name] : []), ...(/^sumit\b/i.test(name) ? ["Proprietor"] : []), SIGNATURE_DETAILS].join("\n");
+}
+/** The quote's signature: the person sending it, else its Sales person. */
+export const quoteSignature = (q: Pick<QuoteEmailInput, "signer" | "salesperson">) => signature(q.signer || q.salesperson);
 
 /** Which topic an item belongs to: a few name checks first (the identifiers are loose — "AED Trainer" sits under All AEDs). */
 export function topicOf(name: string, group: string | null): TopicId {
@@ -247,7 +264,7 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
     what,
     total: inr(q.total),
     valid: day(q.expiry),
-    sign: `Warm regards,\n${SIGNATURE}`,
+    sign: `Warm regards,\n${quoteSignature(q)}`,
     topics: on.map((t) => TOPICS.find((x) => x.id === t.id)!.text({ names: listNames(t.names), many: new Set(t.names).size > 1, has })).join("\n\n"),
     list: q.lines.map((l) => `• ${l.name} — ${l.qty} ${l.qty === 1 ? "no." : "nos."}`).join("\n"),
   };
