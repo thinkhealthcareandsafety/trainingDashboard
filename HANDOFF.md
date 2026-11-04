@@ -3,10 +3,10 @@
 _Last updated: Wed 4 Nov 2026 (end of session 22). **Live = GitHub = `87a4247`** (both addresses), plus this docs
 commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Session 23 (4 Nov) — newest; wins over everything below.** Commits after `278f1bd`, one per plan step, **not pushed** unless a later
-note says so; QUOTATIONS-PLAN.md "Status, session 23" has where they differ from the plan. Waiting on the owner: Zia step's output
-(Flow History, screenshot of 4 Nov 09:43 IST showed the Zia step red after 187 ms), a brochure test item, the first real quote to their own
-address. Traps: `TaskStop` on `npx next start` leaves the server alive and `Get-NetTCPConnection` can miss it, so start the test server
+**Session 23 (4 Nov) — newest; wins over everything below.** All pushed and live at the end of the session; `git log` has one commit per step. **Start from
+QUOTATIONS-PLAN.md "Left to do"**, then its "Status, session 23" for how things work and where they differ from the plan. Plan steps 1-7 and brochures are built, plus
+Add email, the Items page at `/items`, item Edit, Add PDF, Add picture, and the certificate name's Edit. The owner confirmed the quotations@ sender works. The push needs the
+owner to say "push" outright: the permission check refuses anything vaguer, and it refused a bulk delete by file name. Traps: `TaskStop` on `npx next start` leaves the server alive and `Get-NetTCPConnection` can miss it, so start the test server
 with `node node_modules/next/dist/bin/next start -p 3001` (which stops cleanly); a stale server answers old code without any error.
 Admin's Reports hides the built-in tabs (per person, `/api/analytics/prefs`), so a new built-in tile isn't visible there.
 

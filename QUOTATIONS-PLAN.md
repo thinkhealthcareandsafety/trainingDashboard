@@ -7,6 +7,32 @@ except where marked. Read HANDOFF.md's top blocks and §11 first; §11 applies t
 `next build`, `npm test`, the secret scan, a read-only browser check. Never write test data to the shared database and
 never email or WhatsApp a customer. The owner is short on credits, so keep replies short.
 
+## Left to do (end of session 23, 4 Nov): start here; replaces every older list below
+
+**Broken**
+1. **Zia never answers.** Asked twice on 4 Nov (kv `zia:*`, no `answeredAt`); the email step waits 2 minutes and gives nothing. History's output for the 09:43 IST run said
+   "Content can't be null": the Zia step's prompt is empty or mapped wrongly (we send JSON `{quote, prompt}`). Owner's call: fix the mapping in Flow, or remove Zia from the email step.
+
+**Built, not yet proven on the live site**
+2. **+ Add picture:** try on Hot Water Bag Standard with a real photo first (the team should wait). `/items/{id}/images` for adding is a guess. Read it back: the new
+   picture is on the item and none is gone. If it fails or replaces one, fix before anyone else uses it.
+3. **Item Edit:** no save yet (`itemEdits` holds only 2 brochure uploads). Save one small change, read it back in Zoho.
+4. **+ Add email:** first real one on a customer the owner picks; read back in Zoho, and check the new person stays ticked in the email step.
+
+**Decisions for the owner**
+5. **Replace PDF leaves the old file** on the item's documents in Zoho (clearing the brochure field didn't detach it either). Remove it automatically?
+6. **Full access** (`ZohoBooks.fullaccess.all`): narrow it if a smaller permission turns out to work for `POST /documents`? None is documented.
+7. **Average invoice tile:** on Sales & growth, hidden for Admin. Add to My dashboard?
+8. **Items filter:** keep "Other" (no identifier) and "Philips FRX COMBO"? Training Services is hidden on the owner's "services": right? Hidden items still show when quoting.
+9. **Item Edit's GST** was left out on purpose; add it?
+
+**Owner's side (no code)**
+10. Should invoices and payment reminders come from quotations@ too (Books' organisation email)? Check one.
+11. Zoho Mail filter in sales@: From contains `quotations@thinkhealth.in` → folder "Quotations via Books". Not confirmed done.
+12. Optional: delete `zia-secret.txt` from the Desktop; change the PIN if the 4 auto-filled dots in the Reconnect popup were it (they went to Zoho's sign-in).
+
+**Ideas, not asked for:** each person's own title, number and email in the signature; attaching the brochure to the quote email; templates editable on the page.
+
 ## Status, session 23 (4 Nov)
 
 Steps 1–7 and the Added / Missing half of step 8 are built and committed, not pushed. Where they differ from the text below:
