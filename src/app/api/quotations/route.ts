@@ -6,7 +6,7 @@ import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
@@ -341,8 +341,9 @@ export async function POST(request: Request) {
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) return sendEmail(await request.formData().catch(() => null));
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput } };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string } };
   if (body.newCustomer) return newCustomer(body.newCustomer);
+  if (body.addEmail) return addEmail(body.addEmail, me.name);
   if (body.zia) return ziaDraft(body.zia);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
@@ -409,6 +410,23 @@ async function ziaDraft(z: { request?: string; quote?: QuoteEmailInput }): Promi
   } catch (e) {
     console.error("[quotations] zia draft failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't save the draft in Zoho Mail" }, { status: 502 });
+  }
+}
+
+/** "+ Add email": checked here, then a new contact person on the customer in Zoho Books. The log says who, not the address. */
+async function addEmail(a: { customerId?: string; firstName?: string; lastName?: string; email?: string }, by: string): Promise<Response> {
+  const s = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+  const contactId = s(a.customerId, 30), firstName = s(a.firstName, 100), lastName = s(a.lastName, 100), email = s(a.email, 200).toLowerCase();
+  if (!/^\d+$/.test(contactId)) return Response.json({ error: "Pick a customer" }, { status: 400 });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "That email doesn't look right" }, { status: 400 });
+  if (!firstName || !lastName) return Response.json({ error: "Type their first and last name: Zoho needs both" }, { status: 400 });
+  try {
+    const person = await addContactPerson({ contactId, firstName, lastName, email });
+    console.log(`[quotations] ${by} ${person.existed ? "picked an existing contact on" : "added a contact to"} customer ${contactId}`);
+    return Response.json({ ok: true, person });
+  } catch (e) {
+    console.error("[quotations] add email failed:", e);
+    return Response.json({ error: e instanceof Error ? e.message : "Couldn't add the email" }, { status: 502 });
   }
 }
 

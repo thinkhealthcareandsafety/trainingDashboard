@@ -102,6 +102,32 @@ export type NewCustomer = {
  * A new customer in Zoho Books (from "New quotation"), with its contact person as primary — every field Zoho's own
  * "New Customer" form requires (#150 step 2). The state decides CGST + SGST or IGST (place of supply).
  */
+/**
+ * Another email for a customer (owner, 4 Nov: "they may have a separate email … should also be added for the customer in
+ * zoho books"): a new contact person, never the primary. An email already on the customer is simply returned. Zoho needs a
+ * first name, the CRM sync a last name. POST /contacts/contactpersons, scope ZohoBooks.contacts.CREATE.
+ */
+export type AddedPerson = { id: string; name: string | null; email: string; existed: boolean };
+export async function addContactPerson(p: { contactId: string; firstName: string; lastName: string; email: string }): Promise<AddedPerson> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  type Person = { contact_person_id?: unknown; salutation?: string; first_name?: string; last_name?: string; email?: string };
+  const people = async () => (((await books(c, "GET", `/contacts/${p.contactId}`)).contact as { contact_persons?: Person[] } | undefined)?.contact_persons ?? []);
+  const mine = (x: Person) => (x.email ?? "").toLowerCase() === p.email;
+  const shape = (x: Person, existed: boolean): AddedPerson => ({ id: String(x.contact_person_id), name: [x.salutation, x.first_name, x.last_name].filter(Boolean).join(" ").trim() || null, email: p.email, existed });
+  const had = (await people()).find(mine);
+  if (had) return shape(had, true);
+  const j = await books(c, "POST", "/contacts/contactpersons", {}, { contact_id: p.contactId, first_name: p.firstName, last_name: p.lastName, email: p.email }).catch((e: Error) => {
+    throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs one more permission to add contacts — Admin: Reconnect on the Quotations page") : e;
+  });
+  // Zoho's answer isn't the same shape everywhere; if it names nobody, the customer's list does.
+  const raw = (j.contact_person ?? j.contact_persons) as Person | Person[] | undefined;
+  const answered = Array.isArray(raw) ? raw.find(mine) ?? raw[0] : raw;
+  const made = answered?.contact_person_id ? answered : (await people()).find(mine);
+  if (!made?.contact_person_id) throw new Error("Zoho Books took it but didn't say who was added — check the customer in Zoho");
+  return shape({ first_name: p.firstName, last_name: p.lastName, ...made }, false);
+}
+
 export async function createCustomer(n: NewCustomer & { stateName: string }): Promise<{ id: string; name: string }> {
   const c = await (await kv()).findOne({ _id: KEY });
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");

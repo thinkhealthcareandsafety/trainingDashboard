@@ -9,6 +9,7 @@ import { Segmented, btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { isAdmin } from "@/lib/roles";
 import { useSession } from "@/lib/session";
+import type { AddedPerson } from "@/lib/quotations";
 import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 
 /*
@@ -469,6 +470,12 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
   };
 
   const { member } = useSession();
+  // A new email on the customer: it joins the list here (and in the email step) and goes on this quote.
+  const addContact = (p: AddedPerson) => {
+    setDetail((d) => (d && !d.contacts.some((x) => x.id === p.id) ? { ...d, contacts: [...d.contacts, { id: p.id, name: p.name, email: p.email, phone: null, primary: false }] } : d));
+    setTo((x) => (x.includes(p.id) ? x : [...x, p.id]));
+    toast({ text: p.existed ? `${p.email} was already on ${customer.name}` : `${p.email} added to ${customer.name} in Zoho Books` });
+  };
   const emails = detail?.contacts?.filter((c) => to.includes(c.id)).map((c) => c.email).join(", ");
   const c = detail?.customer;
   const gstLine = c && (c.tax === "none" ? "Outside India · no GST" : [c.gstin && `GSTIN ${c.gstin}`, c.state, c.tax === "intra" ? "CGST + SGST" : "IGST (outside Maharashtra)"].filter(Boolean).join(" · "));
@@ -485,7 +492,7 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
         </div>
 
         {done && emailing ? (
-          <EmailStep quote={done} live={live} onBack={() => setEmailing(false)}
+          <EmailStep quote={done} live={live} customerId={customer.id} onContact={addContact} known={detail?.contacts ?? []} onBack={() => setEmailing(false)}
             compose={{
               company: customer.name, number: done.number, total: done.total, expiry: f?.expiry || null, salesperson: f?.salesperson || null,
               signer: member && !isAdmin(member) ? member.name : null,
@@ -527,7 +534,8 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
                     {p.primary && <span className="rounded bg-surface-2 px-1.5 text-[11px] font-bold text-muted">PRIMARY</span>}
                   </label>
                 ))}
-                {!detail.contacts.some((p) => p.email) && <p className="text-[14px] text-high">No contact person with an email in Zoho — add one there, or save it as a draft.</p>}
+                <AddEmail customerId={customer.id} live={live} onAdded={addContact} />
+                {!detail.contacts.some((p) => p.email) && <p className="basis-full text-[14px] text-high">No contact person with an email yet. Add one here, or save it as a draft.</p>}
               </div>
 
               <div className="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -690,11 +698,10 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Zoho's template, the quote's PDF attached by Zoho; + attachments from this computer (4 MB together). Sent through
  * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
  */
-function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
+function EmailStep({ quote, live, customerId, onContact, known, compose, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; customerId: string; onContact: (p: AddedPerson) => void; known: { email: string | null; name: string | null }[]; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
   type Draft = { from?: string | null; subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail" };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
-  const [extra, setExtra] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -772,7 +779,9 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
   };
   const size = files.reduce((n, f) => n + f.size, 0);
   const max = draft?.maxBytes || 4 * 1024 * 1024;
-  const to = [...picked, ...extra.split(/[,;\s]+/).filter(Boolean)];
+  const to = picked;
+  // Everyone on the customer: the quote's own, and emails added since (kept apart from `draft`, whose change refills the message).
+  const people = draft ? [...draft.to, ...known.filter((k) => k.email && !draft.to.some((x) => x.email.toLowerCase() === k.email!.toLowerCase())).map((k) => ({ email: k.email!, name: k.name, selected: false }))] : [];
   const why = !live ? "Only the live site sends email" : !to.length ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
   const send = async (e: React.MouseEvent<HTMLButtonElement>) => {
     const from = e.currentTarget;
@@ -804,13 +813,13 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
         <div>
           <span className={label}>To</span>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            {draft.to.map((x) => (
+            {people.map((x) => (
               <label key={x.email} className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[14px] ${picked.includes(x.email) ? "border-brand bg-brand-soft text-ink" : "border-line text-ink-2"}`}>
                 <input type="checkbox" className="accent-[var(--brand)]" checked={picked.includes(x.email)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, x.email] : p.filter((m) => m !== x.email)))} />
                 {x.name ? <>{x.name} <span className="text-muted">{x.email}</span></> : x.email}
               </label>
             ))}
-            <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-56 text-[14px]`} placeholder="Other emails, comma between" value={extra} onChange={(e) => setExtra(e.target.value)} aria-label="Other emails" />
+            <AddEmail customerId={customerId} live={live} onAdded={(p) => { onContact(p); setPicked((x) => { const have = people.find((o) => o.email.toLowerCase() === p.email)?.email ?? p.email; return x.includes(have) ? x : [...x, have]; }); }} />
           </div>
         </div>
         <div>
@@ -1058,6 +1067,41 @@ function ItemImage({ item, onMissing }: { item: Item; onMissing: () => void }) {
         // eslint-disable-next-line @next/next/no-img-element
         : <img src={`/api/quotations?image=${item.id}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => { setFailed(true); noPicture.add(item.id); onMissing(); }} />}
     </span>
+  );
+}
+
+/** "+ Add email" (owner, 4 Nov): saved on the customer in Zoho Books as a contact person, then ticked for this quote. */
+function AddEmail({ customerId, live, onAdded }: { customerId: string; live: boolean; onAdded: (p: AddedPerson) => void }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [first, setFirst] = useState("");
+  const [last, setLast] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const ready = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && first.trim() && last.trim();
+  const close = () => { setOpen(false); setEmail(""); setFirst(""); setLast(""); setError(""); };
+  const add = async () => {
+    if (!ready || busy) return;
+    setBusy(true); setError("");
+    const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addEmail: { customerId, firstName: first, lastName: last, email } }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { person?: AddedPerson; error?: string }) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!j.person) return setError(j.error ?? "Couldn't add the email");
+    onAdded(j.person);
+    close();
+  };
+  if (!open) return <button type="button" className={`${btn.ghost} !h-9`} disabled={!live} title={live ? "Saved on this customer in Zoho Books" : "Only the live site adds contacts in Zoho Books"} onClick={() => setOpen(true)}>+ Add email</button>;
+  const box = `${inputCls} !h-9 min-w-0 text-[14px]`;
+  const enter = (e: React.KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); add(); } };
+  return (
+    <div className="flex basis-full flex-wrap items-center gap-2">
+      <input className={`${box} flex-1 basis-56`} type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={enter} aria-label="New email" autoFocus />
+      <input className={`${box} flex-1 basis-32`} placeholder="First name" value={first} onChange={(e) => setFirst(e.target.value)} onKeyDown={enter} aria-label="First name" />
+      <input className={`${box} flex-1 basis-32`} placeholder="Last name" value={last} onChange={(e) => setLast(e.target.value)} onKeyDown={enter} aria-label="Last name" />
+      <button type="button" className={`${btn.primary} !h-9`} disabled={!ready || busy} onClick={add}>{busy ? "Adding…" : "Add to customer"}</button>
+      <button type="button" className={`${btn.quiet} !h-9`} disabled={busy} onClick={close}>Cancel</button>
+      <p className={`basis-full text-[13px] ${error ? "text-high" : "text-muted"}`}>{error || "It's saved on this customer in Zoho Books, not as their primary contact."}</p>
+    </div>
   );
 }
 

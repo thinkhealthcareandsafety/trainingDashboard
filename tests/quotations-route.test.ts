@@ -68,6 +68,23 @@ test("the item list says Added, Missing or not read yet (a copy from before the 
   assert.deepEqual(items.map((i) => [i.id, i.brochure]), [["1", "AED.pdf"], ["2", ""], ["3", null]]);
 });
 
+test("add email: a customer, a real email and both names; else on to Zoho (not connected here, so nothing is written)", async () => {
+  const add = async (a: object) => {
+    const r = await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(sumit), "content-type": "application/json" }, body: JSON.stringify({ addEmail: a }) }));
+    return { s: r.status, j: await r.json() };
+  };
+  const good = { customerId: "9001", email: "New.Person@Example.com", firstName: "New", lastName: "Person" };
+  assert.match((await add({ ...good, customerId: "abc" })).j.error, /customer/);
+  assert.match((await add({ ...good, email: "new@" })).j.error, /doesn't look right/);
+  assert.match((await add({ ...good, firstName: " " })).j.error, /first and last name/);
+  assert.match((await add({ ...good, lastName: "" })).j.error, /first and last name/);
+  const ok = await add(good);
+  assert.equal(ok.s, 502);
+  assert.match(ok.j.error, /isn't connected/);
+  process.env.VERCEL_ENV = "preview";
+  assert.equal((await add(good)).s, 409); // only the live site writes to Zoho
+});
+
 test("the two fixed Cc addresses count towards the 20-address limit", async () => {
   const list = (n: number) => Array.from({ length: n }, (_, i) => `p${i}@example.com`).join(",");
   assert.match((await email({ ...mail, to: list(19) })).j.error, /At most 20/); // 19 + 2
