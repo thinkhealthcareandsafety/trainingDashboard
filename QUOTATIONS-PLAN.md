@@ -19,19 +19,23 @@ never email or WhatsApp a customer. The owner is short on credits, so keep repli
 3. **Item Edit:** no save yet (`itemEdits` holds only 2 brochure uploads). Save one small change, read it back in Zoho.
 4. **+ Add email:** first real one on a customer the owner picks; read back in Zoho, and check the new person stays ticked in the email step.
 
-**Decisions for the owner**
-5. **Replace PDF leaves the old file** on the item's documents in Zoho (clearing the brochure field didn't detach it either). Remove it automatically?
-6. **Full access** (`ZohoBooks.fullaccess.all`): narrow it if a smaller permission turns out to work for `POST /documents`? None is documented.
-7. **Average invoice tile:** on Sales & growth, hidden for Admin. Add to My dashboard?
-8. **Items filter:** keep "Other" (no identifier) and "Philips FRX COMBO"? Training Services is hidden on the owner's "services": right? Hidden items still show when quoting.
-9. **Item Edit's GST** was left out on purpose; add it?
+**Agreed, to build (owner, 4 Nov); restated with defaults, waiting for "yeah"**
+5. **Brochures on quotes:** "attach those brochures to them quotations once those items are selected". The item list's `cf_product_brochure_unformatted` is the document id; reading a document's file (`/documents/{id}`) is unconfirmed.
+6. **Editable templates:** "we should technically be able to edit templates on the page".
 
-**Owner's side (no code)**
-10. Should invoices and payment reminders come from quotations@ too (Books' organisation email)? Check one.
-11. Zoho Mail filter in sales@: From contains `quotations@thinkhealth.in` → folder "Quotations via Books". Not confirmed done.
-12. Optional: delete `zia-secret.txt` from the Desktop; change the PIN if the 4 auto-filled dots in the Reconnect popup were it (they went to Zoho's sign-in).
+**Next time the owner is at the API console**
+7. **Narrower permission** (owner: "sure"): try a scope list with a guessed documents scope instead of `ZohoBooks.fullaccess.all`. None is documented, and uploads stop until a reconnect if it's wrong.
 
-**Ideas, not asked for:** each person's own title, number and email in the signature; attaching the brochure to the quote email; templates editable on the page.
+**Done on 4 Nov from the owner's answers**
+- Replace PDF: the owner removes old files; no code. Average invoice tile added to Admin's My dashboard (below the charts). Items: Training Services back, an Everything choice for hidden and inactive items. Reports already holds all 1,122 items.
+- GST in item Edit: rates 0, 5, 18, 40, tax ids in `itemEdit.ts`; both tax ids sent together. Tested on Hot Water Bag (18 to 5 and back).
+
+**Owner's side (no code); the owner's "10)" and "11)" answered the ideas list, so these two are still open**
+8. Should invoices and payment reminders come from quotations@ too (Books' organisation email)? Check one.
+9. Zoho Mail filter in sales@: From contains `quotations@thinkhealth.in` → folder "Quotations via Books". Not confirmed done.
+10. Optional: delete `zia-secret.txt` from the Desktop; change the PIN if the 4 auto-filled dots in the Reconnect popup were it (they went to Zoho's sign-in).
+
+**Idea, not asked for:** each person's own title, number and email in the signature.
 
 ## Status, session 23 (4 Nov)
 
