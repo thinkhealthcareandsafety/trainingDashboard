@@ -192,7 +192,8 @@ export async function GET(request: Request) {
       const cacheKey = doc ? `${imageId}:${doc}` : imageId;
       const img = images.get(cacheKey) ?? (await itemImage(imageId, doc ?? undefined).catch(() => null));
       if (!images.has(cacheKey)) { images.set(cacheKey, img); if (images.size > 400) images.delete(images.keys().next().value!); }
-      if (!img) return new Response(null, { status: 404, headers: { "Cache-Control": "private, max-age=86400" } });
+      // "No picture" is kept briefly: one can be added at any time (a day here hid the FRx AED's picture after the fix, owner 4 Nov).
+      if (!img) return new Response(null, { status: 404, headers: { "Cache-Control": "private, max-age=300" } });
       return new Response(img.bytes, { headers: { "Content-Type": img.type, "Cache-Control": "private, max-age=604800" } });
     }
 

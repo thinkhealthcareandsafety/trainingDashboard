@@ -1166,7 +1166,7 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
           <div className="grid gap-5 sm:grid-cols-[22rem_minmax(0,1fr)]">
             <div className="min-w-0 self-start">
-              <div className="overflow-hidden rounded-xl border border-line"><ItemImage key={shownPicture ?? "main"} item={item} doc={shownPicture} tall onMissing={() => {}} /></div>
+              <div className="overflow-hidden rounded-xl border border-line"><ItemImage key={shownPicture ?? pictures[0] ?? "main"} item={item} doc={shownPicture ?? pictures[0]} tall onMissing={() => {}} /></div>
               {pictures.length > 1 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {pictures.map((p, n) => {
@@ -1234,7 +1234,7 @@ function ItemImage({ item, doc, tall = false, onMissing }: { item: Item; doc?: s
     <span className={`relative grid shrink-0 place-items-center overflow-hidden ${tall ? "h-64" : "h-32"} ${failed ? "bg-surface-2" : "bg-white"}`}>
       {failed ? <span className="text-[22px] font-bold text-faint">{item.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
         // eslint-disable-next-line @next/next/no-img-element
-        : <img src={`/api/quotations?image=${item.id}${doc ? `&doc=${doc}` : ""}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => { setFailed(true); noPicture.add(item.id); onMissing(); }} />}
+        : <img src={`/api/quotations?image=${item.id}${doc ? `&doc=${doc}` : "&v=2"}`} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain p-2" onError={() => { setFailed(true); noPicture.add(item.id); onMissing(); }} />}
     </span>
   );
 }
