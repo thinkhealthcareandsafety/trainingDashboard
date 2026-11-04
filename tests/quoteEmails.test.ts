@@ -1,7 +1,7 @@
 // Quotation email templates (src/lib/quoteEmails.ts): items → topics, names filled in, templates, HTML.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TEMPLATES, brandsOf, buildQuoteEmail, listNames, mergeCc, signature, suggestTemplate, textToHtml, topicOf, topicsOf, splitZiaReply, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { TEMPLATES, brandsOf, buildQuoteEmail, itemTable, listNames, mergeCc, signature, suggestTemplate, textToHtml, topicOf, topicsOf, splitZiaReply, ziaBrief, ziaEmailHtml, ziaPrompt } from "@/lib/quoteEmails";
 
 const base = { company: "Tata Motors", contact: "Mr. Rajesh Kumar", number: "QT-001234", total: 185000, expiry: "2026-12-03", salesperson: "Pranjal" };
 
@@ -53,7 +53,8 @@ test("switched-off topics leave no gap; formal lists the items; pads only → re
   assert.doesNotMatch(off.text, /single-use/);
   const formal = buildQuoteEmail("formal", { ...base, contact: null, lines });
   assert.match(formal.text, /^Dear Sir \/ Madam,/);
-  assert.match(formal.text, /• Defibtech Pad DDP100 — 4 nos\./);
+  assert.match(formal.html, /<td[^>]*>Defibtech Pad DDP100<\/td>/);
+  assert.doesNotMatch(formal.html, /• /);
   assert.match(formal.text, /Yours sincerely,\nPranjal\n/);
   assert.equal(buildQuoteEmail("short", { ...base, contact: null, lines }).text.split("\n")[0], "Hello,");
 });
@@ -82,6 +83,45 @@ test("every template carries the whole signature, and its web addresses are link
   const html = textToHtml(signature("Sumit A Shah"));
   assert.match(html, /<a href="https:\/\/www\.thinkhealth\.in\/Profile">www\.thinkhealth\.in\/Profile<\/a>/);
   assert.match(html, /<a href="https:\/\/www\.thinkhealth\.in\/trainings">https:\/\/www\.thinkhealth\.in\/trainings<\/a>/);
+});
+
+const cells = (html: string) => [...html.matchAll(/<t[dh](?: [^>]*)?>(.*?)<\/t[dh]>/g)].map((m) => m[1]);
+const aed = { name: "Zoll <AED>", qty: 2, group: "All AEDs", rate: 100000, gst: 18 };
+
+test("the item table: rate as %, line total with GST, Zoho's grand total last", () => {
+  assert.deepEqual(cells(itemTable([aed], 236000)), ["Item name", "Unit price", "Quantity", "GST", "Total price", "Zoll &lt;AED&gt;", "₹1,00,000", "2", "18%", "₹2,36,000", "Total", "₹2,36,000"]);
+});
+
+test("the item table adds up: unknown GST shows — and adds none, a discount gets its own row, ₹1 of rounding doesn't", () => {
+  const unknown = cells(itemTable([{ ...aed, gst: null }], 200000));
+  assert.deepEqual(unknown.slice(5, 10), ["Zoll &lt;AED&gt;", "₹1,00,000", "2", "—", "₹2,00,000"]);
+  assert.equal(unknown.length, 12);
+  assert.deepEqual(cells(itemTable([aed], 226000)).slice(10), ["Discount / shipping / adjustment", "−₹10,000", "Total", "₹2,26,000"]);
+  assert.deepEqual(cells(itemTable([aed], 238000)).slice(10), ["Discount / shipping / adjustment", "₹2,000", "Total", "₹2,38,000"]);
+  assert.equal(cells(itemTable([aed], 236000.6)).length, 12);
+});
+
+test("every template has the table right after its opening, and it isn't in the plain text", () => {
+  for (const t of TEMPLATES) {
+    const { html, text } = buildQuoteEmail(t.id, { ...base, lines: [aed] });
+    assert.equal(html.match(/<table/g)?.length, 1, t.id);
+    assert.ok(html.indexOf("<table") < html.indexOf("Warm regards") || t.id === "formal", t.id);
+    assert.ok(html.indexOf("attached") < html.indexOf("<table"), t.id);
+    assert.doesNotMatch(`${html}${text}`, /\[\[/, t.id);
+    assert.doesNotMatch(text, /<table/, t.id);
+  }
+  assert.doesNotMatch(buildQuoteEmail("new", { ...base, lines: [] }).html, /<table|\[\[/); // nothing on the quote: no table
+});
+
+test("Zia's email: the words, the table, then the sign-off and the sender's signature", () => {
+  const q = { ...base, signer: "Ashish Dalal", total: 236000, lines: [aed] };
+  const html = ziaEmailHtml("Hi Rajesh,\n\nHere it is.\n\nWarm regards,", q);
+  assert.ok(html.indexOf("Here it is") < html.indexOf("<table"));
+  assert.ok(html.indexOf("</table>") < html.indexOf("Warm regards,<br>Ashish Dalal"));
+  assert.equal(html.match(/Warm regards/g)?.length, 1);
+  assert.match(ziaEmailHtml("Hi,\n\nHere it is.", q), /<\/table><p[^>]*>Warm regards,<br>Ashish Dalal/); // no sign-off from Zia: ours
+  assert.match(ziaEmailHtml("Hi,\n\nThanks,", q), /<\/table><p[^>]*>Thanks,<br>Ashish Dalal/); // its own one stays
+  assert.match(ziaPrompt("", q), /Don't write a table/);
 });
 
 test("the signature is the sender's: first line their name, Proprietor only for Sumit, the rest unchanged", () => {

@@ -9,7 +9,7 @@ import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { isAdmin } from "@/lib/roles";
 import { useSession } from "@/lib/session";
-import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, quoteSignature, suggestTemplate, textToHtml, topicsOf, ziaSubject } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -479,7 +479,8 @@ function QuotePopup({ customer, fresh = false, live, onClose }: { customer: Cust
               company: customer.name, number: done.number, total: done.total, expiry: f?.expiry || null, salesperson: f?.salesperson || null,
               signer: member && !isAdmin(member) ? member.name : null,
               contact: detail?.contacts?.find((x) => to.includes(x.id))?.name ?? null,
-              lines: lines.filter((l) => l.itemId).map((l) => ({ name: l.name, qty: l.qty, group: byId.get(l.itemId)?.group ?? null })),
+              // Outside India the quote has no GST, whatever the item's rate says.
+              lines: lines.filter((l) => l.itemId).map((l) => ({ name: l.name, qty: l.qty, group: byId.get(l.itemId)?.group ?? null, rate: l.rate, gst: c?.tax === "none" ? null : l.gst })),
             }}
             onSent={(list, from) => { setDone((d) => d && { ...d, emailedTo: list }); setEmailing(false); celebrate(from); toast({ text: `${done.number} emailed to ${list}` }); }} />
         ) : done ? (
@@ -706,7 +707,7 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
   const fill = (t: string, s: TopicId[]) => {
     if (!draft || draft.error || !body.current) return;
     if (t === "zoho") { setSubject(draft.subject); body.current.innerHTML = cleanHtml(draft.body); }
-    else { const e = buildQuoteEmail(t, compose, s); setSubject(e.subject); body.current.innerHTML = textToHtml(e.text); }
+    else { const e = buildQuoteEmail(t, compose, s); setSubject(e.subject); body.current.innerHTML = e.html; }
     edited.current = false;
   };
   const choose = (t: string, s: TopicId[]) => {
@@ -745,8 +746,8 @@ function EmailStep({ quote, live, compose, onBack, onSent }: { quote: { estimate
     const r = await fetch(`/api/quotations?zia=${encodeURIComponent(quote.number)}`).catch(() => null);
     const j = r ? ((await r.json().catch(() => ({}))) as { subject?: string; html?: string; text?: string; error?: string; waiting?: boolean }) : { error: "Couldn't reach the server" };
     if (!quiet) setZiaBusy(false);
-    // Through Zoho Flow it's just Zia's words: the signature is the sender's. A Zoho Mail draft is the whole email.
-    const html = j.text != null ? textToHtml(`${j.text}\n\n${quoteSignature(compose)}`) : j.html;
+    // Through Zoho Flow it's just Zia's words: the item table and the sender's signature go with them. A Zoho Mail draft is the whole email.
+    const html = j.text != null ? ziaEmailHtml(j.text, compose) : j.html;
     if (j.waiting || (quiet && (j.error || html == null))) return false;
     if (j.error || html == null) { setZiaMsg(j.error ?? "Nothing came back"); return false; }
     if (edited.current && !window.confirm("Replace the message you've edited?")) { setZiaMsg("Zia's email is ready — Pull from Zia to put it in."); return true; }

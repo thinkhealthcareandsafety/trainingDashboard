@@ -11,7 +11,7 @@
  * Everything is plain text with the quote's own names, numbers and dates filled in; the email step can still edit it.
  */
 
-export type QuoteEmailLine = { name: string; qty: number; group: string | null };
+export type QuoteEmailLine = { name: string; qty: number; group: string | null; rate?: number; gst?: number | null }; // gst: the rate in %, null = unknown
 export type QuoteEmailInput = {
   company: string;
   contact: string | null; // the first person it goes to
@@ -28,6 +28,7 @@ export type TopicId =
   | "fire" | "fireBlanket" | "trauma" | "evacuation" | "ppe" | "security" | "road" | "pool" | "general";
 
 const COMPANY = "Think Health Care and Safety";
+const TABLE_MARK = "[[item table]]"; // stands for the table in the plain text until it becomes HTML
 
 /** On every quote email, whoever sends it (owner, 4 Nov). */
 export const ALWAYS_CC = ["sales@thinkhealth.in", "sshah@thinkhealth.in"];
@@ -198,43 +199,43 @@ const day = (iso: string | null) => {
 };
 const firstName = (s: string | null) => (s ?? "").trim().replace(/^(mr|mrs|ms|miss|dr|shri|smt)\.?\s+/i, "").split(/\s+/)[0] ?? "";
 
-type Parts = { hi: string; ref: string; what: string; total: string; valid: string; sign: string; topics: string; list: string };
+type Parts = { hi: string; ref: string; what: string; total: string; valid: string; sign: string; topics: string; table: string };
 /** The templates (the tone); each gets the filled-in parts and the topic paragraphs. */
 export const TEMPLATES: { id: string; label: string; subject: (p: Parts) => string; body: (p: Parts) => string }[] = [
   {
     id: "new", label: "New quotation",
     subject: (p) => `${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nThank you for reaching out to us. Please find attached our ${p.ref}.\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If you'd like to change quantities or add anything, just reply to this email and I'll send a revised quote right away.\n\nLooking forward to hearing from you.\n\n${p.sign}`,
+    body: (p) => `${p.hi}\n\nThank you for reaching out to us. Please find attached our ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If you'd like to change quantities or add anything, just reply to this email and I'll send a revised quote right away.\n\nLooking forward to hearing from you.\n\n${p.sign}`,
   },
   {
     id: "call", label: "After our call / meeting",
     subject: (p) => `${p.ref} – ${p.what}, as discussed`,
-    body: (p) => `${p.hi}\n\nThank you for your time today — it was good speaking with you. As discussed, I've attached ${p.ref}.\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. If anything we spoke about isn't reflected here, let me know and I'll update it straight away.\n\n${p.sign}`,
+    body: (p) => `${p.hi}\n\nThank you for your time today — it was good speaking with you. As discussed, I've attached ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. If anything we spoke about isn't reflected here, let me know and I'll update it straight away.\n\n${p.sign}`,
   },
   {
     id: "revised", label: "Revised quotation",
     subject: (p) => `Revised ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nAs discussed, here's the revised ${p.ref} with the changes we talked about.\n\n${p.topics}\n\nThe revised total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Do have a look, and if everything's in order we can go ahead whenever you're ready.\n\n${p.sign}`,
+    body: (p) => `${p.hi}\n\nAs discussed, here's the revised ${p.ref} with the changes we talked about.\n\n${p.table}\n\n${p.topics}\n\nThe revised total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Do have a look, and if everything's in order we can go ahead whenever you're ready.\n\n${p.sign}`,
   },
   {
     id: "repeat", label: "Repeat order / replacement",
     subject: (p) => `${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nThank you for coming back to us — it's always good to hear from you. Please find attached ${p.ref}.\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Once you confirm, we'll dispatch at the earliest.\n\n${p.sign}`,
+    body: (p) => `${p.hi}\n\nThank you for coming back to us — it's always good to hear from you. Please find attached ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Once you confirm, we'll dispatch at the earliest.\n\n${p.sign}`,
   },
   {
     id: "formal", label: "Formal (purchase / tender)",
     subject: (p) => `${p.ref} for the supply of ${p.what}`,
-    body: (p) => `Dear Sir / Madam,\n\nWith reference to your enquiry, please find attached our ${p.ref} for the following:\n\n${p.list}\n\nThe total amount is ${p.total} inclusive of GST.${p.valid ? ` The quotation is valid until ${p.valid}.` : ""} Delivery, payment and other terms are as stated in the quotation.\n\nWe look forward to your purchase order. Please feel free to contact us for any clarification.\n\nYours sincerely,\n${p.sign.split("\n").slice(1).join("\n")}`,
+    body: (p) => `Dear Sir / Madam,\n\nWith reference to your enquiry, please find attached our ${p.ref} for the following:\n\n${p.table}\n\nThe total amount is ${p.total} inclusive of GST.${p.valid ? ` The quotation is valid until ${p.valid}.` : ""} Delivery, payment and other terms are as stated in the quotation.\n\nWe look forward to your purchase order. Please feel free to contact us for any clarification.\n\nYours sincerely,\n${p.sign.split("\n").slice(1).join("\n")}`,
   },
   {
     id: "short", label: "Short and simple",
     subject: (p) => `${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nPlease find attached ${p.ref} for ${p.what}. The total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}.\n\nLet me know if you have any questions.\n\n${p.sign}`,
+    body: (p) => `${p.hi}\n\nPlease find attached ${p.ref} for ${p.what}. The total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}.\n\n${p.table}\n\nLet me know if you have any questions.\n\n${p.sign}`,
   },
   {
     id: "reminder", label: "Gentle reminder (resend)",
     subject: (p) => `Following up: ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nI'm following up on our ${p.ref}, attached again here for easy reference.\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If anything needs changing — quantities, models or delivery dates — just let me know and I'll update it. Happy to get on a quick call too.\n\n${p.sign}`,
+    body: (p) => `${p.hi}\n\nI'm following up on our ${p.ref}, attached again here for easy reference.\n\n${p.table}\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If anything needs changing — quantities, models or delivery dates — just let me know and I'll update it. Happy to get on a quick call too.\n\n${p.sign}`,
   },
 ];
 
@@ -244,8 +245,8 @@ export function suggestTemplate(lines: QuoteEmailLine[]): string {
   return ids.length && ids.every((t) => t === "aedPads" || t === "aedBattery") ? "repeat" : "new";
 }
 
-/** The email: subject + plain text (paragraphs between blank lines). `skip` = topic paragraphs switched off. */
-export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: TopicId[] = []): { subject: string; text: string } {
+/** The email: subject, plain text without the table, HTML with it. `skip` = topic paragraphs switched off. */
+export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: TopicId[] = []): { subject: string; text: string; html: string } {
   const tpl = TEMPLATES.find((t) => t.id === templateId) ?? TEMPLATES[0];
   const topics = topicsOf(q.lines);
   const has = new Set(topics.map((t) => t.id));
@@ -266,19 +267,58 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
     valid: day(q.expiry),
     sign: `Warm regards,\n${quoteSignature(q)}`,
     topics: on.map((t) => TOPICS.find((x) => x.id === t.id)!.text({ names: listNames(t.names), many: new Set(t.names).size > 1, has })).join("\n\n"),
-    list: q.lines.map((l) => `• ${l.name} — ${l.qty} ${l.qty === 1 ? "no." : "nos."}`).join("\n"),
+    table: q.lines.length ? TABLE_MARK : "",
   };
   // A template whose topic part ended up empty (all switched off) shouldn't leave a gap.
   const text = tpl.body(p).replace(/\n{3,}/g, "\n\n");
-  return { subject: tpl.subject(p), text };
+  return {
+    subject: tpl.subject(p),
+    text: text.replace(`${TABLE_MARK}\n\n`, ""),
+    html: textToHtml(text).replace(`<p style="margin:0 0 1em">${TABLE_MARK}</p>`, () => itemTable(q.lines, q.total)),
+  };
 }
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** Plain text → the email step's HTML (paragraphs, line breaks, escaped). */
 export function textToHtml(text: string): string {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   // The signature's web addresses are clickable.
   const links = (s: string) => s.replace(/https?:\/\/[^\s<]+|www\.[^\s<]+/g, (u) => `<a href="${u.startsWith("www.") ? `https://${u}` : u}">${u}</a>`);
   return text.split(/\n{2,}/).map((para) => `<p style="margin:0 0 1em">${links(esc(para)).replace(/\n/g, "<br>")}</p>`).join("");
+}
+
+/** The quantity × price + GST of one line; a line with unknown GST adds none. */
+const lineTotal = (l: QuoteEmailLine) => l.qty * (l.rate ?? 0) * (1 + (l.gst ?? 0) / 100);
+
+/**
+ * The item table (owner, 4 Nov): Item name, Unit price, Quantity, GST, Total price, then Zoho's grand total. When the lines
+ * don't reach that total (a discount, shipping, an adjustment) one more row shows the difference, so the table adds up.
+ * Inline styles only, or mail clients drop them. No colours except the rules: the text takes the email's and the message box's.
+ */
+export function itemTable(lines: QuoteEmailLine[], total: number): string {
+  const rule = "border-bottom:1px solid #bbbbbb";
+  const cell = (v: string, right = false) => `<td style="padding:6px 8px;${rule};text-align:${right ? "right;white-space:nowrap" : "left"}">${v}</td>`;
+  const head = (v: string, right = false) => `<th style="padding:6px 8px;border-bottom:2px solid #888888;font-weight:bold;text-align:${right ? "right" : "left"}">${v}</th>`;
+  const span = (label: string, v: string, bold = false) => {
+    const weight = bold ? "font-weight:bold;" : "";
+    return `<tr><td colspan="4" style="padding:6px 8px;${rule};${weight}text-align:right">${label}</td><td style="padding:6px 8px;${rule};${weight}text-align:right;white-space:nowrap">${v}</td></tr>`;
+  };
+  const rows = lines.map((l) => `<tr>${cell(esc(l.name))}${cell(inr(l.rate ?? 0), true)}${cell(String(l.qty), true)}${cell(l.gst == null ? "—" : `${l.gst}%`, true)}${cell(inr(lineTotal(l)), true)}</tr>`);
+  const diff = total - lines.reduce((n, l) => n + lineTotal(l), 0);
+  const extra = Math.abs(diff) > 1 ? span("Discount / shipping / adjustment", `${diff < 0 ? "−" : ""}${inr(Math.abs(diff))}`) : "";
+  return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:680px;margin:0 0 1em"><thead><tr>${head("Item name")}${head("Unit price", true)}${head("Quantity", true)}${head("GST", true)}${head("Total price", true)}</tr></thead><tbody>${rows.join("")}${extra}${span("Total", inr(total), true)}</tbody></table>`;
+}
+
+/**
+ * Zia's words as the email (owner, 4 Nov: Zia's emails get the same table, so Zia never has to get the numbers right): the text,
+ * the table, then the sign-off and the sender's signature. Zia is told to end on "Warm regards,", which moves below the table.
+ */
+export function ziaEmailHtml(text: string, q: QuoteEmailInput): string {
+  const t = text.trim();
+  const end = t.match(/\n+((?:warm |best |kind )?regards,?|yours sincerely,?|thank you,?|thanks,?)$/i);
+  const words = end ? t.slice(0, -end[0].length) : t;
+  const table = q.lines.length ? itemTable(q.lines, q.total) : "";
+  return `${textToHtml(words)}${table}${textToHtml(`${end?.[1] ?? "Warm regards,"}\n${quoteSignature(q)}`)}`;
 }
 
 /* Zia (owner, 3 Nov): Zoho Mail's Zia writes the email — the dashboard leaves this brief as a draft in Zoho Mail. */
@@ -294,7 +334,7 @@ export function ziaBrief(request: string, q: QuoteEmailInput): { subject: string
  * The same brief as one instruction — what Zoho Flow hands to Zia (owner, 3 Nov: "it has her do it anyway without
  * needing me to open zoho mail"). Asks for the email only, so what comes back can go straight in the message box.
  */
-export function ziaPrompt(request: string, q: QuoteEmailInput, head = "Write a quotation email to a customer from the details below. Reply with the email only: first line \"Subject: …\", then the email, starting with the greeting and ending with the line \"Warm regards,\" — no name or signature after it, that is added automatically."): string {
+export function ziaPrompt(request: string, q: QuoteEmailInput, head = "Write a quotation email to a customer from the details below. Reply with the email only: first line \"Subject: …\", then the email, starting with the greeting and ending with the line \"Warm regards,\" — no name or signature after it, that is added automatically. Don't write a table or a price list either: a table of the items with their prices is added automatically."): string {
   const valid = day(q.expiry);
   return [
     head,
