@@ -743,7 +743,7 @@ function NewTraining({ date, member, cards, tabs, onClose }: { date: string; mem
   const [people, setPeople] = useState<PeopleChoice>({ n: 0, ok: false });
   const pick = (c: CardView) => { setCard(c); setCert(certOf(c)); setTrainers([]); setPeople(peopleStart(c)); };
   const busy = card && all ? busyTrainers(days, all, card.id) : new Map<string, CardView>();
-  const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
+  const chosen = orderTrainers(trainers);
   const missing = card ? scheduleMissing(days, chosen, people, cert) : ["pick the deal"];
   const valid = !missing.length;
   const save = () => {

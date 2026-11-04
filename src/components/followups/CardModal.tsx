@@ -773,11 +773,12 @@ function LocationPicker({ card, value, onChange }: { card: CardView; value: stri
 }
 type BusyFn = (dates: string[]) => Map<string, CardView>;
 
-const chipCls = (on: boolean, off?: boolean) =>
-  `inline-flex h-8 items-center gap-1.5 rounded-full border bg-surface px-2.5 text-[13px] ${off ? "cursor-not-allowed border-line text-faint" : on ? "cursor-pointer border-brand font-medium text-ink" : "cursor-pointer border-line text-ink-2 hover:border-line-strong"}`;
+const chipCls = (on: boolean) =>
+  `inline-flex h-8 items-center gap-1.5 rounded-full border bg-surface px-2.5 text-[13px] ${on ? "cursor-pointer border-brand font-medium text-ink" : "cursor-pointer border-line text-ink-2 hover:border-line-strong"}`;
 
 /**
- * Trainer checkboxes; anyone already running another training on one of the days is greyed out.
+ * Trainer checkboxes. Anyone already running another training on one of the days can still be picked (owner, 4 Nov:
+ * the same trainer can give two trainings on a date); the note under them warns.
  * "External trainer" takes any name; names typed before (on any card) come back as suggestions.
  */
 function TrainerPicker({ selected, onChange, busy, days, after }: { selected: string[]; onChange: (t: string[]) => void; busy: Map<string, CardView>; days: number; after?: React.ReactNode }) {
@@ -812,10 +813,10 @@ function TrainerPicker({ selected, onChange, busy, days, after }: { selected: st
         {!rows && <span className="mr-1 text-[12px] font-bold uppercase tracking-wide text-brand">Trainers</span>}
         {TRAINERS.map((t) => {
           const other = busy.get(t);
-          const on = selected.includes(t) && !other;
+          const on = selected.includes(t);
           return (
-            <label key={t} title={other ? `Already training ${other.name} then` : undefined} className={chipCls(on, Boolean(other))}>
-              <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={on} disabled={Boolean(other)} onChange={(e) => onChange(e.target.checked ? [...selected, t] : selected.filter((x) => x !== t))} />
+            <label key={t} title={other ? `Already on ${other.name} then` : undefined} className={chipCls(on)}>
+              <input type="checkbox" className="size-3.5 accent-[var(--brand)]" checked={on} onChange={(e) => onChange(e.target.checked ? [...selected, t] : selected.filter((x) => x !== t))} />
               {t}
             </label>
           );
@@ -829,7 +830,7 @@ function TrainerPicker({ selected, onChange, busy, days, after }: { selected: st
           {externals.map((t) => {
             const other = busy.get(t);
             return (
-              <span key={t} title={other ? `Already training ${other.name} then` : undefined} className={`inline-flex h-8 items-center gap-1 rounded-full border bg-surface pl-2.5 pr-1 text-[13px] ${other ? "border-line text-faint line-through" : "border-brand font-medium text-ink"}`}>
+              <span key={t} title={other ? `Already on ${other.name} then` : undefined} className="inline-flex h-8 items-center gap-1 rounded-full border border-brand bg-surface pl-2.5 pr-1 text-[13px] font-medium text-ink">
                 {t}
                 <button type="button" className="grid size-6 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink" onClick={() => onChange(selected.filter((x) => x !== t))} aria-label={`Remove ${t}`}>
                   <svg viewBox="0 0 20 20" className="size-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M5 5l10 10M15 5L5 15" /></svg>
@@ -866,12 +867,12 @@ function TrainerPicker({ selected, onChange, busy, days, after }: { selected: st
         {after && <span className="ml-1">{after}</span>}
       </div>
       {taken.length > 0 && (() => {
-        const text = `${taken.map((t) => `${t} is already training ${busy.get(t)!.name}`).join("; ")} on ${days > 1 ? "one of these dates" : "this date"}.`;
-        return <p className="mt-1 truncate text-[12.5px] text-muted" title={text}>{text}</p>;
+        const text = `${taken.map((t) => `${t} is already on ${busy.get(t)!.name}`).join("; ")} on ${days > 1 ? "one of these dates" : "this date"}.`;
+        return <p className={`mt-1 text-[12.5px] ${selected.some((t) => busy.has(t)) ? "text-medium" : "text-muted"}`}>{text}</p>;
       })()}
     </div>
   );
-  return rows ? <FieldRow label="Trainers" hint="One or more — nobody can be on two trainings in a day">{body}</FieldRow> : body;
+  return rows ? <FieldRow label="Trainers" hint="One or more">{body}</FieldRow> : body;
 }
 
 /**
@@ -1164,7 +1165,7 @@ function SchedulePopup({ card, mode, onSchedule, onClose, busyOn }: { card: Card
   const [cert, setCert] = useState<CertChoice>(certOf(card)); // this training's own (a new one: the location is asked, the email and number start at the customer's latest)
   const [people, setPeople] = useState<PeopleChoice>(peopleStart(card));
   const busy = busyOn?.(days) ?? new Map<string, CardView>();
-  const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
+  const chosen = orderTrainers(trainers);
   // Same days as now: only the trainers, the location, the email, the number, the name or the head-count change.
   const sameDate = dated && daysValue(days) === s!.dates.join(",");
   const unchanged = sameDate && chosen.length === s!.trainers.length && chosen.every((t) => s!.trainers.includes(t)) && sameCert(cert, certOf(card)) && people.n === peopleOf(card);
@@ -1237,7 +1238,7 @@ function BackfillCompletion({ card, cards, member, busyOn }: { card: CardView; c
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open]);
   const busy = busyOn([b.date]);
-  const chosen = orderTrainers(trainers.filter((t) => !busy.has(t)));
+  const chosen = orderTrainers(trainers);
   const day = dateLong(b.date);
   const elsewhere = b.cardId !== card.id;
   const pi = elsewhere ? cards.get(b.cardId) : undefined;
