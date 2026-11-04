@@ -62,6 +62,16 @@ test("text becomes safe HTML paragraphs", () => {
   assert.equal(textToHtml("Hi <b>,\n\nLine 1\nLine 2"), "<p style=\"margin:0 0 1em\">Hi &lt;b&gt;,</p><p style=\"margin:0 0 1em\">Line 1<br>Line 2</p>");
 });
 
+test("a number that already says Quotation isn't doubled, in any template", () => {
+  const lines = [{ name: "3D AED Signage", qty: 1, group: "AED Accessories" }];
+  for (const t of TEMPLATES) {
+    const { subject, text } = buildQuoteEmail(t.id, { ...base, number: "Quotation-24-002753", lines });
+    assert.doesNotMatch(`${subject}\n${text}`, /quotation quotation/i, t.id);
+    assert.match(subject, /Quotation-24-002753 for Tata Motors/, t.id);
+    assert.match(text, /Quotation-24-002753/, t.id);
+  }
+});
+
 test("every template carries the whole signature, and its web addresses are links", () => {
   const lines = [{ name: "Zoll AED Plus", qty: 1, group: "All AEDs" }];
   for (const t of TEMPLATES) {

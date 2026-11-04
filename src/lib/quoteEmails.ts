@@ -186,38 +186,38 @@ type Parts = { hi: string; ref: string; what: string; total: string; valid: stri
 export const TEMPLATES: { id: string; label: string; subject: (p: Parts) => string; body: (p: Parts) => string }[] = [
   {
     id: "new", label: "New quotation",
-    subject: (p) => `Quotation ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nThank you for reaching out to us. Please find attached our quotation ${p.ref}.\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If you'd like to change quantities or add anything, just reply to this email and I'll send a revised quote right away.\n\nLooking forward to hearing from you.\n\n${p.sign}`,
+    subject: (p) => `${p.ref} – ${p.what}`,
+    body: (p) => `${p.hi}\n\nThank you for reaching out to us. Please find attached our ${p.ref}.\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If you'd like to change quantities or add anything, just reply to this email and I'll send a revised quote right away.\n\nLooking forward to hearing from you.\n\n${p.sign}`,
   },
   {
     id: "call", label: "After our call / meeting",
-    subject: (p) => `Quotation ${p.ref} – ${p.what}, as discussed`,
-    body: (p) => `${p.hi}\n\nThank you for your time today — it was good speaking with you. As discussed, I've attached quotation ${p.ref}.\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. If anything we spoke about isn't reflected here, let me know and I'll update it straight away.\n\n${p.sign}`,
+    subject: (p) => `${p.ref} – ${p.what}, as discussed`,
+    body: (p) => `${p.hi}\n\nThank you for your time today — it was good speaking with you. As discussed, I've attached ${p.ref}.\n\n${p.topics}\n\nThe total comes to ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. If anything we spoke about isn't reflected here, let me know and I'll update it straight away.\n\n${p.sign}`,
   },
   {
     id: "revised", label: "Revised quotation",
-    subject: (p) => `Revised quotation ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nAs discussed, here's the revised quotation ${p.ref} with the changes we talked about.\n\n${p.topics}\n\nThe revised total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Do have a look, and if everything's in order we can go ahead whenever you're ready.\n\n${p.sign}`,
+    subject: (p) => `Revised ${p.ref} – ${p.what}`,
+    body: (p) => `${p.hi}\n\nAs discussed, here's the revised ${p.ref} with the changes we talked about.\n\n${p.topics}\n\nThe revised total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Do have a look, and if everything's in order we can go ahead whenever you're ready.\n\n${p.sign}`,
   },
   {
     id: "repeat", label: "Repeat order / replacement",
-    subject: (p) => `Quotation ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nThank you for coming back to us — it's always good to hear from you. Please find attached quotation ${p.ref}.\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Once you confirm, we'll dispatch at the earliest.\n\n${p.sign}`,
+    subject: (p) => `${p.ref} – ${p.what}`,
+    body: (p) => `${p.hi}\n\nThank you for coming back to us — it's always good to hear from you. Please find attached ${p.ref}.\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}. Once you confirm, we'll dispatch at the earliest.\n\n${p.sign}`,
   },
   {
     id: "formal", label: "Formal (purchase / tender)",
-    subject: (p) => `Quotation ${p.ref} for the supply of ${p.what}`,
-    body: (p) => `Dear Sir / Madam,\n\nWith reference to your enquiry, please find attached our quotation ${p.ref} for the following:\n\n${p.list}\n\nThe total amount is ${p.total} inclusive of GST.${p.valid ? ` The quotation is valid until ${p.valid}.` : ""} Delivery, payment and other terms are as stated in the quotation.\n\nWe look forward to your purchase order. Please feel free to contact us for any clarification.\n\nYours sincerely,\n${p.sign.split("\n").slice(1).join("\n")}`,
+    subject: (p) => `${p.ref} for the supply of ${p.what}`,
+    body: (p) => `Dear Sir / Madam,\n\nWith reference to your enquiry, please find attached our ${p.ref} for the following:\n\n${p.list}\n\nThe total amount is ${p.total} inclusive of GST.${p.valid ? ` The quotation is valid until ${p.valid}.` : ""} Delivery, payment and other terms are as stated in the quotation.\n\nWe look forward to your purchase order. Please feel free to contact us for any clarification.\n\nYours sincerely,\n${p.sign.split("\n").slice(1).join("\n")}`,
   },
   {
     id: "short", label: "Short and simple",
-    subject: (p) => `Quotation ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nPlease find attached quotation ${p.ref} for ${p.what}. The total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}.\n\nLet me know if you have any questions.\n\n${p.sign}`,
+    subject: (p) => `${p.ref} – ${p.what}`,
+    body: (p) => `${p.hi}\n\nPlease find attached ${p.ref} for ${p.what}. The total is ${p.total} including GST${p.valid ? `, valid until ${p.valid}` : ""}.\n\nLet me know if you have any questions.\n\n${p.sign}`,
   },
   {
     id: "reminder", label: "Gentle reminder (resend)",
-    subject: (p) => `Following up: quotation ${p.ref} – ${p.what}`,
-    body: (p) => `${p.hi}\n\nI'm following up on our quotation ${p.ref}, attached again here for easy reference.\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If anything needs changing — quantities, models or delivery dates — just let me know and I'll update it. Happy to get on a quick call too.\n\n${p.sign}`,
+    subject: (p) => `Following up: ${p.ref} – ${p.what}`,
+    body: (p) => `${p.hi}\n\nI'm following up on our ${p.ref}, attached again here for easy reference.\n\n${p.topics}\n\nThe total is ${p.total} including GST${p.valid ? `, and the prices hold until ${p.valid}` : ""}. If anything needs changing — quantities, models or delivery dates — just let me know and I'll update it. Happy to get on a quick call too.\n\n${p.sign}`,
   },
 ];
 
@@ -242,7 +242,8 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
   const name = firstName(q.contact);
   const p: Parts = {
     hi: name ? `Hi ${name},` : "Hello,",
-    ref: `${q.number} for ${q.company}`,
+    // Zoho's numbers already say it ("Quotation-24-002753" — owner's test, 4 Nov: "Quotation Quotation-24-…").
+    ref: `${/^quotation/i.test(q.number) ? q.number : `Quotation ${q.number}`} for ${q.company}`,
     what,
     total: inr(q.total),
     valid: day(q.expiry),
