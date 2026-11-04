@@ -2,6 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { demandByItem } from "@/lib/analytics/build";
+import { onItemsPage } from "@/lib/itemsPage";
+
+test("the Items page leaves out services, office supplies and Elan Vital, whatever the case", () => {
+  for (const group of ["Services", "Training Services", "Office Supplies", "elan vital", " Elan Vital "]) assert.equal(onItemsPage({ group }), false, group);
+  assert.equal(onItemsPage({ group: "General Safety", service: true }), false); // a service under another identifier
+  assert.equal(onItemsPage({ group: null, category: "Office Supplies" }), false);
+  for (const group of ["All AEDs", "AED Pads", "Fire Blankets", "Training Equipment", null]) assert.equal(onItemsPage({ group }), true, String(group));
+});
 
 const line = (id: string, at: string) => ({ "Item ID": `line-${at}`, "Product ID": id, "Created Time": at });
 

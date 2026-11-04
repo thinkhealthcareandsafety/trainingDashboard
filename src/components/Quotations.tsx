@@ -11,6 +11,7 @@ import { isAdmin } from "@/lib/roles";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { zohoUrl } from "@/lib/zohoLinks";
+import { onItemsPage } from "@/lib/itemsPage";
 import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 
 /*
@@ -955,7 +956,7 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
   const [brochure, setBrochure] = useState<"" | "missing" | "added">("");
   const [picked, setPicked] = useState<string[]>([]);
   const [open, setOpen] = useState<Item | null>(null);
-  useEffect(() => { loadItems().then(setItems); }, []);
+  useEffect(() => { loadItems().then((all) => setItems(all.filter(onItemsPage))); }, []);
   useEffect(() => { setPicked([]); }, [clear]); // a quotation was made from them
   const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
   const groups = useMemo(() => [...new Set((items ?? []).map(groupOf))].sort((a, b) => a.localeCompare(b)), [items]);
