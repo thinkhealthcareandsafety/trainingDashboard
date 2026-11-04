@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { canQuote, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
-import { day, money, nameKey, onHandByItem } from "@/lib/analytics/build";
+import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, connectQuotes, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
@@ -167,14 +167,17 @@ export async function GET(request: Request) {
   const q = new URL(request.url).searchParams;
   try {
     if (q.get("items")) {
-      const [doc, stock] = await Promise.all([
+      // The stock tables are read once per Analytics refresh and already hold Quote Items, so "demand" costs no extra reads.
+      const [doc, tables] = await Promise.all([
         (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }),
-        copyTables(undefined, true).then(onHandByItem).catch(() => new Map<string, number>()),
+        copyTables(undefined, true).catch(() => null),
       ]);
+      const stock = tables ? onHandByItem(tables) : new Map<string, number>();
+      const demand = tables ? demandByItem(tables, new Date().toISOString().slice(0, 10)) : new Map<string, number>();
       const items = (doc?.items ?? []).filter((i) => i.active !== false).map((i) => ({
         id: i.id, name: i.name, group: i.identifier ?? null, rate: i.rate ?? null, gst: i.gst ?? null, unit: i.unit ?? null,
         stock: i.stock ?? null, service: Boolean(i.service), onHand: i.service ? null : Math.round(stock.get(i.id) ?? 0),
-        category: i.category ?? null, image: i.image ?? null,
+        category: i.category ?? null, image: i.image ?? null, demand: demand.get(i.id) ?? 0,
       }));
       return Response.json({ items });
     }

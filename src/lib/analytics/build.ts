@@ -533,6 +533,17 @@ export function onHandByItem(t: RawTables): Map<string, number> {
   return m;
 }
 
+/** How often each item was quoted in the last 12 months: quote lines per Zoho item id ("Product ID"; "Item ID" is the line's). */
+export function demandByItem(t: RawTables, today: string): Map<string, number> {
+  const from = `${Number(today.slice(0, 4)) - 1}${today.slice(4, 10)}`;
+  const m = new Map<string, number>();
+  for (const r of t.quoteItems ?? []) {
+    const id = r["Product ID"];
+    if (id && (r["Created Time"] ?? "").slice(0, 10) >= from) m.set(id, (m.get(id) ?? 0) + 1);
+  }
+  return m;
+}
+
 function stockRows(t: RawTables, today: string): Row[] {
   const items = new Map((t.items ?? []).map((i) => [i["Item ID"], i]));
   const s = new Map<string, { left: number; value: number; short: number; sold: number; sold365: number; lastSold: string | null; committed: number }>();

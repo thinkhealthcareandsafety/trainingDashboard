@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { celebrate } from "@/lib/confetti";
 import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
-import { btn, inputCls } from "./ui";
+import { Segmented, btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { isAdmin } from "@/lib/roles";
 import { useSession } from "@/lib/session";
@@ -23,7 +23,7 @@ import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteE
 type Last = { date: string; number: string; amount: number; status: string };
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
 type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; customerTypes: string[]; customerSectors: string[]; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
-type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null };
+type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null; demand?: number };
 type Contact = { id: string; name: string | null; email: string | null; phone: string | null; primary: boolean };
 type Line = { key: number; itemId: string; name: string; qty: number; rate: number; gst: number | null; description?: string; open?: boolean };
 type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: string[]; leadSource: string[] };
@@ -120,6 +120,7 @@ export function Quotations() {
   const [connecting, setConnecting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [tick, setTick] = useState(0);
+  const [view, setView] = useState<"customers" | "items">("customers");
 
   useEffect(() => { setPage(0); }, [q, sector, type, sort]);
   useEffect(() => {
@@ -145,6 +146,8 @@ export function Quotations() {
       )}
       {res && !res.live && <p className="mb-4 rounded-2xl bg-surface-2 px-4 py-2.5 text-[14px] text-muted">This is a local copy — quotations are created in Zoho Books only from the live site.</p>}
 
+      <div className="mb-4"><Segmented value={view} onChange={setView} options={[{ value: "customers", label: "Customers" }, { value: "items", label: "Items" }]} /></div>
+      {view === "items" ? <ItemsSection /> : <>
       <div className="flex flex-wrap items-center gap-2">
         <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-72 text-[15px]`} placeholder="Search a customer, email or phone…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" autoFocus />
         <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={sector} onChange={(e) => setSector(e.target.value)} aria-label="Sector">
@@ -210,6 +213,7 @@ export function Quotations() {
           )}
         </div>
       )}
+      </>}
       {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
       {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true }); }} onClose={() => setStarting(false)} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
@@ -906,6 +910,110 @@ function Catalogue({ items, lines, onAdd, onClose }: { items: Item[]; lines: Lin
           </div>
           {!shown.length && <p className="py-10 text-center text-muted">No item matches.</p>}
           {shown.length > 150 && <p className="mt-3 text-center text-[13px] text-muted">{shown.length - 150} more — search to narrow it down.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Items, under Quotations (owner, 4 Nov): active items only, most in demand first (quote lines in the last 12 months). No
+ * pictures in the list: each costs a Zoho call, so only the item you open shows one.
+ */
+function ItemsSection() {
+  const [items, setItems] = useState<Item[] | null>(null);
+  const [q, setQ] = useState("");
+  const [group, setGroup] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [open, setOpen] = useState<Item | null>(null);
+  useEffect(() => { loadItems().then(setItems); }, []);
+  const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
+  const groups = useMemo(() => [...new Set((items ?? []).map(groupOf))].sort((a, b) => a.localeCompare(b)), [items]);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = (items ?? []).filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w)))
+    .sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.name.localeCompare(b.name));
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-72 text-[15px]`} placeholder="Search items…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search items" />
+        <select className={`select-chevron ${inputCls} !h-10 !w-auto max-w-[16rem] text-[14px]`} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Category">
+          <option value="">All categories</option>
+          {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        {picked.length > 0 && <span className="flex items-center gap-2 text-[14px] text-ink-2">{picked.length} ticked <button className={btn.quiet} onClick={() => setPicked([])}>Clear</button></span>}
+      </div>
+      <div className="card no-scrollbar mt-4 max-h-[calc(100dvh-19rem)] min-h-64 overflow-y-auto">
+        <table className="w-full text-left text-[15px]">
+          <thead className="sticky top-0 z-10 border-b border-line bg-surface text-[13px] text-muted">
+            <tr>
+              <th className="w-10 py-3 pl-4"><span className="sr-only">Tick</span></th>
+              <th className="px-3 py-3 font-medium">Item</th>
+              <th className="px-3 py-3 text-right font-medium">Price</th>
+              <th className="hidden px-3 py-3 text-right font-medium md:table-cell">GST</th>
+              <th className="hidden px-3 py-3 text-right font-medium md:table-cell">On hand</th>
+              <th className="px-3 py-3 pr-4 text-right font-medium" title="Quote lines in the last 12 months">Quoted</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {shown.slice(0, 200).map((i) => (
+              <tr key={i.id} className={`cursor-pointer hover:bg-surface-2/70 ${picked.includes(i.id) ? "bg-brand-soft" : ""}`} onClick={() => setOpen(i)}>
+                <td className="py-2.5 pl-4" onClick={(e) => e.stopPropagation()}><input type="checkbox" className="size-4 accent-[var(--brand)]" checked={picked.includes(i.id)} onChange={() => toggle(i.id)} aria-label={`Tick ${i.name}`} /></td>
+                <td className="min-w-0 px-3 py-2.5"><span className="block font-medium text-ink">{i.name}</span><span className="block text-[13px] text-muted">{groupOf(i)}</span></td>
+                <td className="num whitespace-nowrap px-3 py-2.5 text-right text-ink-2">{i.rate ? inr(i.rate) : "—"}</td>
+                <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.gst === null ? "—" : `${i.gst}%`}</td>
+                <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.service ? "Service" : (i.onHand ?? 0).toLocaleString("en-IN")}</td>
+                <td className="num px-3 py-2.5 pr-4 text-right font-semibold text-ink">{i.demand ? i.demand.toLocaleString("en-IN") : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!items && <p className="py-10 text-center text-muted">Loading the items…</p>}
+        {items && !shown.length && <p className="py-10 text-center text-muted">No item matches.</p>}
+        {shown.length > 200 && <p className="py-3 text-center text-[13px] text-muted">{shown.length - 200} more — search to narrow it down.</p>}
+      </div>
+      <p className="mt-2 text-[13px] text-muted">{items ? `${shown.length} active items` : ""} · Quoted: quote lines in the last 12 months, from the Zoho Analytics copy.</p>
+      {open && createPortal(<ItemDetails item={open} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)} />, document.body)}
+    </div>
+  );
+}
+
+/** One item: its picture, figures and Zoho's description (one Zoho call each, when opened). */
+function ItemDetails({ item, ticked, onTick, onClose }: { item: Item; ticked: boolean; onTick: () => void; onClose: () => void }) {
+  const [description, setDescription] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/quotations?item=${item.id}`).then((r) => r.json()).then((j: { description?: string }) => { if (live) setDescription(j.description ?? ""); }).catch(() => live && setDescription(""));
+    return () => { live = false; };
+  }, [item.id]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const rows: [string, string][] = [
+    ["Category", item.group ?? item.category ?? "—"], ["Price", item.rate ? inr(item.rate) : "—"], ["GST", item.gst === null ? "—" : `${item.gst}%`], ["Unit", item.unit ?? "—"],
+    ["On hand", item.service ? "Service" : (item.onHand ?? 0).toLocaleString("en-IN")], ["Quoted, last 12 months", (item.demand ?? 0).toLocaleString("en-IN")],
+  ];
+  return (
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={onClose}>
+      <div role="dialog" aria-label={item.name} className="modal-in flex max-h-[92vh] w-full min-w-0 max-w-[44rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-6 pt-5">
+          <h3 className="min-w-0 text-[20px] font-bold tracking-tight text-ink">{item.name}</h3>
+          <button className={btn.quiet} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          <div className="grid gap-4 sm:grid-cols-[14rem_minmax(0,1fr)]">
+            <div className="overflow-hidden rounded-xl border border-line"><ItemImage item={item} onMissing={() => {}} /></div>
+            <dl className="space-y-1.5 text-[14.5px]">
+              {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
+            </dl>
+          </div>
+          <p className="mt-4 whitespace-pre-line text-[14.5px] leading-relaxed text-ink-2">{description === null ? "Getting the description…" : description || "No description in Zoho."}</p>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-line px-6 py-4">
+          <button className={btn.ghost} onClick={onClose}>Close</button>
+          <button className={btn.primary} onClick={() => { onTick(); onClose(); }}>{ticked ? "Untick" : "Tick"}</button>
         </div>
       </div>
     </div>
