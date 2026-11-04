@@ -26,7 +26,7 @@ import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteE
 type Last = { date: string; number: string; amount: number; status: string };
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
 type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; customerTypes: string[]; customerSectors: string[]; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
-type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null; demand?: number; brochure?: string | null };
+type Item = { id: string; active?: boolean; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null; demand?: number; brochure?: string | null };
 type Contact = { id: string; name: string | null; email: string | null; phone: string | null; primary: boolean };
 type Line = { key: number; itemId: string; name: string; qty: number; rate: number; gst: number | null; description?: string; open?: boolean };
 type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: string[]; leadSource: string[] };
@@ -954,14 +954,16 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
   const [brochure, setBrochure] = useState<"" | "missing" | "added">("");
+  const [everything, setEverything] = useState(false); // hidden and inactive items too
   const [picked, setPicked] = useState<string[]>([]);
   const [open, setOpen] = useState<Item | null>(null);
-  useEffect(() => { loadItems().then((all) => setItems(all.filter(onItemsPage))); }, []);
+  useEffect(() => { fetch("/api/quotations?items=1&all=1").then((r) => r.json()).then((j: { items?: Item[] }) => setItems(j.items ?? [])).catch(() => setItems([])); }, []);
   useEffect(() => { setPicked([]); }, [clear]); // a quotation was made from them
   const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
-  const groups = useMemo(() => [...new Set((items ?? []).map(groupOf))].sort((a, b) => a.localeCompare(b)), [items]);
+  const visible = useMemo(() => (items ?? []).filter((i) => everything || (i.active !== false && onItemsPage(i))), [items, everything]);
+  const groups = useMemo(() => [...new Set(visible.map(groupOf))].sort((a, b) => a.localeCompare(b)), [visible]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = (items ?? []).filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w))
+  const shown = visible.filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w))
     && (!brochure || (brochure === "added" ? Boolean(i.brochure) : i.brochure === "")))
     .sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.name.localeCompare(b.name));
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -1002,6 +1004,10 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
           <option value="missing">Brochure missing</option>
           <option value="added">Brochure added</option>
         </select>
+        <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={everything ? "all" : "usual"} onChange={(e) => { setEverything(e.target.value === "all"); setGroup(""); }} aria-label="Which items" title="Everything: services, office supplies, Elan Vital and inactive items too">
+          <option value="usual">Usual items</option>
+          <option value="all">Everything</option>
+        </select>
         {picked.length > 0 && <span className="flex items-center gap-2 text-[14px] text-ink-2">{picked.length} ticked <button className={btn.quiet} onClick={() => setPicked([])}>Clear</button></span>}
         <button className={btn.primary} disabled={!picked.length || !canQuote} title={!canQuote ? "Zoho Books isn't connected for quotations yet" : !picked.length ? "Tick the items first" : undefined} onClick={() => onQuote(picked.map((id) => items!.find((i) => i.id === id)!).filter(Boolean))}>Create quotation</button>
       </div>
@@ -1021,8 +1027,8 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
           <tbody className="divide-y divide-line">
             {shown.slice(0, 200).map((i) => (
               <tr key={i.id} className={`cursor-pointer hover:bg-surface-2/70 ${picked.includes(i.id) ? "bg-brand-soft" : ""}`} onClick={() => setOpen(i)}>
-                <td className="py-2.5 pl-4" onClick={(e) => e.stopPropagation()}><input type="checkbox" className="size-4 accent-[var(--brand)]" checked={picked.includes(i.id)} onChange={() => toggle(i.id)} aria-label={`Tick ${i.name}`} /></td>
-                <td className="min-w-0 px-3 py-2.5"><span className="block font-medium text-ink">{i.name}</span><span className="block text-[13px] text-muted">{groupOf(i)}</span></td>
+                <td className="py-2.5 pl-4" onClick={(e) => e.stopPropagation()}><input type="checkbox" className="size-4 accent-[var(--brand)] disabled:opacity-40" checked={picked.includes(i.id)} disabled={i.active === false} title={i.active === false ? "Inactive in Zoho: it can't go on a quotation" : undefined} onChange={() => toggle(i.id)} aria-label={`Tick ${i.name}`} /></td>
+                <td className="min-w-0 px-3 py-2.5"><span className="block font-medium text-ink">{i.name}</span><span className="block text-[13px] text-muted">{groupOf(i)}{i.active === false && <span className="ml-1.5 rounded bg-surface-2 px-1.5 text-[11px] font-bold">INACTIVE</span>}</span></td>
                 <td className="num whitespace-nowrap px-3 py-2.5 text-right text-ink-2">{i.rate ? inr(i.rate) : "—"}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.gst === null ? "—" : `${i.gst}%`}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.service ? "Service" : (i.onHand ?? 0).toLocaleString("en-IN")}</td>
@@ -1036,13 +1042,13 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
         {items && !shown.length && <p className="py-10 text-center text-muted">No item matches.</p>}
         {shown.length > 200 && <p className="py-3 text-center text-[13px] text-muted">{shown.length - 200} more — search to narrow it down.</p>}
       </div>
-      <p className="mt-2 text-[13px] text-muted">{items ? `${shown.length} active items` : ""} · Quoted: quote lines in the last 12 months, from the Zoho Analytics copy.</p>
+      <p className="mt-2 text-[13px] text-muted">{items ? `${shown.length} ${everything ? "items, active and inactive" : "active items"}` : ""} · Quoted: quote lines in the last 12 months, from the Zoho Analytics copy.</p>
       {open && createPortal(<ItemDetails item={open} live={live} onBrochure={(b) => addedBrochure(open.id, b)} onPicture={() => { itemsOnce = null; noPicture.delete(open.id); }} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)}
         onSaved={(f) => {
           // The list and the quote popup's item search follow at once.
           const update = (i: Item): Item => (i.id === open.id ? { ...i, name: f.name, rate: f.rate, group: f.identifier || i.group, stock: f.stock || null } : i);
           itemsOnce = null;
-          setItems((all) => all && all.map(update).filter(onItemsPage));
+          setItems((all) => all && all.map(update));
           setOpen(update(open));
         }} />, document.body)}
     </div>

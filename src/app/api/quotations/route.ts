@@ -175,8 +175,9 @@ export async function GET(request: Request) {
       ]);
       const stock = tables ? onHandByItem(tables) : new Map<string, number>();
       const demand = tables ? demandByItem(tables, new Date().toISOString().slice(0, 10)) : new Map<string, number>();
-      const items = (doc?.items ?? []).filter((i) => i.active !== false).map((i) => ({
-        id: i.id, name: i.name, group: i.identifier ?? null, rate: i.rate ?? null, gst: i.gst ?? null, unit: i.unit ?? null,
+      const everything = q.get("all") === "1"; // the Items page's Everything: inactive ones too. Quotations only ever pick active ones.
+      const items = (doc?.items ?? []).filter((i) => everything || i.active !== false).map((i) => ({
+        id: i.id, active: i.active !== false, name: i.name, group: i.identifier ?? null, rate: i.rate ?? null, gst: i.gst ?? null, unit: i.unit ?? null,
         stock: i.stock ?? null, service: Boolean(i.service), onHand: i.service ? null : Math.round(stock.get(i.id) ?? 0),
         category: i.category ?? null, image: i.image ?? null, demand: demand.get(i.id) ?? 0, brochure: i.brochure ?? null,
       }));

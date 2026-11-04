@@ -85,6 +85,13 @@ test("add email: a customer, a real email and both names; else on to Zoho (not c
   assert.equal((await add(good)).s, 409); // only the live site writes to Zoho
 });
 
+test("the Items page's Everything also gets inactive items; quotations never do", async () => {
+  await (await db()).collection<{ _id: string; items: object[] }>("kv").replaceOne({ _id: "zoho_items" }, { items: [{ id: "1", name: "On" }, { id: "2", name: "Off", active: false }] }, { upsert: true });
+  const ask = async (q: string) => ((await (await GET(new Request(`http://x/api/quotations?${q}`, { headers: { "x-test-member": JSON.stringify(sumit) } }))).json()) as { items: { id: string; active: boolean }[] }).items.map((i) => [i.id, i.active]);
+  assert.deepEqual(await ask("items=1"), [["1", true]]);
+  assert.deepEqual(await ask("items=1&all=1"), [["1", true], ["2", false]]);
+});
+
 test("the two fixed Cc addresses count towards the 20-address limit", async () => {
   const list = (n: number) => Array.from({ length: n }, (_, i) => `p${i}@example.com`).join(",");
   assert.match((await email({ ...mail, to: list(19) })).j.error, /At most 20/); // 19 + 2
