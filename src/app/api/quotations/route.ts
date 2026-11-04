@@ -177,7 +177,7 @@ export async function GET(request: Request) {
       const items = (doc?.items ?? []).filter((i) => i.active !== false).map((i) => ({
         id: i.id, name: i.name, group: i.identifier ?? null, rate: i.rate ?? null, gst: i.gst ?? null, unit: i.unit ?? null,
         stock: i.stock ?? null, service: Boolean(i.service), onHand: i.service ? null : Math.round(stock.get(i.id) ?? 0),
-        category: i.category ?? null, image: i.image ?? null, demand: demand.get(i.id) ?? 0,
+        category: i.category ?? null, image: i.image ?? null, demand: demand.get(i.id) ?? 0, brochure: i.brochure ?? null,
       }));
       return Response.json({ items });
     }

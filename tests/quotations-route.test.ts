@@ -3,7 +3,8 @@
 // nothing here can call Zoho.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { POST } from "@/app/api/quotations/route";
+import { GET, POST } from "@/app/api/quotations/route";
+import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 
 const sumit = { id: "sumit", name: "Sumit A Shah" };
@@ -56,6 +57,15 @@ test("the quote email: To, a subject and 4 MB of attachments at most; else on to
   const ok = await email({ ...mail, cc: "boss@example.com" }, [new File(["x"], "brochure.pdf")]);
   assert.equal(ok.s, 502);
   assert.match(ok.j.error, /isn't connected/);
+});
+
+test("the item list says Added, Missing or not read yet (a copy from before the field); inactive items stay out", async () => {
+  await (await db()).collection<{ _id: string; items: object[] }>("kv").replaceOne({ _id: "zoho_items" }, { items: [
+    { id: "1", name: "With", brochure: "AED.pdf" }, { id: "2", name: "Without", brochure: "" }, { id: "3", name: "Old copy" }, { id: "4", name: "Gone", active: false, brochure: "x.pdf" },
+  ] }, { upsert: true });
+  const r = await GET(new Request("http://x/api/quotations?items=1", { headers: { "x-test-member": JSON.stringify(sumit) } }));
+  const { items } = (await r.json()) as { items: { id: string; brochure: string | null }[] };
+  assert.deepEqual(items.map((i) => [i.id, i.brochure]), [["1", "AED.pdf"], ["2", ""], ["3", null]]);
 });
 
 test("the two fixed Cc addresses count towards the 20-address limit", async () => {

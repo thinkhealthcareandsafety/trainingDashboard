@@ -232,7 +232,7 @@ export function isoTime(v: unknown, fallback = ""): string {
  * IGST one is the same %), unit, Zoho's "Stock Status" field, services (no stock). Descriptions are long, so they're
  * read from Zoho only when an item is picked.
  */
-export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean; category?: string; image?: boolean };
+export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean; category?: string; image?: boolean; brochure?: string };
 
 /** Every Zoho item with its Item Identifier (a few list calls; the sync keeps the result in MongoDB). */
 export async function fetchItems(): Promise<ZItem[]> {
@@ -241,6 +241,8 @@ export async function fetchItems(): Promise<ZItem[]> {
     id: String(i.item_id), name: String(i.name), identifier: cf(i, ITEM_IDENTIFIER_FIELD), rate: Number(i.rate) || 0, active: i.status !== "inactive",
     gst: itemGst(i), unit: (i.unit as string) || undefined, stock: cf(i, "cf_stock_status"), service: i.product_type === "service" || undefined,
     category: (i.category_name as string) || undefined, image: Boolean(i.image_name) || undefined,
+    // Books' "Product Brochure" field (the file's name; has_attachment stays false with one). "" = none; a copy from before 4 Nov has no value.
+    brochure: cf(i, "cf_product_brochure") ?? "",
   }));
 }
 

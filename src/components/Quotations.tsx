@@ -23,7 +23,7 @@ import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteE
 type Last = { date: string; number: string; amount: number; status: string };
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
 type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; customerTypes: string[]; customerSectors: string[]; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
-type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null; demand?: number };
+type Item = { id: string; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null; demand?: number; brochure?: string | null };
 type Contact = { id: string; name: string | null; email: string | null; phone: string | null; primary: boolean };
 type Line = { key: number; itemId: string; name: string; qty: number; rate: number; gst: number | null; description?: string; open?: boolean };
 type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: string[]; leadSource: string[] };
@@ -931,6 +931,7 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
   const [items, setItems] = useState<Item[] | null>(null);
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
+  const [brochure, setBrochure] = useState<"" | "missing" | "added">("");
   const [picked, setPicked] = useState<string[]>([]);
   const [open, setOpen] = useState<Item | null>(null);
   useEffect(() => { loadItems().then(setItems); }, []);
@@ -938,7 +939,8 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
   const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
   const groups = useMemo(() => [...new Set((items ?? []).map(groupOf))].sort((a, b) => a.localeCompare(b)), [items]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = (items ?? []).filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w)))
+  const shown = (items ?? []).filter((i) => (!group || groupOf(i) === group) && words.every((w) => i.name.toLowerCase().includes(w))
+    && (!brochure || (brochure === "added" ? Boolean(i.brochure) : i.brochure === "")))
     .sort((a, b) => (b.demand ?? 0) - (a.demand ?? 0) || a.name.localeCompare(b.name));
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
@@ -948,6 +950,11 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
         <select className={`select-chevron ${inputCls} !h-10 !w-auto max-w-[16rem] text-[14px]`} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Category">
           <option value="">All categories</option>
           {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={brochure} onChange={(e) => setBrochure(e.target.value as typeof brochure)} aria-label="Brochure">
+          <option value="">All brochures</option>
+          <option value="missing">Brochure missing</option>
+          <option value="added">Brochure added</option>
         </select>
         {picked.length > 0 && <span className="flex items-center gap-2 text-[14px] text-ink-2">{picked.length} ticked <button className={btn.quiet} onClick={() => setPicked([])}>Clear</button></span>}
         <button className={btn.primary} disabled={!picked.length || !canQuote} title={!canQuote ? "Zoho Books isn't connected for quotations yet" : !picked.length ? "Tick the items first" : undefined} onClick={() => onQuote(picked.map((id) => items!.find((i) => i.id === id)!).filter(Boolean))}>Create quotation</button>
@@ -961,6 +968,7 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
               <th className="px-3 py-3 text-right font-medium">Price</th>
               <th className="hidden px-3 py-3 text-right font-medium md:table-cell">GST</th>
               <th className="hidden px-3 py-3 text-right font-medium md:table-cell">On hand</th>
+              <th className="px-3 py-3 font-medium">Brochure</th>
               <th className="px-3 py-3 pr-4 text-right font-medium" title="Quote lines in the last 12 months">Quoted</th>
             </tr>
           </thead>
@@ -972,6 +980,7 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
                 <td className="num whitespace-nowrap px-3 py-2.5 text-right text-ink-2">{i.rate ? inr(i.rate) : "—"}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.gst === null ? "—" : `${i.gst}%`}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.service ? "Service" : (i.onHand ?? 0).toLocaleString("en-IN")}</td>
+                <td className="whitespace-nowrap px-3 py-2.5 text-[14px]"><BrochureState item={i} /></td>
                 <td className="num px-3 py-2.5 pr-4 text-right font-semibold text-ink">{i.demand ? i.demand.toLocaleString("en-IN") : "—"}</td>
               </tr>
             ))}
@@ -985,6 +994,12 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
       {open && createPortal(<ItemDetails item={open} ticked={picked.includes(open.id)} onTick={() => toggle(open.id)} onClose={() => setOpen(null)} />, document.body)}
     </div>
   );
+}
+
+/** Added / Missing, from Books' Product Brochure field; nothing yet while the copy predates it (the hourly item read fills it). */
+function BrochureState({ item }: { item: Item }) {
+  if (item.brochure == null) return <span className="text-muted">—</span>;
+  return item.brochure ? <span className="font-medium text-low" title={item.brochure}>✓ Added</span> : <span className="text-medium">Missing</span>;
 }
 
 /** One item: its picture, figures and Zoho's description (one Zoho call each, when opened). */
@@ -1003,6 +1018,7 @@ function ItemDetails({ item, ticked, onTick, onClose }: { item: Item; ticked: bo
   const rows: [string, string][] = [
     ["Category", item.group ?? item.category ?? "—"], ["Price", item.rate ? inr(item.rate) : "—"], ["GST", item.gst === null ? "—" : `${item.gst}%`], ["Unit", item.unit ?? "—"],
     ["On hand", item.service ? "Service" : (item.onHand ?? 0).toLocaleString("en-IN")], ["Quoted, last 12 months", (item.demand ?? 0).toLocaleString("en-IN")],
+    ["Brochure", item.brochure == null ? "—" : item.brochure || "Missing"],
   ];
   return (
     <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-3" onMouseDown={onClose}>
