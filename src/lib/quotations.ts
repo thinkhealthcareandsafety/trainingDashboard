@@ -153,17 +153,26 @@ export async function tryBrochureUpload(id: string, file: File): Promise<{ attem
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
   const attempts: string[] = [];
   let doc = "";
-  for (const [path, field] of [[`/items/${id}/documents`, "document"], [`/items/${id}/documents`, "attachment"], [`/items/${id}/attachment`, "attachment"], ["/documents", "document"], ["/documents", "attachment"]]) {
+  for (const [path, field] of [["/documents", "document"]]) { // full access, 4 Nov: this one takes the file
     const form = new FormData();
     form.append(field, file, file.name);
     try {
-      const j = (await books(c, "POST", path, {}, form)) as Record<string, unknown> & { document?: { document_id?: unknown }; documents?: { document_id?: unknown }[]; document_id?: unknown };
-      doc = String(j.document?.document_id ?? j.documents?.[0]?.document_id ?? j.document_id ?? "");
-      attempts.push(`${path.replace(id, "#")} [${field}]: accepted, keys ${Object.keys(j).join(",")}, document ${doc ? "yes" : "no"}`);
+      const j = (await books(c, "POST", path, {}, form)) as Record<string, unknown> & { document?: { document_id?: unknown }; documents?: unknown; document_id?: unknown };
+      const first = (Array.isArray(j.documents) ? j.documents[0] : j.documents) as Record<string, unknown> | string | undefined;
+      doc = String((typeof first === "object" ? first?.document_id ?? first?.id : first) ?? j.document?.document_id ?? j.document_id ?? "");
+      attempts.push(`${path} [${field}]: accepted, documents is ${Array.isArray(j.documents) ? "a list" : typeof j.documents}${first && typeof first === "object" ? `, fields ${Object.keys(first).join(",").slice(0, 160)}` : ""}, document ${doc ? "yes" : "no"}`);
       if (doc) break;
     } catch (e) {
       attempts.push(`${path.replace(id, "#")} [${field}]: ${e instanceof Error ? e.message.slice(0, 120) : "failed"}`);
     }
+  }
+  // What these tests left in the Documents area (file names only).
+  try {
+    const all = await books(c, "GET", "/documents", { per_page: "200" });
+    const list = (Array.isArray(all.documents) ? all.documents : []) as { file_name?: unknown; name?: unknown }[];
+    attempts.push(`documents area: ${list.length} listed, ${list.filter((x) => (x.file_name ?? x.name) === "test-brochure.pdf").length} named test-brochure.pdf`);
+  } catch (e) {
+    attempts.push(`documents area: ${e instanceof Error ? e.message.slice(0, 120) : "failed"}`);
   }
   if (!doc) return { attempts, brochure: null };
   const now = (await zohoGet<{ item?: Record<string, unknown> }>(`/items/${id}`)).item ?? {};
