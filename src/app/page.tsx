@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { boardsFor } from "@/lib/roles";
-import { KpiStrip, type OverviewMode, TrendCard, UPCOMING_DAYS } from "@/components/Kpis";
+import { KpiStrip, type OverviewMode, RangePicker, TrendCard, UPCOMING_DAYS } from "@/components/Kpis";
+import { type OverviewRange, RANGE_KEY, parseRange } from "@/lib/overviewRange";
 import { PipelineCard } from "@/components/Pipeline";
 import { MiniCalendar } from "@/components/Calendar";
 import { PageHeader } from "@/components/AppShell";
@@ -69,11 +70,23 @@ export default function OverviewPage() {
   const mode: OverviewMode = !boards.includes("training") && boards.includes("aed") ? "aed" : "team";
   const list = (mode === "aed" ? data?.aedBoard : data?.board) ?? [];
   const has = ready && data && (mode === "aed" ? data.aedBoard : data.board);
+  // Starts on today's view; each person's choice stays in their browser (a convenience, so it may simply be gone).
+  const [range, setRange] = useState<OverviewRange>({ kind: "month" });
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    try { setRange(parseRange(localStorage.getItem(RANGE_KEY))); } catch {}
+    setLoaded(true);
+  }, []);
+  const pick = (r: OverviewRange) => {
+    setRange(r);
+    try { localStorage.setItem(RANGE_KEY, JSON.stringify(r)); } catch {}
+  };
   return (
     <>
       <PageHeader
         title={`${greeting(now)}`}
         sub={`${now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} · Here’s how ${mode === "aed" ? "AED trainings" : "trainings"} are going`}
+        actions={loaded ? <RangePicker value={range} onChange={pick} now={now} /> : undefined}
       />
       {data?.error && (
         <p className="mb-6 flex items-center gap-2.5 rounded-2xl bg-medium-bg px-4 py-3 text-[13.5px] text-ink-2">
@@ -82,7 +95,7 @@ export default function OverviewPage() {
         </p>
       )}
       <div className="space-y-5">
-        {has ? <KpiStrip trainings={data.trainings} board={list} now={now} mode={mode} aedWaiting={data.aedWaiting} pipeline={data.pipeline} lastYear={data.lastYear} /> : <Skeleton className="h-[236px]" />}
+        {has ? <KpiStrip trainings={data.trainings} board={list} now={now} mode={mode} range={range} aedWaiting={data.aedWaiting} pipeline={data.pipeline} lastYear={data.lastYear} /> : <Skeleton className="h-[236px]" />}
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           {has ? <TrendCard trainings={data.trainings} board={list} now={now} mode={mode} pipeline={data.pipeline} lastYear={data.lastYear} /> : <Skeleton className="h-[520px]" />}
           <div className="xl:sticky xl:top-[60px] xl:self-start">

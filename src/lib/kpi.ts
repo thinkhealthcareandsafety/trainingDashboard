@@ -158,7 +158,7 @@ export interface BoardPeriod {
   peopleExpected: number;
 }
 
-function boardPeriod(list: BoardTraining[], from: Date, to: Date, today: Date, target?: number, peopleTarget?: number): BoardPeriod {
+export function boardPeriod(list: BoardTraining[], from: Date, to: Date, today: Date, target?: number, peopleTarget?: number): BoardPeriod {
   const inRange = list.filter((t) => dated(t) && parseYmd(countsOn(t)) >= from && parseYmd(countsOn(t)) <= to);
   const done = inRange.filter((t) => t.status === "completed");
   const t0 = startOfDay(today);

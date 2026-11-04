@@ -5,10 +5,11 @@ import type { BoardTraining, PipelineDoc, Training } from "@/lib/types";
 import { fmtDate, fmtINR, fiscalYearLabel, fiscalYearStart, startOfDay } from "@/lib/dates";
 import { type Booked, type BookedWhy, QUOTE_VALID_DAYS, type RevenueForecast, revenueForecast } from "@/lib/forecast";
 import {
-  AED_TARGETS, TEAM_TARGETS, boardBreakdown, boardMonth, boardMonthSeries, boardYear, completedIn, countsOn, fiscalMonthSeries, monthStats, revenueBetween, upcoming,
+  AED_TARGETS, TEAM_TARGETS, boardBreakdown, boardMonthSeries, boardPeriod, boardYear, completedIn, countsOn, fiscalMonthSeries, monthStats, revenueBetween, upcoming,
   type BoardBreakdownKey, type BoardPeriod,
 } from "@/lib/kpi";
-import { CardHeader, Segmented, useCountUp } from "./ui";
+import { type OverviewRange, type RangeDates, rangeDates, spanLabel } from "@/lib/overviewRange";
+import { CardHeader, Segmented, inputCls, useCountUp } from "./ui";
 import { useChartColors } from "./reports/Chart";
 
 /*
@@ -33,23 +34,25 @@ function pace(done: number, expected: number): Pace {
 const PACE_FILL = { on: "var(--chart-1, var(--brand))", slip: "var(--medium)", behind: "var(--high)" };
 const PACE_ICON = { on: "●", slip: "▲", behind: "▲" };
 
-function Meter({ value, target, expected, tone, hint, thin = false }: { value: number; target: number; expected: number; tone: Pace["tone"]; hint: string; thin?: boolean }) {
+function Meter({ value, target, expected, tone, hint, thin = false, tick = true }: { value: number; target: number; expected: number; tone: Pace["tone"]; hint: string; thin?: boolean; tick?: boolean }) {
   const pct = Math.min(1, value / target);
   const exp = Math.min(1, expected / target);
   return (
     <div className={`relative w-full rounded-full bg-surface-2 ${thin ? "mt-5 h-1" : "mt-6 h-1.5"}`} role="meter" aria-valuemin={0} aria-valuemax={target} aria-valuenow={value}>
       <div className="h-full rounded-full transition-[width] duration-700 ease-out" style={{ width: `${pct * 100}%`, background: "var(--chart-1, var(--brand))" }} />
       {/* Expected-by-today tick, labelled "today"; hover, focus or tap explains it (owner: the bare tick didn't say what it was). */}
-      <span tabIndex={0} aria-label={hint} className="group absolute -top-4 -bottom-1.5 w-6 -translate-x-1/2 cursor-help outline-none" style={{ left: `${exp * 100}%` }}>
-        <span className={`absolute left-1/2 w-0.5 -translate-x-1/2 rounded-full bg-ink/70 ${thin ? "top-[13px] h-2.5" : "top-3 h-3.5"}`} />
-        <span aria-hidden className="absolute -top-0.5 left-1/2 -translate-x-1/2 text-[10px] leading-none text-faint transition-colors group-hover:text-ink-2 group-focus:text-ink-2">today</span>
-        <span
-          role="tooltip"
-          className={`pointer-events-none invisible absolute bottom-full z-20 mb-1 w-56 rounded-lg border border-line bg-surface p-2.5 text-[12px] font-normal leading-snug text-ink-2 opacity-0 shadow-pop transition-opacity group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100 ${exp > 0.5 ? "right-0" : "left-0"}`}
-        >
-          {hint}
+      {tick && (
+        <span tabIndex={0} aria-label={hint} className="group absolute -top-4 -bottom-1.5 w-6 -translate-x-1/2 cursor-help outline-none" style={{ left: `${exp * 100}%` }}>
+          <span className={`absolute left-1/2 w-0.5 -translate-x-1/2 rounded-full bg-ink/70 ${thin ? "top-[13px] h-2.5" : "top-3 h-3.5"}`} />
+          <span aria-hidden className="absolute -top-0.5 left-1/2 -translate-x-1/2 text-[10px] leading-none text-faint transition-colors group-hover:text-ink-2 group-focus:text-ink-2">today</span>
+          <span
+            role="tooltip"
+            className={`pointer-events-none invisible absolute bottom-full z-20 mb-1 w-56 rounded-lg border border-line bg-surface p-2.5 text-[12px] font-normal leading-snug text-ink-2 opacity-0 shadow-pop transition-opacity group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100 ${exp > 0.5 ? "right-0" : "left-0"}`}
+          >
+            {hint}
+          </span>
         </span>
-      </span>
+      )}
     </div>
   );
 }
@@ -71,13 +74,15 @@ function PaceLine({ p, extra }: { p: Pace; extra: string }) {
 }
 
 /** Trainings against the target (big), and under it people trained against theirs. */
-function TargetTile({ label, s, end, hero = false }: { label: string; s: BoardPeriod; end: string; hero?: boolean }) {
+function TargetTile({ label, s, end, hero = false, past = false, showPeople = false }: { label: string; s: BoardPeriod; end: string; hero?: boolean; past?: boolean; showPeople?: boolean }) {
   const n = useCountUp(s.completed);
   const people = useCountUp(s.people);
   const p = s.target ? pace(s.completed, s.expected) : null;
   const pp = s.peopleTarget ? pace(s.people, s.peopleExpected) : null;
   // Trainings whose day has passed without "Training completed" aren't upcoming — they need marking.
-  const scheduled = (s.scheduled ? `${s.scheduled} scheduled` : "none scheduled") + (s.unmarked ? ` · ${s.unmarked} to mark completed` : "");
+  const scheduled = past
+    ? s.unmarked ? `${s.unmarked} to mark completed` : "all marked completed"
+    : (s.scheduled ? `${s.scheduled} scheduled` : "none scheduled") + (s.unmarked ? ` · ${s.unmarked} to mark completed` : "");
   return (
     <div className="p-5">
       <div className="text-[13px] text-muted">{label}</div>
@@ -88,7 +93,7 @@ function TargetTile({ label, s, end, hero = false }: { label: string; s: BoardPe
       </div>
       {s.target && p ? (
         <>
-          <Meter value={s.completed} target={s.target} expected={s.expected} tone={p.tone} hint={tickHint(s.target, s.expected, end)} />
+          <Meter value={s.completed} target={s.target} expected={s.expected} tone={p.tone} tick={!past} hint={tickHint(s.target, s.expected, end)} />
           <PaceLine p={p} extra={scheduled} />
         </>
       ) : (
@@ -101,11 +106,18 @@ function TargetTile({ label, s, end, hero = false }: { label: string; s: BoardPe
             <span className="num ml-auto text-[15px] font-semibold text-ink">{Math.round(people).toLocaleString("en-IN")}</span>
             <span className="num text-faint">/ {s.peopleTarget.toLocaleString("en-IN")}</span>
           </div>
-          <Meter thin value={s.people} target={s.peopleTarget} expected={s.peopleExpected} tone={pp.tone} hint={tickHint(s.peopleTarget, s.peopleExpected, end, " people")} />
+          <Meter thin value={s.people} target={s.peopleTarget} expected={s.peopleExpected} tone={pp.tone} tick={!past} hint={tickHint(s.peopleTarget, s.peopleExpected, end, " people")} />
           <div className="mt-2 text-[12.5px] text-muted">
             <span className="font-medium text-ink-2">{pp.label}</span>
             {s.peopleScheduled ? <> · {s.peopleScheduled.toLocaleString("en-IN")} more in scheduled trainings</> : null}
           </div>
+        </div>
+      )}
+      {/* A quarter or a custom range has no monthly target: the number only. */}
+      {showPeople && !s.peopleTarget && (
+        <div className="mt-4 flex items-baseline gap-1.5 border-t border-line pt-3 text-[13px]">
+          <span className="text-muted">People trained</span>
+          <span className="num ml-auto text-[15px] font-semibold text-ink">{Math.round(people).toLocaleString("en-IN")}</span>
         </div>
       )}
     </div>
@@ -128,20 +140,20 @@ function Sparkline({ values }: { values: number[] }) {
 
 /**
  * Revenue: training invoices in Zoho Books (by their training date), as before. Compared like for like: this month so
- * far against the same days of last month (1–17 Oct vs 1–17 Sep), not against the whole of last month.
+ * far against the same days of last month (1–17 Oct vs 1–17 Sep), not against the whole of last month. The date button
+ * picks another period; the rule stays (overviewRange.ts). The month-end forecast is about this month only.
  */
-function RevenueTile({ trainings, now, f }: { trainings: Training[]; now: Date; f: RevenueForecast | null }) {
-  const m = useMemo(() => monthStats(trainings, now), [trainings, now]);
-  const lastFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastTo = new Date(now.getFullYear(), now.getMonth() - 1, Math.min(now.getDate(), new Date(now.getFullYear(), now.getMonth(), 0).getDate()));
-  const last = useMemo(() => ({ revenue: revenueBetween(trainings, lastFrom, startOfDay(lastTo)) }), [trainings, now]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lastLabel = `${lastFrom.getDate()}–${lastTo.getDate()} ${lastTo.toLocaleDateString("en-IN", { month: "short" })}`;
+function RevenueTile({ trainings, now, f, thisMonth, range }: { trainings: Training[]; now: Date; f: RevenueForecast | null; thisMonth: boolean; range: RangeDates }) {
+  const today = startOfDay(now);
+  const revenue = useMemo(() => (thisMonth ? monthStats(trainings, now).revenue : revenueBetween(trainings, range.from, range.to < today ? range.to : today)), [trainings, now, thisMonth, range]); // eslint-disable-line react-hooks/exhaustive-deps
+  const last = useMemo(() => ({ revenue: revenueBetween(trainings, range.prevFrom, range.prevTo) }), [trainings, range]);
+  const lastLabel = spanLabel(range.prevFrom, range.prevTo);
   const series = useMemo(() => fiscalMonthSeries(trainings, now).filter((p) => !p.isFuture || p.isCurrent).slice(-6).map((p) => p.revenue), [trainings, now]);
-  const v = useCountUp(m.revenue);
-  const change = last.revenue ? (m.revenue - last.revenue) / last.revenue : null;
+  const v = useCountUp(revenue);
+  const change = last.revenue ? (revenue - last.revenue) / last.revenue : null;
   return (
     <div className="p-5">
-      <div className="text-[13px] text-muted">Training revenue · this month</div>
+      <div className="text-[13px] text-muted">Training revenue · {thisMonth ? "this month" : range.label}</div>
       <div className="mt-2 flex items-end justify-between gap-3">
         <span className="text-[32px] font-semibold leading-none tracking-tight">{fmtINR(Math.round(v), true)}</span>
         <Sparkline values={series} />
@@ -152,7 +164,43 @@ function RevenueTile({ trainings, now, f }: { trainings: Training[]; now: Date; 
         )}
       </div>
       <div className="mt-1 text-[12px] text-faint">From the invoices in Zoho Books</div>
-      {f && <ForecastLines f={f} now={now} />}
+      {f && thisMonth && <ForecastLines f={f} now={now} />}
+    </div>
+  );
+}
+
+/** The Overview's date button (owner, 4 Nov). Custom: from–to, taken once both are whole dates in order. */
+export function RangePicker({ value, onChange, now }: { value: OverviewRange; onChange: (r: OverviewRange) => void; now: Date }) {
+  const [from, setFrom] = useState(value.kind === "custom" ? value.from : "");
+  const [to, setTo] = useState(value.kind === "custom" ? value.to : "");
+  const choose = (kind: string) => {
+    if (kind !== "custom") return onChange({ kind: kind as "month" | "lastMonth" | "quarter" });
+    const d = (x: Date) => x.toLocaleDateString("en-CA");
+    const a = from || d(new Date(now.getFullYear(), now.getMonth(), 1));
+    const b = to || d(now);
+    setFrom(a); setTo(b);
+    onChange({ kind: "custom", from: a, to: b });
+  };
+  const type = (a: string, b: string) => {
+    setFrom(a); setTo(b);
+    if (a && b && a <= b) onChange({ kind: "custom", from: a, to: b });
+  };
+  const box = `${inputCls} !h-8 !w-auto text-[13px]`;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <select className={`select-chevron ${box}`} value={value.kind} onChange={(e) => choose(e.target.value)} aria-label="Which dates the tiles show">
+        <option value="month">This month</option>
+        <option value="lastMonth">Last month</option>
+        <option value="quarter">This quarter</option>
+        <option value="custom">Custom</option>
+      </select>
+      {value.kind === "custom" && (
+        <>
+          <input type="date" className={box} value={from} max="9999-12-31" onChange={(e) => type(e.target.value, to)} aria-label="From" />
+          <span className="text-[13px] text-muted">to</span>
+          <input type="date" className={box} value={to} min={from || undefined} max="9999-12-31" onChange={(e) => type(from, e.target.value)} aria-label="To" />
+        </>
+      )}
     </div>
   );
 }
@@ -241,20 +289,22 @@ function useForecast(trainings: Training[], board: BoardTraining[], now: Date, {
   return useMemo(() => (team && lastYear ? revenueForecast(trainings, lastYear, board, pipeline ?? [], now) : null), [trainings, board, now, pipeline, lastYear, team]);
 }
 
-export function KpiStrip({ trainings, board, now, mode, aedWaiting = 0, ...forecast }: { trainings: Training[]; board: BoardTraining[]; now: Date; mode: OverviewMode; aedWaiting?: number } & ForecastInputs) {
+export function KpiStrip({ trainings, board, now, mode, aedWaiting = 0, range, ...forecast }: { trainings: Training[]; board: BoardTraining[]; now: Date; mode: OverviewMode; aedWaiting?: number; range: OverviewRange } & ForecastInputs) {
   useChartColors(); // the bars in the Reports colours of the theme (owner, 28 Oct)
   const team = mode === "team";
   const targets = team ? TEAM_TARGETS : AED_TARGETS;
-  const m = useMemo(() => boardMonth(board, now, targets), [board, now, targets]);
+  const r = useMemo(() => rangeDates(range, now), [range, now]);
+  // Targets are monthly: a quarter or a custom range shows the numbers without the bar (owner's plan, 4 Nov).
+  const m = useMemo(() => boardPeriod(board, r.from, r.to, now, r.whole ? targets.month : undefined, r.whole ? targets.peopleMonth : undefined), [board, r, now, targets]);
   const y = useMemo(() => boardYear(board, now, targets), [board, now, targets]);
   const f = useForecast(trainings, board, now, forecast, team);
   const what = team ? "Trainings" : "AED trainings";
   const endOf = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
   const fy = fiscalYearStart(now);
   const tiles = [
-    <TargetTile key="m" hero label={`${what} · ${now.toLocaleDateString("en-IN", { month: "long" })}`} s={m} end={endOf(new Date(now.getFullYear(), now.getMonth() + 1, 0))} />,
+    <TargetTile key="m" hero label={`${what} · ${r.label}`} s={m} end={endOf(r.to)} past={r.past} showPeople={team} />,
     <TargetTile key="y" label={`${what} · ${fiscalYearLabel(now)}${y.since ? ` · from ${y.since.toLocaleDateString("en-IN", { month: "short" })}` : ""}`} s={y} end={endOf(new Date(fy.getFullYear() + 1, fy.getMonth(), 0))} />,
-    team ? <RevenueTile key="r" trainings={trainings} now={now} f={f} /> : <WaitingTile key="w" waiting={aedWaiting} />,
+    team ? <RevenueTile key="r" trainings={trainings} now={now} f={f} thisMonth={range.kind === "month"} range={r} /> : <WaitingTile key="w" waiting={aedWaiting} />,
     <ComingUpTile key="c" list={board} now={now} />,
   ];
   return (
