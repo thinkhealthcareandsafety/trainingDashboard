@@ -8,7 +8,7 @@ import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { hasFullAccess, isAdmin } from "@/lib/roles";
-import { type ItemFields, STOCK_OPTIONS } from "@/lib/itemEdit";
+import { type ItemFields, STOCK_OPTIONS, UPLOAD_TEST_ITEM } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { zohoUrl } from "@/lib/zohoLinks";
@@ -1068,6 +1068,20 @@ function ItemDetails({ item, live, ticked, onTick, onClose, onSaved }: { item: I
   const [identifiers, setIdentifiers] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // TEMPORARY: the brochure upload test, on the test item only.
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string[]>([]);
+  const testUpload = async (file: File | undefined) => {
+    if (!file) return;
+    setTesting(true); setTestResult([]);
+    const body = new FormData();
+    body.set("brochureTest", item.id);
+    body.set("file", file);
+    const r = await fetch("/api/quotations", { method: "POST", body }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { attempts?: string[]; brochure?: string | null; error?: string }) : { error: "Couldn't reach the server" };
+    setTesting(false);
+    setTestResult(j.error ? [j.error] : [...(j.attempts ?? []), j.brochure ? `Brochure now: ${j.brochure}` : "No brochure was attached"]);
+  };
   const edit = () => {
     if (!fields) return;
     setForm({ ...fields, rate: String(fields.rate) }); setError("");
@@ -1125,6 +1139,15 @@ function ItemDetails({ item, live, ticked, onTick, onClose, onSaved }: { item: I
               {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
             </dl>
             <p className="mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2">{description === null ? "Getting the description…" : description || "No description in Zoho."}</p>
+            {canEdit && item.id === UPLOAD_TEST_ITEM && (
+              <div className="mt-3 rounded-xl border border-line p-3 text-[13.5px]">
+                <label className={`${btn.ghost} inline-flex cursor-pointer items-center ${!live || testing ? "pointer-events-none opacity-50" : ""}`}>
+                  {testing ? "Testing…" : "Test brochure upload (PDF under 1 MB)"}
+                  <input type="file" accept="application/pdf" className="sr-only" disabled={!live || testing} onChange={(e) => { testUpload(e.target.files?.[0]); e.target.value = ""; }} />
+                </label>
+                {testResult.length > 0 && <ul className="mt-2 space-y-1 break-words text-ink-2">{testResult.map((t, n) => <li key={n}>{t}</li>)}</ul>}
+              </div>
+            )}
             </div>
             )}
           </div>

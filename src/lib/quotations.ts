@@ -1,6 +1,6 @@
 import "server-only";
 import { zohoGet } from "./zoho";
-import { type ItemChanges, type ItemFields, itemBody, itemChanges, itemFieldsOf } from "./itemEdit";
+import { type ItemChanges, type ItemFields, UPLOAD_TEST_ITEM, itemBody, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
 import { clientOf, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
@@ -127,6 +127,42 @@ export async function editItem(id: string, after: ItemFields): Promise<{ changes
   const missed = Object.keys(itemChanges(saved, after));
   if (missed.length) throw new Error(`Zoho Books answered, but these didn't change: ${missed.join(", ")}. Check the item.`);
   return { changes, saved };
+}
+
+/**
+ * TEMPORARY (owner, 4 Nov: "i want to upload here"). Zoho documents no way to upload to the Product Brochure field: it takes a
+ * document id and refuses one already used. This tries the likely uploads on the test item only and reports each answer, so
+ * the real button can be built on what works. Remove once that's known.
+ */
+export async function tryBrochureUpload(id: string, file: File): Promise<{ attempts: string[]; brochure: string | null }> {
+  if (id !== UPLOAD_TEST_ITEM) throw new Error("This test only runs on the test item");
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const attempts: string[] = [];
+  let doc = "";
+  for (const [path, field] of [[`/items/${id}/documents`, "document"], [`/items/${id}/documents`, "attachment"], [`/items/${id}/attachment`, "attachment"], ["/documents", "document"], ["/documents", "attachment"]]) {
+    const form = new FormData();
+    form.append(field, file, file.name);
+    try {
+      const j = (await books(c, "POST", path, {}, form)) as Record<string, unknown> & { document?: { document_id?: unknown }; documents?: { document_id?: unknown }[]; document_id?: unknown };
+      doc = String(j.document?.document_id ?? j.documents?.[0]?.document_id ?? j.document_id ?? "");
+      attempts.push(`${path.replace(id, "#")} [${field}]: accepted, keys ${Object.keys(j).join(",")}, document ${doc ? "yes" : "no"}`);
+      if (doc) break;
+    } catch (e) {
+      attempts.push(`${path.replace(id, "#")} [${field}]: ${e instanceof Error ? e.message.slice(0, 120) : "failed"}`);
+    }
+  }
+  if (!doc) return { attempts, brochure: null };
+  const now = (await zohoGet<{ item?: Record<string, unknown> }>(`/items/${id}`)).item ?? {};
+  try {
+    const j = await books(c, "PUT", `/items/${id}`, {}, { name: now.name, rate: now.rate, custom_fields: [{ customfield_id: "982417000023514003", value: doc }] });
+    const brochure = String((j.item as { custom_field_hash?: Record<string, unknown> } | undefined)?.custom_field_hash?.cf_product_brochure ?? "");
+    attempts.push(`put on the field: saved, reads back "${brochure}"`);
+    return { attempts, brochure: brochure || null };
+  } catch (e) {
+    attempts.push(`put on the field: ${e instanceof Error ? e.message.slice(0, 120) : "failed"}`);
+    return { attempts, brochure: null };
+  }
 }
 
 export type AddedPerson = { id: string; name: string | null; email: string; existed: boolean };

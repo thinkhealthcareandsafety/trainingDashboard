@@ -6,11 +6,11 @@ import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, editItem, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, editItem, tryBrochureUpload, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
-import { cleanItemFields, itemFieldsOf, itemProblem, type ItemFields } from "@/lib/itemEdit";
+import { BROCHURE_MAX_BYTES, cleanItemFields, itemFieldsOf, itemProblem, type ItemFields } from "@/lib/itemEdit";
 import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 
 export const dynamic = "force-dynamic";
@@ -341,7 +341,10 @@ export async function POST(request: Request) {
   if (!canQuote(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
-  if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) return sendEmail(await request.formData().catch(() => null));
+  if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
+    const form = await request.formData().catch(() => null);
+    return form?.get("brochureTest") ? brochureTest(form, me) : sendEmail(form);
+  }
   const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> } };
   if (body.newCustomer) return newCustomer(body.newCustomer);
   if (body.addEmail) return addEmail(body.addEmail, me.name);
@@ -437,6 +440,22 @@ async function saveItem(e: { id?: string; fields?: Partial<Record<keyof ItemFiel
   } catch (x) {
     console.error("[quotations] item edit failed:", x);
     return Response.json({ error: x instanceof Error ? x.message : "Couldn't save the item" }, { status: 502 });
+  }
+}
+
+/** TEMPORARY: the brochure upload test (tryBrochureUpload), full access only, a real PDF under 1 MB. */
+async function brochureTest(form: FormData, me: { id: string; name: string }): Promise<Response> {
+  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita can do this" }, { status: 403 });
+  const file = form.get("file");
+  if (!(file instanceof File) || !file.size) return Response.json({ error: "Pick a PDF" }, { status: 400 });
+  if (file.size >= BROCHURE_MAX_BYTES) return Response.json({ error: "The PDF must be under 1 MB" }, { status: 400 });
+  if (Buffer.from(await file.slice(0, 5).arrayBuffer()).toString("latin1") !== "%PDF-") return Response.json({ error: "That file isn't a PDF" }, { status: 400 });
+  try {
+    const out = await tryBrochureUpload(String(form.get("brochureTest")), file);
+    console.log(`[quotations] brochure test by ${me.name}:`, out.attempts.join(" | "));
+    return Response.json(out);
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : "The test failed" }, { status: 502 });
   }
 }
 
