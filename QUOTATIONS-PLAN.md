@@ -20,6 +20,19 @@ Steps 1–7 and the Added / Missing half of step 8 are built and committed, not 
   extra calls and no new collection. **Upload is not built:** it must write that field, how is unknown, and it needs a test item and
   (possibly `ZohoBooks.settings.*`) an Admin reconnect. Both are the owner's to give.
 
+Later on 4 Nov:
+- **Sender:** owner tested a real quote: "it works, i checked".
+- **Brochure upload, tested on "dashboard testing item" (982417000023551054):** `PUT /items/{id}` with `custom_fields` on field 982417000023514003
+  (attachment type, Books' note: "Upload PDF less than 1 MB") and an existing file's id answered 33001 "The document can't be attached. Upload
+  the document and try again." The item stayed unchanged. So the field takes a document id, but Zoho documents no upload for it, and a forum
+  thread asking the same has no answer. Missing rows link to the item in Books instead (the `inventory/items` link path is unconfirmed). To go
+  further needs an undocumented endpoint (likely `/documents`), a deploy to try it and possibly an Admin reconnect: not done, owner's call.
+- **Add email (not in the plan, owner "yes do that"):** `addContactPerson`, `POST /contacts/contactpersons`, documented under
+  `ZohoBooks.contacts.CREATE`. Replaced "Other emails" in To; Cc unchanged. Not yet tried on a real customer: read it back on the first add,
+  and check the new person stays ticked in the email step (browser tests fake Zoho's `to_contacts`).
+- **Zia:** History output says "Zia Utilities says Content can't be null": the Zia step's prompt field is empty or mapped wrongly. We send JSON
+  `{quote, prompt}` in lowercase. The fix is in Flow.
+
 ## Owner's side
 
 | # | What | State |
