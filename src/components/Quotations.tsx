@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { celebrate } from "@/lib/confetti";
 import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
-import { Segmented, btn, inputCls } from "./ui";
+import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { isAdmin } from "@/lib/roles";
 import { useSession } from "@/lib/session";
@@ -118,12 +118,10 @@ export function Quotations() {
   const [page, setPage] = useState(0);
   const [res, setRes] = useState<ListRes | null>(null);
   const [loading, setLoading] = useState(false);
-  const [quoting, setQuoting] = useState<{ c: Customer; fresh: boolean; start?: Item[] } | null>(null);
-  const [startItems, setStartItems] = useState<Item[] | null>(null); // ticked on Items, waiting for the customer
+  const [quoting, setQuoting] = useState<{ c: Customer; fresh: boolean } | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [tick, setTick] = useState(0);
-  const [view, setView] = useState<"customers" | "items">("customers");
 
   useEffect(() => { setPage(0); }, [q, sector, type, sort]);
   useEffect(() => {
@@ -149,8 +147,6 @@ export function Quotations() {
       )}
       {res && !res.live && <p className="mb-4 rounded-2xl bg-surface-2 px-4 py-2.5 text-[14px] text-muted">This is a local copy — quotations are created in Zoho Books only from the live site.</p>}
 
-      <div className="mb-4"><Segmented value={view} onChange={setView} options={[{ value: "customers", label: "Customers" }, { value: "items", label: "Items" }]} /></div>
-      {view === "items" ? <ItemsSection clear={tick} canQuote={Boolean(res?.connected)} onQuote={(list) => { setStartItems(list); setStarting(true); }} /> : <>
       <div className="flex flex-wrap items-center gap-2">
         <input className={`${inputCls} !h-10 min-w-0 flex-1 basis-72 text-[15px]`} placeholder="Search a customer, email or phone…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search customers" autoFocus />
         <select className={`select-chevron ${inputCls} !h-10 !w-auto text-[14px]`} value={sector} onChange={(e) => setSector(e.target.value)} aria-label="Sector">
@@ -216,9 +212,8 @@ export function Quotations() {
           )}
         </div>
       )}
-      </>}
-      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} start={quoting.start} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
-      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true, start: startItems ?? undefined }); setStartItems(null); }} onClose={() => { setStarting(false); setStartItems(null); }} />, document.body)}
+      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
+      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true }); }} onClose={() => setStarting(false)} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
     </div>
   );
@@ -937,6 +932,22 @@ function Catalogue({ items, lines, onAdd, onClose }: { items: Item[]; lines: Lin
  * Items, under Quotations (owner, 4 Nov): active items only, most in demand first (quote lines in the last 12 months). No
  * pictures in the list: each costs a Zoho call, so only the item you open shows one.
  */
+export function ItemsPage() {
+  const [res, setRes] = useState<ListRes | null>(null); // whether it's connected and live, and what the customer picker needs
+  const [starting, setStarting] = useState<Item[] | null>(null); // ticked, waiting for the customer
+  const [quoting, setQuoting] = useState<{ c: Customer; items: Item[] } | null>(null);
+  const [clear, setClear] = useState(0);
+  useEffect(() => { fetch(`/api/quotations?${new URLSearchParams({ q: "", page: "0" })}`).then((r) => r.json()).then((j: ListRes) => setRes(j)).catch(() => {}); }, []);
+  return (
+    <div>
+      {res && !res.live && <p className="mb-4 rounded-2xl bg-surface-2 px-4 py-2.5 text-[14px] text-muted">This is a local copy — quotations are created in Zoho Books only from the live site.</p>}
+      <ItemsSection clear={clear} canQuote={Boolean(res?.connected)} onQuote={setStarting} />
+      {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setQuoting({ c, items: starting }); setStarting(null); }} onClose={() => setStarting(null)} />, document.body)}
+      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh start={quoting.items} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setClear((n) => n + 1); }} />, document.body)}
+    </div>
+  );
+}
+
 function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: boolean; onQuote: (items: Item[]) => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [q, setQ] = useState("");
@@ -969,7 +980,7 @@ function ItemsSection({ clear, canQuote, onQuote }: { clear: number; canQuote: b
         {picked.length > 0 && <span className="flex items-center gap-2 text-[14px] text-ink-2">{picked.length} ticked <button className={btn.quiet} onClick={() => setPicked([])}>Clear</button></span>}
         <button className={btn.primary} disabled={!picked.length || !canQuote} title={!canQuote ? "Zoho Books isn't connected for quotations yet" : !picked.length ? "Tick the items first" : undefined} onClick={() => onQuote(picked.map((id) => items!.find((i) => i.id === id)!).filter(Boolean))}>Create quotation</button>
       </div>
-      <div className="card no-scrollbar mt-4 max-h-[calc(100dvh-27rem)] min-h-64 overflow-y-auto">
+      <div className="card no-scrollbar mt-4 max-h-[calc(100dvh-24rem)] min-h-64 overflow-y-auto">
         <table className="w-full text-left text-[15px]">
           <thead className="sticky top-0 z-10 border-b border-line bg-surface text-[13px] text-muted">
             <tr>
