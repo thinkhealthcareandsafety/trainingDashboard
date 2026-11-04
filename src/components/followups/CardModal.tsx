@@ -698,12 +698,14 @@ function PhonePicker({ card, value, onChange }: { card: CardView; value: string;
 
 /**
  * Certificate location name (printed as "course conducted at"), for this training: the customer's own name, a location
- * used before, one of their aliases, or a new one. A new one close to an existing spelling asks first.
+ * used before, one of their aliases, or a new one. A new one close to an existing spelling asks first. Edit (owner, 4 Nov)
+ * starts from the chosen name; it changes this training only, and the name being edited doesn't count as "close".
  */
 function LocationPicker({ card, value, onChange }: { card: CardView; value: string | null; onChange: (v: string) => void }) {
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState("");
   const [near, setNear] = useState<string>();
+  const [from, setFrom] = useState<string | null>(null); // the name being edited
   const NEW = "\u0000new";
   const NONE = "\u0000none";
   const used = card.certLocations ?? [];
@@ -722,9 +724,12 @@ function LocationPicker({ card, value, onChange }: { card: CardView; value: stri
   const use = (force = false) => {
     const t = tidy(text);
     if (!t) return;
-    const same = known.find((x) => sameWords(x, t)) ?? (sameWords(card.name, t) ? "" : undefined);
+    if (t === from) return (setAdding(false), setNear(undefined));
+    const others = known.filter((x) => x !== from);
+    const original = from === card.name ? [] : [card.name];
+    const same = others.find((x) => sameWords(x, t)) ?? (original.some((x) => sameWords(x, t)) ? "" : undefined);
     if (same !== undefined) return (onChange(same), setAdding(false), setNear(undefined));
-    const close = force ? undefined : closeTo(t, [...known, card.name]);
+    const close = force ? undefined : closeTo(t, [...others, ...original]);
     if (close) return setNear(close);
     onChange(t);
     setAdding(false);
@@ -735,7 +740,7 @@ function LocationPicker({ card, value, onChange }: { card: CardView; value: stri
       {adding ? (
         <>
           <input
-            className={`${inputCls} !h-8 !w-56 text-[13px]`}
+            className={`${inputCls} !h-8 ${from === null ? "!w-56" : "!w-80 max-w-full"} text-[13px]`}
             placeholder="e.g. JW Marriott Mumbai Sahar"
             value={text}
             onChange={(e) => { setText(e.target.value); setNear(undefined); }}
@@ -743,7 +748,7 @@ function LocationPicker({ card, value, onChange }: { card: CardView; value: stri
             aria-label="New certificate location name"
             autoFocus
           />
-          <button type="button" className={`${btn.ghost} !h-8 !px-3`} disabled={!text.trim()} onClick={() => use(Boolean(near))}>{near ? "Keep mine" : "Use location"}</button>
+          <button type="button" className={`${btn.ghost} !h-8 !px-3`} disabled={!text.trim()} onClick={() => use(Boolean(near))}>{near ? "Keep mine" : from === null ? "Use location" : "Use this name"}</button>
           <button type="button" className={`${btn.quiet} !h-8`} onClick={() => { setAdding(false); setNear(undefined); }}>Cancel</button>
           {near && (
             <span className="w-full text-[12px] font-medium text-medium">
@@ -753,10 +758,11 @@ function LocationPicker({ card, value, onChange }: { card: CardView; value: stri
           )}
         </>
       ) : (
+        <>
         <select
           className={`${selectCls} !h-8 ${pickerWidth(rows, "w-auto max-w-[260px]")} truncate`}
           value={value ?? NONE}
-          onChange={(e) => (e.target.value === NEW ? (setText(""), setNear(undefined), setAdding(true)) : onChange(e.target.value))}
+          onChange={(e) => (e.target.value === NEW ? (setText(""), setFrom(null), setNear(undefined), setAdding(true)) : onChange(e.target.value))}
           aria-label="Certificate location name"
           title={value === null ? "Choose the name printed on the certificates" : value || `Same as original: ${card.name}`}
         >
@@ -767,6 +773,8 @@ function LocationPicker({ card, value, onChange }: { card: CardView; value: stri
           {value && !known.includes(value) && <option value={value}>{value} (new)</option>}
           <option value={NEW}>+ New location…</option>
         </select>
+        {value !== null && <button type="button" className={`${btn.quiet} !h-8`} title="Change the spelling of this name, for this training" onClick={() => { const name = value || card.name; setText(name); setFrom(name); setNear(undefined); setAdding(true); }}>Edit</button>}
+        </>
       )}
     </PickerRow>
   );
