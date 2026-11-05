@@ -12,6 +12,9 @@ import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
 import { BROCHURE_MAX_BYTES, PICTURE_MAX_BYTES, cleanItemFields, isPicture, itemFieldsOf, itemPictures, itemProblem, type ItemFields } from "@/lib/itemEdit";
 import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
+import { TS, type ZEstimate, buildTsQuote, parseMarkups, rollMarkups, tsQuoteNumber } from "@/lib/totalSupply";
+import { tsQuotePdf } from "@/lib/totalSupplyPdf";
+import { sendTsMail, tsMailOn } from "@/lib/totalSupplyMail";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +30,9 @@ export const dynamic = "force-dynamic";
  *                              it when send); with estimateId, saves that draft again instead (no second quotation)
  *   POST {zia: {request, quote}}                       — leaves a brief for Zia as a draft in learn@'s Zoho Mail (3 Nov)
  *   GET ?zia=<quote number>  — that draft once Zia wrote it and it was saved (subject + HTML)
+ *   GET ?ts=<quote id>       — a Total Supply quotation for this quote: fresh random prices, totals, the next number (5 Nov)
+ *   GET ?tsPdf=<quote id>&m=<percentages> — its PDF, to look at before sending
+ *   POST form with tsEstimateId, markups — sends it from Total Supply's Gmail and keeps a record (`totalSupplyQuotes`)
  *   PUT {code, clientId?, clientSecret?}               — Admin connects Zoho Books for quotations
  * Customers come from the Zoho copy (zohoCustomers); last quote / invoice from the Reports copy (Zoho Analytics, ≤ 6 h
  * old) plus quotations sent from here (`quotationsSent`). The popup's look-ups are live Zoho reads (sync's token).
@@ -198,6 +204,25 @@ export async function GET(request: Request) {
       return new Response(img.bytes, { headers: { "Content-Type": img.type, "Cache-Control": "private, max-age=604800" } });
     }
 
+    // Total Supply quotation (owner, 5 Nov): the prices to show in the email step, and the PDF to look at. Nothing is saved or numbered yet.
+    const tsId = q.get("ts") ?? q.get("tsPdf");
+    if (tsId) {
+      if (!/^\d+$/.test(tsId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+      const e = await readEstimate(tsId);
+      const count = e.line_items?.length ?? 0;
+      const number = tsQuoteNumber(istToday(), (await tsCounter(istToday())) + 1);
+      if (q.get("tsPdf")) {
+        const m = parseMarkups(q.get("m"), count);
+        if (!m) return Response.json({ error: "These prices don't match the quotation any more" }, { status: 400 });
+        return new Response(Buffer.from(await tsQuotePdf(buildTsQuote(e, m, number, istToday()))), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${number}.pdf"`, "Cache-Control": "private, no-store" } });
+      }
+      const t = buildTsQuote(e, rollMarkups(count), number, istToday());
+      return Response.json({
+        ready: tsMailOn(), from: TS.sender, number, file: `${number}.pdf`, total: t.total, expiry: t.expiry, markups: t.lines.map((l) => l.percent), taxed: t.taxMode !== "none",
+        lines: t.lines.map((l) => ({ name: l.name, qty: l.qty, was: l.was, rate: l.rate, percent: l.percent, gst: l.gst })),
+      });
+    }
+
     // Zoho's own PDF of a quotation, to download (#150 step 4) — read with the sync's read-only connection.
     const pdfId = q.get("pdf");
     if (pdfId) {
@@ -348,7 +373,7 @@ export async function POST(request: Request) {
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
     const form = await request.formData().catch(() => null);
-    return form?.get("brochure") ? saveBrochure(form, me) : form?.get("picture") ? savePicture(form, me) : sendEmail(form);
+    return form?.get("brochure") ? saveBrochure(form, me) : form?.get("picture") ? savePicture(form, me) : form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form);
   }
   const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> } };
   if (body.newCustomer) return newCustomer(body.newCustomer);
@@ -528,6 +553,56 @@ async function sendEmail(form: FormData | null): Promise<Response> {
   } catch (e) {
     console.error("[quotations] email failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't send the email" }, { status: 502 });
+  }
+}
+
+const readEstimate = async (id: string): Promise<ZEstimate> => (await zohoGet<{ estimate?: ZEstimate }>(`/estimates/${id}`)).estimate ?? {};
+const tsCounter = async (ymd: string) => (await (await db()).collection<{ _id: string; n?: number }>("kv").findOne({ _id: `ts_quote_no:${ymd}` }))?.n ?? 0;
+
+/**
+ * Total Supply quotation (owner, 5 Nov): the main quote's lines at the prices shown in the email step, from Total Supply's Gmail with our
+ * own PDF. Zoho is only read: the main quote stays as it is, and isn't marked Sent by this. A number is taken only once the email is ready to go.
+ */
+async function sendTotalSupply(form: FormData, me: { id: string; name: string }): Promise<Response> {
+  const str = (k: string, max: number) => String(form.get(k) ?? "").trim().slice(0, max);
+  const mails = (k: string) => str(k, 2000).split(/[,;\s]+/).map((x) => x.toLowerCase()).filter(Boolean);
+  const id = str("tsEstimateId", 30), to = mails("to"), subject = str("subject", 300), body = str("body", 100_000);
+  const cc = [...new Set(mails("cc"))].filter((m) => !to.includes(m));
+  const files = form.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
+  const bad = [...to, ...cc].find((m) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
+  if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+  if (!to.length) return Response.json({ error: "Add at least one email in To" }, { status: 400 });
+  if (bad) return Response.json({ error: `${bad} doesn't look like an email` }, { status: 400 });
+  if (to.length + cc.length > 20 || files.length > 10) return Response.json({ error: "At most 20 emails and 10 attachments" }, { status: 400 });
+  if (!subject) return Response.json({ error: "Type a subject" }, { status: 400 });
+  if (files.reduce((n, f) => n + f.size, 0) > EMAIL_MAX_BYTES) return Response.json({ error: "Attachments are over 4 MB together — leave some out" }, { status: 400 });
+  if (!tsMailOn()) return Response.json({ error: "Total Supply's Gmail isn't connected yet" }, { status: 409 });
+  try {
+    const e = await readEstimate(id);
+    const markups = parseMarkups(str("markups", 500), e.line_items?.length ?? 0);
+    if (!markups) return Response.json({ error: "The quotation changed: open Total Supply quotation again" }, { status: 409 });
+    const today = istToday();
+    const seq = await (await db()).collection<{ _id: string; n: number }>("kv").findOneAndUpdate({ _id: `ts_quote_no:${today}` }, { $inc: { n: 1 } }, { upsert: true, returnDocument: "after" });
+    const number = tsQuoteNumber(today, seq?.n ?? 1);
+    const quote = buildTsQuote(e, markups, number, today);
+    // Someone else may have sent one since this was opened: the email shows the number it really gets.
+    const shown = str("number", 60);
+    const swap = (s: string) => (shown && shown !== number ? s.split(shown).join(number) : s);
+    await sendTsMail({
+      to, cc, subject: swap(subject), html: swap(body),
+      attachments: [
+        { filename: `${number}.pdf`, content: Buffer.from(await tsQuotePdf(quote)), contentType: "application/pdf" },
+        ...(await Promise.all(files.map(async (f) => ({ filename: f.name, content: Buffer.from(await f.arrayBuffer()), contentType: f.type || undefined })))),
+      ],
+    });
+    await (await db()).collection<{ _id: string }>("totalSupplyQuotes").insertOne({
+      _id: number, estimateId: id, mainNumber: quote.mainNumber, customerId: quote.customer.id, customerName: quote.customer.name, to, cc, by: me.name, byId: me.id, at: new Date().toISOString(),
+      total: quote.total, lines: quote.lines.map((l) => ({ name: l.name, qty: l.qty, was: l.was, rate: l.rate, percent: l.percent })),
+    } as { _id: string }).catch((err) => console.error("[quotations] Total Supply record failed:", err));
+    return Response.json({ ok: true, number });
+  } catch (err) {
+    console.error("[quotations] Total Supply email failed:", err);
+    return Response.json({ error: err instanceof Error ? err.message : "Couldn't send the email" }, { status: 502 });
   }
 }
 

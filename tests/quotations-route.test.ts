@@ -98,3 +98,35 @@ test("the two fixed Cc addresses count towards the 20-address limit", async () =
   assert.match((await email({ ...mail, to: list(18) })).j.error, /isn't connected/); // 18 + 2
   assert.match((await email({ ...mail, to: `${list(18)},sales@thinkhealth.in,sshah@thinkhealth.in` })).j.error, /isn't connected/); // they're in To: not twice
 });
+
+const tsMail = { tsEstimateId: "9001", to: "asha@example.com", subject: "Quotation-2026-11-05-001", markups: "5" };
+const tsGet = async (q: string) => {
+  const r = await GET(new Request(`http://x/api/quotations?${q}`, { headers: { "x-test-member": JSON.stringify(sumit) } }));
+  return { s: r.status, j: await r.json() };
+};
+
+test("Total Supply: the same checks; nothing goes without the Gmail password; nothing can leave a local server", async () => {
+  const had = process.env.TS_GMAIL_APP_PASSWORD;
+  delete process.env.TS_GMAIL_APP_PASSWORD;
+  try {
+    assert.match((await email({ ...tsMail, to: "" })).j.error, /To/);
+    assert.match((await email({ ...tsMail, subject: "" })).j.error, /subject/);
+    assert.match((await email({ ...tsMail, tsEstimateId: "abc" })).j.error, /Unknown quotation/);
+    assert.match((await email(tsMail, [new File([new Uint8Array(4 * 1024 * 1024 + 1)], "big.pdf")])).j.error, /4 MB/);
+    const off = await email(tsMail);
+    assert.equal(off.s, 409);
+    assert.match(off.j.error, /Gmail isn't connected/);
+    process.env.TS_GMAIL_APP_PASSWORD = "not-a-real-one";
+    const noZoho = await email(tsMail); // gets as far as reading the quote; the fake database has no Zoho connection, so no email
+    assert.equal(noZoho.s, 502);
+    process.env.VERCEL_ENV = "preview";
+    assert.equal((await email(tsMail)).s, 409);
+  } finally {
+    if (had === undefined) delete process.env.TS_GMAIL_APP_PASSWORD; else process.env.TS_GMAIL_APP_PASSWORD = had;
+  }
+});
+
+test("Total Supply: a bad quote id is refused before anything is read", async () => {
+  assert.equal((await tsGet("ts=abc")).s, 400);
+  assert.equal((await tsGet("tsPdf=abc")).s, 400);
+});
