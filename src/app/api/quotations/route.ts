@@ -174,8 +174,9 @@ type CF = { api_name?: string; value?: unknown };
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   const q = new URL(request.url).searchParams;
+  // Everyone may look at the items (owner, 5 Nov): the list, one item, its pictures. Customers, quotations and everything else stay with the people who quote.
+  if (!canQuote(me) && !q.has("items") && !q.has("item") && !q.has("image")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   try {
     if (q.get("items")) {
       // The stock tables are read once per Analytics refresh and already hold Quote Items, so "demand" costs no extra reads.

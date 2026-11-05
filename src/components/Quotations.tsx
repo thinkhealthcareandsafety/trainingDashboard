@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
-import { hasFullAccess, isAdmin } from "@/lib/roles";
+import { canQuote as mayQuote, hasFullAccess, isAdmin } from "@/lib/roles";
 import { BROCHURE_MAX_BYTES, GST_OPTIONS, type ItemFields, PICTURE_MAX_BYTES, STOCK_OPTIONS } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
@@ -992,18 +992,21 @@ export function ItemsPage() {
   const [starting, setStarting] = useState<Item[] | null>(null); // ticked, waiting for the customer
   const [quoting, setQuoting] = useState<{ c: Customer; items: Item[] } | null>(null);
   const [clear, setClear] = useState(0);
-  useEffect(() => { fetch(`/api/quotations?${new URLSearchParams({ q: "", page: "0" })}`).then((r) => r.json()).then((j: ListRes) => setRes(j)).catch(() => {}); }, []);
+  const { member } = useSession();
+  // Everyone sees the items (owner, 5 Nov); those who don't quote only look, and never load the customer list.
+  const viewOnly = Boolean(member && !mayQuote(member));
+  useEffect(() => { if (!viewOnly) fetch(`/api/quotations?${new URLSearchParams({ q: "", page: "0" })}`).then((r) => r.json()).then((j: ListRes) => setRes(j)).catch(() => {}); }, [viewOnly]);
   return (
     <div>
       {res && !res.live && <p className="mb-4 rounded-2xl bg-surface-2 px-4 py-2.5 text-[14px] text-muted">This is a local copy — quotations are created in Zoho Books only from the live site.</p>}
-      <ItemsSection clear={clear} live={Boolean(res?.live)} canQuote={Boolean(res?.connected)} onQuote={setStarting} />
+      <ItemsSection viewOnly={viewOnly} clear={clear} live={Boolean(res?.live)} canQuote={Boolean(res?.connected)} onQuote={setStarting} />
       {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setQuoting({ c, items: starting }); setStarting(null); }} onClose={() => setStarting(null)} />, document.body)}
       {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh start={quoting.items} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setClear((n) => n + 1); }} />, document.body)}
     </div>
   );
 }
 
-function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live: boolean; canQuote: boolean; onQuote: (items: Item[]) => void }) {
+function ItemsSection({ viewOnly, clear, live, canQuote, onQuote }: { viewOnly: boolean; clear: number; live: boolean; canQuote: boolean; onQuote: (items: Item[]) => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
@@ -1063,13 +1066,13 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
           <option value="all">Everything</option>
         </select>
         {picked.length > 0 && <span className="flex items-center gap-2 text-[14px] text-ink-2">{picked.length} ticked <button className={btn.quiet} onClick={() => setPicked([])}>Clear</button></span>}
-        <button className={btn.primary} disabled={!picked.length || !canQuote} title={!canQuote ? "Zoho Books isn't connected for quotations yet" : !picked.length ? "Tick the items first" : undefined} onClick={() => onQuote(picked.map((id) => items!.find((i) => i.id === id)!).filter(Boolean))}>Create quotation</button>
+        {!viewOnly && <button className={btn.primary} disabled={!picked.length || !canQuote} title={!canQuote ? "Zoho Books isn't connected for quotations yet" : !picked.length ? "Tick the items first" : undefined} onClick={() => onQuote(picked.map((id) => items!.find((i) => i.id === id)!).filter(Boolean))}>Create quotation</button>}
       </div>
       <div ref={list} className="card no-scrollbar mt-4 overflow-y-auto" style={{ maxHeight: height }}>
         <table className="w-full text-left text-[15px]">
           <thead className="sticky top-0 z-10 border-b border-line bg-surface text-[13px] text-muted">
             <tr>
-              <th className="w-10 py-3 pl-4"><span className="sr-only">Tick</span></th>
+              {!viewOnly && <th className="w-10 py-3 pl-4"><span className="sr-only">Tick</span></th>}
               <th className="px-3 py-3 font-medium">Item</th>
               <th className="px-3 py-3 text-right font-medium">Price</th>
               <th className="hidden px-3 py-3 text-right font-medium md:table-cell">GST</th>
@@ -1081,12 +1084,12 @@ function ItemsSection({ clear, live, canQuote, onQuote }: { clear: number; live:
           <tbody className="divide-y divide-line">
             {shown.slice(0, 200).map((i) => (
               <tr key={i.id} className={`cursor-pointer hover:bg-surface-2/70 ${picked.includes(i.id) ? "bg-brand-soft" : ""}`} onClick={() => setOpen(i)}>
-                <td className="py-2.5 pl-4" onClick={(e) => e.stopPropagation()}><input type="checkbox" className="size-4 accent-[var(--brand)] disabled:opacity-40" checked={picked.includes(i.id)} disabled={i.active === false} title={i.active === false ? "Inactive in Zoho: it can't go on a quotation" : undefined} onChange={() => toggle(i.id)} aria-label={`Tick ${i.name}`} /></td>
+                {!viewOnly && <td className="py-2.5 pl-4" onClick={(e) => e.stopPropagation()}><input type="checkbox" className="size-4 accent-[var(--brand)] disabled:opacity-40" checked={picked.includes(i.id)} disabled={i.active === false} title={i.active === false ? "Inactive in Zoho: it can't go on a quotation" : undefined} onChange={() => toggle(i.id)} aria-label={`Tick ${i.name}`} /></td>}
                 <td className="min-w-0 px-3 py-2.5"><span className="block font-medium text-ink">{i.name}</span><span className="block text-[13px] text-muted">{groupOf(i)}{i.active === false && <span className="ml-1.5 rounded bg-surface-2 px-1.5 text-[11px] font-bold">INACTIVE</span>}</span></td>
                 <td className="num whitespace-nowrap px-3 py-2.5 text-right text-ink-2">{i.rate ? inr(i.rate) : "—"}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.gst === null ? "—" : `${i.gst}%`}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.service ? "Service" : (i.onHand ?? 0).toLocaleString("en-IN")}</td>
-                <td className="whitespace-nowrap px-3 py-2.5 text-[14px]"><BrochureState item={i} live={live} onAdded={(b) => addedBrochure(i.id, b)} /></td>
+                <td className="whitespace-nowrap px-3 py-2.5 text-[14px]"><BrochureState viewOnly={viewOnly} item={i} live={live} onAdded={(b) => addedBrochure(i.id, b)} /></td>
                 <td className="num px-3 py-2.5 pr-4 text-right font-semibold text-ink">{i.demand ? i.demand.toLocaleString("en-IN") : "—"}</td>
               </tr>
             ))}
@@ -1115,10 +1118,10 @@ function EditField({ name, wide, children }: { name: string; wide?: boolean; chi
 }
 
 /** Added / Missing, from Books' Product Brochure field; nothing yet while the copy predates it (the hourly item read fills it). */
-function BrochureState({ item, live, onAdded }: { item: Item; live: boolean; onAdded: (brochure: string) => void }) {
+function BrochureState({ viewOnly, item, live, onAdded }: { viewOnly: boolean; item: Item; live: boolean; onAdded: (brochure: string) => void }) {
   if (item.brochure == null) return <span className="text-muted">—</span>;
   if (item.brochure) return <span className="font-medium text-low" title={item.brochure}>✓ Added</span>;
-  return <span className="text-medium">Missing · <AddBrochure item={item} live={live} onAdded={onAdded} /></span>;
+  return <span className="text-medium">Missing{!viewOnly && <> · <AddBrochure item={item} live={live} onAdded={onAdded} /></>}</span>;
 }
 
 /** Picks a PDF and puts it on the item in Zoho Books (the Product Brochure field). From the computer up to 4 MB (Vercel's limit); from WorkDrive, larger. */
@@ -1275,6 +1278,7 @@ function AddPicture({ item, live, onAdded }: { item: Item; live: boolean; onAdde
 function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClose, onSaved }: { item: Item; live: boolean; onBrochure: (brochure: string) => void; onPicture: () => void; ticked: boolean; onTick: () => void; onClose: () => void; onSaved: (f: ItemFields) => void }) {
   const { member } = useSession();
   const canEdit = Boolean(member && hasFullAccess(member));
+  const viewOnly = Boolean(member && !mayQuote(member));
   const [description, setDescription] = useState<string | null>(null);
   const [fields, setFields] = useState<ItemFields | null>(null); // Zoho's current values, when opened
   const [allDescription, setAllDescription] = useState(false);
@@ -1339,7 +1343,7 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
                   })}
                 </div>
               )}
-              <div className="mt-2 text-[14px]"><AddPicture item={item} live={live} onAdded={(list, added) => { setPictures(list); setShownPicture(added); onPicture(); }} /></div>
+              {!viewOnly && <div className="mt-2 text-[14px]"><AddPicture item={item} live={live} onAdded={(list, added) => { setPictures(list); setShownPicture(added); onPicture(); }} /></div>}
             </div>
             {form ? (
               <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -1359,7 +1363,7 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
             <dl className="space-y-1.5 text-[14.5px]">
               {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
             </dl>
-            <div className="mt-1 text-right text-[14px]"><AddBrochure item={item} live={live} label={item.brochure ? "Replace PDF" : "Add PDF"} onAdded={onBrochure} /></div>
+            {!viewOnly && <div className="mt-1 text-right text-[14px]"><AddBrochure item={item} live={live} label={item.brochure ? "Replace PDF" : "Add PDF"} onAdded={onBrochure} /></div>}
             {/* Four lines at first (owner, 4 Nov: the description was "taking all the space"); blank lines closed up here only. */}
             <p className={`mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2 ${longDescription && !allDescription ? "line-clamp-4" : ""}`}>{description === null ? "Getting the description…" : description.replace(/\n\s*\n+/g, "\n") || "No description in Zoho."}</p>
             {longDescription && <button type="button" className="mt-1 text-[14px] font-semibold text-brand hover:underline" onClick={() => setAllDescription((v) => !v)}>{allDescription ? "Show less" : "Show all"}</button>}
@@ -1377,7 +1381,7 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
             <>
               {canEdit && <button className={`${btn.ghost} mr-auto`} disabled={!fields} onClick={edit}>Edit</button>}
               <button className={btn.ghost} onClick={onClose}>Close</button>
-              <button className={btn.primary} onClick={() => { onTick(); onClose(); }}>{ticked ? "Untick" : "Tick"}</button>
+              {!viewOnly && <button className={btn.primary} onClick={() => { onTick(); onClose(); }}>{ticked ? "Untick" : "Tick"}</button>}
             </>
           )}
         </div>
