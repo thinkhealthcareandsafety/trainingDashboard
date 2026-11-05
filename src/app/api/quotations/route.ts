@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { canQuote, isAdmin, hasFullAccess } from "@/lib/roles";
+import { canQuote, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
@@ -175,7 +175,7 @@ export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const q = new URL(request.url).searchParams;
-  // Everyone may look at the items (owner, 5 Nov): the list, one item, its pictures, and WorkDrive's folder for Add PDF. Customers, quotations and everything else stay with the people who quote.
+  // Every member can use the Items page (owner, 5 Nov): the list, one item, its pictures, and WorkDrive's folder for Add PDF. Customers, quotations and everything else stay with the people who quote.
   if (!canQuote(me) && !q.has("items") && !q.has("item") && !q.has("image") && !q.has("wd")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   try {
     if (q.get("items")) {
@@ -387,16 +387,18 @@ export async function POST(request: Request) {
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
     const form = await request.formData().catch(() => null);
-    if (form?.get("brochure")) return saveBrochure(form, me); // anyone can add a PDF to an item (owner, 5 Nov)
+    // Everything on an item is for every member (owner, 5 Nov).
+    if (form?.get("brochure")) return saveBrochure(form, me);
+    if (form?.get("picture")) return savePicture(form, me);
     if (!canQuote(me)) return refused();
-    return form?.get("picture") ? savePicture(form, me) : form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form);
+    return form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form);
   }
   const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; wdPick?: { itemId?: string; path?: string; fileId?: string } };
-  if (body.wdPick) return pickFromWorkdrive(body.wdPick, me); // the same as a PDF from the computer: anyone
+  if (body.wdPick) return pickFromWorkdrive(body.wdPick, me);
+  if (body.editItem) return saveItem(body.editItem, me);
   if (!canQuote(me)) return refused();
   if (body.newCustomer) return newCustomer(body.newCustomer);
   if (body.addEmail) return addEmail(body.addEmail, me.name);
-  if (body.editItem) return saveItem(body.editItem, me);
   if (body.zia) return ziaDraft(body.zia);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
@@ -471,7 +473,6 @@ async function ziaDraft(z: { request?: string; quote?: QuoteEmailInput }): Promi
  * list's copy follows at once; the hourly item read would otherwise show the old values for up to an hour.
  */
 async function saveItem(e: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }, me: { id: string; name: string }): Promise<Response> {
-  if (!hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita can edit items" }, { status: 403 });
   const id = String(e.id ?? "");
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown item" }, { status: 400 });
   const fields = cleanItemFields(e.fields ?? {});

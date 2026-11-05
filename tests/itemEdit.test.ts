@@ -114,7 +114,7 @@ const addPicture = async (who: { id: string; name: string }, id: string, file?: 
   return { s: r.status, j: await r.json() };
 };
 
-test("add picture: a real picture under 4 MB, for everyone who can use the page; else on to Zoho (not connected here)", async () => {
+test("add picture: a real picture under 4 MB, for every member; else on to Zoho (not connected here)", async () => {
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]);
   assert.match((await addPicture(sumit, "abc", new File([png], "a.png"))).j.error, /Unknown item/);
   assert.match((await addPicture(sumit, "1")).j.error, /Pick a picture/);
@@ -123,11 +123,12 @@ test("add picture: a real picture under 4 MB, for everyone who can use the page;
   const ok = await addPicture({ id: "pranjal", name: "Pranjal Nikalje" }, "1", new File([png], "a.png"));
   assert.equal(ok.s, 502);
   assert.match(ok.j.error, /isn't connected/);
-  assert.equal((await addPicture({ id: "priyanka", name: "Priyanka A" }, "1", new File([png], "a.png"))).s, 403);
+  assert.equal((await addPicture({ id: "priyanka", name: "Priyanka A" }, "1", new File([png], "a.png"))).s, 502); // every member (owner, 5 Nov); here it stops at the missing connection
 });
 
-test("who can edit: full access, not someone who can only quote", async () => {
-  assert.equal((await post({ id: "pranjal", name: "Pranjal Nikalje" }, { id: "1", fields })).s, 403);
+test("who can edit: every member (owner, 5 Nov); here it stops at the missing connection", async () => {
+  assert.equal((await post({ id: "pranjal", name: "Pranjal Nikalje" }, { id: "1", fields })).s, 502);
+  assert.equal((await post({ id: "p", name: "Prashant Sawale" }, { id: "1", fields })).s, 502);
   assert.equal((await post(sumit, { id: "abc", fields })).s, 400);
   assert.match((await post(sumit, { id: "1", fields: { ...fields, name: "" } })).j.error, /name/);
   const ok = await post(sumit, { id: "1", fields });

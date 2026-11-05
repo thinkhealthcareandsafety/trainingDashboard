@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
 import { btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
-import { canQuote as mayQuote, hasFullAccess, isAdmin } from "@/lib/roles";
+import { canQuote as mayQuote, isAdmin } from "@/lib/roles";
 import { BROCHURE_MAX_BYTES, GST_OPTIONS, type ItemFields, PICTURE_MAX_BYTES, STOCK_OPTIONS } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
@@ -993,7 +993,7 @@ export function ItemsPage() {
   const [quoting, setQuoting] = useState<{ c: Customer; items: Item[] } | null>(null);
   const [clear, setClear] = useState(0);
   const { member } = useSession();
-  // Everyone sees the items (owner, 5 Nov); those who don't quote only look, and never load the customer list.
+  // Every member uses this page (owner, 5 Nov); those who don't quote just can't start a quotation, and never load the customer list.
   const viewOnly = Boolean(member && !mayQuote(member));
   useEffect(() => { if (!viewOnly) fetch(`/api/quotations?${new URLSearchParams({ q: "", page: "0" })}`).then((r) => r.json()).then((j: ListRes) => setRes(j)).catch(() => {}); }, [viewOnly]);
   return (
@@ -1279,8 +1279,7 @@ function AddPicture({ item, live, onAdded }: { item: Item; live: boolean; onAdde
 /** One item: its picture, figures and Zoho's description (one Zoho call each, when opened). */
 function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClose, onSaved }: { item: Item; live: boolean; onBrochure: (brochure: string) => void; onPicture: () => void; ticked: boolean; onTick: () => void; onClose: () => void; onSaved: (f: ItemFields) => void }) {
   const { member } = useSession();
-  const canEdit = Boolean(member && hasFullAccess(member));
-  const viewOnly = Boolean(member && !mayQuote(member));
+  const noQuotes = Boolean(member && !mayQuote(member)); // everything here is for every member, except starting a quotation
   const [description, setDescription] = useState<string | null>(null);
   const [fields, setFields] = useState<ItemFields | null>(null); // Zoho's current values, when opened
   const [allDescription, setAllDescription] = useState(false);
@@ -1345,7 +1344,7 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
                   })}
                 </div>
               )}
-              {!viewOnly && <div className="mt-2 text-[14px]"><AddPicture item={item} live={live} onAdded={(list, added) => { setPictures(list); setShownPicture(added); onPicture(); }} /></div>}
+              <div className="mt-2 text-[14px]"><AddPicture item={item} live={live} onAdded={(list, added) => { setPictures(list); setShownPicture(added); onPicture(); }} /></div>
             </div>
             {form ? (
               <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -1381,9 +1380,9 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
             </>
           ) : (
             <>
-              {canEdit && <button className={`${btn.ghost} mr-auto`} disabled={!fields} onClick={edit}>Edit</button>}
+              <button className={`${btn.ghost} mr-auto`} disabled={!fields} onClick={edit}>Edit</button>
               <button className={btn.ghost} onClick={onClose}>Close</button>
-              {!viewOnly && <button className={btn.primary} onClick={() => { onTick(); onClose(); }}>{ticked ? "Untick" : "Tick"}</button>}
+              {!noQuotes && <button className={btn.primary} onClick={() => { onTick(); onClose(); }}>{ticked ? "Untick" : "Tick"}</button>}
             </>
           )}
         </div>

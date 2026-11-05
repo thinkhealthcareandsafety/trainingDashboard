@@ -19,7 +19,7 @@ test("everyone else keeps Follow-ups", () => {
   for (const name of ["Shikha", "Pranjal Nikalje", "Priyanka", "Arti Sirohi", "Shreya", "Someone New"]) assert.equal(hasFollowUps({ id: "x", name }), true, name);
 });
 
-test("everyone may look at the items and add a PDF, and nothing else", async () => {
+test("every member can change anything on an item, and nothing else in Quotations", async () => {
   const { GET, POST } = await import("@/app/api/quotations/route");
   const ask = (q: string, m: object = prashant) => GET(new Request(`http://x/api/quotations?${q}`, { headers: { "x-test-member": JSON.stringify(m) } }));
   for (const m of [prashant, { id: "a", name: "Arti Sirohi" }, { id: "b", name: "Someone New" }]) {
@@ -31,12 +31,12 @@ test("everyone may look at the items and add a PDF, and nothing else", async () 
   const form = new FormData();
   form.set("brochure", "1");
   form.set("file", new File(["%PDF-1.4"], "a.pdf"));
-  // Adding a PDF is for anyone: past the check, on to Zoho (not connected in the fake database). A picture, or anything else, isn't.
+  // Past the check, on to Zoho (not connected in the fake database): a PDF, a picture. Quotes and customers aren't for him.
   assert.equal((await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(prashant) }, body: form }))).status, 502);
   const pic = new FormData();
   pic.set("picture", "1");
-  pic.set("file", new File(["x"], "a.png"));
-  assert.equal((await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(prashant) }, body: pic }))).status, 403);
+  pic.set("file", new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0])], "a.png"));
+  assert.equal((await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(prashant) }, body: pic }))).status, 502);
   const mail = new FormData();
   mail.set("estimateId", "1");
   mail.set("to", "a@example.com");
@@ -45,8 +45,7 @@ test("everyone may look at the items and add a PDF, and nothing else", async () 
   const json = (b: object) => POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(prashant), "content-type": "application/json" }, body: JSON.stringify(b) }));
   assert.equal((await json({ customerId: "1", lines: [{ itemId: "1", qty: 1, rate: 1 }] })).status, 403);
   assert.equal((await json({ newCustomer: { company: "x" } })).status, 403);
-  const edit = await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(prashant), "content-type": "application/json" }, body: JSON.stringify({ editItem: { id: "1", fields: {} } }) }));
-  assert.equal(edit.status, 403);
+  assert.notEqual((await json({ editItem: { id: "1", fields: {} } })).status, 403);
 });
 
 test("the AED board's data is refused for him", async () => {
