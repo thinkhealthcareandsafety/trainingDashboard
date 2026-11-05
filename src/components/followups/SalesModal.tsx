@@ -53,7 +53,8 @@ export function SalesModal({ card, cards, member, options, onClose, onReviewMerg
   const ownDelete = cardEvents.some((e) => !e.revertedAt && e.kind === "delete" && e.cardIds.includes(card.id));
   const canRestore = cardEvents.some((e) => !e.revertedAt && e.kind === "delete" && e.cardIds.includes(card.id) && canRevert(member, e));
   const restore = () => { const ev = activeEvent((e) => e.kind === "delete" && e.cardIds.includes(card.id)); if (ev) revertCardEvent(ev.id, member.name); };
-  const mergeEvent = (fromId: string) => activeEvent((e) => e.kind === "merge" && e.cardIds[0] === fromId && e.cardIds[1] === card.id);
+  // A split invoice's other invoices merged into their own payments, which fold into this card.
+  const mergeEvent = (fromId: string) => activeEvent((e) => e.kind === "merge" && e.cardIds[0] === fromId && (e.cardIds[1] === card.id || Boolean(card.dealInvoices)));
   const unmerge = (fromId: string) => { const ev = mergeEvent(fromId); if (ev) revertCardEvent(ev.id, member.name); };
   const canUnmerge = (fromId: string) => { const ev = mergeEvent(fromId); return Boolean(ev && canRevert(member, ev)); };
 
@@ -162,7 +163,10 @@ const taxName = (n: string) => n.replace(/^([A-Za-z]+)\s*(\d+(?:\.\d+)?)$/, "$1 
  * ship to address … a click to open thing"): read when the card opens (Zoho once, then kept — salesSync.ts).
  */
 function DocumentSection({ card }: { card: CardView }) {
-  const key = docKey(card);
+  // A split invoice: one button per invoice, each showing its own lines.
+  const [picked, setPicked] = useState<string | null>(null);
+  const deal = card.dealInvoices;
+  const key = picked && deal?.some((i) => i.invoiceId === picked) ? `invoices:${picked}` : docKey(card);
   const [d, setD] = useState<SalesDetail | { error: string } | null>(null);
   useEffect(() => {
     let live = true;
@@ -189,6 +193,11 @@ function DocumentSection({ card }: { card: CardView }) {
         </h3>
         {aside}
       </div>
+      {deal && (
+        <div className="mb-2 flex shrink-0 flex-wrap gap-1.5" role="group" aria-label="Invoices on this card">
+          {deal.map((i) => <button key={i.invoiceId} type="button" aria-pressed={`invoices:${i.invoiceId}` === key} className={`rounded-full border px-3 py-1 text-[13px] ${`invoices:${i.invoiceId}` === key ? "border-brand bg-brand-soft text-ink" : "border-line text-ink-2 hover:bg-surface-2"}`} onClick={() => setPicked(i.invoiceId)}>{i.number}</button>)}
+        </div>
+      )}
       {/* Wide screens: the totals sit beside the lines, so the lines get the height (owner, 3 Nov: "fit in one window"). */}
       <div className="xl:grid xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_17rem] xl:grid-rows-[minmax(0,1fr)] xl:items-start xl:gap-4">
       {/* A real table (owner, 3 Nov: "it will look better in a table"): ruled cells, a header band. At least ~3 lines

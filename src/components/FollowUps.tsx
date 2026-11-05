@@ -316,7 +316,7 @@ function DocItem({ card, onClick }: { card: CardView; onClick: () => void }) {
         // An invoice paid in instalments, merged: the total and how many payments, latest date.
         <div className="mt-0.5">
           <span className="num font-semibold text-low">{fmtINR(card.payments!.reduce((s, p) => s + p.amount, 0))}</span> · {card.payments!.length} payments
-          <div className="truncate">Last {dateLong(card.payments!.at(-1)!.date)} · Invoice {pay.invoiceNumber}</div>
+          <div className="truncate">Last {dateLong(card.payments!.at(-1)!.date)} · {card.dealInvoices ? `${card.dealInvoices.length} invoices` : `Invoice ${pay.invoiceNumber}`}</div>
         </div>
       ) : pay && (
         <div className="mt-0.5">

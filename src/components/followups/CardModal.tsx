@@ -334,7 +334,22 @@ export function PaymentSection({ card, cards }: { card: CardView; cards: Cards }
   const inv = card.kind === "invoice" ? card.invoice : card.kind === "payment" ? card.linkedInvoice : undefined;
   if (!inv) return null;
   const due = cardDue(card);
+  // A split invoice (owner, 5 Nov): one line per invoice.
+  if (card.dealInvoices) {
+    const all = card.dealInvoices.flatMap((i) => invoicePayments(i.invoiceId, cards));
+    return (
+      <Section title="Payment" aside={due && <DueChip due={due} big />}>
+        <p className="text-[14px] text-ink-2">Received <b className="num text-ink">{fmtINR(all.reduce((s, p) => s + p.amount, 0))}</b>{all.some((p) => p.tdsWithheld) && <> + TDS <b className="num text-ink">{fmtINR(all.reduce((s, p) => s + (p.tdsWithheld ?? 0), 0))}</b></>} across {card.dealInvoices.length} invoices</p>
+        <ul className="mt-1 space-y-0.5 text-[13px] text-ink-2">
+          {card.dealInvoices.map((i) => (
+            <li key={i.invoiceId}><span className="font-medium">{i.number}</span> <span className="text-muted">{invoicePayments(i.invoiceId, cards).map((p) => `#${p.number} ${fmtINR(p.amount)}${p.tdsWithheld ? ` + TDS ${fmtINR(p.tdsWithheld)}` : ""}`).join(", ")}</span><SettledNote invoice={i} payments={invoicePayments(i.invoiceId, cards)} /></li>
+          ))}
+        </ul>
+      </Section>
+    );
+  }
   const payments = invoicePayments(inv.invoiceId, cards);
+  const alsoPaid = (p: ZohoPayment) => [...cards.values()].flatMap((c) => (c.kind === "payment" && c.payment?.paymentId === p.paymentId && c.payment.invoiceId !== inv.invoiceId ? [c.payment.invoiceNumber] : [])).sort();
   return (
     <Section title="Payment" aside={due && <DueChip due={due} big />}>
       {/* One line, so the modal still fits without scrolling; several payments open in a small window. */}
@@ -342,15 +357,24 @@ export function PaymentSection({ card, cards }: { card: CardView; cards: Cards }
         Due <b className="text-ink">{inv.dueDate ? dateLong(inv.dueDate) : "—"}</b>
         {inv.balance !== undefined && inv.balance > 0 && <> · <b className="num text-ink">{fmtINR(inv.balance)}</b> still due</>}
         {payments.length === 0 ? (
-          <span className="text-muted"> · not paid yet</span>
+          // Zoho says it's settled, with no payment to show (a credit note, or its payment isn't read yet).
+          <span className="text-muted"> · {inv.balance === 0 && inv.status === "paid" ? "paid in Zoho Books" : "not paid yet"}</span>
         ) : payments.length === 1 ? (
-          <span> · Paid <b className="text-ink">{dateLong(payments[0].date)}</b> <span className="text-muted">({fmtINR(payments[0].amount)}{payments[0].tdsWithheld ? ` + TDS ${fmtINR(payments[0].tdsWithheld)}` : ""}, Payment #{payments[0].number})</span></span>
+          <span> · Paid <b className="text-ink">{dateLong(payments[0].date)}</b> <span className="text-muted">({fmtINR(payments[0].amount)}{payments[0].tdsWithheld ? ` + TDS ${fmtINR(payments[0].tdsWithheld)}` : ""}, Payment #{payments[0].number}{alsoPaid(payments[0]).length > 0 && `, which also paid ${alsoPaid(payments[0]).join(", ")}`})</span></span>
         ) : (
           <> · <PaymentsLink invoice={inv} payments={payments} /></>
         )}
+        <SettledNote invoice={inv} payments={payments} />
       </p>
     </Section>
   );
+}
+
+/** Zoho's balance is 0, but the payments come to less: the rest was settled some other way (a credit note, a write-off). */
+function SettledNote({ invoice, payments }: { invoice: ZohoInvoice; payments: ZohoPayment[] }) {
+  const gap = (invoice.total ?? 0) - receivedOn(payments);
+  if (!payments.length || invoice.balance !== 0 || gap <= 0.5) return null;
+  return <span className="text-muted"> · {fmtINR(gap)} settled outside payments</span>;
 }
 
 /** Every payment recorded against an invoice (all instalments), oldest first. */
@@ -1335,14 +1359,17 @@ export function DocsSection({ card, options, dense }: { card: CardView; options:
   const p = card.pi ?? card.linkedPI;
   const inv = card.invoice ?? card.linkedInvoice;
   const pay = card.payment;
+  // Sales board: a split invoice has a row per invoice, and each payment gets a row (owner, 5 Nov).
+  const invoiceRows = card.dealInvoices ?? (inv ? [inv] : []);
+  const paymentRows = [...new Map((card.payments?.length ? card.payments : pay ? [pay] : []).map((p) => [p.paymentId, p])).values()];
   const PENDING = "To be created";
   const rows: [string, string | undefined, string | undefined, string | undefined][] = [
     ["Quote", q?.number, q?.date, q ? zohoUrl("estimate", q.estimateId, options.orgId) : undefined],
     card.piSkipped && card.kind === "quote"
       ? ["Sales Order / PI", PENDING, PENDING, undefined]
       : ["Sales Order / PI", p?.number, p?.date, p ? zohoUrl("salesorder", p.salesorderId, options.orgId) : undefined],
-    ["Invoice", inv?.number, inv?.date, inv ? zohoUrl("invoice", inv.invoiceId, options.orgId) : undefined],
-    ["Payment Received", pay?.number, pay?.date, pay ? zohoUrl("payment", pay.paymentId, options.orgId) : undefined],
+    ...(invoiceRows.length ? invoiceRows : [undefined]).map((i): [string, string | undefined, string | undefined, string | undefined] => ["Invoice", i?.number, i?.date, i ? zohoUrl("invoice", i.invoiceId, options.orgId) : undefined]),
+    ...(paymentRows.length ? paymentRows : [undefined]).map((p): [string, string | undefined, string | undefined, string | undefined] => ["Payment Received", p?.number, p?.date, p ? zohoUrl("payment", p.paymentId, options.orgId) : undefined]),
   ];
   const status = pay ? undefined : card.invoice?.status ?? card.pi?.status ?? card.quote?.status;
   return (
@@ -1353,7 +1380,7 @@ export function DocsSection({ card, options, dense }: { card: CardView; options:
         </thead>
         <tbody>
           {rows.map(([k, no, date, href]) => (
-            <tr key={k} className="border-b border-line last:border-b-0">
+            <tr key={`${k}-${no ?? ""}`} className="border-b border-line last:border-b-0">
               <td className={`${cell} pr-3 font-medium text-muted`}>{k}</td>
               <td className={`${cell} pr-3 text-ink-2 ${dense ? "whitespace-nowrap" : ""}`}>
                 {no === PENDING ? <span className="italic text-muted">{no}</span> : no ? (href ? <a href={href} target="_blank" rel="noreferrer" className="font-medium text-brand hover:underline">{no}</a> : no) : <span className="text-faint">—</span>}
@@ -1366,7 +1393,8 @@ export function DocsSection({ card, options, dense }: { card: CardView; options:
       {status && <p className={`${dense ? "mt-2" : "mt-3"} text-[12.5px] text-muted`}>Zoho status: <span className="font-medium capitalize text-ink-2">{status.replace(/_/g, " ")}</span></p>}
       {pay && (
         <p className="mt-3 text-[12.5px] text-muted">
-          Amount received: <span className="num font-semibold text-ink-2">{fmtINR(pay.amount)}</span>{pay.mode && <> · {pay.mode}</>}{pay.reference && <> · Ref# {pay.reference}</>}
+          {/* Sales board: everything this card holds, not just its first share (owner, 5 Nov). */}
+          Amount received: <span className="num font-semibold text-ink-2">{fmtINR(card.id.startsWith("sale:") && card.payments?.length ? card.payments.reduce((s, p) => s + p.amount, 0) : pay.amount)}</span>{pay.mode && <> · {pay.mode}</>}{pay.reference && <> · Ref# {pay.reference}</>}
         </p>
       )}
     </Section>
@@ -1511,7 +1539,9 @@ export function ChainSection({ card, cards, onUnmerge, canUnmerge }: { card: Car
   const chain = [...card.historyIds].map((id) => cards.get(id)).filter((c): c is CardView => !!c && (!instalments || c.kind !== "payment" || c.id === card.id))
     .sort((a, b) => STAGE_RANK[a.kind] - STAGE_RANK[b.kind]);
   // Only merges you made can be unmerged (Admin: any).
-  const unmergeable = card.mergedFrom.filter((id) => kindOfId(id) !== "payment" && (!canUnmerge || canUnmerge(id)));
+  // A split invoice's other invoices are folded in through their own payments: they can come apart from here too.
+  const folded = card.dealInvoices ? card.historyIds.filter((id) => kindOfId(id) === "invoice" && !card.mergedFrom.includes(id) && kindOfId(cards.get(id)?.mergedInto ?? "") === "payment") : [];
+  const unmergeable = [...card.mergedFrom, ...folded].filter((id) => kindOfId(id) !== "payment" && (!canUnmerge || canUnmerge(id)));
   return (
     <Section
       title="Merged"
