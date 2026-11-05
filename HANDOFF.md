@@ -1,9 +1,25 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Wed 4 Nov 2026 (end of session 22). **Live = GitHub = `87a4247`** (both addresses), plus this docs
+_Last updated: Thu 5 Nov 2026 (end of session 23). **Live = `383c063`** (both addresses); GitHub is ahead of it, see the block below. This docs
 commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Session 23 (4 Nov) — newest; wins over everything below.** All pushed; `git log` has one commit per step. Vercel started no deploy for `574f4e7` (no status at all on the commit, after 30 minutes), so check what's live before trusting it: a picture request with a bad item id answers "Unknown item" on the new build, "Unknown quotation" on the old one. **Start from
+**Start of the next session (24) — do these first:**
+1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected on 5 Nov: GitHub at `2c2d7e8`, this docs commit one ahead until the owner says "push".
+2. `npm test` (**146** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. **What's live?** Vercel started no deploy for `7f3c139` (description in 4 lines) or `2c2d7e8` (empty, to trigger it): GitHub had an incident from 15:19 IST on 4 Nov, cleared by 5 Nov, and no status ever appeared on those commits. The next push should carry them. Check the live JS for `line-clamp-4` with "Show less" on `/items`. Confirm a push with `git ls-remote` and a deploy with the live site before anything that writes; `git push` also failed twice at random that day, and a retry worked.
+4. Read-only checks: database speed (§9 #18), Sync log (also `salesError`), Zoho calls today, `itemEdits` (on 5 Nov only 2 brochure uploads, so Edit and Add picture have no real save yet), kv `zia:*` (`answeredAt`; none yet; don't print the text).
+5. **Then the owner's new task, which they will explain themselves. Don't start it or guess it.** Their words so far, 5 Nov: "theres another company we have names Total Supply. so sometimes a buyer might ask for multiple quotations from us , you get me they want 2-3 quotations". Nothing is built and nothing has been checked about Total Supply, such as whether it's in this Zoho Books organisation or a separate one (a separate one would need its own connection). Restate it in numbered steps with defaults and wait for "yeah".
+6. After that, QUOTATIONS-PLAN.md "Left to do".
+
+**Session 23 in short (full notes in QUOTATIONS-PLAN.md "Left to do" and "Status, session 23"):**
+- **Connection:** the quotations connection is now `ZohoBooks.fullaccess.all` (owner's choice after being told the risk): `POST /documents` refused narrower scopes. It writes to real Zoho data; `canQuote` and `hasFullAccess` guard the routes. A code only works with the Self Client that made it (`clientsToTry`).
+- **Test item:** Hot Water Bag Standard, id 982417000007512064 (owner's pick). Its pictures are real. Reading items and small writes on it went through the claude.ai Zoho Books connector; uploads can only go through the live site.
+- **Permission check:** it refuses a push unless the owner says "push" outright, and refused a bulk delete by file name. It also refused a broad stop of `next` processes.
+- **Test server:** `node node_modules/next/dist/bin/next start -p 3001`, run in the background, stops cleanly with TaskStop. `npx next start` leaves it alive, and a stale server answers old code without any error.
+- **Scripts:** `C:\Users\USER\AppData\Local\Temp\claude\d--Projects-Training-Dashboard-trainingDashboard\148008be-1f1b-4aed-aad3-a381c0827aa5\scratchpad`: `items.cjs`, `fit.cjs`, `edititem.cjs`, `addemail.cjs`, `addpdf.cjs`, `addpic.cjs`, `everything.cjs`, `location.cjs`, `connect.cjs` (browser checks, writes faked or aborted), `secretscan.cjs`, `state.cjs`, `conn.cjs`, `live.cjs`, `watch.cjs`. They use puppeteer-core from the session 22 scratchpad named in that block's traps. `uptest.cjs`, `realpdf.cjs` and `addtile.cjs` WRITE to live: don't rerun them. Temp folders can vanish; rebuild from these notes.
+- **Editing:** Edit-tool anchors spanning lines fail on files with CRLF (`zoho.ts`, `kpi.ts`, parts of others). Use single-line anchors. Write edit scripts with the Write tool, and never chain a test that writes after a push without checking the push and the deploy (that left stray files on 4 Nov).
+
+**Session 23 (4 Nov) — wins over everything below.** All pushed; `git log` has one commit per step. Vercel started no deploy for `574f4e7` (no status at all on the commit, after 30 minutes), so check what's live before trusting it: a picture request with a bad item id answers "Unknown item" on the new build, "Unknown quotation" on the old one. **Start from
 QUOTATIONS-PLAN.md "Left to do"**, then its "Status, session 23" for how things work and where they differ from the plan. Plan steps 1-7 and brochures are built, plus
 Add email, the Items page at `/items`, item Edit, Add PDF, Add picture, and the certificate name's Edit. The owner confirmed the quotations@ sender works. The push needs the
 owner to say "push" outright: the permission check refuses anything vaguer, and it refused a bulk delete by file name. Traps: `TaskStop` on `npx next start` leaves the server alive and `Get-NetTCPConnection` can miss it, so start the test server
