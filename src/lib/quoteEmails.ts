@@ -199,7 +199,7 @@ const day = (iso: string | null) => {
 };
 const firstName = (s: string | null) => (s ?? "").trim().replace(/^(mr|mrs|ms|miss|dr|shri|smt)\.?\s+/i, "").split(/\s+/)[0] ?? "";
 
-type Parts = { hi: string; ref: string; what: string; total: string; valid: string; sign: string; topics: string; table: string };
+export type Parts = { hi: string; ref: string; what: string; total: string; valid: string; sign: string; topics: string; table: string };
 /** The templates (the tone); each gets the filled-in parts and the topic paragraphs. */
 export const TEMPLATES: { id: string; label: string; subject: (p: Parts) => string; body: (p: Parts) => string }[] = [
   {
@@ -246,8 +246,9 @@ export function suggestTemplate(lines: QuoteEmailLine[]): string {
 }
 
 /** The email: subject, plain text without the table, HTML with it. `skip` = topic paragraphs switched off. */
-export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: TopicId[] = []): { subject: string; text: string; html: string } {
-  const tpl = TEMPLATES.find((t) => t.id === templateId) ?? TEMPLATES[0];
+export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: TopicId[] = [], brand?: { templates: typeof TEMPLATES; sign: string }): { subject: string; text: string; html: string } {
+  const templates = brand?.templates ?? TEMPLATES;
+  const tpl = templates.find((t) => t.id === templateId) ?? templates[0];
   const topics = topicsOf(q.lines);
   const has = new Set(topics.map((t) => t.id));
   const on = topics.filter((t) => !skip.includes(t.id));
@@ -265,7 +266,7 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
     what,
     total: inr(q.total),
     valid: day(q.expiry),
-    sign: `Warm regards,\n${quoteSignature(q)}`,
+    sign: brand?.sign ?? `Warm regards,\n${quoteSignature(q)}`,
     topics: on.map((t) => TOPICS.find((x) => x.id === t.id)!.text({ names: listNames(t.names), many: new Set(t.names).size > 1, has })).join("\n\n"),
     table: q.lines.length ? TABLE_MARK : "",
   };
