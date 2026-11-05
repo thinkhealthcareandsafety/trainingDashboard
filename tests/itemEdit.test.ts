@@ -73,7 +73,7 @@ const upload = async (who: { id: string; name: string }, id: string, file?: File
 };
 const pdf = (bytes: Uint8Array | string) => new File([bytes as BlobPart], "brochure.pdf", { type: "application/pdf" });
 
-test("add PDF: a real PDF up to 4 MB, for everyone who can use the page; else on to Zoho (not connected here)", async () => {
+test("add PDF: a real PDF up to 4 MB, for everyone; else on to Zoho (not connected here)", async () => {
   assert.match((await upload(sumit, "abc", pdf("%PDF-1.4"))).j.error, /Unknown item/);
   assert.match((await upload(sumit, "1")).j.error, /Pick a PDF/);
   assert.match((await upload(sumit, "1", pdf("not a pdf at all"))).j.error, /isn't a PDF/);
@@ -81,7 +81,7 @@ test("add PDF: a real PDF up to 4 MB, for everyone who can use the page; else on
   const ok = await upload({ id: "pranjal", name: "Pranjal Nikalje" }, "1", pdf("%PDF-1.4 small"));
   assert.equal(ok.s, 502);
   assert.match(ok.j.error, /isn't connected/);
-  assert.equal((await upload({ id: "priyanka", name: "Priyanka A" }, "1", pdf("%PDF-1.4"))).s, 403); // can't use the page
+  assert.equal((await upload({ id: "priyanka", name: "Priyanka A" }, "1", pdf("%PDF-1.4"))).s, 502); // anyone may add a PDF (owner, 5 Nov); here it stops at the missing connection
 });
 
 test("an item's pictures: main first, back images last, PDFs left out", () => {

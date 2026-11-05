@@ -175,8 +175,8 @@ export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const q = new URL(request.url).searchParams;
-  // Everyone may look at the items (owner, 5 Nov): the list, one item, its pictures. Customers, quotations and everything else stay with the people who quote.
-  if (!canQuote(me) && !q.has("items") && !q.has("item") && !q.has("image")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
+  // Everyone may look at the items (owner, 5 Nov): the list, one item, its pictures, and WorkDrive's folder for Add PDF. Customers, quotations and everything else stay with the people who quote.
+  if (!canQuote(me) && !q.has("items") && !q.has("item") && !q.has("image") && !q.has("wd")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   try {
     if (q.get("items")) {
       // The stock tables are read once per Analytics refresh and already hold Quote Items, so "demand" costs no extra reads.
@@ -192,7 +192,7 @@ export async function GET(request: Request) {
         stock: i.stock ?? null, service: Boolean(i.service), onHand: i.service ? null : Math.round(stock.get(i.id) ?? 0),
         category: i.category ?? null, image: i.image ?? null, demand: demand.get(i.id) ?? 0, brochure: i.brochure ?? null,
       }));
-      return Response.json({ items });
+      return Response.json({ items, live: process.env.VERCEL_ENV === "production" });
     }
 
     // An item's picture (the catalogue): kept in memory here and a week in the browser — one Zoho call per picture.
@@ -382,19 +382,22 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
+  const refused = () => Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
     const form = await request.formData().catch(() => null);
-    return form?.get("brochure") ? saveBrochure(form, me) : form?.get("picture") ? savePicture(form, me) : form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form);
+    if (form?.get("brochure")) return saveBrochure(form, me); // anyone can add a PDF to an item (owner, 5 Nov)
+    if (!canQuote(me)) return refused();
+    return form?.get("picture") ? savePicture(form, me) : form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form);
   }
   const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; wdPick?: { itemId?: string; path?: string; fileId?: string } };
+  if (body.wdPick) return pickFromWorkdrive(body.wdPick, me); // the same as a PDF from the computer: anyone
+  if (!canQuote(me)) return refused();
   if (body.newCustomer) return newCustomer(body.newCustomer);
   if (body.addEmail) return addEmail(body.addEmail, me.name);
   if (body.editItem) return saveItem(body.editItem, me);
   if (body.zia) return ziaDraft(body.zia);
-  if (body.wdPick) return pickFromWorkdrive(body.wdPick, me);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
   const lines = (body.lines ?? []).filter((l) => l && /^\d+$/.test(String(l.itemId)));
@@ -488,7 +491,7 @@ async function saveItem(e: { id?: string; fields?: Partial<Record<keyof ItemFiel
   }
 }
 
-/** "Add PDF" on the Items page, for everyone who can use that page: a real PDF, as big as Vercel lets through. The list's copy follows at once. */
+/** "Add PDF" on the Items page, for everyone (owner, 5 Nov); each one is in `itemEdits` with who did it: a real PDF, as big as Vercel lets through. The list's copy follows at once. */
 async function saveBrochure(form: FormData, me: { id: string; name: string }): Promise<Response> {
   const id = String(form.get("brochure") ?? "");
   const file = form.get("file");

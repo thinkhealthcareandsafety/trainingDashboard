@@ -1006,15 +1006,17 @@ export function ItemsPage() {
   );
 }
 
-function ItemsSection({ viewOnly, clear, live, canQuote, onQuote }: { viewOnly: boolean; clear: number; live: boolean; canQuote: boolean; onQuote: (items: Item[]) => void }) {
+function ItemsSection({ viewOnly, clear, live: listLive, canQuote, onQuote }: { viewOnly: boolean; clear: number; live: boolean; canQuote: boolean; onQuote: (items: Item[]) => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
+  const [itemsLive, setItemsLive] = useState(false); // people who don't quote never load the customer list, which says this too
+  const live = listLive || itemsLive;
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
   const [brochure, setBrochure] = useState<"" | "missing" | "added">("");
   const [everything, setEverything] = useState(false); // hidden and inactive items too
   const [picked, setPicked] = useState<string[]>([]);
   const [open, setOpen] = useState<Item | null>(null);
-  useEffect(() => { fetch("/api/quotations?items=1&all=1").then((r) => r.json()).then((j: { items?: Item[] }) => setItems(j.items ?? [])).catch(() => setItems([])); }, []);
+  useEffect(() => { fetch("/api/quotations?items=1&all=1").then((r) => r.json()).then((j: { items?: Item[]; live?: boolean }) => { setItems(j.items ?? []); setItemsLive(Boolean(j.live)); }).catch(() => setItems([])); }, []);
   useEffect(() => { setPicked([]); }, [clear]); // a quotation was made from them
   const groupOf = (i: Item) => i.group ?? i.category ?? "Other";
   const visible = useMemo(() => (items ?? []).filter((i) => everything || (i.active !== false && onItemsPage(i))), [items, everything]);
@@ -1089,7 +1091,7 @@ function ItemsSection({ viewOnly, clear, live, canQuote, onQuote }: { viewOnly: 
                 <td className="num whitespace-nowrap px-3 py-2.5 text-right text-ink-2">{i.rate ? inr(i.rate) : "—"}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.gst === null ? "—" : `${i.gst}%`}</td>
                 <td className="num hidden px-3 py-2.5 text-right text-ink-2 md:table-cell">{i.service ? "Service" : (i.onHand ?? 0).toLocaleString("en-IN")}</td>
-                <td className="whitespace-nowrap px-3 py-2.5 text-[14px]"><BrochureState viewOnly={viewOnly} item={i} live={live} onAdded={(b) => addedBrochure(i.id, b)} /></td>
+                <td className="whitespace-nowrap px-3 py-2.5 text-[14px]"><BrochureState item={i} live={live} onAdded={(b) => addedBrochure(i.id, b)} /></td>
                 <td className="num px-3 py-2.5 pr-4 text-right font-semibold text-ink">{i.demand ? i.demand.toLocaleString("en-IN") : "—"}</td>
               </tr>
             ))}
@@ -1118,10 +1120,10 @@ function EditField({ name, wide, children }: { name: string; wide?: boolean; chi
 }
 
 /** Added / Missing, from Books' Product Brochure field; nothing yet while the copy predates it (the hourly item read fills it). */
-function BrochureState({ viewOnly, item, live, onAdded }: { viewOnly: boolean; item: Item; live: boolean; onAdded: (brochure: string) => void }) {
+function BrochureState({ item, live, onAdded }: { item: Item; live: boolean; onAdded: (brochure: string) => void }) {
   if (item.brochure == null) return <span className="text-muted">—</span>;
   if (item.brochure) return <span className="font-medium text-low" title={item.brochure}>✓ Added</span>;
-  return <span className="text-medium">Missing{!viewOnly && <> · <AddBrochure item={item} live={live} onAdded={onAdded} /></>}</span>;
+  return <span className="text-medium">Missing · <AddBrochure item={item} live={live} onAdded={onAdded} /></span>;
 }
 
 /** Picks a PDF and puts it on the item in Zoho Books (the Product Brochure field). From the computer up to 4 MB (Vercel's limit); from WorkDrive, larger. */
@@ -1363,7 +1365,7 @@ function ItemDetails({ item, live, onBrochure, onPicture, ticked, onTick, onClos
             <dl className="space-y-1.5 text-[14.5px]">
               {rows.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted">{k}</dt><dd className="num text-right text-ink">{v}</dd></div>)}
             </dl>
-            {!viewOnly && <div className="mt-1 text-right text-[14px]"><AddBrochure item={item} live={live} label={item.brochure ? "Replace PDF" : "Add PDF"} onAdded={onBrochure} /></div>}
+            <div className="mt-1 text-right text-[14px]"><AddBrochure item={item} live={live} label={item.brochure ? "Replace PDF" : "Add PDF"} onAdded={onBrochure} /></div>
             {/* Four lines at first (owner, 4 Nov: the description was "taking all the space"); blank lines closed up here only. */}
             <p className={`mt-4 whitespace-pre-line border-t border-line pt-3 text-[14.5px] leading-relaxed text-ink-2 ${longDescription && !allDescription ? "line-clamp-4" : ""}`}>{description === null ? "Getting the description…" : description.replace(/\n\s*\n+/g, "\n") || "No description in Zoho."}</p>
             {longDescription && <button type="button" className="mt-1 text-[14px] font-semibold text-brand hover:underline" onClick={() => setAllDescription((v) => !v)}>{allDescription ? "Show less" : "Show all"}</button>}

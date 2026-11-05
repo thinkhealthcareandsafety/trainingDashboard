@@ -53,7 +53,7 @@ test("not connected: the folder answers so, and only Admin is offered Connect", 
   assert.equal((await GET(new Request("http://x/api/quotations?wd=1&path=..%2Fx", { headers: headers(sumit) }))).status, 400);
 });
 
-test("picking: bad ids refused; no connection, no copy; only people who quote; only the live site", async () => {
+test("picking: bad ids refused; no connection, no copy; only the live site", async () => {
   const pick = async (b: object, m: object = sumit) => { const r = await POST(new Request("http://x/api/quotations", { method: "POST", headers: headers(m), body: JSON.stringify({ wdPick: b }) })); return { s: r.status, j: await r.json() }; };
   const good = { itemId: "982417000007512064", path: "", fileId: FILE };
   assert.match((await pick({ ...good, itemId: "abc" })).j.error, /Unknown item/);
@@ -62,7 +62,7 @@ test("picking: bad ids refused; no connection, no copy; only people who quote; o
   const off = await pick(good);
   assert.equal(off.s, 502);
   assert.match(off.j.error, /WorkDrive isn't connected/);
-  assert.equal((await pick(good, { id: "p", name: "Prashant Sawale" })).s, 403);
+  assert.equal((await pick(good, { id: "p", name: "Prashant Sawale" })).s, 502); // anyone may; here it stops at the missing connection
   process.env.VERCEL_ENV = "preview";
   assert.equal((await pick(good)).s, 409);
 });

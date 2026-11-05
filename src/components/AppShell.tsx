@@ -20,7 +20,7 @@ const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
   // Quotations (owner, 28 Oct: "under Overview"): every Zoho customer, one click to send a quotation — the four who sell.
   { href: "/quotations", label: "Quotations", full: true, icon: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" /> },
-  // Items (owner, 4 Nov): its own page right under Quotations. Everyone sees it (owner, 5 Nov); only those who quote can change or tick anything.
+  // Items (owner, 4 Nov): its own page right under Quotations. Everyone sees it and can add PDFs (owner, 5 Nov); only those who quote can tick or change anything else.
   { href: "/items", label: "Items", full: true, icon: <path d="M3.5 6.5 10 3.5l6.5 3v7L10 16.5l-6.5-3zM3.5 6.5 10 9.5l6.5-3M10 9.5v7" /> },
   { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
