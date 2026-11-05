@@ -40,7 +40,7 @@ export function markedRate(rate: number, percent: number): number {
   return rate >= 100 ? Math.round(raw) : round2(raw);
 }
 
-/** Quotation-2026-11-05-001: the IST day, then that day's running number (owner, 5 Nov). */
+/** Quotation-2026-11-05-001: the IST day, then a running number that never resets (owner, 5 Nov). */
 export const tsQuoteNumber = (ymd: string, n: number) => `Quotation-${ymd}-${String(n).padStart(3, "0")}`;
 
 // Zoho's state codes → name and GST code, as the PDF prints them ("Maharashtra (27)"). Zoho spells a few differently from our own form.

@@ -210,7 +210,7 @@ export async function GET(request: Request) {
       if (!/^\d+$/.test(tsId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
       const e = await readEstimate(tsId);
       const count = e.line_items?.length ?? 0;
-      const number = tsQuoteNumber(istToday(), (await tsCounter(istToday())) + 1);
+      const number = tsQuoteNumber(istToday(), (await tsCounter()) + 1);
       if (q.get("tsPdf")) {
         const m = parseMarkups(q.get("m"), count);
         if (!m) return Response.json({ error: "These prices don't match the quotation any more" }, { status: 400 });
@@ -557,7 +557,8 @@ async function sendEmail(form: FormData | null): Promise<Response> {
 }
 
 const readEstimate = async (id: string): Promise<ZEstimate> => (await zohoGet<{ estimate?: ZEstimate }>(`/estimates/${id}`)).estimate ?? {};
-const tsCounter = async (ymd: string) => (await (await db()).collection<{ _id: string; n?: number }>("kv").findOne({ _id: `ts_quote_no:${ymd}` }))?.n ?? 0;
+const TS_COUNTER = "ts_quote_no"; // one running number, never reset (owner, 5 Nov)
+const tsCounter = async () => (await (await db()).collection<{ _id: string; n?: number }>("kv").findOne({ _id: TS_COUNTER }))?.n ?? 0;
 
 /**
  * Total Supply quotation (owner, 5 Nov): the main quote's lines at the prices shown in the email step, from Total Supply's Gmail with our
@@ -582,7 +583,7 @@ async function sendTotalSupply(form: FormData, me: { id: string; name: string })
     const markups = parseMarkups(str("markups", 500), e.line_items?.length ?? 0);
     if (!markups) return Response.json({ error: "The quotation changed: open Total Supply quotation again" }, { status: 409 });
     const today = istToday();
-    const seq = await (await db()).collection<{ _id: string; n: number }>("kv").findOneAndUpdate({ _id: `ts_quote_no:${today}` }, { $inc: { n: 1 } }, { upsert: true, returnDocument: "after" });
+    const seq = await (await db()).collection<{ _id: string; n: number }>("kv").findOneAndUpdate({ _id: TS_COUNTER }, { $inc: { n: 1 } }, { upsert: true, returnDocument: "after" });
     const number = tsQuoteNumber(today, seq?.n ?? 1);
     const quote = buildTsQuote(e, markups, number, today);
     // Someone else may have sent one since this was opened: the email shows the number it really gets.
