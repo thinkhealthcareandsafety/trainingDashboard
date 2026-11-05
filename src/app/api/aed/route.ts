@@ -1,4 +1,5 @@
-import { memberIdOf, unauthorized } from "@/lib/auth";
+import { signedInMember, unauthorized } from "@/lib/auth";
+import { hasFollowUps } from "@/lib/roles";
 import type { AedResponse } from "@/lib/types";
 import { zohoConfigured } from "@/lib/zoho";
 import { AED_SINCE, aedData, getSnapshot } from "@/lib/zohoSync";
@@ -8,7 +9,9 @@ export const maxDuration = 300;
 
 // AedSmartx board: invoices with an "All AEDs" item from AED_SINCE (1 Sept 2026), served from the Zoho copy in MongoDB.
 export async function GET(request: Request) {
-  if (!memberIdOf(request)) return unauthorized();
+  const me = await signedInMember(request);
+  if (!me) return unauthorized();
+  if (!hasFollowUps(me)) return Response.json({ error: "Follow-ups aren't on your account" }, { status: 403 });
   if (!zohoConfigured()) return Response.json({ syncedAt: new Date().toISOString(), windowStart: AED_SINCE, invoices: [] } satisfies AedResponse);
   try {
     const snap = await getSnapshot(new URL(request.url).searchParams.has("refresh"));

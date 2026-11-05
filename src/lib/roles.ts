@@ -9,6 +9,7 @@ import type { CardEvent } from "./types";
  *   Pranjal   Sales only — everything there; also sends quotations (owner, 30 Oct)
  *   Ashish, Shikha, Sumit, Nikita   every board, every action
  *   Admin     everything; the only one who clears logs (Clear logs) or deletes log entries
+ *   Prashant  no boards, no Follow-ups page "for now" (owner, 5 Nov); Overview, Calendar and Progress tracker stay
  *   Anyone else   Training board
  *
  * Reverting: your own changes (Admin: anyone's). A revert also reverts the later steps of that flow (cascade.ts), even
@@ -34,8 +35,12 @@ export function boardsFor(m: Who): BoardKind[] {
   if (named(m, /^priyanka\b/i)) return ["aed"];
   if (named(m, /^arti\b/i)) return ["logistics"];
   if (named(m, /^shreya\b/i)) return ["fulfil"];
+  if (named(m, /^prashant\b/i)) return [];
   return ["training"];
 }
+
+/** The Follow-ups page: anyone with at least one board. */
+export const hasFollowUps = (m: Who) => boardsFor(m).length > 0;
 
 /** Marking an AED delivered (and undoing it): everyone who can, except the AedSmartx trainer. */
 export const canMarkDelivered = (m: Who) => hasFullAccess(m) || boardsFor(m).includes("logistics");
