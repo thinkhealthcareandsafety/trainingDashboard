@@ -13,6 +13,7 @@ import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { onItemsPage } from "@/lib/itemsPage";
 import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
+import { buildTsEmail } from "@/lib/totalSupply";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -497,6 +498,7 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
               // Outside India the quote has no GST, whatever the item's rate says.
               lines: lines.filter((l) => l.itemId).map((l) => ({ name: l.name, qty: l.qty, group: byId.get(l.itemId)?.group ?? null, rate: l.rate, gst: c?.tax === "none" ? null : l.gst })),
             }}
+            onTsSent={(number, list, from) => { celebrate(from); toast({ text: `Total Supply ${number} emailed to ${list}` }); }}
             onSent={(list, from) => { setDone((d) => d && { ...d, emailedTo: list }); setEmailing(false); celebrate(from); toast({ text: `${done.number} emailed to ${list}` }); }} />
         ) : done ? (
           // The done screen (#150 step 4): Zoho's PDF to download, and the email step.
@@ -695,7 +697,7 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Zoho's template, the quote's PDF attached by Zoho; + attachments from this computer (4 MB together). Sent through
  * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
  */
-function EmailStep({ quote, live, customerId, onContact, known, compose, onBack, onSent }: { quote: { estimateId: string; number: string }; live: boolean; customerId: string; onContact: (p: AddedPerson) => void; known: { email: string | null; name: string | null }[]; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void }) {
+function EmailStep({ quote, live, customerId, onContact, known, compose, onBack, onSent, onTsSent }: { quote: { estimateId: string; number: string }; live: boolean; customerId: string; onContact: (p: AddedPerson) => void; known: { email: string | null; name: string | null }[]; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void; onTsSent: (number: string, to: string, from: HTMLElement) => void }) {
   type Draft = { from?: string | null; subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail" };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
@@ -719,9 +721,30 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   const [tpl, setTpl] = useState(() => (compose.lines.length ? suggestTemplate(compose.lines) : "zoho"));
   const [skip, setSkip] = useState<TopicId[]>([]);
   const edited = useRef(false); // typed into the message — switching template asks first
-  const fill = (t: string, s: TopicId[]) => {
+  // Total Supply quotation (owner, 5 Nov): the same items at new prices, from Total Supply's Gmail with our own PDF. `ts` set = this step shows that email.
+  type TsDraft = { ready: boolean; from: string; number: string; file: string; total: number; expiry: string | null; markups: number[]; taxed: boolean; lines: { name: string; qty: number; was: number; rate: number; percent: number; gst: number }[]; error?: string };
+  const [ts, setTs] = useState<TsDraft | null>(null);
+  const [tsBusy, setTsBusy] = useState(false);
+  const tsCompose = (d: TsDraft): QuoteEmailInput => ({ ...compose, number: d.number, total: d.total, expiry: d.expiry, salesperson: null, signer: null, lines: d.lines.map((l) => ({ name: l.name, qty: l.qty, group: compose.lines.find((x) => x.name === l.name)?.group ?? null, rate: l.rate, gst: d.taxed ? l.gst : null })) });
+  /** Opens it, and Re-roll: each time the server rolls fresh percentages. */
+  const openTs = async () => {
+    if (edited.current && !window.confirm("Replace the message you've edited?")) return;
+    setTsBusy(true); setError("");
+    const r = await fetch(`/api/quotations?ts=${quote.estimateId}`).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({ error: "Couldn't read the quotation" }))) as TsDraft) : ({ error: "Couldn't reach the server" } as TsDraft);
+    setTsBusy(false);
+    if (j.error || !j.lines) return setError(j.error ?? "Couldn't read the quotation");
+    const t = tpl === "zoho" ? suggestTemplate(compose.lines) : tpl;
+    setTs(j); setTpl(t); fill(t, skip, j);
+  };
+  const closeTs = () => {
+    if (edited.current && !window.confirm("Leave the Total Supply email you've edited?")) return;
+    setTs(null); setError(""); fill(tpl, skip, null);
+  };
+  const fill = (t: string, s: TopicId[], d: TsDraft | null = ts) => {
     if (!draft || draft.error || !body.current) return;
-    if (t === "zoho") { setSubject(draft.subject); body.current.innerHTML = cleanHtml(draft.body); }
+    if (d) { const e = buildTsEmail(t, tsCompose(d), s); setSubject(e.subject); body.current.innerHTML = e.html; }
+    else if (t === "zoho") { setSubject(draft.subject); body.current.innerHTML = cleanHtml(draft.body); }
     else { const e = buildQuoteEmail(t, compose, s); setSubject(e.subject); body.current.innerHTML = e.html; }
     edited.current = false;
   };
@@ -779,23 +802,26 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   const to = picked;
   // Everyone on the customer: the quote's own, and emails added since (kept apart from `draft`, whose change refills the message).
   const people = draft ? [...draft.to, ...known.filter((k) => k.email && !draft.to.some((x) => x.email.toLowerCase() === k.email!.toLowerCase())).map((k) => ({ email: k.email!, name: k.name, selected: false }))] : [];
-  const why = !live ? "Only the live site sends email" : !to.length ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
+  const why = !live ? "Only the live site sends email" : ts && !ts.ready ? "Total Supply's Gmail isn't connected yet" : !to.length ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
   const send = async (e: React.MouseEvent<HTMLButtonElement>) => {
     const from = e.currentTarget;
     setBusy(true);
     setError("");
     const form = new FormData();
-    form.set("estimateId", quote.estimateId);
+    form.set(ts ? "tsEstimateId" : "estimateId", quote.estimateId);
+    if (ts) { form.set("markups", ts.markups.join(",")); form.set("number", ts.number); }
     form.set("to", to.join(","));
     form.set("cc", cc);
     form.set("subject", subject);
     form.set("body", body.current?.innerHTML ?? "");
-    if (draft?.fileName) form.set("fileName", draft.fileName);
+    if (draft?.fileName && !ts) form.set("fileName", draft.fileName);
     for (const f of files) form.append("attachments", f, f.name);
     const r = await fetch("/api/quotations", { method: "POST", body: form }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; number?: string }) : { error: "Couldn't reach the server" };
     setBusy(false);
     if (!j.ok) return setError(j.error ?? "Couldn't send the email");
+    // Back to the main quote's email: it's still to send, or already went.
+    if (ts) { onTsSent(j.number ?? ts.number, to.join(", "), from); setTs(null); setCc(""); setFiles([]); fill(tpl, skip, null); return; }
     onSent(to.join(", "), from);
   };
   const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
@@ -806,7 +832,11 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   return (
     <>
       <div className="no-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
-        {draft.from && <p className="text-[14px] text-ink-2"><span className={label}>From</span> <span className="ml-1">{draft.from}</span></p>}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {ts ? <p className="text-[14px] text-ink-2"><span className={label}>From</span> <span className="ml-1 font-semibold">Total Supply</span> <span className="text-muted">{ts.from}</span></p>
+            : <p className="text-[14px] text-ink-2">{draft.from && <><span className={label}>From</span> <span className="ml-1">{draft.from}</span></>}</p>}
+          {!ts && <button className={`${btn.ghost} !h-9`} onClick={openTs} disabled={tsBusy || busy} title="A second quotation for these items, from Total Supply's Gmail, each price up by a random 1–15%">{tsBusy ? "Working it out…" : "Total Supply quotation"}</button>}
+        </div>
         <div>
           <span className={label}>To</span>
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -823,7 +853,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
           <span className={label}>Cc</span>
           {/* On every quote email (owner, 4 Nov): the server adds them, so they can't be taken off. */}
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            {mergeCc(to, []).map((m) => <span key={m} className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title="Always copied on quote emails">{m}</span>)}
+            {!ts && mergeCc(to, []).map((m) => <span key={m} className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title="Always copied on quote emails">{m}</span>)}
             <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-56 text-[14px]`} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Other emails, comma between" aria-label="Other Cc emails" />
           </div>
         </div>
@@ -831,7 +861,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
           <span className={label}>Template</span>
           <select className={`${inputCls} !h-9 !w-auto text-[14px]`} value={tpl} onChange={(e) => choose(e.target.value, skip)} aria-label="Email template">
             {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-            <option value="zoho">Zoho&apos;s standard email</option>
+            {!ts && <option value="zoho">Zoho&apos;s standard email</option>}
           </select>
           {tpl !== "zoho" && tpl !== "formal" && tpl !== "short" && topics.map((t) => {
             const on = !skip.includes(t.id);
@@ -842,7 +872,31 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
             );
           })}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {ts && (
+          <div className="rounded-xl border border-line p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[14px] text-ink-2"><span className={label}>Prices</span> <span className="ml-1 font-semibold text-ink">{ts.number}</span> · total incl. GST <b className="num">{inr2(ts.total)}</b> <span className="text-muted">(only you see the percentages)</span></p>
+              <div className="flex flex-wrap gap-2">
+                <button className={`${btn.ghost} !h-9`} onClick={openTs} disabled={tsBusy || busy}>{tsBusy ? "…" : "Re-roll prices"}</button>
+                <a className={`${btn.ghost} !h-9`} href={`/api/quotations?${new URLSearchParams({ tsPdf: quote.estimateId, m: ts.markups.join(",") })}`} target="_blank" rel="noreferrer">Preview PDF</a>
+              </div>
+            </div>
+            <div className="no-scrollbar mt-2 max-h-44 overflow-auto">
+              <table className="w-full min-w-[30rem] text-[13.5px]">
+                <thead><tr className="text-left text-[12.5px] text-muted"><th className="py-1 pr-3 font-semibold">Item</th><th className="py-1 pr-3 text-right font-semibold">Qty</th><th className="py-1 pr-3 text-right font-semibold">Main quote</th><th className="py-1 pr-3 text-right font-semibold">Up by</th><th className="py-1 text-right font-semibold">Total Supply</th></tr></thead>
+                <tbody>
+                  {ts.lines.map((l, i) => (
+                    <tr key={`${l.name}-${i}`} className="border-t border-line text-ink">
+                      <td className="py-1 pr-3">{l.name}</td><td className="num py-1 pr-3 text-right">{l.qty}</td><td className="num py-1 pr-3 text-right text-muted">{inr2(l.was)}</td><td className="num py-1 pr-3 text-right text-muted">{l.percent}%</td><td className="num py-1 text-right font-semibold">{inr2(l.rate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!ts.ready && <p className="mt-2 text-[13.5px] text-medium">Total Supply&apos;s Gmail isn&apos;t connected yet, so this can&apos;t be sent. You can still check the prices and the PDF.</p>}
+          </div>
+        )}
+        {!ts && <div className="flex flex-wrap items-center gap-2">
           <span className={label}>Zia</span>
           <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-64 text-[14px]`} value={ziaText} onChange={(e) => setZiaText(e.target.value)} maxLength={1000}
             placeholder="Tell Zia what to write — e.g. AED email, mention training and warranty" aria-label="What Zia should write" />
@@ -850,7 +904,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
           {draft.ziaVia !== "flow" && <a className={`${btn.ghost} !h-9`} href="https://mail.zoho.in/zm/#mail/folder/drafts" target="_blank" rel="noreferrer">Open Zoho Mail ↗</a>}
           <button className={`${btn.ghost} !h-9`} onClick={() => fromZia()} disabled={ziaBusy}>{ziaBusy && draft.ziaVia === "flow" ? "Zia is writing…" : ziaBusy ? "…" : "Pull from Zia"}</button>
           {ziaMsg && <p className="basis-full text-[13px] text-muted">{ziaMsg}</p>}
-        </div>
+        </div>}
         <label className="block"><span className={label}>Subject</span><input className={`${inputCls} mt-1 !h-10 text-[14.5px]`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} /></label>
         <div>
           <span className={label}>Message</span>
@@ -863,7 +917,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
         <div>
           <span className={label}>Attachments</span>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title="Zoho Books attaches the quotation's PDF itself">📄 {draft.fileName ?? `${quote.number}.pdf`} <span className="text-muted">(the quotation)</span></span>
+            <span className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title={ts ? "Total Supply's PDF, made when it's sent" : "Zoho Books attaches the quotation's PDF itself"}>📄 {ts ? ts.file : draft.fileName ?? `${quote.number}.pdf`} <span className="text-muted">(the quotation)</span></span>
             {files.map((f, i) => (
               <span key={`${f.name}-${i}`} className="flex items-center gap-1 rounded-full bg-surface-2 py-1 pl-3 pr-1 text-[14px] text-ink-2">
                 {f.name} <span className="text-muted">{kb(f.size)}</span>
@@ -878,8 +932,8 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
         {error && <span className="mr-auto text-[14px] font-medium text-high">{error}</span>}
-        <button className={btn.ghost} onClick={onBack} disabled={busy}>Not now</button>
-        <button className={btn.primary} onClick={send} disabled={Boolean(why) || busy} title={why || `Zoho Books sends it from your organisation's address`}>{busy ? "Sending…" : "Send email"}</button>
+        <button className={btn.ghost} onClick={ts ? closeTs : onBack} disabled={busy}>{ts ? "Back to main quotation" : "Not now"}</button>
+        <button className={btn.primary} onClick={send} disabled={Boolean(why) || busy} title={why || (ts ? `Gmail sends it from ${ts.from}` : `Zoho Books sends it from your organisation's address`)}>{busy ? "Sending…" : ts ? "Send from Total Supply" : "Send email"}</button>
       </div>
     </>
   );
