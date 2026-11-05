@@ -107,3 +107,16 @@ test("the email: every template is reworded, signed by Parteek with the number u
     assert.notEqual(t.body({ hi: "h", ref: "r", what: "w", total: "t", valid: "", sign: "s", topics: "x", table: "y" }), main.body({ hi: "h", ref: "r", what: "w", total: "t", valid: "", sign: "s", topics: "x", table: "y" }), t.id);
   }
 });
+
+test("the PDF: real PDF, a terms page, long quotes run on, unprintable characters don't break it", async () => {
+  const { tsQuotePdf } = await import("@/lib/totalSupplyPdf");
+  const { PDFDocument } = await import("pdf-lib");
+  const short = buildTsQuote({ ...invoice, billing_address: { address: "Shop 1", city: "Pune", state: "Maharashtra", zip: "411027", country: "India" } }, [5, 10], "Quotation-2026-11-05-001", "2026-11-05");
+  const one = await PDFDocument.load(await tsQuotePdf(short));
+  assert.equal(one.getPageCount(), 2);
+  const many: ZEstimate = { ...invoice, place_of_supply: "UP", line_items: Array.from({ length: 40 }, (_, i) => ({ name: `Item ${i} ₹ नमस्ते ${"verylongword".repeat(8)}`, description: "Warranty 5 years\nLead time 20 days\n".repeat(3), hsn_or_sac: "90189094", quantity: 2, unit: "pcs", rate: 1000, tax_percentage: 18, item_total: 2000 })) };
+  const long = await PDFDocument.load(await tsQuotePdf(buildTsQuote(many, Array(40).fill(7), "Q", "2026-11-05")));
+  assert.ok(long.getPageCount() > 3);
+  const huge: ZEstimate = { ...invoice, line_items: [{ name: "One long item", description: "A line of description.\n".repeat(200), quantity: 1, rate: 500, item_total: 500, tax_percentage: 5 }] };
+  assert.ok((await PDFDocument.load(await tsQuotePdf(buildTsQuote(huge, [3], "Q", "2026-11-05")))).getPageCount() > 2);
+});
