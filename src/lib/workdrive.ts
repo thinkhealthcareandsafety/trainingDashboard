@@ -5,14 +5,15 @@ import { clientsToTry, tokenRequest } from "./zohoOAuth";
  * Add PDF from Zoho WorkDrive (owner, 5 Nov): "select the pdf directly without having to download". A new tab can't hand a file back,
  * so the dashboard lists the team's shared folder itself and copies the picked PDF onto the item. Its own read-only connection: kv
  * `zoho_workdrive`, separate from Books'. Docs: list-files-folders-inside-a-folder, download-file. The docs print only the .com
- * address; the India ones here (zohoapis.in, download.zoho.in) are proven by the first Connect, which lists the folder before saving.
+ * address; zohoapis.in worked for listing and downloading on 5 Nov. Connect lists the folder before saving.
  */
 
 export const WORKDRIVE_SCOPES = "WorkDrive.files.READ";
 export const WORKDRIVE_ROOT = "znge79c8e870f2b9f477e9501433581458b2a";
 export const WORKDRIVE_LINK = "https://workdrive.zoho.in/53ff4315ed8ce16a945a0a0dc401e6a12c2c3/teams/53ff4315ed8ce16a945a0a0dc401e6a12c2c3/ws/znge7acf2ee5bec304274b0cecca367bed7e6/folders/znge79c8e870f2b9f477e9501433581458b2a";
 const API = "https://www.zohoapis.in/workdrive/api/v1";
-const DOWNLOAD = "https://download.zoho.in/v1/workdrive/download";
+// Not the docs' download.zoho.in: that answered INVALID_OAUTHSCOPE to WorkDrive.files.READ on 5 Nov, while this one gave the file.
+const DOWNLOAD = `${API}/download`;
 const KEY = "zoho_workdrive";
 const PAGE = 50; // WorkDrive's most per request
 const MAX_PAGES = 10;
