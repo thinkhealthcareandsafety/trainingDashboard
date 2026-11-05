@@ -1123,6 +1123,8 @@ function BrochureState({ item, live, onAdded }: { item: Item; live: boolean; onA
 
 /** Picks a PDF and puts it on the item in Zoho Books (the Product Brochure field). PDF, under 1 MB: Books' own note on the field. */
 function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; live: boolean; label?: string; onAdded: (brochure: string) => void }) {
+  const [choosing, setChoosing] = useState(false);
+  const [drive, setDrive] = useState(false);
   const { toast } = useStore();
   const [busy, setBusy] = useState(false);
   const add = async (file: File | undefined) => {
@@ -1141,10 +1143,106 @@ function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; l
   };
   return (
     // relative: keeps the hidden input inside the row, or every row's input stretches the page.
-    <label className={`relative font-semibold text-brand ${!live || busy ? "cursor-default opacity-60" : "cursor-pointer hover:underline"}`} title={live ? "A PDF under 1 MB. It goes on this item in Zoho Books." : "Only the live site changes Zoho Books"} onClick={(e) => e.stopPropagation()}>
-      {busy ? "Uploading…" : label}
-      <input type="file" accept="application/pdf" className="sr-only" disabled={!live || busy} onChange={(e) => { add(e.target.files?.[0]); e.target.value = ""; }} aria-label={`${label} for ${item.name}`} />
-    </label>
+    <span className="relative" onClick={(e) => e.stopPropagation()}>
+      <button type="button" className={`font-semibold text-brand ${!live || busy ? "cursor-default opacity-60" : "hover:underline"}`} disabled={!live || busy} title={live ? "A PDF under 1 MB. It goes on this item in Zoho Books." : "Only the live site changes Zoho Books"} onClick={() => setChoosing(true)}>{busy ? "Uploading…" : label}</button>
+      {/* Owner, 5 Nov: from the computer, or from the team's shared folder without downloading. */}
+      {choosing && createPortal(
+        <div className="fade-in fixed inset-0 z-[90] grid place-items-center bg-black/30 p-3" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => { e.stopPropagation(); setChoosing(false); }}>
+          <div role="dialog" aria-label={`${label} for ${item.name}`} className="modal-in w-full min-w-0 max-w-md rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+            <h3 className="text-[18px] font-bold tracking-tight text-ink">{label}</h3>
+            <p className="truncate text-[14px] text-muted" title={item.name}>{item.name}</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <label className={`${btn.ghost} cursor-pointer justify-center text-center`}>
+                Local storage
+                <input type="file" accept="application/pdf" className="sr-only" onChange={(e) => { setChoosing(false); add(e.target.files?.[0]); e.target.value = ""; }} aria-label={`PDF from this computer for ${item.name}`} />
+              </label>
+              <button type="button" className={`${btn.ghost} justify-center`} onClick={() => { setChoosing(false); setDrive(true); }}>Zoho WorkDrive</button>
+            </div>
+            <p className="mt-3 text-[13px] text-muted">A PDF under 1 MB.</p>
+          </div>
+        </div>, document.body)}
+      {drive && createPortal(<WorkDrivePicker item={item} onClose={() => setDrive(false)} onAdded={(b) => { setDrive(false); onAdded(b); toast({ text: `${b} added to ${item.name} in Zoho Books` }); }} />, document.body)}
+    </span>
+  );
+}
+
+/** The team's shared WorkDrive folder inside the dashboard: open folders, click a PDF, and the server copies it onto the item. Nothing is downloaded here. */
+function WorkDrivePicker({ item, onClose, onAdded }: { item: Item; onClose: () => void; onAdded: (brochure: string) => void }) {
+  type Entry = { id: string; name: string; folder: boolean; pdf: boolean; size: number | null };
+  type Res = { connected?: boolean; admin?: boolean; link?: string; scopes?: string; entries?: Entry[]; error?: string };
+  const [crumbs, setCrumbs] = useState<{ id: string; name: string }[]>([]);
+  const [res, setRes] = useState<Res | null>(null);
+  const [tick, setTick] = useState(0);
+  const [picking, setPicking] = useState("");
+  const [error, setError] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const path = crumbs.map((c) => c.id).join(",");
+  useEffect(() => {
+    let on = true;
+    setRes(null);
+    fetch(`/api/quotations?${new URLSearchParams({ wd: "1", path })}`).then((r) => r.json()).then((j: Res) => { if (on) setRes(j); }).catch(() => { if (on) setRes({ error: "Couldn't reach the server" }); });
+    return () => { on = false; };
+  }, [path, tick]);
+  const pick = async (e: Entry) => {
+    setPicking(e.id); setError("");
+    const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wdPick: { itemId: item.id, path, fileId: e.id } }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { brochure?: string; error?: string }) : { error: "Couldn't reach the server" };
+    setPicking("");
+    if (!j.brochure) return setError(j.error ?? "Couldn't add the brochure");
+    onAdded(j.brochure);
+  };
+  const entries = res?.entries ?? [];
+  return (
+    <div className="fade-in fixed inset-0 z-[90] grid place-items-center bg-black/30 p-3" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => { e.stopPropagation(); if (!picking) onClose(); }}>
+      <div role="dialog" aria-label={`Zoho WorkDrive, for ${item.name}`} className="modal-in flex max-h-[88vh] w-full min-w-0 max-w-2xl flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-5 pt-5">
+          <div className="min-w-0">
+            <h3 className="text-[18px] font-bold tracking-tight text-ink">Zoho WorkDrive</h3>
+            <p className="truncate text-[14px] text-muted" title={item.name}>For {item.name}</p>
+          </div>
+          <button className={btn.quiet} onClick={onClose} aria-label="Close" disabled={Boolean(picking)}>✕</button>
+        </div>
+        <nav aria-label="Folders" className="flex flex-wrap items-center gap-1 px-5 pt-3 text-[14px]">
+          <button type="button" className={crumbs.length ? "font-semibold text-brand hover:underline" : "font-semibold text-ink"} disabled={!crumbs.length || Boolean(picking)} onClick={() => setCrumbs([])}>Shared folder</button>
+          {crumbs.map((c, i) => (
+            <span key={c.id} className="flex min-w-0 items-center gap-1">
+              <span className="text-muted">/</span>
+              <button type="button" className={`max-w-[14rem] truncate ${i < crumbs.length - 1 ? "font-semibold text-brand hover:underline" : "font-semibold text-ink"}`} title={c.name} disabled={i === crumbs.length - 1 || Boolean(picking)} onClick={() => setCrumbs((x) => x.slice(0, i + 1))}>{c.name}</button>
+            </span>
+          ))}
+        </nav>
+        <div className="no-scrollbar mt-3 min-h-40 flex-1 overflow-y-auto border-y border-line">
+          {!res ? <p className="px-5 py-10 text-center text-[15px] text-muted">Opening the folder…</p>
+            : res.error ? <div className="px-5 py-10 text-center"><p className="text-[15px] text-high">{res.error}</p><button className={`${btn.ghost} mt-3`} onClick={() => setTick((t) => t + 1)}>Try again</button></div>
+            : !res.connected ? (
+              <div className="px-5 py-10 text-center">
+                <p className="text-[15px] text-ink-2">Zoho WorkDrive isn&apos;t connected yet.</p>
+                {res.admin ? <button className={`${btn.primary} mt-3`} onClick={() => setConnecting(true)}>Connect WorkDrive</button> : <p className="mt-1 text-[14px] text-muted">Admin connects it once. Until then, use Local storage.</p>}
+              </div>
+            )
+            : !entries.length ? <p className="px-5 py-10 text-center text-[15px] text-muted">No folders or PDFs here.</p>
+            : <ul>{entries.map((e) => {
+              const big = !e.folder && e.size != null && e.size >= BROCHURE_MAX_BYTES;
+              return (
+                <li key={e.id} className="border-b border-line last:border-b-0">
+                  <button type="button" disabled={big || Boolean(picking)} title={big ? "Zoho Books takes brochures under 1 MB" : e.name}
+                    className={`flex min-h-11 w-full items-center gap-3 px-5 py-2 text-left text-[14.5px] ${big ? "cursor-not-allowed text-muted" : "text-ink hover:bg-surface-2/60"}`}
+                    onClick={() => (e.folder ? setCrumbs((x) => [...x, { id: e.id, name: e.name }]) : pick(e))}>
+                    <span aria-hidden>{e.folder ? "📁" : "📄"}</span>
+                    <span className="min-w-0 flex-1 break-words">{e.name}</span>
+                    <span className={`num shrink-0 text-[13px] ${big ? "font-semibold text-medium" : "text-muted"}`}>{picking === e.id ? "Adding…" : e.folder ? "" : e.size == null ? "" : big ? `${kb(e.size)}, over 1 MB` : kb(e.size)}</span>
+                  </button>
+                </li>
+              );
+            })}</ul>}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
+          {error ? <span className="text-[14px] font-medium text-high">{error}</span> : <span className="text-[13px] text-muted">Click a PDF to put it on this item.</span>}
+          {res?.link && <a className="text-[14px] font-semibold text-brand hover:underline" href={res.link} target="_blank" rel="noreferrer">Open in WorkDrive ↗</a>}
+        </div>
+      </div>
+      {connecting && res?.scopes && <div onMouseDown={(e) => e.stopPropagation()}><ConnectBooks workdrive scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} /></div>}
+    </div>
   );
 }
 
@@ -1465,7 +1563,7 @@ function NewQuote({ res, onPick, onClose }: { res: ListRes; onPick: (c: Customer
 }
 
 /** Admin: connect Zoho Books for quotations — a one-time code from the Zoho API console (Self Client). */
-function ConnectBooks({ scopes, onClose }: { scopes: string; onClose: (ok: boolean) => void }) {
+function ConnectBooks({ scopes, onClose, workdrive = false }: { scopes: string; onClose: (ok: boolean) => void; workdrive?: boolean }) {
   useNoPageScroll();
   const [code, setCode] = useState("");
   const [clientId, setClientId] = useState("");
@@ -1474,23 +1572,23 @@ function ConnectBooks({ scopes, onClose }: { scopes: string; onClose: (ok: boole
   const [copied, setCopied] = useState(false);
   const connect = async () => {
     setState({ busy: true });
-    const r = await fetch("/api/quotations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, clientId, clientSecret }) }).catch(() => null);
+    const r = await fetch("/api/quotations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, clientId, clientSecret, ...(workdrive ? { workdrive: true } : {}) }) }).catch(() => null);
     const j = r ? ((await r.json()) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
-    setState(j.ok ? { done: "Connected — quotations can be sent now." } : { error: j.error ?? "Couldn't connect" });
+    setState(j.ok ? { done: workdrive ? "Connected: the shared folder opened fine." : "Connected — quotations can be sent now." } : { error: j.error ?? "Couldn't connect" });
     if (j.ok) setCode("");
   };
   const steps = useMemo(() => [
-    <>Sign in to <a className="font-semibold text-brand underline" href="https://api-console.zoho.in" target="_blank" rel="noreferrer">api-console.zoho.in</a> with the Zoho account that uses Zoho Books.</>,
+    <>Sign in to <a className="font-semibold text-brand underline" href="https://api-console.zoho.in" target="_blank" rel="noreferrer">api-console.zoho.in</a> {workdrive ? "with a Zoho account that can open the shared folder." : "with the Zoho account that uses Zoho Books."}</>,
     <>Open <b>Self Client</b> → <b>Generate Code</b>.</>,
     // The whole line has to go in, so it wraps instead of running out of the popup (4 Nov: a cut-off line was hard to copy whole).
     <>Scope, all of it <button type="button" className="font-semibold text-brand hover:underline" onClick={() => navigator.clipboard?.writeText(scopes).then(() => setCopied(true)).catch(() => {})}>{copied ? "Copied ✓" : "Copy"}</button>: <code className="select-all block break-all rounded bg-surface-2 px-2 py-1 text-[13px]">{scopes}</code> Time: 10 minutes · Description: Quotations · Create.</>,
     <>Paste the code here. Reconnecting with the same Self Client? That&apos;s all. For a different one, also paste its Client ID and Secret (Client Secret tab).</>,
-  ], [scopes]);
+  ], [scopes, workdrive]);
   return (
     <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/30 p-4" onMouseDown={() => onClose(Boolean(state.done))}>
-      <div role="dialog" aria-label="Connect Zoho Books for quotations" className="modal-in w-full max-w-xl rounded-2xl bg-surface p-6 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
-        <h3 className="text-[19px] font-bold tracking-tight text-ink">Connect Zoho Books for quotations</h3>
-        <p className="mt-1 text-[14px] text-muted">The dashboard&apos;s only connection that writes to Zoho Books: it creates and emails quotations. The everyday sync stays read-only.</p>
+      <div role="dialog" aria-label={workdrive ? "Connect Zoho WorkDrive" : "Connect Zoho Books for quotations"} className="modal-in w-full max-w-xl rounded-2xl bg-surface p-6 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="text-[19px] font-bold tracking-tight text-ink">{workdrive ? "Connect Zoho WorkDrive" : "Connect Zoho Books for quotations"}</h3>
+        <p className="mt-1 text-[14px] text-muted">{workdrive ? "Read-only, for Add PDF: the dashboard can list and read files, never change them." : <>The dashboard&apos;s only connection that writes to Zoho Books: it creates and emails quotations. The everyday sync stays read-only.</>}</p>
         <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[14px] text-ink-2">{steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
         <div className="mt-4 space-y-2">
           <input className={inputCls} placeholder="Code (1000.…)" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
