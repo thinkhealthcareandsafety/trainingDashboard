@@ -15,6 +15,7 @@ import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 import { TS, type ZEstimate, buildTsQuote, parseMarkups, rollMarkups, tsQuoteNumber } from "@/lib/totalSupply";
 import { tsQuotePdf } from "@/lib/totalSupplyPdf";
 import { sendTsMail, tsMailOn } from "@/lib/totalSupplyMail";
+import { WORKDRIVE_LINK, WORKDRIVE_SCOPES, connectWorkdrive, goodWdId, parseWdPath, workdriveFolder, workdriveInfo, workdrivePdf } from "@/lib/workdrive";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,9 @@ export const dynamic = "force-dynamic";
  *                              it when send); with estimateId, saves that draft again instead (no second quotation)
  *   POST {zia: {request, quote}}                       — leaves a brief for Zia as a draft in learn@'s Zoho Mail (3 Nov)
  *   GET ?zia=<quote number>  — that draft once Zia wrote it and it was saved (subject + HTML)
+ *   GET ?wd=1&path=<folder ids> — Add PDF from WorkDrive (5 Nov): one folder inside the shared folder, or that it isn't connected
+ *   POST {wdPick: {itemId, path, fileId}} — copies that PDF from WorkDrive onto the item in Zoho Books
+ *   PUT {workdrive: true, code, ...} — Admin connects WorkDrive
  *   GET ?ts=<quote id>       — a Total Supply quotation for this quote: fresh random prices, totals, the next number (5 Nov)
  *   GET ?tsPdf=<quote id>&m=<percentages> — its PDF, to look at before sending
  *   POST form with tsEstimateId, markups — sends it from Total Supply's Gmail and keeps a record (`totalSupplyQuotes`)
@@ -204,6 +208,15 @@ export async function GET(request: Request) {
       return new Response(img.bytes, { headers: { "Content-Type": img.type, "Cache-Control": "private, max-age=604800" } });
     }
 
+    // Add PDF from WorkDrive (owner, 5 Nov): one folder, only ever inside the shared folder.
+    if (q.get("wd")) {
+      const path = parseWdPath(q.get("path"));
+      if (!path) return Response.json({ error: "Unknown folder" }, { status: 400 });
+      const common = { admin: isAdmin(me), link: WORKDRIVE_LINK, scopes: WORKDRIVE_SCOPES };
+      if (!(await workdriveInfo())) return Response.json({ ...common, connected: false, entries: [] });
+      return Response.json({ ...common, connected: true, entries: await workdriveFolder(path) });
+    }
+
     // Total Supply quotation (owner, 5 Nov): the prices to show in the email step, and the PDF to look at. Nothing is saved or numbered yet.
     const tsId = q.get("ts") ?? q.get("tsPdf");
     if (tsId) {
@@ -375,11 +388,12 @@ export async function POST(request: Request) {
     const form = await request.formData().catch(() => null);
     return form?.get("brochure") ? saveBrochure(form, me) : form?.get("picture") ? savePicture(form, me) : form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form);
   }
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> } };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; wdPick?: { itemId?: string; path?: string; fileId?: string } };
   if (body.newCustomer) return newCustomer(body.newCustomer);
   if (body.addEmail) return addEmail(body.addEmail, me.name);
   if (body.editItem) return saveItem(body.editItem, me);
   if (body.zia) return ziaDraft(body.zia);
+  if (body.wdPick) return pickFromWorkdrive(body.wdPick, me);
   const customerId = String(body.customerId ?? "");
   const send = body.send !== false;
   const lines = (body.lines ?? []).filter((l) => l && /^\d+$/.test(String(l.itemId)));
@@ -481,8 +495,21 @@ async function saveBrochure(form: FormData, me: { id: string; name: string }): P
   if (!(file instanceof File) || !file.size) return Response.json({ error: "Pick a PDF" }, { status: 400 });
   if (file.size >= BROCHURE_MAX_BYTES) return Response.json({ error: "The PDF must be under 1 MB" }, { status: 400 });
   if (Buffer.from(await file.slice(0, 5).arrayBuffer()).toString("latin1") !== "%PDF-") return Response.json({ error: "That file isn't a PDF" }, { status: 400 });
+  return attachBrochure(id, async () => file, me);
+}
+
+/** "Zoho WorkDrive" in Add PDF: the same as a PDF from the computer, but the server fetches the file itself. */
+async function pickFromWorkdrive(p: { itemId?: string; path?: string; fileId?: string }, me: { id: string; name: string }): Promise<Response> {
+  const id = String(p.itemId ?? ""), path = parseWdPath(p.path);
+  if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown item" }, { status: 400 });
+  if (!path || !goodWdId(p.fileId)) return Response.json({ error: "Unknown file" }, { status: 400 });
+  const fileId = p.fileId;
+  return attachBrochure(id, () => workdrivePdf(path, fileId), me);
+}
+
+async function attachBrochure(id: string, getFile: () => Promise<File>, me: { id: string; name: string }): Promise<Response> {
   try {
-    const brochure = await uploadBrochure(id, file);
+    const brochure = await uploadBrochure(id, await getFile());
     const d = await db();
     await d.collection<{ at: string; by: string; itemId: string; changes: object }>("itemEdits").insertOne({ at: new Date().toISOString(), by: me.name, itemId: id, changes: { brochure: { to: brochure } } }).catch((x) => console.error("[quotations] brochure log failed:", x));
     await d.collection<{ _id: string }>("kv").updateOne({ _id: "zoho_items", "items.id": id } as object, { $set: { "items.$.brochure": brochure } }).catch((x) => console.error("[quotations] item copy failed:", x));
@@ -676,9 +703,10 @@ export async function PUT(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!isAdmin(me)) return Response.json({ error: "Admin connects Zoho Books" }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { code?: string; clientId?: string; clientSecret?: string };
+  const body = (await request.json().catch(() => ({}))) as { code?: string; clientId?: string; clientSecret?: string; workdrive?: boolean };
   if (!body.code?.trim()) return Response.json({ error: "Paste the code from the Zoho API console" }, { status: 400 });
   try {
+    if (body.workdrive) return Response.json({ ok: true, connected: await connectWorkdrive({ code: body.code, clientId: body.clientId, clientSecret: body.clientSecret }, me.name) });
     return Response.json({ ok: true, connected: await connectQuotes({ code: body.code, clientId: body.clientId, clientSecret: body.clientSecret }, me.name) });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't connect" }, { status: 400 });
