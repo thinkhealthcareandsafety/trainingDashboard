@@ -27,13 +27,14 @@ test("the picker shows folders first, then PDFs, in order; other files don't sho
   assert.deepEqual(pickerEntries([e("b.pdf"), e("Z", true), e("notes.docx", false, false), e("a 10.pdf"), e("a 9.pdf"), e("A", true)]).map((x) => x.name), ["A", "Z", "a 9.pdf", "a 10.pdf", "b.pdf"]);
 });
 
-test("a file is refused when it's gone, not a PDF, or 1 MB and over", () => {
+test("a file is refused when it's gone, not a PDF, or 50 MB and over; 1 MB is fine (owner, 5 Nov)", () => {
   const pdf = { id: "a", name: "a.pdf", folder: false, pdf: true, size: 1024 };
   assert.equal(wdFileProblem(pdf), "");
   assert.match(wdFileProblem(undefined), /isn't in the shared folder/);
   assert.match(wdFileProblem({ ...pdf, folder: true }), /isn't in the shared folder/);
   assert.match(wdFileProblem({ ...pdf, pdf: false }), /isn't a PDF/);
-  assert.match(wdFileProblem({ ...pdf, size: 1024 * 1024 }), /under 1 MB/);
+  assert.equal(wdFileProblem({ ...pdf, size: 5 * 1024 * 1024 }), "");
+  assert.match(wdFileProblem({ ...pdf, size: 50 * 1024 * 1024 }), /over 50 MB/);
 });
 
 test("folder paths: only ids, and not too deep", () => {

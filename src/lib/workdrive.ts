@@ -1,5 +1,4 @@
 import { db } from "./db";
-import { BROCHURE_MAX_BYTES } from "./itemEdit";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 
 /*
@@ -19,6 +18,7 @@ const PAGE = 50; // WorkDrive's most per request
 const MAX_PAGES = 10;
 const MAX_DEPTH = 12;
 const FRESH_MS = 60_000;
+const MAX_BYTES = 50 * 1024 * 1024; // no rule of ours (owner, 5 Nov), just what one server call can carry; Zoho Books may refuse less, and says so
 
 export type WdEntry = { id: string; name: string; folder: boolean; pdf: boolean; size: number | null };
 type Conn = { _id: string; clientId: string; clientSecret: string; refreshToken: string; token?: { value: string; expiresAt: number }; connectedAt: string; connectedBy: string };
@@ -45,7 +45,7 @@ export function parseListing(j: Listing): WdEntry[] {
 /** Folders first, then PDFs, A to Z. Other kinds of file aren't shown: they can't go on an item. */
 export const pickerEntries = (all: WdEntry[]) => all.filter((e) => e.folder || e.pdf).sort((a, b) => Number(b.folder) - Number(a.folder) || a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" }));
 /** Why this file can't be used; "" when it can. */
-export const wdFileProblem = (e: WdEntry | undefined) => (!e || e.folder ? "That file isn't in the shared folder any more" : !e.pdf ? "That file isn't a PDF" : e.size != null && e.size >= BROCHURE_MAX_BYTES ? "The PDF must be under 1 MB" : "");
+export const wdFileProblem = (e: WdEntry | undefined) => (!e || e.folder ? "That file isn't in the shared folder any more" : !e.pdf ? "That file isn't a PDF" : e.size != null && e.size >= MAX_BYTES ? "That PDF is over 50 MB, too big to copy" : "");
 
 async function accessFor(c: Conn, force = false): Promise<string> {
   if (!force && c.token && Date.now() < c.token.expiresAt - 5 * 60_000) return c.token.value;
@@ -124,7 +124,7 @@ export async function workdrivePdf(path: string[], fileId: string): Promise<File
     if (res.status === 401 && attempt === 0) continue;
     if (!res.ok) { console.error(`[workdrive] download → ${res.status}`); throw new Error(`Zoho WorkDrive didn't give the file (${res.status})`); }
     const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length >= BROCHURE_MAX_BYTES) throw new Error("The PDF must be under 1 MB");
+    if (bytes.length >= MAX_BYTES) throw new Error("That PDF is over 50 MB, too big to copy");
     if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") throw new Error("That file isn't a PDF");
     return new File([bytes], e!.name, { type: "application/pdf" });
   }

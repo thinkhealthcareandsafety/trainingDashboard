@@ -73,11 +73,11 @@ const upload = async (who: { id: string; name: string }, id: string, file?: File
 };
 const pdf = (bytes: Uint8Array | string) => new File([bytes as BlobPart], "brochure.pdf", { type: "application/pdf" });
 
-test("add PDF: a real PDF under 1 MB, for everyone who can use the page; else on to Zoho (not connected here)", async () => {
+test("add PDF: a real PDF up to 4 MB, for everyone who can use the page; else on to Zoho (not connected here)", async () => {
   assert.match((await upload(sumit, "abc", pdf("%PDF-1.4"))).j.error, /Unknown item/);
   assert.match((await upload(sumit, "1")).j.error, /Pick a PDF/);
   assert.match((await upload(sumit, "1", pdf("not a pdf at all"))).j.error, /isn't a PDF/);
-  assert.match((await upload(sumit, "1", pdf(new Uint8Array(1024 * 1024)))).j.error, /under 1 MB/);
+  assert.match((await upload(sumit, "1", pdf(new Uint8Array(4 * 1024 * 1024)))).j.error, /over 4 MB/i);
   const ok = await upload({ id: "pranjal", name: "Pranjal Nikalje" }, "1", pdf("%PDF-1.4 small"));
   assert.equal(ok.s, 502);
   assert.match(ok.j.error, /isn't connected/);

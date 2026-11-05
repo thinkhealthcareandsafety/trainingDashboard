@@ -1121,7 +1121,7 @@ function BrochureState({ item, live, onAdded }: { item: Item; live: boolean; onA
   return <span className="text-medium">Missing · <AddBrochure item={item} live={live} onAdded={onAdded} /></span>;
 }
 
-/** Picks a PDF and puts it on the item in Zoho Books (the Product Brochure field). PDF, under 1 MB: Books' own note on the field. */
+/** Picks a PDF and puts it on the item in Zoho Books (the Product Brochure field). From the computer up to 4 MB (Vercel's limit); from WorkDrive, larger. */
 function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; live: boolean; label?: string; onAdded: (brochure: string) => void }) {
   const [choosing, setChoosing] = useState(false);
   const [drive, setDrive] = useState(false);
@@ -1129,7 +1129,7 @@ function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; l
   const [busy, setBusy] = useState(false);
   const add = async (file: File | undefined) => {
     if (!file) return;
-    if (file.size >= BROCHURE_MAX_BYTES) return toast({ text: `${file.name} is over 1 MB: Zoho Books takes brochures under 1 MB` });
+    if (file.size >= BROCHURE_MAX_BYTES) return toast({ text: `${file.name} is over 4 MB, too big to upload from a computer: pick it from Zoho WorkDrive instead` });
     setBusy(true);
     const form = new FormData();
     form.set("brochure", item.id);
@@ -1144,7 +1144,7 @@ function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; l
   return (
     // relative: keeps the hidden input inside the row, or every row's input stretches the page.
     <span className="relative" onClick={(e) => e.stopPropagation()}>
-      <button type="button" className={`font-semibold text-brand ${!live || busy ? "cursor-default opacity-60" : "hover:underline"}`} disabled={!live || busy} title={live ? "A PDF under 1 MB. It goes on this item in Zoho Books." : "Only the live site changes Zoho Books"} onClick={() => setChoosing(true)}>{busy ? "Uploading…" : label}</button>
+      <button type="button" className={`font-semibold text-brand ${!live || busy ? "cursor-default opacity-60" : "hover:underline"}`} disabled={!live || busy} title={live ? "A PDF. It goes on this item in Zoho Books." : "Only the live site changes Zoho Books"} onClick={() => setChoosing(true)}>{busy ? "Uploading…" : label}</button>
       {/* Owner, 5 Nov: from the computer, or from the team's shared folder without downloading. */}
       {choosing && createPortal(
         <div className="fade-in fixed inset-0 z-[90] grid place-items-center bg-black/30 p-3" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => { e.stopPropagation(); setChoosing(false); }}>
@@ -1158,7 +1158,7 @@ function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; l
               </label>
               <button type="button" className={`${btn.ghost} justify-center`} onClick={() => { setChoosing(false); setDrive(true); }}>Zoho WorkDrive</button>
             </div>
-            <p className="mt-3 text-[13px] text-muted">A PDF under 1 MB.</p>
+            <p className="mt-3 text-[13px] text-muted">From local storage, up to 4 MB. Larger PDFs can go from WorkDrive.</p>
           </div>
         </div>, document.body)}
       {drive && createPortal(<WorkDrivePicker item={item} onClose={() => setDrive(false)} onAdded={(b) => { setDrive(false); onAdded(b); toast({ text: `${b} added to ${item.name} in Zoho Books` }); }} />, document.body)}
@@ -1222,15 +1222,14 @@ function WorkDrivePicker({ item, onClose, onAdded }: { item: Item; onClose: () =
             )
             : !entries.length ? <p className="px-5 py-10 text-center text-[15px] text-muted">No folders or PDFs here.</p>
             : <ul>{entries.map((e) => {
-              const big = !e.folder && e.size != null && e.size >= BROCHURE_MAX_BYTES;
               return (
                 <li key={e.id} className="border-b border-line last:border-b-0">
-                  <button type="button" disabled={big || Boolean(picking)} title={big ? "Zoho Books takes brochures under 1 MB" : e.name}
-                    className={`flex min-h-11 w-full items-center gap-3 px-5 py-2 text-left text-[14.5px] ${big ? "cursor-not-allowed text-muted" : "text-ink hover:bg-surface-2/60"}`}
+                  <button type="button" disabled={Boolean(picking)} title={e.name}
+                    className="flex min-h-11 w-full items-center gap-3 px-5 py-2 text-left text-[14.5px] text-ink hover:bg-surface-2/60"
                     onClick={() => (e.folder ? setCrumbs((x) => [...x, { id: e.id, name: e.name }]) : pick(e))}>
                     <span aria-hidden>{e.folder ? "📁" : "📄"}</span>
                     <span className="min-w-0 flex-1 break-words">{e.name}</span>
-                    <span className={`num shrink-0 text-[13px] ${big ? "font-semibold text-medium" : "text-muted"}`}>{picking === e.id ? "Adding…" : e.folder ? "" : e.size == null ? "" : big ? `${kb(e.size)}, over 1 MB` : kb(e.size)}</span>
+                    <span className="num shrink-0 text-[13px] text-muted">{picking === e.id ? "Adding…" : e.folder || e.size == null ? "" : kb(e.size)}</span>
                   </button>
                 </li>
               );

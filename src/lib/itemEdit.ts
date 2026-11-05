@@ -39,7 +39,8 @@ export function isPicture(b: Uint8Array): boolean {
   return start(0xff, 0xd8, 0xff) || start(0x89, 0x50, 0x4e, 0x47) || start(0x47, 0x49, 0x46, 0x38) || (start(0x52, 0x49, 0x46, 0x46) && String.fromCharCode(...b.slice(8, 12)) === "WEBP");
 }
 
-export const BROCHURE_MAX_BYTES = 1024 * 1024; // Books' note on the field: "Upload PDF less than 1 MB"
+// A PDF from the computer passes through our server, and Vercel refuses request bodies over 4.5 MB. The field's "Upload PDF less than 1 MB" isn't a limit we keep (owner, 5 Nov).
+export const BROCHURE_MAX_BYTES = 4 * 1024 * 1024;
 
 /** The item's in-state GST rate, "" when it has none. */
 function gstOf(i: Record<string, unknown>): string {

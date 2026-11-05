@@ -487,13 +487,13 @@ async function saveItem(e: { id?: string; fields?: Partial<Record<keyof ItemFiel
   }
 }
 
-/** "Add PDF" on the Items page, for everyone who can use that page: a real PDF under 1 MB (Books' own limit for the field). The list's copy follows at once. */
+/** "Add PDF" on the Items page, for everyone who can use that page: a real PDF, as big as Vercel lets through. The list's copy follows at once. */
 async function saveBrochure(form: FormData, me: { id: string; name: string }): Promise<Response> {
   const id = String(form.get("brochure") ?? "");
   const file = form.get("file");
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown item" }, { status: 400 });
   if (!(file instanceof File) || !file.size) return Response.json({ error: "Pick a PDF" }, { status: 400 });
-  if (file.size >= BROCHURE_MAX_BYTES) return Response.json({ error: "The PDF must be under 1 MB" }, { status: 400 });
+  if (file.size >= BROCHURE_MAX_BYTES) return Response.json({ error: "Over 4 MB is too big to upload from a computer: pick it from Zoho WorkDrive instead" }, { status: 400 });
   if (Buffer.from(await file.slice(0, 5).arrayBuffer()).toString("latin1") !== "%PDF-") return Response.json({ error: "That file isn't a PDF" }, { status: 400 });
   return attachBrochure(id, async () => file, me);
 }
