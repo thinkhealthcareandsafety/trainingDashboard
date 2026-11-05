@@ -3,6 +3,13 @@
 _Last updated: Thu 5 Nov 2026 (end of session 23). **Live = `383c063`** (both addresses); GitHub is ahead of it, see the block below. This docs
 commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
+**Session 24 (5 Nov) — Total Supply quotation, built and committed, NOT pushed.** Wins over the block below. Owner's words: "send yet another quotation from saletotalsupply@gmail.com" with the main quote's items, "each item increase its price by any random number between 1-15%", dynamic templates with lines changed, the PDF made from their Total Supply invoice (TS-INV-23-24-191), signed Parteek Nathani with 7417114450 under the name, number `Quotation-2026-11-05-001` ("yy/mm/dd/ID"; we run it per IST day, kv `ts_quote_no:<day>`).
+- **Code:** `src/lib/totalSupply.ts` (sums, tested against the invoice; templates; company details in `TS`), `totalSupplyPdf.ts` (pdf-lib, standard fonts), `totalSupplyAssets.ts` (logo, stamp: EMPTY), `totalSupplyMail.ts` (nodemailer → Gmail SMTP), route `?ts=`, `?tsPdf=`, POST form `tsEstimateId`, button in `EmailStep`. Each one sent: `totalSupplyQuotes`. Zoho is only read; the main quote is untouched and not marked Sent.
+- **Before it can send (owner):** App Password for saletotalsupply@gmail.com (needs 2-Step Verification) in Vercel as `TS_GMAIL_APP_PASSWORD`, then redeploy. Without it the step shows prices and PDF, and sending is refused.
+- **Still needed from owner:** logo and stamp files (the attachment never reached disk; extract them or get PNGs, put base64 in `totalSupplyAssets.ts`), Total Supply's bank details (none printed for now), final signature. Should the phone number also go on the PDF? It's only in the email for now.
+- **Proven:** 162 tests; browser check with everything faked (`tsstep.cjs`, 1728×958 and 390×844); one real quote read through the local server and its PDF looked at, no writes. **Not proven:** a real Gmail send and a real number + record: nothing tried live. First send goes to the owner's own address only.
+- **Choices to tell the owner about if asked:** topic paragraphs in the email are the main quote's word for word (only the templates are reworded); item SKUs aren't printed (Books' quote doesn't); a failed Gmail send skips a number. Owner was told once about cover-bidding risk and that it should stay off tenders and GeM; their call.
+
 **Start of the next session (24) — do these first:**
 1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected on 5 Nov: GitHub at `2c2d7e8`, this docs commit one ahead until the owner says "push".
 2. `npm test` (**146** should pass) and `npx tsc --noEmit -p tsconfig.json`.
