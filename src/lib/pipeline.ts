@@ -68,6 +68,8 @@ export interface CardView {
   paidInFull?: boolean;
   /** Payments: the invoice behind it — merged in, or the one it is applied to in Zoho. */
   linkedInvoice?: ZohoInvoice;
+  /** Sales board: several invoices of one PI held by this card (a split invoice), by number. */
+  dealInvoices?: ZohoInvoice[];
   /** Quotation behind this card: merged in, or the one its PI/reference cites. */
   linkedQuote?: ZohoQuote;
   /** Invoices: the PI behind it — merged in, or the one its reference cites. */
