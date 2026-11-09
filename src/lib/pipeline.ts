@@ -370,6 +370,15 @@ export const quoteCardId = (estimateId: string) => `quote:${estimateId}`;
 export const piCardId = (salesorderId: string) => `pi:${salesorderId}`;
 export const invoiceCardId = (invoiceId: string) => `invoice:${invoiceId}`;
 export const paymentCardId = (paymentId: string) => `payment:${paymentId}`;
+/**
+ * Each payment row's card (9 Nov): "payment:<id>" as before, so every merge and Logistics link stays; only a payment that pays
+ * several invoices gets a card per invoice's share, "payment:<id>:<invoiceId>", else one share would hide the others (the Sales board's bug).
+ */
+export function paymentCardIds(payments: ZohoPayment[]): (p: ZohoPayment) => string {
+  const invoicesOf = new Map<string, Set<string>>();
+  for (const p of payments) invoicesOf.set(p.paymentId, (invoicesOf.get(p.paymentId) ?? new Set()).add(p.invoiceId));
+  return (p) => ((invoicesOf.get(p.paymentId)?.size ?? 0) > 1 ? paymentCardId(`${p.paymentId}:${p.invoiceId}`) : paymentCardId(p.paymentId));
+}
 // Sales board cards (sales.ts) are "sale:<kind>:<id>".
 export const kindOfId = (id: string): CardKind => (id.startsWith("sale:") ? id.split(":")[1] : id.split(":")[0]) as CardKind;
 
@@ -433,7 +442,8 @@ export function cardCustomers(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoP
   for (const q of quotes) m.set(quoteCardId(q.estimateId), q.customerId);
   for (const p of pis) m.set(piCardId(p.salesorderId), p.customerId);
   for (const i of invoices) m.set(invoiceCardId(i.invoiceId), i.customerId);
-  for (const p of payments) m.set(paymentCardId(p.paymentId), p.customerId);
+  const payId = paymentCardIds(payments);
+  for (const p of payments) m.set(payId(p), p.customerId);
   for (const i of aedInvoices) m.set(aedCardId(i.invoiceId), i.customerId);
   for (const e of events) if (e.kind === "add_potential" && e.ref) m.set(e.cardIds[0], e.ref);
   return m;
@@ -715,10 +725,11 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   const quotesByNumber = new Map(quotes.map((q) => [q.number, q]));
   const pisByRef = new Set(pis.map(refQuoteNumber).filter(Boolean));
   const pisByNumber = new Map(pis.map((p) => [p.number, p]));
+  const payId = paymentCardIds(payments);
   const exists = new Set([
     ...leads.map((l) => leadCardId(l.contactId)), ...quotes.map((q) => quoteCardId(q.estimateId)),
     ...pis.map((p) => piCardId(p.salesorderId)), ...invoices.map((i) => invoiceCardId(i.invoiceId)),
-    ...payments.map((p) => paymentCardId(p.paymentId)), ...potentials.map((p) => p.id),
+    ...payments.map(payId), ...potentials.map((p) => p.id),
   ]);
   // Received per invoice (payments + TDS): an invoice joins its payments only once this matches its total.
   const received = new Map<string, number>();
@@ -741,7 +752,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   // Instalments: once a (fully paid) invoice is merged into one of its payments, its other payments fold into that
   // same card — one card in Payment received for the whole invoice. Unmerging the invoice separates them again.
   const paymentsOf = new Map<string, string[]>();
-  for (const p of payments) paymentsOf.set(p.invoiceId, [...(paymentsOf.get(p.invoiceId) ?? []), paymentCardId(p.paymentId)]);
+  for (const p of payments) paymentsOf.set(p.invoiceId, [...(paymentsOf.get(p.invoiceId) ?? []), payId(p)]);
   for (const [from, to] of [...mergedInto]) {
     if (kindOfId(from) !== "invoice" || kindOfId(to) !== "payment") continue;
     for (const pid of paymentsOf.get(from.slice("invoice:".length)) ?? []) if (pid !== to && !mergedInto.has(pid) && !deleted.has(pid)) mergedInto.set(pid, to);
@@ -823,7 +834,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
   }
 
   for (const pay of payments) {
-    const id = paymentCardId(pay.paymentId);
+    const id = payId(pay);
     const src = (mergedFrom.get(id) ?? []).map((s) => cards.get(s)).find((c) => c?.kind === "invoice");
     const contact = contacts.get(pay.customerId);
     // A payment carries no contact people of its own; the customer's details come with the merged invoice.
