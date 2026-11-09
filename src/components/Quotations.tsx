@@ -698,12 +698,13 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
  */
 function EmailStep({ quote, live, customerId, onContact, known, compose, onBack, onSent, onTsSent }: { quote: { estimateId: string; number: string }; live: boolean; customerId: string; onContact: (p: AddedPerson) => void; known: { email: string | null; name: string | null }[]; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void; onTsSent: (number: string, to: string, from: HTMLElement) => void }) {
-  type Draft = { from?: string | null; subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail" };
+  type Draft = { from?: string | null; subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail"; brochures?: { id: string; name: string; item: string }[] };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [leaveOut, setLeaveOut] = useState<string[]>([]); // brochures unticked (owner, 9 Nov: all go by default)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const body = useRef<HTMLDivElement>(null);
@@ -815,6 +816,8 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
     form.set("subject", subject);
     form.set("body", body.current?.innerHTML ?? "");
     if (draft?.fileName && !ts) form.set("fileName", draft.fileName);
+    // Brochures go on the main quote only, never on Total Supply's (owner, 9 Nov).
+    if (!ts) for (const b of draft?.brochures ?? []) if (!leaveOut.includes(b.id)) form.append("brochureDocs", b.id);
     for (const f of files) form.append("attachments", f, f.name);
     const r = await fetch("/api/quotations", { method: "POST", body: form }).catch(() => null);
     const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; number?: string }) : { error: "Couldn't reach the server" };
@@ -918,6 +921,15 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
           <span className={label}>Attachments</span>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title={ts ? "Total Supply's PDF, made when it's sent" : "Zoho Books attaches the quotation's PDF itself"}>📄 {ts ? ts.file : draft.fileName ?? `${quote.number}.pdf`} <span className="text-muted">(the quotation)</span></span>
+            {!ts && (draft.brochures ?? []).map((b) => {
+              const on = !leaveOut.includes(b.id);
+              return (
+                <label key={b.id} className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[14px] ${on ? "border-brand bg-brand-soft text-ink" : "border-line text-muted"}`} title={`${b.item}'s brochure, read from Zoho Books when it's sent`}>
+                  <input type="checkbox" className="accent-[var(--brand)]" checked={on} onChange={(e) => setLeaveOut((x) => (e.target.checked ? x.filter((y) => y !== b.id) : [...x, b.id]))} aria-label={`Attach the brochure ${b.name}`} />
+                  📎 {b.name} <span className="text-muted">({b.item})</span>
+                </label>
+              );
+            })}
             {files.map((f, i) => (
               <span key={`${f.name}-${i}`} className="flex items-center gap-1 rounded-full bg-surface-2 py-1 pl-3 pr-1 text-[14px] text-ink-2">
                 {f.name} <span className="text-muted">{kb(f.size)}</span>
