@@ -233,7 +233,15 @@ export function isoTime(v: unknown, fallback = ""): string {
  * IGST one is the same %), unit, Zoho's "Stock Status" field, services (no stock). Descriptions are long, so they're
  * read from Zoho only when an item is picked.
  */
-export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean; category?: string; image?: boolean; brochure?: string };
+export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean; category?: string; image?: boolean; brochure?: string; brochureId?: string };
+
+/** The Product Brochure field's file id (the document to read back), wherever Zoho puts it on an item. */
+export function brochureIdOf(i: Record<string, unknown>): string | undefined {
+  const hash = (i.custom_field_hash ?? {}) as Record<string, unknown>;
+  const arr = (i.custom_fields as { api_name?: string; value?: unknown }[] | undefined)?.find((f) => f.api_name === "cf_product_brochure")?.value;
+  const v = i.cf_product_brochure_unformatted ?? hash.cf_product_brochure_unformatted ?? arr;
+  return typeof v === "string" && /^\d+$/.test(v) ? v : typeof v === "number" ? String(v) : undefined;
+}
 
 /** Every Zoho item with its Item Identifier (a few list calls; the sync keeps the result in MongoDB). */
 export async function fetchItems(): Promise<ZItem[]> {
@@ -244,6 +252,7 @@ export async function fetchItems(): Promise<ZItem[]> {
     category: (i.category_name as string) || undefined, image: Boolean(i.image_name) || undefined,
     // Books' "Product Brochure" field (the file's name; has_attachment stays false with one). "" = none; a copy from before 4 Nov has no value.
     brochure: cf(i, "cf_product_brochure") ?? "",
+    brochureId: brochureIdOf(i), // to attach it to quote emails (9 Nov)
   }));
 }
 

@@ -4,9 +4,9 @@ import { canQuote, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
-import { type ZItem, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
+import { type ZItem, brochureIdOf, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, connectQuotes, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, brochurePdf, connectQuotes, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
@@ -267,13 +267,13 @@ export async function GET(request: Request) {
     if (emailId) {
       if (!/^\d+$/.test(emailId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
       type ToContact = { email?: string; first_name?: string; last_name?: string; selected?: boolean };
-      const j = await zohoGet<Record<string, unknown> & { data?: Record<string, unknown> }>(`/estimates/${emailId}/email`);
+      const [j, brochures] = await Promise.all([zohoGet<Record<string, unknown> & { data?: Record<string, unknown> }>(`/estimates/${emailId}/email`), quoteBrochures(emailId).catch(() => [])]);
       type FromEmail = { email?: string; selected?: boolean; is_org_email_id?: boolean };
       const d = (j.data ?? j) as { subject?: string; body?: string; file_name?: string; to_contacts?: ToContact[]; from_emails?: FromEmail[] };
       const senders = d.from_emails ?? [];
       return Response.json({
         from: (senders.find((x) => x.is_org_email_id) ?? senders.find((x) => x.selected))?.email ?? null, // emailQuote sends from the organisation's email
-        ziaVia: ziaFlowOn() ? "flow" : "mail", subject: d.subject ?? "", body: d.body ?? "", fileName: d.file_name ?? null, maxBytes: EMAIL_MAX_BYTES,
+        brochures, ziaVia: ziaFlowOn() ? "flow" : "mail", subject: d.subject ?? "", body: d.body ?? "", fileName: d.file_name ?? null, maxBytes: EMAIL_MAX_BYTES,
         to: (d.to_contacts ?? []).filter((x) => x.email).map((x) => ({ email: x.email!, name: [x.first_name, x.last_name].filter(Boolean).join(" ") || null, selected: x.selected !== false })),
       });
     }
@@ -577,7 +577,18 @@ async function sendEmail(form: FormData | null): Promise<Response> {
   if (to.length + cc.length > 20 || files.length > 10) return Response.json({ error: "At most 20 emails and 10 attachments" }, { status: 400 });
   if (!subject) return Response.json({ error: "Type a subject" }, { status: 400 });
   if (files.reduce((n, f) => n + f.size, 0) > EMAIL_MAX_BYTES) return Response.json({ error: "Attachments are over 4 MB together — leave some out" }, { status: 400 });
+  // Brochures (9 Nov): only the ones on this quote's items, read from Books here, so nothing big goes through the browser.
+  const wanted = form.getAll("brochureDocs").map(String).filter((x) => /^\d+$/.test(x));
+  if (files.length + wanted.length > 10) return Response.json({ error: "At most 10 attachments, brochures included" }, { status: 400 });
   try {
+    if (wanted.length) {
+      const mine = new Map((await quoteBrochures(id)).map((b) => [b.id, b]));
+      for (const docId of new Set(wanted)) {
+        const b = mine.get(docId);
+        if (!b) return Response.json({ error: "That brochure isn't on this quotation's items" }, { status: 400 });
+        files.push(await brochurePdf(b.id, b.name));
+      }
+    }
     await emailQuote(id, { to, cc, subject, body, fileName: str("fileName", 120) || undefined, files });
     // Zoho marked it Sent — so does our record ("went to them N days ago" counts it from now).
     await (await sentCol()).updateOne({ _id: id }, { $set: { sent: true, status: "sent" } }).catch(() => undefined);
@@ -586,6 +597,23 @@ async function sendEmail(form: FormData | null): Promise<Response> {
     console.error("[quotations] email failed:", e);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't send the email" }, { status: 502 });
   }
+}
+
+/** The brochures of a quotation's items, each once: from the items copy, or the item itself when the copy doesn't have its file id yet (added since the last sync). */
+async function quoteBrochures(estimateId: string): Promise<{ id: string; name: string; item: string }[]> {
+  const [est, doc] = await Promise.all([
+    zohoGet<{ estimate?: { line_items?: { item_id?: unknown }[] } }>(`/estimates/${estimateId}`),
+    (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }),
+  ]);
+  const byId = new Map((doc?.items ?? []).map((i) => [i.id, i]));
+  const out = new Map<string, { id: string; name: string; item: string }>();
+  for (const itemId of new Set((est.estimate?.line_items ?? []).map((l) => String(l.item_id ?? "")).filter(Boolean))) {
+    const i = byId.get(itemId);
+    if (!i?.brochure) continue;
+    const id = i.brochureId ?? brochureIdOf((await zohoGet<{ item?: Record<string, unknown> }>(`/items/${itemId}`)).item ?? {});
+    if (id && !out.has(id)) out.set(id, { id, name: i.brochure, item: i.name });
+  }
+  return [...out.values()];
 }
 
 const readEstimate = async (id: string): Promise<ZEstimate> => (await zohoGet<{ estimate?: ZEstimate }>(`/estimates/${id}`)).estimate ?? {};

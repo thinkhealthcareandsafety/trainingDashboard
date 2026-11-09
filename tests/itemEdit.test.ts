@@ -135,3 +135,12 @@ test("who can edit: every member (owner, 5 Nov); here it stops at the missing co
   assert.equal(ok.s, 502); // on to Zoho: not connected here, so nothing is written
   assert.match(ok.j.error, /isn't connected/);
 });
+
+test("a brochure's file id, wherever Zoho puts it on an item", async () => {
+  const { brochureIdOf } = await import("@/lib/zoho");
+  assert.equal(brochureIdOf({ custom_field_hash: { cf_product_brochure: "Cabinet.pdf", cf_product_brochure_unformatted: "982417000023697006" } }), "982417000023697006");
+  assert.equal(brochureIdOf({ custom_fields: [{ api_name: "cf_product_brochure", value: "982417000023697006" }] }), "982417000023697006");
+  assert.equal(brochureIdOf({ cf_product_brochure_unformatted: "982417000023697006" }), "982417000023697006");
+  assert.equal(brochureIdOf({ custom_field_hash: { cf_product_brochure: "Cabinet.pdf" } }), undefined);
+  assert.equal(brochureIdOf({}), undefined);
+});

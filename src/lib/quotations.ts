@@ -316,6 +316,20 @@ export async function updateQuote(estimateId: string, q: QuoteInput): Promise<Ma
 export const EMAIL_MAX_BYTES = 4 * 1024 * 1024; // Vercel refuses request bodies over 4.5 MB
 export type QuoteEmail = { to: string[]; cc: string[]; subject: string; body: string; fileName?: string; files: File[] };
 
+/** A brochure's PDF, read back from Books (GET /documents/{id} gives the file; tried 9 Nov on the test item). For the quote email. */
+export async function brochurePdf(docId: string, name: string): Promise<File> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  const url = new URL(`${API}/documents/${docId}`);
+  url.searchParams.set("organization_id", ORG);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessFor(c, attempt > 0)}` }, cache: "no-store" });
+    if (res.status === 401 && attempt === 0) continue;
+    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("pdf")) throw new Error(`Zoho Books didn't give the brochure ${name} (${res.status})`);
+    return new File([Buffer.from(await res.arrayBuffer())], /\.pdf$/i.test(name) ? name : `${name}.pdf`, { type: "application/pdf" });
+  }
+}
+
 export async function emailQuote(estimateId: string, m: QuoteEmail): Promise<void> {
   const c = await (await kv()).findOne({ _id: KEY });
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");

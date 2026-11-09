@@ -126,6 +126,18 @@ test("Total Supply: the same checks; nothing goes without the Gmail password; no
   }
 });
 
+test("brochures on the quote email: at most 10 attachments together; checked against the quote in Zoho (not connected here)", async () => {
+  const send = async (ids: string[]) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(mail)) fd.set(k, v);
+    for (const id of ids) fd.append("brochureDocs", id);
+    const r = await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(sumit) }, body: fd }));
+    return { s: r.status, j: await r.json() };
+  };
+  assert.match((await send(Array.from({ length: 11 }, (_, i) => String(1000 + i)))).j.error, /At most 10/);
+  assert.equal((await send(["982417000023697006"])).s, 502); // reads the quote's items from Zoho first: not connected, so nothing is sent
+});
+
 test("Total Supply: a bad quote id is refused before anything is read", async () => {
   assert.equal((await tsGet("ts=abc")).s, 400);
   assert.equal((await tsGet("tsPdf=abc")).s, 400);
