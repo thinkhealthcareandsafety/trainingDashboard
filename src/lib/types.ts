@@ -286,6 +286,7 @@ export type CardEventKind =
   | "merge"
   | "set_training_date" // value: YYYY-MM-DD, several days comma-separated ("2026-10-05,2026-10-06"), or "TBD"; the first date schedules, later ones postpone
   | "complete_training" // moves the card to Training completed
+  | "set_people" // people: how many actually came, corrected before the training is completed (5 Nov); before: the old count
   // Until 15 Oct: one value per customer name (ref = Zoho contact id), the latest on every card of that name. No longer
   // written — a training without its own location / email still shows the last of these (what it printed before).
   | "set_cert_alias" // value = the alias printed as the location ("course conducted at"), "" = the customer's own name; before = previous
@@ -357,7 +358,7 @@ export interface CardEvent {
   location?: string; // set_training_date (since 15 Oct, required with a date): the certificate location name, "" = the customer's own name
   email?: string; // set_training_date (since 15 Oct, required with a date): the concerned person's email for this training
   phone?: string; // set_training_date (since 20 Oct): the concerned person's contact number for this training
-  people?: number; // set_training_date (since 21 Oct): how many people will be trained, as checked when scheduling (Zoho's quantity can be wrong)
+  people?: number; // set_people, and set_training_date (since 21 Oct): how many people will be trained, as checked when scheduling (Zoho's quantity can be wrong)
   person?: string; // aed_add_phone / aed_call: whose number it is
   step?: number; // aed_email: which template went out (1 first contact, 2 1st reminder, 3 2nd reminder — and again after)
   messageId?: string; // aed_email: Zoho Mail's id for the sent email (the reminders reply to the first one)

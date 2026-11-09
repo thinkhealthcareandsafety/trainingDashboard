@@ -53,3 +53,22 @@ test("the AED board's data is refused for him", async () => {
   const r = await GET(new Request("http://x/api/aed", { headers: { "x-test-member": JSON.stringify(prashant) } }));
   assert.equal(r.status, 403);
 });
+
+test("No. of People: corrected after scheduling, kept through completion, and undoable (owner, 5 Nov)", async () => {
+  const { buildBoard, peopleOf, describeEvent } = await import("@/lib/pipeline");
+  const base = { createdAt: "2026-10-01T00:00:00.000Z", customerId: "c1", customerName: "Acme", contacts: [], items: [{ name: "First Aid Training", qty: 20 }] };
+  const pi = { ...base, salesorderId: "p1", number: "Performa-25-1", date: "2026-10-05", status: "open", total: 1000 };
+  const ev = (id: string, at: string, e: object) => ({ id, at, by: "Shikha", cardIds: ["pi:p1"], ...e });
+  const date = ev("e1", "2026-10-06T00:00:00.000Z", { kind: "set_training_date", value: "2026-10-10", trainers: ["Ashish"], location: "", email: "a@b.com", people: 20 });
+  const fix = ev("e2", "2026-10-10T10:00:00.000Z", { kind: "set_people", people: 14, before: "20" });
+  const done = ev("e3", "2026-10-10T12:00:00.000Z", { kind: "complete_training" });
+  const card = (events: object[]) => buildBoard([], [], [pi as never], [], [], events as never).cards.get("pi:p1")!;
+  assert.equal(peopleOf(card([date])), 20);
+  const after = card([date, fix, done]);
+  assert.equal(peopleOf(after), 14);
+  assert.ok(after.schedule?.completed);
+  assert.equal(after.schedule?.dates.join(), "2026-10-10"); // the date and trainers are untouched
+  assert.deepEqual(after.schedule?.trainers, ["Ashish"]);
+  assert.equal(peopleOf(card([date, { ...fix, revertedAt: "2026-10-11T00:00:00.000Z" }])), 20);
+  assert.match(describeEvent(fix as never, (id) => id), /No\. of People changed from 20 to 14/);
+});

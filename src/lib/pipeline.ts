@@ -259,6 +259,11 @@ function scheduleOf(events: CardEvent[]): TrainingSchedule | undefined {
       if (s?.date && !completionNotApplied(e)) s = { ...s, completed: { at: e.at, by: e.by } };
       continue;
     }
+    // How many people actually came, changed before the training is marked completed (owner, 5 Nov): no date change, no reminder.
+    if (e.kind === "set_people") {
+      if (s && e.people) s = { ...s, people: e.people };
+      continue;
+    }
     if (e.kind !== "set_training_date" || !e.value) continue;
     // The head-count checked when scheduling stays with the training (postponed, to be decided) until it's checked again.
     const people = e.people ?? s?.people;
@@ -1109,6 +1114,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
       const [from, to] = e.cardIds;
       return `Merged ${KIND_LABEL[kindOfId(from)].toLowerCase()} “${e.before ?? labelOf(from)}” into ${e.value ?? labelOf(to)}`;
     }
+    case "set_people": return `No. of People changed${e.before ? ` from ${e.before}` : ""} to ${e.people}`;
     case "set_training_date": {
       const show = (x?: string) => (!x ? "" : x === "TBD" ? "To be decided" : fmtDays(x));
       const who = (e.trainers?.length ? ` · Trainers: ${e.trainers.join(", ")}` : "") + (e.underName ? ` · Under name: ${e.underName}` : "")

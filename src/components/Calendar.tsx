@@ -13,7 +13,7 @@ import { WhatsAppSetup } from "./WhatsAppSetup";
 import { Combobox, IconButton, Segmented, btn, inputCls } from "./ui";
 import {
   type CertChoice, ChangeLog, DocsSection, DueChip, FormRow, Header, NotesPanel, type PeopleChoice, Row, ScheduleRows, Section, Shell, TrainingSection,
-  MAX_DATE, certEvents, certOf, dateAllowed, dateProblem, maxTrainingDate, minTrainingDate, peopleStart, scheduleMissing, scheduleText, trainingDateEvents,
+  MAX_DATE, certAndPeopleEvents, certOf, dateAllowed, dateProblem, maxTrainingDate, minTrainingDate, peopleStart, scheduleMissing, scheduleText, trainingDateEvents,
 } from "./followups/CardModal";
 import { AedCardModal } from "./followups/AedModal";
 import { StatePill } from "./followups/FulfilCerts";
@@ -588,7 +588,7 @@ function CalendarTrainingModal({ card, cards, fulfil, member, options, onClose }
             </Section>
           </div>
           <div className="space-y-3">
-            <TrainingSection card={card} onSchedule={schedule} onComplete={complete} busyOn={busyOn} onCert={(cert) => addCardEvents(certEvents(card, cert, member.name))} />
+            <TrainingSection card={card} onSchedule={schedule} onComplete={complete} busyOn={busyOn} onCert={(cert, people) => addCardEvents(certAndPeopleEvents(card, cert, member.name, people))} />
             <Section title="Money" aside={due ? <DueChip due={due} /> : undefined}>
               <p className="text-[14px] text-ink-2">
                 {card.invoice ? <>Invoice {card.invoice.number}{card.invoice.total !== undefined && <>: <b className="num text-ink">₹{card.invoice.total.toLocaleString("en-IN")}</b></>}</> : <span className="text-muted">Not invoiced yet{card.pi ? ` — ${card.pi.number}` : ""}</span>}

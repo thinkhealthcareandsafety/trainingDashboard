@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { CardEvent, CardEventKind, Member, Phase, ZohoInvoice, ZohoPayment } from "@/lib/types";
@@ -544,6 +545,12 @@ export function certEvents(card: CardView, cert: CertChoice | undefined, by: str
   ];
 }
 
+/** The Certificate details popup's Save: the details, and the head-count when it changed. */
+export function certAndPeopleEvents(card: CardView, cert: CertChoice, by: string, people?: number): Omit<CardEvent, "id" | "at">[] {
+  const changed = people !== undefined && people > 0 && people !== peopleOf(card);
+  return [...certEvents(card, cert, by), ...(changed ? [{ cardIds: [card.id], kind: "set_people" as const, people, before: String(peopleOf(card)), by }] : [])];
+}
+
 /**
  * The entries a training date makes (board and calendar alike): the location and email ride on the date entry (the
  * server refuses a date without them); same days and trainers = only the location / email / name changed, no new date.
@@ -1011,29 +1018,46 @@ function CertLines({ card, onChange, needEmail }: { card: CardView; onChange?: (
  * Change this training's certificate location and concerned email (and the customer's concerned person's name) on
  * their own. A popup over the card, so the card itself doesn't grow and start scrolling.
  */
-export function CertEditor({ card, initial, saveLabel = "Save", note, onSave, onClose }: {
-  card: CardView; initial?: CertChoice; saveLabel?: string; note?: string; onSave: (cert: CertChoice) => void; onClose: () => void;
+export function CertEditor({ card, initial, saveLabel = "Save", note, withPeople, onSave, onClose }: {
+  card: CardView; initial?: CertChoice; saveLabel?: string; note?: string;
+  /** A scheduled training: the head-count can be corrected here too, before it's marked completed (owner, 5 Nov). */
+  withPeople?: boolean;
+  onSave: (cert: CertChoice, people?: number) => void; onClose: () => void;
 }) {
   const start = initial ?? certOf(card);
   const [cert, setCert] = useState<CertChoice>(start);
+  const startPeople = peopleOf(card);
+  const [people, setPeople] = useState(String(startPeople));
+  const peopleN = Math.floor(Number(people));
+  const peopleOk = !withPeople || (/^\d+$/.test(people.trim()) && peopleN >= 1 && peopleN <= 100_000);
+  const peopleChanged = Boolean(withPeople) && peopleOk && peopleN !== startPeople;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") (e.stopPropagation(), onClose()); };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
   return (
-    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4" onMouseDown={onClose}>
+    // Blurred behind, like the card itself: in the see-through themes the card showed through the popup on a phone.
+    <div className="fade-in fixed inset-0 z-[70] grid place-items-center bg-black/30 p-4 backdrop-blur-md" onMouseDown={onClose}>
       <div role="alertdialog" aria-label="Certificate details" className="modal-in w-full max-w-[640px] rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="px-6 pb-4 pt-5">
           <h3 className="text-[18px] font-bold tracking-tight text-ink">Certificate details</h3>
-          <p className="mt-0.5 text-[13px] text-muted">{note ?? `Location, email and number: this training only. The concerned person's name: every card of ${card.name}.`}</p>
+          <p className="mt-0.5 text-[13px] text-muted">{note ?? `Location, email${withPeople ? ", number and no. of people" : " and number"}: this training only. The concerned person's name: every card of ${card.name}.`}</p>
         </div>
         <FormRows.Provider value={true}>
-          <div className="border-y border-line px-6"><CertPickers card={card} value={cert} onChange={setCert} /></div>
+          <div className="no-scrollbar max-h-[64vh] overflow-y-auto border-y border-line px-6">
+            <CertPickers card={card} value={cert} onChange={setCert} />
+            {withPeople && (
+              <FieldRow label="No. of People" hint={`How many actually came${zohoPeople(card) !== peopleN ? ` (PI: ${zohoPeople(card)})` : ""}`} required>
+                <input className={`${inputCls} !h-8 !w-28 text-[13px]`} type="number" min={1} max={100000} inputMode="numeric" aria-label="Number of people" value={people} onChange={(e) => setPeople(e.target.value)} />
+                {!peopleOk && <p className="mt-1 text-[12.5px] font-medium text-high">Type a whole number, 1 or more.</p>}
+              </FieldRow>
+            )}
+          </div>
         </FormRows.Provider>
         <div className="flex justify-end gap-2 px-6 py-4">
           <button className={btn.ghost} onClick={onClose}>Cancel</button>
-          <button className={btn.primary} disabled={!certReady(cert) || (sameCert(cert, start) && saveLabel !== "Use")} onClick={() => { onSave(cert); onClose(); }}>{saveLabel}</button>
+          <button className={btn.primary} disabled={!certReady(cert) || !peopleOk || (sameCert(cert, start) && !peopleChanged && saveLabel !== "Use")} onClick={() => { onSave(cert, withPeople && peopleOk ? peopleN : undefined); onClose(); }}>{saveLabel}</button>
         </div>
       </div>
     </div>
@@ -1043,7 +1067,7 @@ export function CertEditor({ card, initial, saveLabel = "Save", note, onSave, on
 export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn, onCert, needEmail, footer }: {
   card: CardView; compact?: boolean; onSchedule?: ScheduleFn; onComplete?: () => void; busyOn?: BusyFn;
   /** Set the alias for certificates and the concerned email (no training date needed). */
-  onCert?: (cert: CertChoice) => void;
+  onCert?: (cert: CertChoice, people?: number) => void;
   needEmail?: boolean;
   /** Under the training (Fulfillment: the gratitude email and the certificates). */
   footer?: React.ReactNode;
@@ -1100,7 +1124,8 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
                     )}
                   </div>
                   {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} busyOn={busyOn} compact={compact} />}
-                  {i === 0 && certEditing && onCert && <CertEditor card={card} onSave={onCert} onClose={closeCert} />}
+                  {/* Over the whole page: inside the card it opened under the card on a phone. */}
+                  {i === 0 && certEditing && onCert && createPortal(<CertEditor card={card} withPeople={Boolean(card.schedule && card.schedule.status !== "tbd" && !card.schedule.completed)} onSave={onCert} onClose={closeCert} />, document.body)}
                 </div>
               </div>
             );
@@ -1949,7 +1974,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
               <PotentialSection card={card} onChange={setExpected} />
             ) : (
               <TrainingSection card={card} onSchedule={card.kind !== "lead" ? schedule : undefined} onComplete={complete} busyOn={busyOn}
-                onCert={card.deleted ? undefined : (cert) => addCardEvents(certEvents(card, cert, member.name))}
+                onCert={card.deleted ? undefined : (cert, people) => addCardEvents(certAndPeopleEvents(card, cert, member.name, people))}
                 footer={card.backfill && !card.deleted ? <BackfillCompletion card={card} cards={cards} member={member} busyOn={busyOn} /> : undefined} />
             )}
             <SalesSection card={card} />
