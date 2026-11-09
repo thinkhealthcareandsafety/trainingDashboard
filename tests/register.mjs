@@ -3,6 +3,13 @@
 // The database and sign-in are ALWAYS the in-memory fakes in tests/fakes — a test can never reach the live data.
 import { register } from "node:module";
 
+// No test ever reaches the network (9 Nov: one Total Supply test was asking Zoho for a token). A route that would call Zoho,
+// Gmail or WorkDrive gets this error instead, so it fails safely, the way an unconnected service does.
+globalThis.fetch = async (input) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  throw new Error(`Tests never reach the network (${new URL(url).host})`);
+};
+
 register("data:text/javascript," + encodeURIComponent(`
   import { existsSync } from "node:fs";
   import { fileURLToPath, pathToFileURL } from "node:url";
