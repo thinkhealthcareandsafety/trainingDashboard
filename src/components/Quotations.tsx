@@ -12,7 +12,7 @@ import { BROCHURE_MAX_BYTES, GST_OPTIONS, type ItemFields, PICTURE_MAX_BYTES, ST
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { onItemsPage } from "@/lib/itemsPage";
-import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, isTeamEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 import { buildTsEmail } from "@/lib/totalSupply";
 
 /*
@@ -849,7 +849,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
                 {x.name ? <>{x.name} <span className="text-muted">{x.email}</span></> : x.email}
               </label>
             ))}
-            <AddEmail customerId={customerId} live={live} onAdded={(p) => { onContact(p); setPicked((x) => { const have = people.find((o) => o.email.toLowerCase() === p.email)?.email ?? p.email; return x.includes(have) ? x : [...x, have]; }); }} />
+            <AddEmail customerId={customerId} live={live} onCc={(m) => setCc((x) => (x.toLowerCase().split(/[,;\s]+/).includes(m) ? x : [x.trim(), m].filter(Boolean).join(", ")))} onAdded={(p) => { onContact(p); setPicked((x) => { const have = people.find((o) => o.email.toLowerCase() === p.email)?.email ?? p.email; return x.includes(have) ? x : [...x, have]; }); }} />
           </div>
         </div>
         <div>
@@ -1420,14 +1420,18 @@ function ItemImage({ item, doc, tall = false, onMissing }: { item: Item; doc?: s
 }
 
 /** "+ Add email" (owner, 4 Nov): saved on the customer in Zoho Books as a contact person, then ticked for this quote. */
-function AddEmail({ customerId, live, onAdded }: { customerId: string; live: boolean; onAdded: (p: AddedPerson) => void }) {
+function AddEmail({ customerId, live, onAdded, onCc }: { customerId: string; live: boolean; onAdded: (p: AddedPerson) => void; /** The email step: a team address goes to Cc instead. */ onCc?: (email: string) => void }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const ready = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && first.trim() && last.trim();
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const team = validEmail && isTeamEmail(email);
+  const ready = validEmail && !team && first.trim() && last.trim();
+  // What still stops it, said plainly (owner, 9 Nov: "why cant i add the email here").
+  const missing = !email.trim() ? "" : !validEmail ? "That email doesn't look right yet." : team ? "" : !first.trim() || !last.trim() ? "Type their first and last name: Zoho needs both." : "";
   const close = () => { setOpen(false); setEmail(""); setFirst(""); setLast(""); setError(""); };
   const add = async () => {
     if (!ready || busy) return;
@@ -1449,7 +1453,14 @@ function AddEmail({ customerId, live, onAdded }: { customerId: string; live: boo
       <input className={`${box} flex-1 basis-32`} placeholder="Last name" value={last} onChange={(e) => setLast(e.target.value)} onKeyDown={enter} aria-label="Last name" />
       <button type="button" className={`${btn.primary} !h-9`} disabled={!ready || busy} onClick={add}>{busy ? "Adding…" : "Add to customer"}</button>
       <button type="button" className={`${btn.quiet} !h-9`} disabled={busy} onClick={close}>Cancel</button>
-      <p className={`basis-full text-[13px] ${error ? "text-high" : "text-muted"}`}>{error || "It's saved on this customer in Zoho Books, not as their primary contact."}</p>
+      {team ? (
+        <p className="flex basis-full flex-wrap items-center gap-2 text-[13px] font-medium text-medium">
+          That&apos;s your team&apos;s address, so it isn&apos;t saved on the customer. {onCc ? "Put it in Cc instead:" : "Add it in Cc on the email step instead."}
+          {onCc && <button type="button" className={`${btn.ghost} !h-8`} onClick={() => { onCc(email.trim().toLowerCase()); close(); }}>Move to Cc</button>}
+        </p>
+      ) : (
+        <p className={`basis-full text-[13px] ${error || missing ? "font-medium text-medium" : "text-muted"}`}>{error || missing || "It's saved on this customer in Zoho Books, not as their primary contact."}</p>
+      )}
     </div>
   );
 }

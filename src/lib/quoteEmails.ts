@@ -30,6 +30,9 @@ export type TopicId =
 const COMPANY = "Think Health Care and Safety";
 const TABLE_MARK = "[[item table]]"; // stands for the table in the plain text until it becomes HTML
 
+/** The team's own addresses: never saved as a customer's contact, they go in Cc (owner, 9 Nov). */
+export const isTeamEmail = (email: string) => /@thinkhealth\.in$/i.test(email.trim());
+
 /** On every quote email, whoever sends it (owner, 4 Nov). */
 export const ALWAYS_CC = ["sales@thinkhealth.in", "sshah@thinkhealth.in"];
 /** The Cc list as sent: the fixed two, then the others; each address once, and none that's already in To. */

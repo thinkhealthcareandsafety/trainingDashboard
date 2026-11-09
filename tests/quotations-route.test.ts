@@ -126,6 +126,12 @@ test("Total Supply: the same checks; nothing goes without the Gmail password; no
   }
 });
 
+test("Add email: the team's own address is refused, so it never lands on a customer (owner, 9 Nov)", async () => {
+  const r = await POST(new Request("http://x/api/quotations", { method: "POST", headers: { "x-test-member": JSON.stringify(sumit), "content-type": "application/json" }, body: JSON.stringify({ addEmail: { customerId: "1", firstName: "Shikha", lastName: "Dixit", email: "Shikha.Dixit@ThinkHealth.in" } }) }));
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /Cc/);
+});
+
 test("brochures on the quote email: at most 10 attachments together; checked against the quote in Zoho (not connected here)", async () => {
   const send = async (ids: string[]) => {
     const fd = new FormData();

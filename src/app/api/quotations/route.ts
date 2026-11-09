@@ -9,7 +9,7 @@ import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, brochurePdf, connectQuotes, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
-import { type QuoteEmailInput, ZIA_MAILBOX, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, ZIA_MAILBOX, isTeamEmail, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
 import { BROCHURE_MAX_BYTES, PICTURE_MAX_BYTES, cleanItemFields, isPicture, itemFieldsOf, itemPictures, itemProblem, type ItemFields } from "@/lib/itemEdit";
 import { askZia, ziaAnswer, ziaFlowOn } from "@/lib/ziaFlow";
 import { TS, type ZEstimate, buildTsQuote, parseMarkups, rollMarkups, tsQuoteNumber } from "@/lib/totalSupply";
@@ -552,6 +552,7 @@ async function addEmail(a: { customerId?: string; firstName?: string; lastName?:
   const contactId = s(a.customerId, 30), firstName = s(a.firstName, 100), lastName = s(a.lastName, 100), email = s(a.email, 200).toLowerCase();
   if (!/^\d+$/.test(contactId)) return Response.json({ error: "Pick a customer" }, { status: 400 });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "That email doesn't look right" }, { status: 400 });
+  if (isTeamEmail(email)) return Response.json({ error: "That's your team's address: put it in Cc instead, so it isn't saved on the customer" }, { status: 400 });
   if (!firstName || !lastName) return Response.json({ error: "Type their first and last name: Zoho needs both" }, { status: 400 });
   try {
     const person = await addContactPerson({ contactId, firstName, lastName, email });

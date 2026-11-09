@@ -17,7 +17,7 @@ never email or WhatsApp a customer. The owner is short on credits, so keep repli
 2. **+ Add picture:** try on Hot Water Bag Standard with a real photo first (the team should wait). `/items/{id}/images` for adding is a guess. Read it back: the new
    picture is on the item and none is gone. If it fails or replaces one, fix before anyone else uses it.
 3. **Item Edit:** no save yet (`itemEdits` holds only 2 brochure uploads). Save one small change, read it back in Zoho.
-4. **+ Add email:** first real one on a customer the owner picks; read back in Zoho, and check the new person stays ticked in the email step.
+4. **+ Add email:** 9 Nov (owner: "why cant i add the email here"): it now says what's missing (first and last name, which Zoho needs; a half-typed email), and a @thinkhealth.in address isn't saved on the customer (server refuses it; the email step offers Move to Cc, `isTeamEmail`). First real one on a customer the owner picks; read back in Zoho, and check the new person stays ticked in the email step.
 
 **Agreed, to build (owner, 4 Nov); restated with defaults, waiting for "yeah"**
 5. **Brochures on quotes: built 9 Nov** (owner "yess"; not on Total Supply emails). `GET /documents/{id}` gives the PDF (tried on the test item). The email step lists the quote's items' brochures as ticked chips (`quoteBrochures`; file id from the items copy's `brochureId`, or the item itself until the next sync); the server reads each from Books at send time (`brochurePdf`). Not tried yet: a real send. Zoho's attachment size limit is unknown; first send to the owner only.
