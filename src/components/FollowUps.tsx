@@ -863,7 +863,8 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
   useEffect(() => {
     const id = wantOpen.current;
     if (!id) return;
-    const homes: BoardKind[] = isSaleCard(id) ? (sales.data ? [fireSet.has(id) ? "fire" : "sales"] : []) : id.startsWith("aed:") ? ["aed", "logistics"] : id.startsWith("fulfil:") ? ["fulfil"] : /^logi(pay)?:/.test(id) ? ["logistics"] : ["training"];
+    // A Sales / Fire card: the Sales board first, which loads their data; then the right one of the two (9 Nov: before, a link did nothing until it had loaded).
+    const homes: BoardKind[] = isSaleCard(id) ? [sales.data && fireSet.has(id) ? "fire" : "sales"] : id.startsWith("aed:") ? ["aed", "logistics"] : id.startsWith("fulfil:") ? ["fulfil"] : /^logi(pay)?:/.test(id) ? ["logistics"] : ["training"];
     const kind = homes.find((k) => allowed.includes(k));
     if (!kind) return void (wantOpen.current = null);
     if (boardKind !== kind) return setBoardKind(kind);
