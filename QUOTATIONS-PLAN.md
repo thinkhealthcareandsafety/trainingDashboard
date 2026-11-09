@@ -20,7 +20,7 @@ never email or WhatsApp a customer. The owner is short on credits, so keep repli
 4. **+ Add email:** first real one on a customer the owner picks; read back in Zoho, and check the new person stays ticked in the email step.
 
 **Agreed, to build (owner, 4 Nov); restated with defaults, waiting for "yeah"**
-5. **Brochures on quotes:** "attach those brochures to them quotations once those items are selected". The item list's `cf_product_brochure_unformatted` is the document id; reading a document's file (`/documents/{id}`) is unconfirmed.
+5. **Brochures on quotes: built 9 Nov** (owner "yess"; not on Total Supply emails). `GET /documents/{id}` gives the PDF (tried on the test item). The email step lists the quote's items' brochures as ticked chips (`quoteBrochures`; file id from the items copy's `brochureId`, or the item itself until the next sync); the server reads each from Books at send time (`brochurePdf`). Not tried yet: a real send. Zoho's attachment size limit is unknown; first send to the owner only.
 6. **Editable templates:** "we should technically be able to edit templates on the page".
 
 **Next time the owner is at the API console**
