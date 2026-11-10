@@ -67,7 +67,7 @@ CPR AED FIRST AID Training- https://www.thinkhealth.in/trainings`;
  */
 export const SIGNERS = [
   { key: "ashish", label: "Ashish" }, { key: "shikha", label: "Shikha" }, { key: "sumit", label: "Sumit" },
-  { key: "nikita", label: "Nikita" }, { key: "pranjal", label: "Pranjal" },
+  { key: "nikita", label: "Nikita" }, { key: "pranjal", label: "Pranjal" }, { key: "anuj", label: "Anuj" },
 ] as const;
 export const SIGNATURE_VARS = ["name", "details"] as const;
 export const signerKey = (person: string | null | undefined) => (person ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";

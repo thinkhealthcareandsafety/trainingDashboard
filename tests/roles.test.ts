@@ -72,3 +72,12 @@ test("No. of People: corrected after scheduling, kept through completion, and un
   assert.equal(peopleOf(card([date, { ...fix, revertedAt: "2026-10-11T00:00:00.000Z" }])), 20);
   assert.match(describeEvent(fix as never, (id) => id), /No\. of People changed from 20 to 14/);
 });
+
+test("Anuj Agarwal (owner, 10 Nov: \"access to everything\"): full access, quotes, every board; Admin's own things stay Admin's", async () => {
+  const { boardsFor, canQuote, hasFullAccess, isAdmin } = await import("@/lib/roles");
+  const anuj = { id: "anuj", name: "Anuj Agarwal" };
+  assert.equal(hasFullAccess(anuj), true);
+  assert.equal(canQuote(anuj), true);
+  assert.equal(isAdmin(anuj), false);
+  assert.deepEqual(boardsFor(anuj), ["training", "sales", "fire", "aed", "fulfil", "logistics"]);
+});

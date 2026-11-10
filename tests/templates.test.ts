@@ -79,7 +79,7 @@ test("route: who may read and change what", async () => {
   assert.equal((await call("GET", null)).status, 401);
   assert.equal((await call("GET", priyanka)).status, 403);
   const list = (await call("GET", ashish)).json.templates as Entry[];
-  assert.equal(list.length, 7 + 19 + 7 + 6 + 3 + 1);
+  assert.equal(list.length, 7 + 19 + 7 + 7 + 3 + 1);
   assert.equal(list.find((t) => t.key === "quote:new")!.canEdit, true);
   assert.equal(list.find((t) => t.key === "aed_onboarding:0")!.canEdit, false);
   assert.equal((await call("PUT", ashish, { key: "aed_onboarding:1", body: "x {invoice}" })).status, 403);
@@ -148,7 +148,7 @@ test("route: a signature is its owner's and Admin's; the company details Admin's
   assert.equal((await call("PUT", admin, { key: "sign:details", body: "THINK HEALTH" })).status, 200);
   const list = (await call("GET", ashish)).json.templates as Entry[];
   assert.deepEqual(list.filter((t) => t.key.startsWith("sign:")).map((t) => [t.key, t.canEdit, t.edited]),
-    [["sign:ashish", true, true], ["sign:shikha", false, false], ["sign:sumit", false, true], ["sign:nikita", false, false], ["sign:pranjal", false, false], ["sign:details", false, true]]);
+    [["sign:ashish", true, true], ["sign:shikha", false, false], ["sign:sumit", false, true], ["sign:nikita", false, false], ["sign:pranjal", false, false], ["sign:anuj", false, false], ["sign:details", false, true]]);
   const o = (await call("GET", ashish, undefined, "?overrides=1")).json.overrides as Record<string, unknown>;
   assert.deepEqual(Object.keys(o).sort(), ["sign:ashish", "sign:details", "sign:sumit"]);
 });

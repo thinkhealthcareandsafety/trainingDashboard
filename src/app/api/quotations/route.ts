@@ -176,7 +176,7 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   const q = new URL(request.url).searchParams;
   // Every member can use the Items page (owner, 5 Nov): the list, one item, its pictures, and WorkDrive's folder for Add PDF. Customers, quotations and everything else stay with the people who quote.
-  if (!canQuote(me) && !q.has("items") && !q.has("item") && !q.has("image") && !q.has("wd")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
+  if (!canQuote(me) && !q.has("items") && !q.has("item") && !q.has("image") && !q.has("wd")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita, Anuj and Pranjal send quotations" }, { status: 403 });
   try {
     if (q.get("items")) {
       // The stock tables are read once per Analytics refresh and already hold Quote Items, so "demand" costs no extra reads.
@@ -382,7 +382,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  const refused = () => Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita and Pranjal send quotations" }, { status: 403 });
+  const refused = () => Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita, Anuj and Pranjal send quotations" }, { status: 403 });
   // Like the reminder emails: only the live site writes to Zoho Books — a local server can't make a real quote by accident.
   if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site creates quotations in Zoho Books" }, { status: 409 });
   if ((request.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {

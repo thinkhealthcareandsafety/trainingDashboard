@@ -21,8 +21,8 @@ type Who = { id: string; name: string };
 
 const named = (m: Who, re: RegExp) => re.test(m.name.trim());
 export const isAdmin = (m: Who) => m.id === "admin";
-/** Ashish, Shikha, Sumit, Nikita and Admin: every board, every action. */
-export const hasFullAccess = (m: Who) => isAdmin(m) || named(m, /^(ashish|shikha|sumit|nikita)\b/i);
+/** Ashish, Shikha, Sumit, Nikita, Anuj (owner, 10 Nov: "access to everything") and Admin: every board, every action. */
+export const hasFullAccess = (m: Who) => isAdmin(m) || named(m, /^(ashish|shikha|sumit|nikita|anuj)\b/i);
 /** Pranjal Nikalje (owner, 30 Oct): the Sales board and Quotations. */
 const isSalesOnly = (m: Who) => named(m, /^pranjal\b/i);
 /** Who sends quotations (the Quotations page): everyone with full access, and Pranjal. */
