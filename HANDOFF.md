@@ -1,9 +1,46 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Tue 10 Nov 2026 (end of session 24). **Live = `ef07c27`** (both addresses); GitHub = this docs commit (pushed). Written for the next
+_Last updated: Tue 10 Nov 2026 (end of session 25). **Live = `d499663`** (both addresses; Vercel status success); GitHub = this docs commit. Written for the next
 Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Start of the next session (25) — do these first:**
+**Start of the next session (26) — do these first:**
+1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
+2. `npm test` (**199** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. Read-only checks as in step 3 of the session 25 block below, plus: `mailTemplateEdits` (has anyone saved a template yet? who, which key; don't
+   print the text) and `mailTemplates` docs whose _id starts `quote:`, `ts:` or `topic:` (the saved wording). Script:
+   `C:\Users\USER\AppData\Local\Temp\claude\3cbf5af64e28e316\132995ea-7ed6-4524-a11e-04d43d78e52f\scratchpad\checks.cjs` + `extra.cjs` (read-only).
+4. Ask the owner: Gmail App Password for saletotalsupply@gmail.com? (Google refused the sign-in on 10 Nov, "We couldn't verify it's you": it has to
+   be done from a device that's already signed in to that account, or after a few days from the same one. Only `TS_GMAIL_APP_PASSWORD` goes on
+   Vercel, never the account password.) Did the test quote with brochures reach their inbox?
+5. **Next, if the owner wants (nothing promised):** Zia (fix the Flow mapping or remove it; 2 asked, 0 answered), each person's own signature, a third
+   quotation company. Restate with defaults, wait for "yeah".
+
+**Session 25 in short (10 Nov), all live at `d499663`:**
+- **Checks:** clean. 189 tests; DB 7.6 MB/s; sync OK, no salesError; 13 Zoho calls; itemEdits 20 (all brochure uploads by Admin, no real Edit or
+  picture yet); totalSupplyQuotes 0; all 12 items with a brochure now have `brochureId`; Zia 2 asked, 0 answered; active sale merges 3,526 (3,520 on 5 Nov).
+- **Overdue filter on Sales and Fire** (`4adbbb9`, owner's "yeah"): button beside the date filter, "Overdue · 54 · Rs.22.0L" on 10 Nov (Fire 3 · Rs.1.1L).
+  On: only Invoice sent, most overdue first, date filter hidden and kept (not cleared), search works, the subtitle says what's shown. Rule:
+  `overdueOf` / `overdueCards` in `sales.ts` (invoice card, past due, not `paidInFull`, not deleted or lost; same as the red chip, part paid counts);
+  owed = Zoho's `balance`, else total less received. Reads only what's on the page.
+- **Editable email templates (#4)**, owner's "yeah" to the defaults; 4 commits `8159d24` `f731827` `d562e84` `d499663`:
+  - `src/lib/templateText.ts`: the language. `{name}`; `[ … ]` dropped when a `{name}` inside is empty; `{one|many}` (item paragraphs only).
+  - `quoteEmails.ts` / `totalSupply.ts`: TEMPLATES, TS_TEMPLATES and TOPICS are now text (`TextTemplate`); two extra paragraphs `TOPIC_EXTRAS`
+    (`aedTraining`: the "we can also train your team" offer when no training is on the quote; `generalOnly`). `buildQuoteEmail(..., overrides)`.
+    Proven word for word against a snapshot of every email before the change (`tests/fixtures/quote-emails.json`, `topic-texts.json`).
+  - `src/lib/templateStore.ts` + `/api/templates`: keys `quote:<id>`, `ts:<id>`, `topic:<id>` saved in `mailTemplates` only once changed (saving the
+    built-in text deletes it); `aed_onboarding:<step>` / `fulfil_gratitude:<step>` edit those flows' own documents (Admin only; subject on step 0;
+    the thank-you subject must keep "Thank you for hosting", Shikha's Zoho Mail filter). Unknown placeholders refused. Log: `mailTemplateEdits`
+    (key, by, at, before, after; after null = reset). The saved flow docs matched the code's defaults exactly on 10 Nov, so Reset was safe.
+  - `/templates` page (`Templates.tsx`, menu for `canQuote`): list (dropdown on phones), subject + message, placeholder chips, problems before
+    saving, preview with a made-up quote (owner was told: not a real one) and a "no expiry date" switch, Save / Undo changes / Reset to built-in.
+    Phone bottom menu: two rows of four. Email step: reads `?overrides=1` once, then fills; "Edit templates" link opens a new tab.
+  - The AED / thank-you emails' `fill` is now `renderTemplate` (same result; `[ … ]` works there too).
+  - **Not proven live:** no real save yet, and the email step with saved wording only in tests (it needs Zoho).
+- **Traps:** `gh` isn't installed: deploy check with `curl https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status`.
+  Inline `node -e` with apostrophes or backticks breaks in the shell: write scripts with the Write tool. Browser checks:
+  `overdue.cjs`, `tpl.cjs` (saves faked in the browser) in the scratchpad named in step 3.
+
+**Start of the next session (25) — superseded by the session 26 block above:**
 1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way (all pushed on 10 Nov).
 2. `npm test` (**189** should pass; tests can't reach the network any more, see below) and `npx tsc --noEmit -p tsconfig.json`. If tsc complains about
    `.next/dev/types`, a dev server left them: `rm -rf .next/dev` (it's in .gitignore) and run it again.
