@@ -29,6 +29,7 @@ const coll = (name: string) => {
       return structuredClone(d);
     },
     deleteOne: async (q: { _id: string }) => { m.delete(q._id); },
+    insertOne: async (doc: Partial<Doc>) => { const _id = doc._id ?? `id${m.size + 1}`; m.set(_id, structuredClone({ ...doc, _id })); return { insertedId: _id }; },
     // /api/store's writes: replaceOne (upsert) and deleteOne by _id.
     bulkWrite: async (ops: ({ replaceOne?: { filter: { _id: string }; replacement: Doc }; deleteOne?: { filter: { _id: string } } })[]) => {
       for (const o of ops) {

@@ -10,7 +10,7 @@ import { fmtDate } from "./dates";
 
 export type MailTemplate = { _id: string; from: string; signature: string; subject: string; steps: { label: string; body: string }[] };
 
-const DEFAULTS: Record<string, MailTemplate> = {
+export const DEFAULTS: Record<string, MailTemplate> = {
   aed_onboarding: {
     _id: "aed_onboarding",
     from: "hello@thinkhealth.in",

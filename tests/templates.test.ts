@@ -62,3 +62,60 @@ test("saved wording wins: the template's own key, item paragraphs on both compan
   assert.equal(ts.subject, buildTsEmail("new", q).subject); // "quote:new" isn't Total Supply's
   assert.equal(buildTsEmail("new", q, [], { "ts:new": { subject: "TS {number}", body: "x" } }).subject, "TS Quotation-24-002753");
 });
+
+// The route, on the in-memory database.
+const call = async (method: "GET" | "PUT", who: { id: string; name: string } | null, body?: unknown, q = "") => {
+  const { GET, PUT } = await import("@/app/api/templates/route");
+  const headers: Record<string, string> = { "content-type": "application/json", ...(who ? { "x-test-member": JSON.stringify(who) } : {}) };
+  const r = await (method === "GET" ? GET : PUT)(new Request(`http://x/api/templates${q}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) }));
+  return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+};
+const admin = { id: "admin", name: "Admin" }, ashish = { id: "ashish", name: "Ashish" }, priyanka = { id: "priyanka", name: "Priyanka" };
+type Entry = { key: string; subject: string | null; body: string; edited: boolean; editedBy?: string; canEdit: boolean };
+
+test("route: who may read and change what", async () => {
+  const { resetFakeDb } = await import("./fakes/db");
+  resetFakeDb();
+  assert.equal((await call("GET", null)).status, 401);
+  assert.equal((await call("GET", priyanka)).status, 403);
+  const list = (await call("GET", ashish)).json.templates as Entry[];
+  assert.equal(list.length, 7 + 19 + 7 + 3 + 1);
+  assert.equal(list.find((t) => t.key === "quote:new")!.canEdit, true);
+  assert.equal(list.find((t) => t.key === "aed_onboarding:0")!.canEdit, false);
+  assert.equal((await call("PUT", ashish, { key: "aed_onboarding:1", body: "x {invoice}" })).status, 403);
+  assert.equal((await call("PUT", ashish, { key: "nope", body: "x" })).status, 404);
+  assert.match(String((await call("PUT", ashish, { key: "quote:new", subject: "{ref}", body: "{totl}" })).json.error), /Unknown: \{totl\}/);
+});
+
+test("route: save, read back in the email step's overrides, logged; reset deletes it; the built-in text is a reset", async () => {
+  const { resetFakeDb } = await import("./fakes/db");
+  const { db } = await import("@/lib/db");
+  resetFakeDb();
+  assert.equal((await call("PUT", ashish, { key: "quote:new", subject: "New: {ref}", body: "{hi}\r\n\r\nHello there.\n\n{sign}" })).status, 200);
+  assert.equal((await call("PUT", ashish, { key: "topic:aedPads", body: "Pads: {items}." })).status, 200);
+  const o = (await call("GET", ashish, undefined, "?overrides=1")).json.overrides as Record<string, { subject?: string; body: string }>;
+  assert.deepEqual(o, { "quote:new": { subject: "New: {ref}", body: "{hi}\n\nHello there.\n\n{sign}" }, "topic:aedPads": { body: "Pads: {items}." } });
+  const row = ((await call("GET", ashish)).json.templates as Entry[]).find((t) => t.key === "quote:new")!;
+  assert.deepEqual([row.edited, row.editedBy, row.subject], [true, "Ashish", "New: {ref}"]);
+  assert.equal((await call("PUT", ashish, { key: "quote:new", reset: true })).status, 200);
+  assert.equal((await call("PUT", ashish, { key: "topic:aedPads", body: TOPICS.find((t) => t.id === "aedPads")!.text })).status, 200);
+  assert.deepEqual((await call("GET", ashish, undefined, "?overrides=1")).json.overrides, {});
+  const log = await (await db()).collection("mailTemplateEdits").find({}).toArray();
+  assert.deepEqual(log.map((e) => [e.key, e.by, e.after === null]), [["quote:new", "Ashish", false], ["topic:aedPads", "Ashish", false], ["quote:new", "Ashish", true], ["topic:aedPads", "Ashish", true]]);
+});
+
+test("route: Admin edits a flow step in its own document; the thank-you subject must keep its filter words", async () => {
+  const { resetFakeDb } = await import("./fakes/db");
+  const { getTemplate } = await import("@/lib/mailTemplates");
+  resetFakeDb();
+  assert.equal((await call("PUT", admin, { key: "aed_onboarding:1", body: "Reminder for {invoice}." })).status, 200);
+  const t = await getTemplate("aed_onboarding");
+  assert.equal(t.steps[1].body, "Reminder for {invoice}.");
+  assert.equal(t.steps.length, 3);
+  assert.match(t.steps[0].body, /Invoice # \{invoice\}/); // the others untouched
+  assert.match(String((await call("PUT", admin, { key: "fulfil_gratitude:0", subject: "Thanks - {ref}", body: "Dear {person}" })).json.error), /keep "Thank you for hosting"/);
+  assert.equal((await call("PUT", admin, { key: "fulfil_gratitude:0", subject: "Thank you for hosting us - {ref}", body: "Dear {person}" })).status, 200);
+  assert.equal((await getTemplate("fulfil_gratitude")).subject, "Thank you for hosting us - {ref}");
+  assert.equal((await call("PUT", admin, { key: "fulfil_gratitude:0", reset: true })).status, 200);
+  assert.match((await getTemplate("fulfil_gratitude")).subject, /^Thank you for hosting our training/);
+});
