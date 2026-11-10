@@ -99,7 +99,9 @@ export interface Notice { id: string; to: string; kind: NoticeKind; requestId?: 
 export type Who = { id: string; name: string };
 export const isAdminId = (id: string) => id === "admin";
 /** No status card and not counted as a member on the tracker: Admin (owner, 3 Nov) and Anuj Agarwal (owner, 10 Nov: "remove this for him"). */
-export const offTracker = (m: Who) => isAdminId(m.id) || /^anuj\b/i.test(m.name.trim());
+export const offTracker = (m: Who) => isAdminId(m.id) || hiddenFromTracker(m);
+/** Not on the tracker at all — not in its team list, no to-dos, nobody can tag them (owner, 10 Nov: "remove him from progress tracker"). */
+export const hiddenFromTracker = (m: Who) => /^anuj\b/i.test(m.name.trim());
 
 /* ---------------- Time ---------------- */
 

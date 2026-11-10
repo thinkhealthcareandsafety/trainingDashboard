@@ -1,5 +1,5 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { teamDay } from "@/lib/progress/model";
+import { hiddenFromTracker, teamDay } from "@/lib/progress/model";
 import { commentsCol, fromDoc, needsReplyIds, presenceCol, requestsCol, team } from "@/lib/progress/server";
 import type { Presence, PtRequest } from "@/lib/progress/model";
 
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     me,
     now: now.toISOString(),
     today: teamDay(now),
-    team: members,
+    team: members.filter((m) => !hiddenFromTracker(m)), // Anuj: not on the tracker (owner, 10 Nov)
     presence: presence.map((p) => fromDoc<Presence>(p)),
     requests: requests.map((r) => fromDoc<PtRequest>(r)),
     replies: Object.fromEntries(replyCounts.map((c) => [c._id, c.n])),
