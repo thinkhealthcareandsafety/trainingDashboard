@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { fmtDate } from "./dates";
+import { renderTemplate } from "./templateText";
 
 /*
  * Email templates, kept in MongoDB `mailTemplates` (one document per flow) so the wording can change without a release.
@@ -113,7 +114,8 @@ export async function getTemplate(id: string): Promise<MailTemplate> {
 }
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const fill = (s: string, vars: Record<string, string>) => s.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m);
+// The Templates page language (templateText.ts): {name}, and [ … ] left out when a value inside it is empty.
+const fill = (s: string, vars: Record<string, string>) => renderTemplate(s, vars);
 const html = (text: string) => `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5">${esc(text).replace(/\r?\n/g, "<br>")}</div>`;
 const when = (iso: string) =>
   `${fmtDate(iso, { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })}, ${new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}`;
