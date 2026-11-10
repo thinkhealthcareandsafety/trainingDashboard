@@ -36,10 +36,10 @@ The client side of a training is managed on a Think Health-branded portal tied d
 - Portal title: "Think Health Training Manager".
 
 ## Evidence on Hand
-- Real training videos: the YouTube playlist linked from thinkhealth.in. Photos from sessions: owner to supply.
-- Client hotel names and logos: owner has permission to show them, and will supply them.
+- Real training videos: the YouTube playlist linked from thinkhealth.in.
+- Client hotel logos and the AHA logo: not shown (owner, 10 Nov).
 - Social profiles: LinkedIn (linkedin.com/in/thinkhealth), Instagram (@think_health_india), YouTube playlist, Facebook (Think Health Care Pune), website thinkhealth.in.
-- The AHA logo appears on thinkhealth.in. Show it only once the owner confirms the affiliation wording.
+- Programme videos and photos: editable by staff on a "Portal content" screen.
 - No testimonials, numbers or claims exist yet. Do not invent any.
 
 ## Product Principles

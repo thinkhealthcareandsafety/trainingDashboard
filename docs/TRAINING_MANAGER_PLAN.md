@@ -106,7 +106,8 @@ Then the dashboard fades in, and the programme signs draw themselves in.
 
 **Our Programmes** (top):
 - One sign tile per programme (CPR, First Aid, AED, Fire Safety and so on), each with its pictogram and a one-line description.
-- Each tile has a slot for a video. Your YouTube playlist goes in now; per-programme videos are added as you send them.
+- Each tile has a slot for a video and a photo. Your YouTube playlist goes in now.
+- **You change them yourself later** on a "Portal content" screen in the dashboard (owner, 10 Nov). It's under Templates, for those who send quotations. There you edit each programme's name, one-line description, video link (YouTube) and photo, plus the social links. Saved changes show on the portal straight away; no code change is needed.
 
 **Your trainings** (below): one panel per training.
 - The **training name** without "(I)".
@@ -118,7 +119,7 @@ Then the dashboard fades in, and the programme signs draw themselves in.
 **Footer, "Stay connected"** (also on participant pages):
 - Cards with real icons and descriptions: Website · LinkedIn · Instagram · YouTube · Facebook.
 - The links are already taken from thinkhealth.in.
-- **Trusted by**: hotel logos, shown once you send them.
+- No hotel logos and no AHA logo (owner, 10 Nov: show none).
 
 ## 5. Propose a date, location and headcount
 
@@ -191,7 +192,7 @@ One commit each. Every step gets tests, the browser check and your "push":
 1. Training Management page: list + detail, read-only.
 2. Coordinator fields + Zoho contact person, tested on a test customer only.
 3. Portal shell in the new look + login + OTP reset.
-4. Welcome sequence + Our Programmes + Your trainings + Stay connected.
+4. Welcome sequence + Our Programmes + Your trainings + Stay connected, with the "Portal content" screen to edit programmes, videos, photos and links.
 5. Propose date / location / confirm headcount.
 6. Participants: type, Excel import, duplicates, remove.
 7. QR join page + TH IDs + participant page.
@@ -203,10 +204,12 @@ One commit each. Every step gets tests, the browser check and your "push":
 1. **DNS** (whenever you like; everything works at work.thinkhealth.in/training until then):
    - In Cloudflare, add a CNAME `training` pointing to `cname.vercel-dns.com`, with the proxy **off**.
    - Then in Vercel → Project → Domains, add `training.thinkhealth.in`.
-2. **Hotel logos** you're allowed to show, as PNG or SVG, ideally on a transparent background.
-3. **Programme videos/photos.** Until then, the YouTube playlist is used for all programmes.
-4. **The AHA logo** is on thinkhealth.in. Tell me the exact wording if you want it shown (e.g. "AHA-aligned training"); until then it isn't shown.
-5. **One test customer in Zoho** that I may add contact persons to, or confirm I should create "Test Hotel (do not use)".
+   Owner, 10 Nov: waiting on this for now.
+
+Settled on 10 Nov:
+- No hotel logos and no AHA logo.
+- Videos and photos: you add or change them yourself on the "Portal content" screen.
+- Test customer: **"dashboard testing"** in Zoho. It's the only customer I add contact persons to while testing.
 
 ## Out of scope for now
 
