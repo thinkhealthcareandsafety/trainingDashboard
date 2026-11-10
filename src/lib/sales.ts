@@ -1,7 +1,7 @@
 import type { CardEvent, ZohoInvoice, ZohoLead, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import {
   type CardKind, type CardView, type CustomerContacts, type Draft, STAGE_RANK, absorb, apply, applyCustomerAliases, applyCustomerContacts, cardLabel,
-  docDraft, kindOfId, leadDraft, normPhone, partPaidText, receivedOn, refPINumber, refQuoteNumber, sortEntries, sumMatches,
+  docDraft, dueStatus, kindOfId, leadDraft, normPhone, partPaidText, receivedOn, refPINumber, refQuoteNumber, sortEntries, sumMatches,
 } from "./pipeline";
 
 /*
@@ -327,3 +327,25 @@ const cardWhen = (c: CardView) => c.docDate ?? c.customerSince ?? "";
 /** Same day: the higher document number first ("Payment #1970" before "#998" — numbers compared as numbers). */
 export const recentFirst = (a: CardView, b: CardView) =>
   cardWhen(b).localeCompare(cardWhen(a)) || (b.docNumber ?? "").localeCompare(a.docNumber ?? "", undefined, { numeric: true }) || a.id.localeCompare(b.id);
+
+/**
+ * The Overdue filter (owner, 10 Nov: "an overdue filter on Sales"): an Invoice sent card past its due date and not paid in
+ * full, part paid included. Same rule as the card's red "Overdue by N days" chip (`dueStatus`). `owed` is Zoho's balance,
+ * or the total less what's been received when Zoho gives none.
+ */
+export function overdueOf(c: CardView, today = new Date().toLocaleDateString("en-CA")): { days: number; owed: number } | undefined {
+  const inv = c.invoice;
+  if (c.kind !== "invoice" || !inv?.dueDate || c.paidInFull || c.deleted || c.lost) return undefined;
+  const d = dueStatus(inv, today);
+  if (!d || d.tone === "paid") return undefined;
+  const days = Math.round((Date.parse(today) - Date.parse(inv.dueDate)) / 86_400_000);
+  if (days <= 0) return undefined;
+  return { days, owed: Math.max(0, inv.balance ?? (inv.total ?? 0) - (c.received ?? 0)) };
+}
+
+/** The overdue invoice cards, most overdue first, with their count and what's owed on them. */
+export function overdueCards(cards: CardView[], today?: string): { cards: CardView[]; owed: number } {
+  const list = cards.flatMap((c) => { const o = overdueOf(c, today); return o ? [{ c, ...o }] : []; });
+  list.sort((a, b) => b.days - a.days || b.owed - a.owed || a.c.id.localeCompare(b.c.id));
+  return { cards: list.map((x) => x.c), owed: list.reduce((s, x) => s + x.owed, 0) };
+}

@@ -239,3 +239,27 @@ test("Fire Safety: a shared transfer doesn't drag another deal onto the Fire boa
   assert.ok(fire.has(saleId("invoice", "624")) && fire.has(payCardId({ paymentId: "1447", invoiceId: "624" })));
   assert.ok(!fire.has(saleId("invoice", "571")) && !fire.has(payCardId({ paymentId: "1447", invoiceId: "571" })));
 });
+
+test("Overdue: past due and not paid in full (part paid too), most overdue first, with what's owed", async () => {
+  const { overdueCards, overdueOf } = await import("@/lib/sales");
+  const today = "2026-11-10";
+  const late = { ...inv, invoiceId: "i2", number: "2026-01-901", status: "overdue", balance: 50000, total: 50000, dueDate: "2026-10-31" };
+  const later = { ...inv, invoiceId: "i3", number: "2026-01-902", status: "partially_paid", balance: 20000, total: 60000, dueDate: "2026-09-30" };
+  const notYet = { ...inv, invoiceId: "i4", number: "2026-01-903", status: "sent", balance: 10000, total: 10000, dueDate: "2026-11-20" };
+  const dueToday = { ...inv, invoiceId: "i5", number: "2026-01-904", status: "sent", balance: 10000, total: 10000, dueDate: today };
+  const paid = { ...inv, invoiceId: "i6", number: "2026-01-905", status: "paid", balance: 0, dueDate: "2026-09-01" };
+  const b = board([], { invoices: [late, later, notYet, dueToday, paid], payments: [] });
+  const o = overdueCards(b.invoiceCards, today);
+  assert.deepEqual(o.cards.map((c) => c.invoice!.number), ["2026-01-902", "2026-01-901"]);
+  assert.equal(o.owed, 70000);
+  assert.equal(overdueOf(b.cards.get(saleId("invoice", "i3"))!, today)?.days, 41);
+  assert.equal(overdueOf(b.cards.get(saleId("invoice", "i6"))!, today), undefined);
+});
+
+test("Overdue: a deleted invoice card isn't counted", async () => {
+  const { overdueCards } = await import("@/lib/sales");
+  const late = { ...inv, status: "overdue", balance: 118000, dueDate: "2026-10-01" };
+  const del = { id: "d1", at: "2026-10-20T00:00:00.000Z", by: "Sumit A Shah", kind: "delete", cardIds: [saleId("invoice", "i1")] } as CardEvent;
+  assert.equal(overdueCards(board([], { invoices: [late], payments: [] }).invoiceCards, "2026-11-10").cards.length, 1);
+  assert.equal(overdueCards(board([del], { invoices: [late], payments: [] }).invoiceCards, "2026-11-10").cards.length, 0);
+});

@@ -11,7 +11,7 @@ import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
 import { AedCardModal } from "./followups/AedModal";
 import { useAedInvoices, usePipeline, useSalesData } from "./followups/useBoards";
-import { SALES_COLUMN, buildSalesBoard, fireDeals, isSaleCard, mergeAllSteps, splitForBoard } from "@/lib/sales";
+import { SALES_COLUMN, buildSalesBoard, fireDeals, isSaleCard, mergeAllSteps, overdueCards, splitForBoard } from "@/lib/sales";
 import { docStatus } from "@/lib/docStatus";
 import { SalesModal } from "./followups/SalesModal";
 import { FulfillmentModal } from "./followups/FulfillmentModal";
@@ -760,6 +760,11 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
   const sync = aedMode ? aed.data : logiMode && aed.data?.error ? aed.data : salesMode ? sales.data : data;
   const stages = aedMode ? AED_STAGES : fulfilMode ? FULFIL_COLUMNS : logiMode ? LOGI_COLUMNS : salesMode ? (fireMode ? SALES_STAGES.filter((s) => s.key !== "s_lead") : SALES_STAGES) : STAGES;
   const [q, setQ] = useState(initialQuery);
+  // Sales / Fire: "Overdue" shows only the overdue invoices, most overdue first, whatever the dates (owner, 10 Nov). The date
+  // filter is set aside, not cleared, so turning it off brings the board back as it was.
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const overdueMode = salesMode && overdueOnly;
+  const shownStages = overdueMode ? stages.filter((s) => s.key === "s_invoice") : stages;
   const [showDeleted, setShowDeleted] = useState(false);
   // Logistics: "Unhide cards" shows the AED cards Arti hid, so one can be opened and brought back.
   const [showHidden, setShowHidden] = useState(false);
@@ -845,17 +850,22 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
       logi_received: logiBoard.receivedCards.filter(visible),
     };
   }, [logiBoard, needle, dateFilter, showHidden]); // eslint-disable-line react-hooks/exhaustive-deps
+  const overdue = useMemo(() => (salesBoard ? overdueCards(salesBoard.invoiceCards) : null), [salesBoard]);
   const salesCols = useMemo(() => {
     if (!salesBoard) return { s_lead: [], s_quote: [], s_pi: [], s_invoice: [], s_paid: [], s_lost: [] };
+    if (overdueMode && overdue) {
+      const s_invoice = overdue.cards.filter((c) => !needle || c.search.includes(needle));
+      return { s_lead: [], s_quote: [], s_pi: [], s_invoice, s_paid: [], s_lost: [] };
+    }
     return {
       s_lead: salesBoard.leadCards.filter(visible), s_quote: salesBoard.quoteCards.filter(visible), s_pi: salesBoard.piCards.filter(visible),
       s_invoice: salesBoard.invoiceCards.filter(visible), s_paid: salesBoard.paymentCards.filter(visible), s_lost: salesBoard.lostCards.filter(visible),
     };
-  }, [salesBoard, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [salesBoard, overdue, overdueMode, needle, showDeleted, dateFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const hiddenCount = logiBoard ? logiBoard.aedCards.filter((c) => c.logiAed?.hidden).length : 0;
   const byStage: Record<Stage, CardView[]> = { lead: leads, quotation: quotes, performa: pis, training: scheduled, training_completed: completed, invoiced, paid, lost, potential, ...aedCols, ...fulCols, ...logiCols, ...salesCols };
   const deletedCount = [...(salesMode ? salesBoard?.cards ?? new Map<string, CardView>() : board.cards).values()].filter((c) => c.deleted).length;
-  const switchBoard = (b: BoardKind) => { setBoardKind(b); setOpen(null); };
+  const switchBoard = (b: BoardKind) => { setBoardKind(b); setOpen(null); setOverdueOnly(false); };
 
   // Opened from a link (the calendar, a reminder, the Progress tracker's to-dos): that card, on its own board, once the
   // board has it. An AED card is on AedSmartx, or on Logistics for whoever only has that board (Arti).
@@ -889,7 +899,8 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
           <p className="text-[12.5px] text-muted">
             {salesMode ? (
               <>
-                {!fireMode && <>{salesCols.s_lead.length.toLocaleString("en-IN")} potential customers · </>}{salesCols.s_quote.length} quotations · {salesCols.s_pi.length} performa invoices · {salesCols.s_invoice.length} invoices · {salesCols.s_paid.length} payments · {salesCols.s_lost.length} lost
+                {overdueMode && overdue ? <>{salesCols.s_invoice.length} overdue invoices · {fmtINR(overdue.owed, true)} owed in all · most overdue first</> : <>
+                {!fireMode && <>{salesCols.s_lead.length.toLocaleString("en-IN")} potential customers · </>}{salesCols.s_quote.length} quotations · {salesCols.s_pi.length} performa invoices · {salesCols.s_invoice.length} invoices · {salesCols.s_paid.length} payments · {salesCols.s_lost.length} lost</>}
                 {sales.data?.windowStart && <> · {fireMode ? "deals with Fire Safety items" : "everything but training and Fire Safety"}, since {fmtDate(sales.data.windowStart, { day: "numeric", month: "short", year: "numeric" })}</>}
                 {sales.data?.pending ? <> · payments of {sales.data.pending} paid invoices still being read from Zoho</> : null}
               </>
@@ -940,14 +951,23 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
               Unhide cards ({hiddenCount})
             </label>
           )}
-          <DateFilterButton value={dateFilter} onChange={setDateFilter} />
+          {!overdueMode && <DateFilterButton value={dateFilter} onChange={setDateFilter} />}
+          {salesMode && overdue && (
+            <button type="button" onClick={() => setOverdueOnly((v) => !v)} aria-pressed={overdueMode}
+              title={overdueMode ? "Back to the whole board and its dates" : "Only the invoices past their due date and not paid in full, most overdue first, whatever the dates"}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium ${overdueMode ? "border-high bg-high-bg text-high" : "border-line bg-surface text-ink-2 hover:border-line-strong"}`}>
+              <span className="size-2 rounded-full bg-high" aria-hidden />
+              Overdue · {overdue.cards.length.toLocaleString("en-IN")} · {fmtINR(overdue.owed, true)}
+              {overdueMode && <span aria-hidden className="ml-0.5 text-[15px] leading-none">×</span>}
+            </button>
+          )}
           {salesMode && salesBoard && hasFullAccess(member) && <MergeAll cards={salesBoard.cards} member={member} />}
           <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
             {/* Sync now, last and next sync live in the sidebar (every page); the board only flags a problem. */}
             {sync?.error && <span className="text-high">Zoho sync issue: {sync.error}</span>}
             <span className="inline-flex items-center gap-1">
-              <SlideButton dir="left" disabled={offset === 0} onClick={() => move(-1)} />
-              <SlideButton dir="right" disabled={offset >= maxOffset} onClick={() => move(1)} />
+              <SlideButton dir="left" disabled={overdueMode || offset === 0} onClick={() => move(-1)} />
+              <SlideButton dir="right" disabled={overdueMode || offset >= maxOffset} onClick={() => move(1)} />
             </span>
             {allowed.length > 1 && (
               <span className="inline-flex items-center gap-1.5">
@@ -964,12 +984,12 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
               className="grid grid-flow-col gap-2 transition-transform duration-300 ease-out motion-reduce:transition-none"
               style={{
                 gridAutoColumns: `calc((100% - ${perView - 1} * ${GAP_PX}px) / ${perView})`,
-                transform: `translateX(calc(-${offset} * ((100% - ${perView - 1} * ${GAP_PX}px) / ${perView} + ${GAP_PX}px)))`,
+                transform: `translateX(calc(-${overdueMode ? 0 : offset} * ((100% - ${perView - 1} * ${GAP_PX}px) / ${perView} + ${GAP_PX}px)))`,
               }}
             >
-              {stages.map((s, i) => (
-                <div key={s.key} className="grid min-w-0" inert={i < offset || i >= offset + perView}>
-                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} onAdd={s.key === "potential" && data ? () => setAdding(true) : undefined} loading={loading && !sync} filtered={Boolean(dateFilter)} />
+              {shownStages.map((s, i) => (
+                <div key={s.key} className="grid min-w-0" inert={!overdueMode && (i < offset || i >= offset + perView)}>
+                  <Column stage={s} cards={byStage[s.key]} onOpen={openCard} onAdd={s.key === "potential" && data ? () => setAdding(true) : undefined} loading={loading && !sync} filtered={Boolean(dateFilter) && !overdueMode} />
                 </div>
               ))}
             </div>
