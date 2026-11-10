@@ -793,7 +793,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
     const j = r ? ((await r.json().catch(() => ({}))) as { subject?: string; html?: string; text?: string; error?: string; waiting?: boolean }) : { error: "Couldn't reach the server" };
     if (!quiet) setZiaBusy(false);
     // Through Zoho Flow it's just Zia's words: the item table and the sender's signature go with them. A Zoho Mail draft is the whole email.
-    const html = j.text != null ? ziaEmailHtml(j.text, compose) : j.html;
+    const html = j.text != null ? ziaEmailHtml(j.text, compose, overrides.current) : j.html;
     if (j.waiting || (quiet && (j.error || html == null))) return false;
     if (j.error || html == null) { setZiaMsg(j.error ?? "Nothing came back"); return false; }
     if (edited.current && !window.confirm("Replace the message you've edited?")) { setZiaMsg("Zia's email is ready — Pull from Zia to put it in."); return true; }

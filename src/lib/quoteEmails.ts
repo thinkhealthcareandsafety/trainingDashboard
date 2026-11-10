@@ -48,7 +48,7 @@ export function mergeCc(to: string[], cc: string[]): string[] {
  * does it, then him, if pranjal does it then her, if sumit does it then his too"). Only the name line changes, plus
  * "Proprietor" for Sumit. Both contact lists are right as they are (owner, 4 Nov: 8007000884 and 8007700006).
  */
-const SIGNATURE_DETAILS = `THINK HEALTH CARE AND SAFETY
+export const SIGNATURE_DETAILS = `THINK HEALTH CARE AND SAFETY
 302 Rainbow plaza, Pimple Saudagar, Near Shivar Garden, Pune 411027
 Contact: 9823101908 / 9356080806 / 8007000884
 Email: sales@thinkhealth.in / sshah@thinkhealth.in
@@ -60,12 +60,27 @@ Website- www.thinkhealth.in
 Company Profile- www.thinkhealth.in/Profile
 View All Products- www.thinkhealth.in/Products
 CPR AED FIRST AID Training- https://www.thinkhealth.in/trainings`;
-export function signature(person: string | null | undefined): string {
+/**
+ * Each person's own signature (owner, 10 Nov: "lets do each person's signature", "yesyes" to the defaults): editable on the
+ * Templates page as "sign:<first name>" ({name} = their name as the quote has it, {details} = the shared company block,
+ * itself editable as "sign:details"). The built-in text is what every signature was before.
+ */
+export const SIGNERS = [
+  { key: "ashish", label: "Ashish" }, { key: "shikha", label: "Shikha" }, { key: "sumit", label: "Sumit" },
+  { key: "nikita", label: "Nikita" }, { key: "pranjal", label: "Pranjal" },
+] as const;
+export const SIGNATURE_VARS = ["name", "details"] as const;
+export const signerKey = (person: string | null | undefined) => (person ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+export const builtinSignature = (key: string) => (key === "sumit" ? "{name}\nProprietor\n{details}" : "{name}\n{details}");
+export function signature(person: string | null | undefined, overrides: TemplateOverrides = {}): string {
   const name = (person ?? "").trim();
-  return [...(name ? [name] : []), ...(/^sumit\b/i.test(name) ? ["Proprietor"] : []), SIGNATURE_DETAILS].join("\n");
+  const details = overrides["sign:details"]?.body ?? SIGNATURE_DETAILS;
+  const key = signerKey(name);
+  if (!name || !SIGNERS.some((s) => s.key === key)) return [...(name ? [name] : []), details].join("\n");
+  return renderTemplate(overrides[`sign:${key}`]?.body ?? builtinSignature(key), { name, details }).replace(/^\n+|\n+$/g, "");
 }
 /** The quote's signature: the person sending it, else its Sales person. */
-export const quoteSignature = (q: Pick<QuoteEmailInput, "signer" | "salesperson">) => signature(q.signer || q.salesperson);
+export const quoteSignature = (q: Pick<QuoteEmailInput, "signer" | "salesperson">, overrides: TemplateOverrides = {}) => signature(q.signer || q.salesperson, overrides);
 
 /** Which topic an item belongs to: a few name checks first (the identifiers are loose — "AED Trainer" sits under All AEDs). */
 export function topicOf(name: string, group: string | null): TopicId {
@@ -289,7 +304,7 @@ export function buildQuoteEmail(templateId: string, q: QuoteEmailInput, skip: To
     const text = renderTemplate(topicText(id), { items: listNames(t.names) }, new Set(t.names).size > 1);
     return t.id === "aed" && !has.has("training") ? `${text}\n\n${topicText("aedTraining")}` : text;
   };
-  const sign = brand?.sign ?? `Warm regards,\n${quoteSignature(q)}`;
+  const sign = brand?.sign ?? `Warm regards,\n${quoteSignature(q, overrides)}`;
   const p: Parts = {
     hi: name ? `Hi ${name},` : "Hello,",
     // Zoho's numbers already say it ("Quotation-24-002753" — owner's test, 4 Nov: "Quotation Quotation-24-…").
@@ -348,12 +363,12 @@ export function itemTable(lines: QuoteEmailLine[], total: number): string {
  * Zia's words as the email (owner, 4 Nov: Zia's emails get the same table, so Zia never has to get the numbers right): the text,
  * the table, then the sign-off and the sender's signature. Zia is told to end on "Warm regards,", which moves below the table.
  */
-export function ziaEmailHtml(text: string, q: QuoteEmailInput): string {
+export function ziaEmailHtml(text: string, q: QuoteEmailInput, overrides: TemplateOverrides = {}): string {
   const t = text.trim();
   const end = t.match(/\n+((?:warm |best |kind )?regards,?|yours sincerely,?|thank you,?|thanks,?)$/i);
   const words = end ? t.slice(0, -end[0].length) : t;
   const table = q.lines.length ? itemTable(q.lines, q.total) : "";
-  return `${textToHtml(words)}${table}${textToHtml(`${end?.[1] ?? "Warm regards,"}\n${quoteSignature(q)}`)}`;
+  return `${textToHtml(words)}${table}${textToHtml(`${end?.[1] ?? "Warm regards,"}\n${quoteSignature(q, overrides)}`)}`;
 }
 
 /* Zia (owner, 3 Nov): Zoho Mail's Zia writes the email — the dashboard leaves this brief as a draft in Zoho Mail. */

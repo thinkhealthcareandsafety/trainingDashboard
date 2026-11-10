@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { DEFAULTS as MAIL_DEFAULTS, type MailTemplate } from "./mailTemplates";
-import { TEMPLATES, TEMPLATE_VARS, TOPICS, TOPIC_EXTRAS, TOPIC_VARS, type TemplateOverrides } from "./quoteEmails";
+import { SIGNATURE_DETAILS, SIGNATURE_VARS, SIGNERS, TEMPLATES, TEMPLATE_VARS, TOPICS, TOPIC_EXTRAS, TOPIC_VARS, type TemplateOverrides, builtinSignature, signerKey } from "./quoteEmails";
 import { TS_TEMPLATES } from "./totalSupply";
 import { templateProblems } from "./templateText";
 import { canQuote, isAdmin } from "./roles";
@@ -13,15 +13,18 @@ import { canQuote, isAdmin } from "./roles";
  *    once someone changes it — otherwise the built-in text in quoteEmails.ts / totalSupply.ts is used. Those who quote.
  *  - "aed_onboarding:<step>", "fulfil_gratitude:<step>": the flows' own documents (mailTemplates.ts), subject on step 0
  *    (one subject for the thread). Admin only.
+ *  - "sign:<first name>": that person's signature on quotation emails (owner, 10 Nov), saved like "quote:" — the person
+ *    themself or Admin; "sign:details", the company block every signature shows as {details} — Admin only.
  * Every save and reset is logged in `mailTemplateEdits` (key, by, at, before, after; after = null for a reset).
  */
 
-export type TemplateGroup = "quote" | "topic" | "ts" | "aed" | "fulfil";
+export type TemplateGroup = "quote" | "topic" | "ts" | "sign" | "aed" | "fulfil";
 export type TemplateEntry = {
   key: string; group: TemplateGroup; label: string;
   subject: string | null; body: string; // null subject = this one has none
   builtin: { subject: string | null; body: string };
   vars: readonly string[]; choices: boolean; adminOnly: boolean; note?: string;
+  owner?: string; // a signature: the first name of the person it belongs to (they and Admin may change it)
 };
 
 const FLOW_VARS: Record<string, readonly string[]> = {
@@ -48,11 +51,21 @@ function catalogue(): TemplateEntry[] {
     note: [`Sent from ${m.from}.`, i === 0 && m.steps.length > 1 ? "The subject is shared by every step (the later ones are replies)." : "",
       MUST_KEEP[m._id] && i === 0 ? `Keep "${MUST_KEEP[m._id]}" in the subject: replies are sorted by it.` : ""].filter(Boolean).join(" "),
   })));
-  return [...quote("quote", TEMPLATES), ...topics, ...quote("ts", TS_TEMPLATES), ...flows];
+  const signs: TemplateEntry[] = [
+    ...SIGNERS.map((p) => ({
+      key: `sign:${p.key}`, group: "sign" as const, label: p.label, subject: null, body: builtinSignature(p.key), builtin: { subject: null, body: builtinSignature(p.key) },
+      vars: SIGNATURE_VARS, choices: false, adminOnly: false, owner: p.key,
+      note: `Under "Warm regards," on ${p.label}'s quotation emails (and on Admin's when ${p.label} is the quote's Sales person). {name} is the name as the quote has it; {details} is the company details below. ${p.label} and Admin can change it.`,
+    })),
+    { key: "sign:details", group: "sign", label: "Company details (in every signature)", subject: null, body: SIGNATURE_DETAILS, builtin: { subject: null, body: SIGNATURE_DETAILS },
+      vars: [], choices: false, adminOnly: true, note: "Shown as {details} in each person's signature. Admin only." },
+  ];
+  return [...quote("quote", TEMPLATES), ...topics, ...quote("ts", TS_TEMPLATES), ...signs, ...flows];
 }
 
 const flowOf = (key: string) => { const m = key.match(/^(\w+):(\d+)$/); return m && MAIL_DEFAULTS[m[1]] ? { id: m[1], step: Number(m[2]) } : null; };
-export const canEditTemplate = (me: { id: string; name: string }, e: Pick<TemplateEntry, "adminOnly">) => (e.adminOnly ? isAdmin(me) : canQuote(me));
+export const canEditTemplate = (me: { id: string; name: string }, e: Pick<TemplateEntry, "adminOnly" | "owner">) =>
+  e.adminOnly ? isAdmin(me) : e.owner ? isAdmin(me) || (canQuote(me) && signerKey(me.name) === e.owner) : canQuote(me);
 
 type Saved = { _id: string; subject?: string; body: string };
 const col = async () => (await db()).collection<Saved & Partial<MailTemplate>>("mailTemplates");
@@ -72,10 +85,10 @@ export async function listTemplates(): Promise<(TemplateEntry & { editedBy?: str
   });
 }
 
-/** The quotation emails' saved wording ("quote:", "ts:", "topic:"), for the email step. */
+/** The quotation emails' saved wording ("quote:", "ts:", "topic:", "sign:"), for the email step. */
 export async function templateOverrides(): Promise<TemplateOverrides> {
   const out: TemplateOverrides = {};
-  for (const d of await (await col()).find({}).toArray()) if (/^(quote|ts|topic):/.test(d._id) && typeof d.body === "string") out[d._id] = { ...(d.subject ? { subject: d.subject } : {}), body: d.body };
+  for (const d of await (await col()).find({}).toArray()) if (/^(quote|ts|topic|sign):/.test(d._id) && typeof d.body === "string") out[d._id] = { ...(d.subject ? { subject: d.subject } : {}), body: d.body };
   return out;
 }
 
@@ -85,7 +98,7 @@ export type SaveResult = { ok: true } | { error: string; status: number };
 export async function saveTemplate(me: { id: string; name: string }, key: string, input: { subject?: unknown; body?: unknown; reset?: boolean }): Promise<SaveResult> {
   const entry = (await listTemplates()).find((e) => e.key === key);
   if (!entry) return { error: "Unknown template", status: 404 };
-  if (!canEditTemplate(me, entry)) return { error: entry.adminOnly ? "Only Admin changes this email" : "Only those who send quotations change these", status: 403 };
+  if (!canEditTemplate(me, entry)) return { error: entry.adminOnly ? "Only Admin changes this" : entry.owner ? "Only its owner and Admin change a signature" : "Only those who send quotations change these", status: 403 };
   const subject = entry.subject === null ? null : input.reset ? entry.builtin.subject : String(input.subject ?? "").replace(/\s*\n\s*/g, " ").trim();
   const body = input.reset ? entry.builtin.body : String(input.body ?? "").replace(/\r\n/g, "\n");
   const problems = [

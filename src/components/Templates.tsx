@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type QuoteEmailInput, buildQuoteEmail } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, type TemplateOverrides, buildQuoteEmail, signature } from "@/lib/quoteEmails";
 import { buildTsEmail } from "@/lib/totalSupply";
 import { renderTemplate, templateProblems } from "@/lib/templateText";
 import { fmtDate } from "@/lib/dates";
@@ -14,7 +14,7 @@ import { btn, inputCls, selectCls } from "./ui";
  */
 
 type Entry = {
-  key: string; group: "quote" | "topic" | "ts" | "aed" | "fulfil"; label: string;
+  key: string; group: "quote" | "topic" | "ts" | "sign" | "aed" | "fulfil"; label: string; owner?: string;
   subject: string | null; body: string; builtin: { subject: string | null; body: string };
   vars: string[]; choices: boolean; adminOnly: boolean; note?: string;
   edited: boolean; editedBy?: string; editedAt?: string; canEdit: boolean;
@@ -24,6 +24,7 @@ const GROUPS: { id: Entry["group"]; label: string }[] = [
   { id: "quote", label: "Quotation emails" },
   { id: "topic", label: "Item paragraphs" },
   { id: "ts", label: "Total Supply emails" },
+  { id: "sign", label: "Signatures" },
   { id: "aed", label: "AED onboarding (hello@)" },
   { id: "fulfil", label: "Fulfillment thank-you (learn@)" },
 ];
@@ -34,6 +35,7 @@ const VAR_HELP: Record<string, string> = {
   total: "the total with GST, \"₹1,74,480\"", valid: "the quote's expiry date (empty when it has none)", table: "the item table (on its own line)",
   topics: "the item paragraphs, one per kind of item", sign: "\"Warm regards,\" and the signature", signature: "the signature without \"Warm regards,\"",
   company: "the customer's company", number: "the quotation number", items: "the item names, \"Zoll AED Plus and Zoll AED 3\"",
+  name: "the person's name as the quote has it", details: "the company details (address, numbers, website)",
   invoice: "the invoice number", person: "the concerned person (or \"Sir/ Ma'am\")", location: "the training's location", customer: "the customer's name",
   course: "the training's name", dates: "the training dates", people: "how many people came",
 };
@@ -56,11 +58,16 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const textHtml = (s: string) => s.split(/\n{2,}/).map((p) => `<p style="margin:0 0 1em">${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 
 /** The draft filled in with the sample: subject and HTML. */
-function preview(e: Entry, subject: string, body: string, noExpiry: boolean): { subject: string | null; html: string } {
+function preview(e: Entry, subject: string, body: string, noExpiry: boolean, saved: TemplateOverrides): { subject: string | null; html: string } {
   const q = noExpiry ? { ...SAMPLE, expiry: null } : SAMPLE;
+  if (e.group === "sign") {
+    const o = { ...saved, [e.key]: { body } };
+    const who = e.key === "sign:details" ? (SAMPLE.salesperson ?? "") : e.label;
+    return { subject: null, html: textHtml(`Warm regards,\n${signature(who, o)}`) };
+  }
   if (e.group === "quote" || e.group === "ts") {
     const id = e.key.split(":")[1];
-    const o = { [e.key]: { subject, body } };
+    const o = { ...saved, [e.key]: { subject, body } };
     const m = e.group === "ts" ? buildTsEmail(id, q, [], o) : buildQuoteEmail(id, q, [], undefined, o);
     return { subject: m.subject, html: m.html };
   }
@@ -105,7 +112,10 @@ export function Templates() {
     ...(entry.subject === null ? [] : templateProblems(subject, entry.vars).map((p) => `Subject: ${p}`)),
     ...templateProblems(body, entry.vars, { choices: entry.choices }),
   ] : []), [entry, subject, body]);
-  const shown = useMemo(() => (entry && !problems.length ? preview(entry, subject, body, noExpiry) : null), [entry, subject, body, noExpiry, problems.length]);
+  // What's saved for the quotation emails, as the email step gets it (so the preview shows the saved signatures and paragraphs).
+  const saved = useMemo(() => Object.fromEntries((list ?? []).filter((t) => t.edited && ["quote", "ts", "topic", "sign"].includes(t.group))
+    .map((t) => [t.key, { ...(t.subject !== null ? { subject: t.subject } : {}), body: t.body }])) as TemplateOverrides, [list]);
+  const shown = useMemo(() => (entry && !problems.length ? preview(entry, subject, body, noExpiry, saved) : null), [entry, subject, body, noExpiry, problems.length, saved]);
 
   const pick = (k: string) => {
     if (k === key) return;
@@ -170,7 +180,7 @@ export function Templates() {
           </span>
         </div>
         {entry.note && <p className="mt-1 text-[12.5px] text-muted">{entry.note}</p>}
-        {readOnly && <p className="mt-1 text-[12.5px] text-medium">Only Admin changes this email.</p>}
+        {readOnly && <p className="mt-1 text-[12.5px] text-medium">{entry.owner ? `Only ${entry.label} and Admin change this signature.` : "Only Admin changes this."}</p>}
 
         {entry.subject !== null && (
           <label className="mt-3 block">
@@ -179,12 +189,12 @@ export function Templates() {
           </label>
         )}
         <label className="mt-3 block">
-          <span className="text-[12px] font-medium text-muted">{entry.group === "topic" ? "Paragraph" : "Message"}</span>
+          <span className="text-[12px] font-medium text-muted">{entry.group === "topic" ? "Paragraph" : entry.group === "sign" ? "Signature" : "Message"}</span>
           <textarea ref={bodyEl} className={`${inputCls} mt-1 !h-auto min-h-[220px] resize-y py-2.5 leading-relaxed xl:min-h-[calc(100vh-620px)]`} rows={12} value={body} readOnly={readOnly}
             onFocus={() => { lastField.current = "body"; }} onChange={(e) => setBody(e.target.value)} spellCheck />
         </label>
 
-        {!readOnly && (
+        {!readOnly && entry.vars.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <span className="text-[12px] text-muted">Insert:</span>
             {entry.vars.map((v) => (
@@ -219,7 +229,7 @@ export function Templates() {
             </label>
           )}
         </div>
-        <p className="mt-0.5 text-[12px] text-faint">{entry.group === "aed" || entry.group === "fulfil" ? "Filled in with made-up details." : `A made-up quote: ${SAMPLE.lines.map((l) => l.name).join(", ")}.`}</p>
+        <p className="mt-0.5 text-[12px] text-faint">{entry.group === "sign" ? "As it shows under the email." : entry.group === "aed" || entry.group === "fulfil" ? "Filled in with made-up details." : `A made-up quote: ${SAMPLE.lines.map((l) => l.name).join(", ")}.`}</p>
         {shown ? (
           <>
             {shown.subject !== null && <p className="mt-3 text-[13.5px]"><span className="text-muted">Subject: </span><span className="font-medium">{shown.subject}</span></p>}

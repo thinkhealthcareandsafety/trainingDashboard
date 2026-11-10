@@ -79,7 +79,7 @@ test("route: who may read and change what", async () => {
   assert.equal((await call("GET", null)).status, 401);
   assert.equal((await call("GET", priyanka)).status, 403);
   const list = (await call("GET", ashish)).json.templates as Entry[];
-  assert.equal(list.length, 7 + 19 + 7 + 3 + 1);
+  assert.equal(list.length, 7 + 19 + 7 + 6 + 3 + 1);
   assert.equal(list.find((t) => t.key === "quote:new")!.canEdit, true);
   assert.equal(list.find((t) => t.key === "aed_onboarding:0")!.canEdit, false);
   assert.equal((await call("PUT", ashish, { key: "aed_onboarding:1", body: "x {invoice}" })).status, 403);
@@ -118,4 +118,37 @@ test("route: Admin edits a flow step in its own document; the thank-you subject 
   assert.equal((await getTemplate("fulfil_gratitude")).subject, "Thank you for hosting us - {ref}");
   assert.equal((await call("PUT", admin, { key: "fulfil_gratitude:0", reset: true })).status, 200);
   assert.match((await getTemplate("fulfil_gratitude")).subject, /^Thank you for hosting our training/);
+});
+
+test("signatures: built-in is what it was; each person's own; the shared details; someone not on the list", async () => {
+  const { signature } = await import("@/lib/quoteEmails");
+  assert.match(signature("Ashish"), /^Ashish\nTHINK HEALTH CARE AND SAFETY\n/);
+  assert.match(signature("Sumit A Shah"), /^Sumit A Shah\nProprietor\nTHINK HEALTH/);
+  assert.match(signature(""), /^THINK HEALTH/);
+  const o = { "sign:ashish": { body: "{name}\nSales Manager\n+91 90000 00000\n\n{details}" }, "sign:details": { body: "THINK HEALTH\nPune" } };
+  assert.equal(signature("Ashish", o), "Ashish\nSales Manager\n+91 90000 00000\n\nTHINK HEALTH\nPune");
+  assert.equal(signature("Shikha", o), "Shikha\nTHINK HEALTH\nPune");
+  assert.equal(signature("Prashant Sawale", o), "Prashant Sawale\nTHINK HEALTH\nPune");
+  const q = { ...SAMPLES[0], signer: null, salesperson: "Ashish" };
+  assert.match(buildQuoteEmail("new", q, [], undefined, o).text, /Warm regards,\nAshish\nSales Manager\n/);
+  assert.match(buildQuoteEmail("formal", q, [], undefined, o).text, /Yours sincerely,\nAshish\nSales Manager\n/);
+  assert.match(buildTsEmail("new", q, [], o).text, /Parteek Nathani/); // Total Supply keeps its own
+  const { ziaEmailHtml } = await import("@/lib/quoteEmails");
+  assert.match(ziaEmailHtml("Hi.\n\nWarm regards,", q, o), /Sales Manager/);
+});
+
+test("route: a signature is its owner's and Admin's; the company details Admin's", async () => {
+  const { resetFakeDb } = await import("./fakes/db");
+  resetFakeDb();
+  assert.equal((await call("PUT", ashish, { key: "sign:ashish", body: "{name}\nSales\n{details}" })).status, 200);
+  assert.equal((await call("PUT", ashish, { key: "sign:sumit", body: "{name}" })).status, 403);
+  assert.equal((await call("PUT", ashish, { key: "sign:details", body: "X" })).status, 403);
+  assert.match(String((await call("PUT", ashish, { key: "sign:ashish", body: "{name} {phone}" })).json.error), /Unknown: \{phone\}/);
+  assert.equal((await call("PUT", admin, { key: "sign:sumit", body: "{name}\nOwner\n{details}" })).status, 200);
+  assert.equal((await call("PUT", admin, { key: "sign:details", body: "THINK HEALTH" })).status, 200);
+  const list = (await call("GET", ashish)).json.templates as Entry[];
+  assert.deepEqual(list.filter((t) => t.key.startsWith("sign:")).map((t) => [t.key, t.canEdit, t.edited]),
+    [["sign:ashish", true, true], ["sign:shikha", false, false], ["sign:sumit", false, true], ["sign:nikita", false, false], ["sign:pranjal", false, false], ["sign:details", false, true]]);
+  const o = (await call("GET", ashish, undefined, "?overrides=1")).json.overrides as Record<string, unknown>;
+  assert.deepEqual(Object.keys(o).sort(), ["sign:ashish", "sign:details", "sign:sumit"]);
 });
