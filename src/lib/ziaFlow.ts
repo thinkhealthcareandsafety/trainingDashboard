@@ -23,7 +23,7 @@ export const ziaFlowOn = () => Boolean(process.env.ZIA_FLOW_URL && process.env.Z
 export async function askZia(quote: string, prompt: string): Promise<void> {
   await (await kv()).replaceOne({ _id: keyOf(quote) }, { askedAt: Date.now() }, { upsert: true });
   const r = await fetch(process.env.ZIA_FLOW_URL!, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quote, prompt }), cache: "no-store",
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quote, prompt, Quote: quote, Prompt: prompt }), cache: "no-store", // both spellings: the flow's fields are "Quote" and "Prompt" (10 Nov: lowercase alone reached Zia empty)
   });
   if (!r.ok) throw new Error(`Zoho Flow didn't take it (${r.status}) — check the flow is on`);
 }
