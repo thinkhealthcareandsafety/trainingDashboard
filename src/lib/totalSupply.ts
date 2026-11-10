@@ -3,7 +3,7 @@
  * the main quote, each with its own random 1-15% on the price; sent from Total Supply's Gmail with our own PDF, not through Zoho.
  * This file has no database or mail in it, so the email step can use it too.
  */
-import { type Parts, type QuoteEmailInput, type TopicId, buildQuoteEmail } from "./quoteEmails";
+import { type QuoteEmailInput, type TemplateOverrides, type TextTemplate, type TopicId, buildQuoteEmail } from "./quoteEmails";
 
 export const TS = {
   name: "Total Supply",
@@ -148,44 +148,45 @@ export function amountInWords(amount: number): string {
 /** The sign-off, for now (owner, 5 Nov: the full signature comes later). */
 export const TS_SIGN = `Warm regards,\n${TS.person}\n${TS.phone}\n${TS.name}`;
 
-/** The same seven templates as the main quote, same ids, with their lines reworded. */
-export const TS_TEMPLATES: { id: string; label: string; subject: (p: Parts) => string; body: (p: Parts) => string }[] = [
+/** The same seven templates as the main quote, same ids, with their lines reworded. Editable on the Templates page ("ts:<id>"). */
+export const TS_TEMPLATES: TextTemplate[] = [
   {
     id: "new", label: "New quotation",
-    subject: (p) => `${p.what}: ${p.ref}`,
-    body: (p) => `${p.hi}\n\nThanks for your enquiry. I've attached our ${p.ref}, with the details below.\n\n${p.table}\n\n${p.topics}\n\nIt comes to ${p.total} with GST${p.valid ? `, and these prices stay valid until ${p.valid}` : ""}. Tell me if you'd like any quantities changed or anything added, and I'll send you an updated copy.\n\nI'll wait to hear from you.\n\n${p.sign}`,
+    subject: `{what}: {ref}`,
+    body: `{hi}\n\nThanks for your enquiry. I've attached our {ref}, with the details below.\n\n{table}\n\n{topics}\n\nIt comes to {total} with GST[, and these prices stay valid until {valid}]. Tell me if you'd like any quantities changed or anything added, and I'll send you an updated copy.\n\nI'll wait to hear from you.\n\n{sign}`,
   },
   {
     id: "call", label: "After our call / meeting",
-    subject: (p) => `${p.what}, following our conversation: ${p.ref}`,
-    body: (p) => `${p.hi}\n\nGood talking to you today, and thanks for making the time. Here's ${p.ref}, as we discussed.\n\n${p.table}\n\n${p.topics}\n\nIt comes to ${p.total} with GST${p.valid ? `, valid until ${p.valid}` : ""}. If I've missed anything from our conversation, tell me and I'll correct it.\n\n${p.sign}`,
+    subject: `{what}, following our conversation: {ref}`,
+    body: `{hi}\n\nGood talking to you today, and thanks for making the time. Here's {ref}, as we discussed.\n\n{table}\n\n{topics}\n\nIt comes to {total} with GST[, valid until {valid}]. If I've missed anything from our conversation, tell me and I'll correct it.\n\n{sign}`,
   },
   {
     id: "revised", label: "Revised quotation",
-    subject: (p) => `Updated ${p.ref}: ${p.what}`,
-    body: (p) => `${p.hi}\n\nI've made the changes we talked about. Here's the updated ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nThe new total is ${p.total} with GST${p.valid ? `, valid until ${p.valid}` : ""}. Please check it over, and we can move ahead once you're happy with it.\n\n${p.sign}`,
+    subject: `Updated {ref}: {what}`,
+    body: `{hi}\n\nI've made the changes we talked about. Here's the updated {ref}.\n\n{table}\n\n{topics}\n\nThe new total is {total} with GST[, valid until {valid}]. Please check it over, and we can move ahead once you're happy with it.\n\n{sign}`,
   },
   {
     id: "repeat", label: "Repeat order / replacement",
-    subject: (p) => `${p.what}: ${p.ref}`,
-    body: (p) => `${p.hi}\n\nThanks for getting in touch again. I've attached ${p.ref}.\n\n${p.table}\n\n${p.topics}\n\nIt comes to ${p.total} with GST${p.valid ? `, valid until ${p.valid}` : ""}. As soon as you confirm, we'll arrange dispatch.\n\n${p.sign}`,
+    subject: `{what}: {ref}`,
+    body: `{hi}\n\nThanks for getting in touch again. I've attached {ref}.\n\n{table}\n\n{topics}\n\nIt comes to {total} with GST[, valid until {valid}]. As soon as you confirm, we'll arrange dispatch.\n\n{sign}`,
   },
   {
     id: "formal", label: "Formal (purchase / tender)",
-    subject: (p) => `Supply of ${p.what}: ${p.ref}`,
-    body: (p) => `Dear Sir / Madam,\n\nFurther to your enquiry, we enclose our ${p.ref} for the items below.\n\n${p.table}\n\nThe total amount is ${p.total} inclusive of GST.${p.valid ? ` This quotation remains valid until ${p.valid}.` : ""} Delivery, payment and other terms are set out in the quotation.\n\nWe await your purchase order, and are glad to answer any questions.\n\nYours faithfully,\n${p.sign.split("\n").slice(1).join("\n")}`,
+    subject: `Supply of {what}: {ref}`,
+    body: `Dear Sir / Madam,\n\nFurther to your enquiry, we enclose our {ref} for the items below.\n\n{table}\n\nThe total amount is {total} inclusive of GST.[ This quotation remains valid until {valid}.] Delivery, payment and other terms are set out in the quotation.\n\nWe await your purchase order, and are glad to answer any questions.\n\nYours faithfully,\n{signature}`,
   },
   {
     id: "short", label: "Short and simple",
-    subject: (p) => `${p.what}: ${p.ref}`,
-    body: (p) => `${p.hi}\n\nAttached is ${p.ref} for ${p.what}. It comes to ${p.total} with GST${p.valid ? `, valid until ${p.valid}` : ""}.\n\n${p.table}\n\nAny questions, just ask.\n\n${p.sign}`,
+    subject: `{what}: {ref}`,
+    body: `{hi}\n\nAttached is {ref} for {what}. It comes to {total} with GST[, valid until {valid}].\n\n{table}\n\nAny questions, just ask.\n\n{sign}`,
   },
   {
     id: "reminder", label: "Gentle reminder (resend)",
-    subject: (p) => `Checking in on ${p.ref}: ${p.what}`,
-    body: (p) => `${p.hi}\n\nI wanted to check in about our ${p.ref}. I've attached it again so it's easy to find.\n\n${p.table}\n\n${p.topics}\n\nIt comes to ${p.total} with GST${p.valid ? `, and these prices stay valid until ${p.valid}` : ""}. If you need anything changed, such as quantities, models or delivery dates, tell me and I'll update it. I'm also happy to talk it through on a call.\n\n${p.sign}`,
+    subject: `Checking in on {ref}: {what}`,
+    body: `{hi}\n\nI wanted to check in about our {ref}. I've attached it again so it's easy to find.\n\n{table}\n\n{topics}\n\nIt comes to {total} with GST[, and these prices stay valid until {valid}]. If you need anything changed, such as quantities, models or delivery dates, tell me and I'll update it. I'm also happy to talk it through on a call.\n\n{sign}`,
   },
 ];
 
 /** The email, from the same parts as the main quote's. */
-export const buildTsEmail = (templateId: string, q: QuoteEmailInput, skip: TopicId[] = []) => buildQuoteEmail(templateId, q, skip, { templates: TS_TEMPLATES, sign: TS_SIGN });
+export const buildTsEmail = (templateId: string, q: QuoteEmailInput, skip: TopicId[] = [], overrides: TemplateOverrides = {}) =>
+  buildQuoteEmail(templateId, q, skip, { templates: TS_TEMPLATES, sign: TS_SIGN, key: "ts" }, overrides);
