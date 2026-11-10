@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CATEGORIES, type PtRequest, type Who, ago, availability, bySeverity, canDo, cellKey, counts, focusOf, fmtSpan,
-  isAdminId, isBlocker, isEscalated, isSevere, matrix, nextPingAt, teamDay, teamStamp, teamTime, waitingMs,
+  isAdminId, isBlocker, isEscalated, offTracker, isSevere, matrix, nextPingAt, teamDay, teamStamp, teamTime, waitingMs,
 } from "@/lib/progress/model";
 import { btn } from "../ui";
 import { CategoryChip, PersonAvatar, UrgentPill, edgeOf, firstName } from "./bits";
@@ -130,7 +130,7 @@ function HeaderCounts({ snap, now, filter, setFilter, onlyActive, setOnlyActive,
       <button type="button" className={tile(onlyActive, "")} aria-pressed={onlyActive} onClick={() => setOnlyActive(!onlyActive)} title="Show only the people active now">
         <span className="size-2.5 shrink-0 rounded-full bg-low" aria-hidden />
         <span className="text-[26px] font-semibold tabular-nums leading-none">{c.active}</span>
-        <span className="text-[13.5px] font-medium leading-tight">active {c.active === 1 ? "member" : "members"}<span className={`sub block text-[12px] font-normal${onlyActive ? "text-surface/70" : "text-muted"}`}>of {snap.team.filter((m) => !isAdminId(m.id)).length} · seen in the last 10 min</span></span>
+        <span className="text-[13.5px] font-medium leading-tight">active {c.active === 1 ? "member" : "members"}<span className={`sub block text-[12px] font-normal${onlyActive ? "text-surface/70" : "text-muted"}`}>of {snap.team.filter((m) => !offTracker(m)).length} · seen in the last 10 min</span></span>
       </button>
       <button type="button" className={tile(filter?.kind === "blockers", c.blockers ? "text-high" : "")} aria-pressed={filter?.kind === "blockers"} onClick={() => setFilter(filter?.kind === "blockers" ? null : { kind: "blockers" })} title="Critical Blockers and anything open for over a day">
         <span className={`size-2.5 shrink-0 rounded-full ${c.blockers ? "bg-high" : "bg-line-strong"}`} aria-hidden />
@@ -396,7 +396,7 @@ function StatusCards({ snap, now, onlyActive, setFilter }: { snap: Snapshot; now
   const pres = new Map(snap.presence.map((p) => [p.id, p]));
   const open = snap.requests.filter((r) => r.status === "open");
   const people = snap.team
-    .filter((m) => !isAdminId(m.id)) // no status card for Admin (owner, 3 Nov)
+    .filter((m) => !offTracker(m)) // no status card for Admin (owner, 3 Nov) or Anuj (10 Nov)
     .map((m) => ({ m, a: availability(pres.get(m.id), now) }))
     .filter((x) => !onlyActive || x.a.state === "active")
     // You first, then whoever is active, then by last seen.

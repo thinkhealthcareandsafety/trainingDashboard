@@ -81,3 +81,15 @@ test("Anuj Agarwal (owner, 10 Nov: \"access to everything\"): full access, quote
   assert.equal(isAdmin(anuj), false);
   assert.deepEqual(boardsFor(anuj), ["training", "sales", "fire", "aed", "fulfil", "logistics"]);
 });
+
+test("the Progress tracker leaves out Admin and Anuj (owner, 10 Nov: \"remove this for him\"); everyone else stays", async () => {
+  const { counts, offTracker } = await import("@/lib/progress/model");
+  assert.equal(offTracker({ id: "admin", name: "Admin" }), true);
+  assert.equal(offTracker({ id: "x1", name: "Anuj Agarwal" }), true);
+  assert.equal(offTracker({ id: "x2", name: "Ashish" }), false);
+  const now = new Date();
+  const seen = new Date(now.getTime() - 60_000).toISOString();
+  const team = [{ id: "x1", name: "Anuj Agarwal" }, { id: "x2", name: "Ashish" }];
+  const presence = team.map((m) => ({ id: m.id, lastSeen: seen, seenAt: seen, at: seen }));
+  assert.equal(counts(team, presence as never, [], now).active <= 1, true);
+});

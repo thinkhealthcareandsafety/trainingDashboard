@@ -98,6 +98,8 @@ export interface Notice { id: string; to: string; kind: NoticeKind; requestId?: 
 
 export type Who = { id: string; name: string };
 export const isAdminId = (id: string) => id === "admin";
+/** No status card and not counted as a member on the tracker: Admin (owner, 3 Nov) and Anuj Agarwal (owner, 10 Nov: "remove this for him"). */
+export const offTracker = (m: Who) => isAdminId(m.id) || /^anuj\b/i.test(m.name.trim());
 
 /* ---------------- Time ---------------- */
 
@@ -179,7 +181,7 @@ export function counts(team: Who[], presence: Presence[], requests: PtRequest[],
   const pres = new Map(presence.map((p) => [p.id, p]));
   const open = requests.filter((r) => r.status === "open");
   return {
-    active: team.filter((m) => !isAdminId(m.id) && availability(pres.get(m.id), now).state === "active").length,
+    active: team.filter((m) => !offTracker(m) && availability(pres.get(m.id), now).state === "active").length,
     blockers: open.filter((r) => isBlocker(r, now)).length,
     handoffs: open.filter((r) => r.category === "handoff").length,
   };
