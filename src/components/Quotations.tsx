@@ -12,7 +12,7 @@ import { BROCHURE_MAX_BYTES, GST_OPTIONS, type ItemFields, PICTURE_MAX_BYTES, ST
 import { useSession } from "@/lib/session";
 import type { AddedPerson } from "@/lib/quotations";
 import { onItemsPage } from "@/lib/itemsPage";
-import { type QuoteEmailInput, TEMPLATES, type TopicId, ZIA_MAILBOX, buildQuoteEmail, isTeamEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
+import { type QuoteEmailInput, TEMPLATES, type TemplateOverrides, type TopicId, ZIA_MAILBOX, buildQuoteEmail, isTeamEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 import { buildTsEmail } from "@/lib/totalSupply";
 
 /*
@@ -744,16 +744,23 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   };
   const fill = (t: string, s: TopicId[], d: TsDraft | null = ts) => {
     if (!draft || draft.error || !body.current) return;
-    if (d) { const e = buildTsEmail(t, tsCompose(d), s); setSubject(e.subject); body.current.innerHTML = e.html; }
+    if (d) { const e = buildTsEmail(t, tsCompose(d), s, overrides.current); setSubject(e.subject); body.current.innerHTML = e.html; }
     else if (t === "zoho") { setSubject(draft.subject); body.current.innerHTML = cleanHtml(draft.body); }
-    else { const e = buildQuoteEmail(t, compose, s); setSubject(e.subject); body.current.innerHTML = e.html; }
+    else { const e = buildQuoteEmail(t, compose, s, undefined, overrides.current); setSubject(e.subject); body.current.innerHTML = e.html; }
     edited.current = false;
   };
   const choose = (t: string, s: TopicId[]) => {
     if (edited.current && !window.confirm("Replace the message you've edited?")) return;
     setTpl(t); setSkip(s); fill(t, s);
   };
-  useEffect(() => { fill(tpl, skip); }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps -- once Zoho's email is in
+  // The wording saved on the Templates page (owner, 10 Nov); the built-in text when there's none or it can't be read.
+  const overrides = useRef<TemplateOverrides>({});
+  const [ovReady, setOvReady] = useState(false);
+  useEffect(() => {
+    fetch("/api/templates?overrides=1").then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((j: { overrides?: TemplateOverrides } | null) => { overrides.current = j?.overrides ?? {}; setOvReady(true); });
+  }, []);
+  useEffect(() => { if (ovReady) fill(tpl, skip); }, [draft, ovReady]); // eslint-disable-line react-hooks/exhaustive-deps -- once Zoho's email and the saved wording are in
   // Zia (owner, 3 Nov): Zoho Mail's Zia can't be called from here — "Send to Zia" leaves the brief as a draft in
   // learn@'s Zoho Mail, someone has Zia write it there and saves, "Pull from Zia" brings the saved draft in.
   const [ziaText, setZiaText] = useState("");
@@ -866,6 +873,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
             {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
             {!ts && <option value="zoho">Zoho&apos;s standard email</option>}
           </select>
+          <a href="/templates" target="_blank" rel="noreferrer" className="text-[13px] font-medium text-brand hover:underline" title="Change the templates' wording (opens in a new tab, so this email stays as it is)">Edit templates</a>
           {tpl !== "zoho" && tpl !== "formal" && tpl !== "short" && topics.map((t) => {
             const on = !skip.includes(t.id);
             return (
