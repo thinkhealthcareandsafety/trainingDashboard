@@ -129,7 +129,7 @@ async function zget<T = Record<string, unknown>>(path: string, params: Record<st
       await new Promise((r) => setTimeout(r, (res.status === 429 ? 5000 : 1000) * 2 ** attempt));
       continue;
     }
-    const json = await res.json();
+    const json = parseZoho(await res.text());
     if (!res.ok || json.code !== 0) throw new Error(`Zoho ${path} failed: ${json.message ?? res.status}`);
     return json as T;
   }
@@ -234,6 +234,15 @@ export function isoTime(v: unknown, fallback = ""): string {
  * read from Zoho only when an item is picked.
  */
 export type ZItem = { id: string; name: string; identifier?: string; rate?: number; active?: boolean; gst?: number; unit?: string; stock?: string; service?: boolean; category?: string; image?: boolean; brochure?: string; brochureId?: string };
+
+/**
+ * Zoho's JSON with its long ids kept whole. Books can send a file field's id as a bare 18-digit number
+ * ("cf_product_brochure_unformatted": 982417000023697041), which JavaScript rounds to …697000 — the brochure then answers
+ * 404 (10 Nov). Such numbers after "…_unformatted" or "value" keys become strings before parsing.
+ */
+export function parseZoho(text: string) {
+  return JSON.parse(text.replace(/(?<!\\)("(?:\w+_unformatted|value)"\s*:\s*)(-?\d{16,})(?=\s*[,}\]])/g, '$1"$2"'));
+}
 
 /** The Product Brochure field's file id (the document to read back), wherever Zoho puts it on an item. */
 export function brochureIdOf(i: Record<string, unknown>): string | undefined {

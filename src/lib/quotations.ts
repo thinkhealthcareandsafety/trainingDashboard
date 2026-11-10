@@ -1,5 +1,5 @@
 import "server-only";
-import { zohoGet } from "./zoho";
+import { parseZoho, zohoGet } from "./zoho";
 import { type ItemChanges, type ItemFields, gstKnown, itemBody, itemPictures, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
@@ -55,7 +55,7 @@ async function books(c: Conn, method: "GET" | "POST" | "PUT" | "DELETE", path: s
     const form = body instanceof FormData;
     const res = await fetch(url, { method, headers: { Authorization: `Zoho-oauthtoken ${token}`, ...(body && !form ? { "Content-Type": "application/json" } : {}) }, body: form ? body : body ? JSON.stringify(body) : undefined, cache: "no-store" });
     if (res.status === 401 && attempt === 0) continue;
-    const json = (await res.json().catch(() => ({}))) as BooksRes;
+    const json = (await res.text().then(parseZoho).catch(() => ({}))) as BooksRes;
     if (!res.ok || json.code !== 0) {
       console.error(`[quotations] ${method} ${path} → ${res.status} ${json.code ?? ""} ${json.message ?? ""}`);
       throw new Error(`Zoho Books: ${json.message ?? `error ${res.status}`}`);
