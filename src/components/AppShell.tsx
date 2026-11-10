@@ -20,6 +20,8 @@ const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
   // Quotations (owner, 28 Oct: "under Overview"): every Zoho customer, one click to send a quotation — the four who sell.
   { href: "/quotations", label: "Quotations", full: true, icon: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" /> },
+  // Training Management (owner, 10 Nov): the training-only quotes, under Quotations. Those who quote.
+  { href: "/training-management", label: "Trainings", full: true, icon: <><path d="M10 3.5 3 7l7 3.5L17 7z" /><path d="M6 8.7v3.8c1 1.2 2.4 1.8 4 1.8s3-.6 4-1.8V8.7M17 7v4" /></> },
   // Items (owner, 4 Nov): its own page right under Quotations. Every member sees it and can change anything on an item (owner, 5 Nov); only starting a quotation stays with those who quote.
   { href: "/items", label: "Items", full: true, icon: <path d="M3.5 6.5 10 3.5l6.5 3v7L10 16.5l-6.5-3zM3.5 6.5 10 9.5l6.5-3M10 9.5v7" /> },
   // Templates (owner, 10 Nov): the wording of the emails we send. Those who quote.
@@ -363,7 +365,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
   const money = boardsFor(session.member!).includes("training");
   // Quotations also for Pranjal (canQuote); the other "full" pages for full access only.
-  const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" ? canQuote(session.member!) : hasFullAccess(session.member!))))).map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
+  const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" || n.href === "/training-management" ? canQuote(session.member!) : hasFullAccess(session.member!))))).map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
   const onTracker = path.startsWith(TRACKER);
   // Tagged and not answered yet: a red count on Progress tracker until you reply in the request or resolve it (owner, 26 Oct).
   const trackerBadge = progress.needs > 0 && (
