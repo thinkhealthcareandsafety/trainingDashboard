@@ -37,10 +37,14 @@ export const isTeamEmail = (email: string) => /@thinkhealth\.in$/i.test(email.tr
 
 /** On every quote email, whoever sends it (owner, 4 Nov). */
 export const ALWAYS_CC = ["sales@thinkhealth.in", "sshah@thinkhealth.in"];
-/** The Cc list as sent: the fixed two, then the others; each address once, and none that's already in To. */
-export function mergeCc(to: string[], cc: string[]): string[] {
+/**
+ * The Cc list as sent: the fixed two, then the others; each address once, and none that's already in To. `off`: fixed
+ * ones unticked on the email step (owner, 11 Nov: "keep these as options but just always keep them ticked").
+ */
+export function mergeCc(to: string[], cc: string[], off: string[] = []): string[] {
   const seen = new Set(to.map((m) => m.toLowerCase()));
-  return [...ALWAYS_CC, ...cc].map((m) => m.toLowerCase()).filter((m) => !seen.has(m) && Boolean(seen.add(m)));
+  const dropped = new Set(off.map((m) => m.toLowerCase()));
+  return [...ALWAYS_CC.filter((m) => !dropped.has(m)), ...cc].map((m) => m.toLowerCase()).filter((m) => !seen.has(m) && Boolean(seen.add(m)));
 }
 
 /**

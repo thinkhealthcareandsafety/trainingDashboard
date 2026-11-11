@@ -14,6 +14,7 @@ import type { AddedPerson } from "@/lib/quotations";
 import { onItemsPage } from "@/lib/itemsPage";
 import { type QuoteEmailInput, TEMPLATES, type TemplateOverrides, type TopicId, ZIA_MAILBOX, buildQuoteEmail, isTeamEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 import { buildTsEmail } from "@/lib/totalSupply";
+import { readCoordinator } from "@/lib/trainingManager";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -702,6 +703,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [cc, setCc] = useState("");
+  const [ccOff, setCcOff] = useState<string[]>([]); // the fixed Cc addresses unticked (ticked by default)
   const [subject, setSubject] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [leaveOut, setLeaveOut] = useState<string[]>([]); // brochures unticked (owner, 9 Nov: all go by default)
@@ -818,8 +820,9 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   const original = people.find((x) => picked.includes(x.email)) ?? people[0];
   const sameAs = (on: boolean) => { setCoSame(on); if (on && original) setCo({ name: original.name ?? "", email: original.email, phone: original.phone ?? "" }); };
   const coNeeded = hasTraining && !ts;
-  const coMissing = coNeeded && (!co.name.trim().includes(" ") || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(co.email.trim()) || co.phone.replace(/\D/g, "").length < 10);
-  const why = coMissing ? "Add the training coordinator's full name, number and email" : !live ? "Only the live site sends email" : ts && !ts.ready ? "Total Supply's Gmail isn't connected yet" : !to.length && !coNeeded ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
+  // The server's own check, so the reason shown is the one it would give (owner, 11 Nov: Send stayed grey, nothing said why).
+  const coCheck = coNeeded ? readCoordinator(co) : null;
+  const why = coCheck && "error" in coCheck ? coCheck.error : !live ? "Only the live site sends email" : ts && !ts.ready ? "Total Supply's Gmail isn't connected yet" : !to.length && !coNeeded ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
   const send = async (e: React.MouseEvent<HTMLButtonElement>) => {
     const from = e.currentTarget;
     setBusy(true);
@@ -830,6 +833,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
     form.set("to", to.join(","));
     if (coNeeded) { form.set("coName", co.name); form.set("coEmail", co.email); form.set("coPhone", co.phone); form.set("customerId", customerId); }
     form.set("cc", cc);
+    if (!ts) form.set("ccOff", ccOff.join(","));
     form.set("subject", subject);
     form.set("body", body.current?.innerHTML ?? "");
     if (draft?.fileName && !ts) form.set("fileName", draft.fileName);
@@ -873,7 +877,12 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
           <span className={label}>Cc</span>
           {/* On every quote email (owner, 4 Nov): the server adds them, so they can't be taken off. */}
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            {!ts && mergeCc(to, []).map((m) => <span key={m} className="rounded-full bg-surface-2 px-3 py-1 text-[14px] text-ink-2" title="Always copied on quote emails">{m}</span>)}
+            {!ts && mergeCc(to, []).map((m) => (
+              <label key={m} className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-[14px] ${ccOff.includes(m) ? "border-line text-muted line-through" : "border-brand bg-brand-soft text-ink"}`} title="Copied on every quote email unless you untick it">
+                <input type="checkbox" className="accent-[var(--brand)]" checked={!ccOff.includes(m)} onChange={(e) => setCcOff((x) => (e.target.checked ? x.filter((y) => y !== m) : [...x, m]))} />
+                {m}
+              </label>
+            ))}
             <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-56 text-[14px]`} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Other emails, comma between" aria-label="Other Cc emails" />
           </div>
         </div>
@@ -978,7 +987,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-6 py-4">
-        {error && <span className="mr-auto text-[14px] font-medium text-high">{error}</span>}
+        {error ? <span className="mr-auto text-[14px] font-medium text-high">{error}</span> : why && !busy && <span className="mr-auto text-[14px] text-medium">{why}</span>}
         <button className={btn.ghost} onClick={ts ? closeTs : onBack} disabled={busy}>{ts ? "Back to main quotation" : "Not now"}</button>
         <button className={btn.primary} onClick={send} disabled={Boolean(why) || busy} title={why || (ts ? `Gmail sends it from ${ts.from}` : `Zoho Books sends it from your organisation's address`)}>{busy ? "Sending…" : ts ? "Send from Total Supply" : "Send email"}</button>
       </div>

@@ -176,3 +176,8 @@ test("the Flow prompt asks for the email only; Zia's reply splits into subject a
   assert.deepEqual(splitZiaReply("**Subject:** Quote\nHi"), { subject: "Quote", text: "Hi" });
   assert.deepEqual(splitZiaReply("Hi Rajesh,\r\nThanks."), { subject: null, text: "Hi Rajesh,\nThanks." });
 });
+
+test("the fixed Cc addresses are ticked by default; an unticked one stays off (owner, 11 Nov)", () => {
+  assert.deepEqual(mergeCc(["a@x.com"], ["b@x.com"]), ["sales@thinkhealth.in", "sshah@thinkhealth.in", "b@x.com"]);
+  assert.deepEqual(mergeCc(["a@x.com"], ["b@x.com"], ["SShah@thinkhealth.in"]), ["sales@thinkhealth.in", "b@x.com"]);
+});

@@ -588,7 +588,7 @@ async function sendEmail(form: FormData | null): Promise<Response> {
   const customerId = str("customerId", 30);
   if (coordinator && !/^\d+$/.test(customerId)) return Response.json({ error: "Pick a customer" }, { status: 400 });
   if (coordinator) ({ to, cc: extraCc } = coordinatorRecipients(to, extraCc, coordinator.email));
-  const cc = mergeCc(to, extraCc);
+  const cc = mergeCc(to, extraCc, mails("ccOff"));
   const files = form.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
   const bad = [...to, ...cc].find((m) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
