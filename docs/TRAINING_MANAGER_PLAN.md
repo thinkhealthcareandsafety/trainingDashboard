@@ -130,6 +130,17 @@ On each training:
 
 **Send to Think Health** stamps the training "Proposed" and shows it on the Training Management page. No email goes to you for now; you'll see it on the page. They can change it later, and the old value stays visible, struck through.
 
+**Our side, once the coordinator can propose** (owner, 11 Nov; an idea, to be shaped when the portal side works):
+- On the Trainings page, a row whose coordinator proposed a date gets a **glowing green border**.
+- Opening it shows the proposal **inside the Quotation phase of the story**: the training, the date(s), tentative or not, the location, and the people confirmed.
+- **Accept training date** then does three things:
+  1. It makes the Performa invoice in Zoho **from the quotation**.
+  2. It puts the proposed date on it.
+  3. It schedules the training on the Training board.
+
+  The story then moves on to Performa → Training scheduled by itself.
+- Still to decide: what the coordinator sees after we accept (their story moves to "Confirmed"), and what happens when we can't do that date (propose another one back?).
+
 ## 6. Participants: three ways in, one list
 
 1. **Type them in**: name + phone, one row at a time, and add as many rows as they like.
