@@ -1711,6 +1711,7 @@ type QuoteViewData = {
   emails: { at: string; by: string; to: string[]; cc: string[]; subject: string; attachments: string[]; coordinator: string | null }[];
   history: { text: string; by: string | null; when: string }[];
   coordinator: { name: string; email: string; phone: string } | null;
+  training: boolean;
   error?: string;
 };
 function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: string; onClose: () => void; onNew: (mode: "copy" | "revise" | "fresh") => void }) {
@@ -1780,7 +1781,7 @@ function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: s
               {!draft && !q.emails.length && <p className="mt-1.5 text-[13.5px] text-muted">Sent before the dashboard kept full details (11 Nov): the story below shows when and to whom.</p>}
             </section>
           </div>
-          <QuoteStory history={q.history} />
+          <QuoteStory quote={q} training={q.training} />
           {choosing ? (
             <div className="rounded-2xl border border-brand/40 bg-brand-soft p-4">
               <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold text-ink">New quotation for {customer.name}</p><button className={btn.quiet} onClick={() => setChoosing(false)}>Cancel</button></div>

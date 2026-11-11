@@ -4,7 +4,7 @@ import { canQuote, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
-import { type ZItem, brochureIdOf, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
+import { type ZItem, brochureIdOf, estimatePdf, itemGst, itemImage, itemSets, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
 import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, upsertCoordinator, brochurePdf, connectQuotes, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
@@ -792,18 +792,21 @@ export async function PUT(request: Request) {
 /* ---------------- One quotation's view (owner, 11 Nov) ---------------- */
 
 type EmailRecord = { estimateId: string; at: string; by: string; to: string[]; cc: string[]; subject: string; attachments: string[]; coordinator?: string };
-type ZLine = { name?: string; quantity?: unknown; rate?: unknown; tax_percentage?: unknown; item_total?: unknown };
+type ZLine = { item_id?: unknown; name?: string; quantity?: unknown; rate?: unknown; tax_percentage?: unknown; item_total?: unknown };
 type ZComment = { description?: string; commented_by?: string; date?: string; time?: string; date_description?: string };
 
 async function quotationView(id: string) {
   const d = await db();
-  const [est, history, emails, portal] = await Promise.all([
+  const [est, history, emails, portal, itemsDoc] = await Promise.all([
     zohoGet<{ estimate?: Record<string, unknown> & { line_items?: ZLine[] } }>(`/estimates/${id}`),
     // Zoho's own history of the quote (created, emailed, status changes): also covers emails sent from Zoho itself.
     zohoGet<{ comments?: ZComment[] }>(`/estimates/${id}/comments`).then((r) => r.comments ?? []).catch(() => [] as ZComment[]),
     d.collection<EmailRecord>("quoteEmailLog").find({ estimateId: id }).sort({ at: -1 }).toArray(),
     d.collection<{ _id: string; coordinator?: { name: string; email: string; phone: string } }>("portalTrainings").findOne({ _id: id }),
+    d.collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }),
   ]);
+  // A training quote (any training item) gets the training, certificate and logistics phases in its story.
+  const trainingIds = itemSets(itemsDoc?.items ?? []).training;
   const e = est.estimate;
   if (!e) return { error: "That quotation isn't in Zoho Books any more" };
   const n = (v: unknown) => (v === undefined || v === null || v === "" ? null : Number(v));
@@ -815,5 +818,6 @@ async function quotationView(id: string) {
     emails: emails.map(({ at, by, to, cc, subject, attachments, coordinator }) => ({ at, by, to, cc, subject, attachments, coordinator: coordinator ?? null })),
     history: history.map((c) => ({ text: String(c.description ?? "").trim(), by: c.commented_by ?? null, when: [c.date_description || c.date, c.time].filter(Boolean).join(" ") })).filter((c) => c.text),
     coordinator: portal?.coordinator ?? null,
+    training: (est.estimate?.line_items ?? []).some((l) => trainingIds.has(String(l.item_id))),
   };
 }
