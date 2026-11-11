@@ -221,8 +221,9 @@ export async function addContactPerson(p: { contactId: string; firstName: string
 
 /**
  * The training coordinator (docs/TRAINING_MANAGER_PLAN.md step 2): a contact person on the customer with the designation
- * "Training Coordinator" and their mobile. Someone already there with that email is updated, never added twice: the
- * designation only when theirs is empty (an "HR Manager" stays one), the mobile when they have none.
+ * "Training Coordinator" and their mobile. Someone already there with that email is updated, never added twice: their
+ * name and mobile become what was typed (owner, 11 Nov: "think s" stayed when Jasmeet was typed — "1 ofc", rename),
+ * the designation only when theirs is empty (an "HR Manager" stays one).
  */
 export async function upsertCoordinator(p: { contactId: string } & Coordinator): Promise<{ id: string; existed: boolean }> {
   const c = await (await kv()).findOne({ _id: KEY });
@@ -234,8 +235,11 @@ export async function upsertCoordinator(p: { contactId: string } & Coordinator):
   const had = (await people()).find(mine);
   if (had?.contact_person_id) {
     const id = String(had.contact_person_id);
-    const change = { ...(had.designation?.trim() ? {} : { designation: COORDINATOR_DESIGNATION }), ...(had.mobile?.trim() ? {} : { mobile: p.phone }) };
-    if (Object.keys(change).length) await books(c, "PUT", `/contacts/contactpersons/${id}`, {}, { contact_id: p.contactId, first_name: had.first_name || p.firstName, ...(had.last_name || p.lastName ? { last_name: had.last_name || p.lastName } : {}), email: p.email, ...change }).catch(noRight);
+    const same = (had.first_name ?? "") === p.firstName && (had.last_name ?? "") === p.lastName && (had.mobile ?? "").replace(/\D/g, "").endsWith(p.phone) && Boolean(had.designation?.trim());
+    if (!same) await books(c, "PUT", `/contacts/contactpersons/${id}`, {}, {
+      contact_id: p.contactId, first_name: p.firstName, last_name: p.lastName, email: p.email, mobile: p.phone,
+      ...(had.designation?.trim() ? {} : { designation: COORDINATOR_DESIGNATION }),
+    }).catch(noRight);
     return { id, existed: true };
   }
   await books(c, "POST", "/contacts/contactpersons", {}, { contact_id: p.contactId, first_name: p.firstName, ...(p.lastName ? { last_name: p.lastName } : {}), email: p.email, mobile: p.phone, designation: COORDINATOR_DESIGNATION }).catch(noRight);
