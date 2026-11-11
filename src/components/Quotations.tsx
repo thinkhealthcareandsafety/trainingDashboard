@@ -1722,61 +1722,93 @@ function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: s
   const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
   const draft = q?.status === "draft";
   const revisable = q && ["draft", "sent", "declined", "expired"].includes(q.status);
+  const emailed = (t: string) => /emailed|email sent|sent to/i.test(t);
+  const card = "rounded-2xl border border-line bg-surface-2/40 p-4";
+  const facts = q && !q.error ? [["Date", fmtDay(q.date)], ["Valid until", q.expiry ? fmtDay(q.expiry) : "—"], ["Sales person", q.salesperson ?? "—"], ["Reference", q.reference ?? "—"]] : [];
   return (
-    <Modal open onClose={onClose} title={q?.number ? `${q.number} · ${customer.name}` : customer.name} wide top>
-      {!q ? <p className="py-6 text-center text-[15px] text-muted">Getting the quotation from Zoho…</p>
-        : q.error ? <p className="py-6 text-center text-[15px] text-high">{q.error}</p>
+    <Modal open onClose={onClose} title={q?.number ? `${q.number} · ${customer.name}` : customer.name} top size="xl">
+      {!q ? <p className="py-10 text-center text-[15px] text-muted">Getting the quotation from Zoho…</p>
+        : q.error ? <p className="py-10 text-center text-[15px] text-high">{q.error}</p>
         : (
         <div className="space-y-5">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-ink-2">
-            <StatusChip status={q.status} />
-            <span>{fmtDay(q.date)}</span>
-            {q.expiry && <span className="text-muted">valid until {fmtDay(q.expiry)}</span>}
-            {q.salesperson && <span className="text-muted">· {q.salesperson}</span>}
-            {q.reference && <span className="text-muted">· ref {q.reference}</span>}
-            <span className="ml-auto text-[16px] font-semibold text-ink">{inr2(q.total)} <span className="text-[12.5px] font-normal text-muted">incl. GST</span></span>
+          {/* The summary: status and total first, then the facts in a row. */}
+          <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
+              {facts.map(([k, v]) => <div key={k}><p className={label}>{k}</p><p className="mt-0.5 text-[14.5px] text-ink">{v}</p></div>)}
+            </div>
+            <div className="text-right">
+              <StatusChip status={q.status} />
+              <p className="num mt-1 text-[26px] font-bold leading-none tracking-tight text-ink">{inr2(q.total)}</p>
+              <p className="text-[12.5px] text-muted">incl. GST</p>
+            </div>
           </div>
-          <div className="no-scrollbar overflow-x-auto">
-            <table className="w-full min-w-[28rem] text-[14px]">
-              <thead><tr className="text-left text-[12.5px] text-muted"><th className="py-1 pr-3 font-semibold">Item</th><th className="py-1 pr-3 text-right font-semibold">Qty</th><th className="py-1 pr-3 text-right font-semibold">Rate</th><th className="py-1 pr-3 text-right font-semibold">GST</th><th className="py-1 text-right font-semibold">Amount</th></tr></thead>
-              <tbody>{q.lines.map((l, i) => (
-                <tr key={i} className="border-t border-line text-ink"><td className="py-1.5 pr-3">{l.name}</td><td className="num py-1.5 pr-3 text-right">{l.qty}</td><td className="num py-1.5 pr-3 text-right">{inr2(l.rate)}</td><td className="num py-1.5 pr-3 text-right text-muted">{l.gst === null ? "—" : `${l.gst}%`}</td><td className="num py-1.5 text-right">{inr2(l.total)}</td></tr>
-              ))}</tbody>
-            </table>
+          <div className="grid gap-5 lg:grid-cols-[1.15fr_1fr]">
+            <div className="min-w-0 space-y-5">
+              <section className={card}>
+                <p className={label}>Items</p>
+                <div className="no-scrollbar mt-2 overflow-x-auto">
+                  <table className="w-full min-w-[26rem] text-[14px]">
+                    <thead><tr className="text-left text-[12.5px] text-muted"><th className="py-1.5 pr-3 font-semibold">Item</th><th className="py-1.5 pr-3 text-right font-semibold">Qty</th><th className="py-1.5 pr-3 text-right font-semibold">Rate</th><th className="py-1.5 pr-3 text-right font-semibold">GST</th><th className="py-1.5 text-right font-semibold">Amount</th></tr></thead>
+                    <tbody>{q.lines.map((l, i) => (
+                      <tr key={i} className="border-t border-line text-ink"><td className="py-2 pr-3 font-medium">{l.name}</td><td className="num py-2 pr-3 text-right">{l.qty}</td><td className="num py-2 pr-3 text-right">{inr2(l.rate)}</td><td className="num py-2 pr-3 text-right text-muted">{l.gst === null ? "—" : `${l.gst}%`}</td><td className="num py-2 text-right">{inr2(l.total)}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </section>
+              {q.coordinator && (
+                <section className={card}>
+                  <p className={label}>Training coordinator</p>
+                  <p className="mt-1.5 text-[15px] font-semibold text-ink">{q.coordinator.name}</p>
+                  <p className="mt-0.5 flex flex-wrap gap-x-4 text-[14px]"><a className="text-brand hover:underline" href={`tel:${q.coordinator.phone}`}>{q.coordinator.phone}</a><a className="text-brand hover:underline" href={`mailto:${q.coordinator.email}`}>{q.coordinator.email}</a></p>
+                </section>
+              )}
+            </div>
+            <section className={`${card} min-w-0`}>
+              <p className={label}>{draft ? "Not sent yet" : "Sent details"}</p>
+              {draft && <p className="mt-1.5 text-[14px] text-muted">It&apos;s a draft in Zoho Books. Edit it to check the items, then save and email it.</p>}
+              {q.emails.map((m, i) => (
+                <div key={i} className="mt-3 rounded-xl border border-line bg-surface p-3 text-[14px]">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3"><b className="text-ink">{m.subject}</b><span className="text-[13px] text-muted">{when(m.at)} · {m.by}</span></div>
+                  <dl className="mt-2 grid grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 text-[13.5px]">
+                    <dt className="text-muted">To</dt><dd className="break-all text-ink-2">{m.to.join(", ")}</dd>
+                    {m.cc.length > 0 && <><dt className="text-muted">Cc</dt><dd className="break-all text-ink-2">{m.cc.join(", ")}</dd></>}
+                    {m.coordinator && <><dt className="text-muted">Coordinator</dt><dd className="text-ink-2">{m.coordinator}</dd></>}
+                    <dt className="text-muted">Attached</dt><dd className="text-ink-2">{m.attachments.join(", ")}</dd>
+                  </dl>
+                </div>
+              ))}
+              {!draft && !q.emails.length && <p className="mt-1.5 text-[13.5px] text-muted">Sent before the dashboard kept full details (11 Nov) — Zoho&apos;s history shows when and to whom.</p>}
+              {q.history.length > 0 && (
+                <ol className="relative mt-4 space-y-3 border-l border-line pl-4">
+                  {q.history.map((h, i) => (
+                    <li key={i} className="relative">
+                      <span className={`absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-surface ${emailed(h.text) ? "bg-brand" : "bg-line-strong"}`} />
+                      <p className={`text-[13.5px] ${emailed(h.text) ? "font-semibold text-ink" : h.by === "Zoho Books" ? "text-muted" : "text-ink-2"}`}>{h.text}</p>
+                      <p className="text-[12.5px] text-faint">{h.when}{h.by ? ` · ${h.by}` : ""}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
           </div>
-          {q.coordinator && <p className="text-[14px] text-ink-2"><span className={label}>Training coordinator</span> <span className="ml-1">{q.coordinator.name} · {q.coordinator.phone} · {q.coordinator.email}</span></p>}
-          <section>
-            <p className={label}>{draft ? "Not sent yet" : "Sent details"}</p>
-            {draft && <p className="mt-1 text-[14px] text-muted">It&apos;s a draft in Zoho Books. Edit it to check the items, then save and email it.</p>}
-            {q.emails.map((m, i) => (
-              <div key={i} className="mt-2 rounded-xl border border-line p-3 text-[14px]">
-                <div className="flex flex-wrap justify-between gap-2"><b className="text-ink">{m.subject}</b><span className="text-muted">{when(m.at)} · by {m.by}</span></div>
-                <p className="mt-1 text-ink-2"><span className="text-muted">To</span> {m.to.join(", ")}</p>
-                {m.cc.length > 0 && <p className="text-ink-2"><span className="text-muted">Cc</span> {m.cc.join(", ")}</p>}
-                {m.coordinator && <p className="text-ink-2"><span className="text-muted">Training coordinator</span> {m.coordinator}</p>}
-                <p className="text-ink-2"><span className="text-muted">Attached</span> {m.attachments.join(", ")}</p>
-              </div>
-            ))}
-            {!draft && !q.emails.length && <p className="mt-1 text-[14px] text-muted">Not emailed from the dashboard since 11 Nov — Zoho&apos;s history below shows when and to whom it went.</p>}
-            {q.history.length > 0 && (
-              <details className="mt-3" open={!q.emails.length}>
-                <summary className="cursor-pointer text-[13.5px] font-medium text-ink-2">Zoho&apos;s history ({q.history.length})</summary>
-                <ul className="mt-1 space-y-1">{q.history.map((h, i) => <li key={i} className="text-[13.5px] text-ink-2"><span className="text-muted">{h.when}{h.by ? ` · ${h.by}` : ""}</span> — {h.text}</li>)}</ul>
-              </details>
-            )}
-          </section>
           {choosing ? (
-            <div className="rounded-xl border border-brand/40 bg-brand-soft p-3">
-              <p className="text-[14px] font-semibold text-ink">New quotation for {customer.name}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button className={btn.primary} onClick={() => onNew("copy")} title={`A new quotation with ${q.number}'s items, quantities and prices`}>Same items</button>
-                <button className={btn.ghost} onClick={() => onNew("revise")} disabled={!revisable} title={revisable ? `Change ${q.number} itself — same number; Zoho keeps its history — then email it again` : `${q.number} is ${q.status}: make a new one with the same items instead`}>Revised quotation</button>
-                <button className={btn.ghost} onClick={() => onNew("fresh")}>From scratch</button>
-                <button className={btn.quiet} onClick={() => setChoosing(false)}>Cancel</button>
+            <div className="rounded-2xl border border-brand/40 bg-brand-soft p-4">
+              <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold text-ink">New quotation for {customer.name}</p><button className={btn.quiet} onClick={() => setChoosing(false)}>Cancel</button></div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {([
+                  ["copy", "Same items", `A new quotation with ${q.number}'s items, quantities and prices, ready to check and send.`, true],
+                  ["revise", "Revised quotation", revisable ? `Change ${q.number} itself — same number, Zoho keeps its history — then email it again.` : `${q.number} is ${q.status}, so it can't be revised: use Same items.`, Boolean(revisable)],
+                  ["fresh", "From scratch", "An empty quotation for this customer.", true],
+                ] as const).map(([m, t, d, on]) => (
+                  <button key={m} type="button" disabled={!on} onClick={() => onNew(m)} className="press rounded-xl border border-line bg-surface p-3 text-left transition hover:border-brand disabled:opacity-45 disabled:hover:border-line">
+                    <span className="block text-[14.5px] font-semibold text-ink">{t}</span>
+                    <span className="mt-1 block text-[13px] leading-snug text-muted">{d}</span>
+                  </button>
+                ))}
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+            <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-6 py-4">
               <a className={btn.ghost} href={`/api/quotations?${new URLSearchParams({ pdf: q.id, name: q.number })}`} download>⬇ Download PDF</a>
               <a className={btn.ghost} href={q.url} target="_blank" rel="noreferrer">Open in Zoho Books</a>
               {draft && <button className={btn.ghost} onClick={() => onNew("revise")}>Edit draft and email…</button>}

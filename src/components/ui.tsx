@@ -50,13 +50,17 @@ export function PriorityPicker({ value, onChange }: { value: Priority | null; on
 /**
  * Rendered on <body> (a portal): inside the page, an animated ancestor makes "fixed" follow the scrolled page, so the
  * dialog sat low and off to the side (owner, 10 Nov). `top`: pinned near the top of the window instead of centred.
+ * `size: "xl"`: most of the screen (owner, 11 Nov: the quotation view was "too small"). While open the page behind
+ * doesn't scroll (owner, 11 Nov: "when i scroll the background scrolls").
  */
-export function Modal({ open, onClose, title, children, wide = false, top = false }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean; top?: boolean }) {
+export function Modal({ open, onClose, title, children, wide = false, top = false, size }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean; top?: boolean; size?: "xl" }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const root = document.documentElement, prev = root.style.overflow;
+    root.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); root.style.overflow = prev; };
   }, [open, onClose]);
   if (!open || typeof document === "undefined") return null;
   return createPortal(
@@ -65,7 +69,7 @@ export function Modal({ open, onClose, title, children, wide = false, top = fals
         role="dialog"
         aria-modal
         aria-label={title}
-        className={`modal-in max-h-[92vh] w-full overflow-y-auto rounded-t-[22px] bg-surface shadow-pop sm:rounded-[22px] ${wide ? "sm:max-w-2xl" : "sm:max-w-md"}`}
+        className={`modal-in max-h-[92vh] w-full overflow-y-auto overscroll-contain rounded-t-[22px] bg-surface shadow-pop sm:rounded-[22px] ${size === "xl" ? "sm:max-h-[88vh] sm:max-w-6xl" : wide ? "sm:max-w-2xl" : "sm:max-w-md"}`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 pb-1 pt-5">
