@@ -55,7 +55,7 @@ export function TrainingManagement() {
           </button>
         ))}
       </div>
-      <Modal open={Boolean(open)} onClose={() => setOpen(null)} title={open ? `${open.number} · ${open.customer}` : ""} wide>
+      <Modal open={Boolean(open)} onClose={() => setOpen(null)} title={open ? `${open.number} · ${open.customer}` : ""} wide top>
         {open && <Detail x={open} />}
       </Modal>
     </div>

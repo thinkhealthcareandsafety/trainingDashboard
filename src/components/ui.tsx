@@ -47,16 +47,20 @@ export function PriorityPicker({ value, onChange }: { value: Priority | null; on
   );
 }
 
-export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean }) {
+/**
+ * Rendered on <body> (a portal): inside the page, an animated ancestor makes "fixed" follow the scrolled page, so the
+ * dialog sat low and off to the side (owner, 10 Nov). `top`: pinned near the top of the window instead of centred.
+ */
+export function Modal({ open, onClose, title, children, wide = false, top = false }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean; top?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-  if (!open) return null;
-  return (
-    <div className="fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/25 p-0 backdrop-blur-md sm:items-center sm:p-4" onMouseDown={onClose}>
+  if (!open || typeof document === "undefined") return null;
+  return createPortal(
+    <div className={`fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/25 p-0 backdrop-blur-md sm:p-4 ${top ? "sm:items-start sm:pt-[6vh]" : "sm:items-center"}`} onMouseDown={onClose}>
       <div
         role="dialog"
         aria-modal
@@ -72,7 +76,8 @@ export function Modal({ open, onClose, title, children, wide = false }: { open: 
         </div>
         <div className="px-6 pb-6 pt-3">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
