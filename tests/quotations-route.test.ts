@@ -148,3 +148,14 @@ test("Total Supply: a bad quote id is refused before anything is read", async ()
   assert.equal((await tsGet("ts=abc")).s, 400);
   assert.equal((await tsGet("tsPdf=abc")).s, 400);
 });
+
+test("training coordinator on the quote email: checked first; a good one goes on to Zoho (not connected here, nothing written or sent)", async () => {
+  const co = { coName: "Riya Mehta", coEmail: "riya@example.com", coPhone: "9876543210", customerId: "77" };
+  assert.match((await email({ ...mail, ...co, coName: "Riya" })).j.error, /first and last/);
+  assert.match((await email({ ...mail, ...co, coPhone: "12" })).j.error, /10-digit/);
+  assert.match((await email({ ...mail, ...co, customerId: "" })).j.error, /customer/);
+  const ok = await email({ ...mail, ...co, to: "" }); // the coordinator alone is enough
+  assert.equal(ok.s, 502);
+  assert.match(ok.j.error, /isn't connected/);
+  assert.equal(await (await db()).collection("portalTrainings").countDocuments({}), 0);
+});

@@ -6,7 +6,7 @@ import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
 import { type ZItem, brochureIdOf, estimatePdf, itemGst, itemImage, zohoGet } from "@/lib/zoho";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
-import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, brochurePdf, connectQuotes, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
+import { CUSTOMER_FIELDS, EMAIL_MAX_BYTES, INDIA_STATES, type NewCustomer, QUOTE_FIELDS, QUOTE_SCOPES, type QuoteDetails, type QuoteLine, addContactPerson, upsertCoordinator, brochurePdf, connectQuotes, editItem, uploadBrochure, uploadPicture, createCustomer, createQuote, emailQuote, quotesInfo, updateQuote } from "@/lib/quotations";
 import type { ZohoLead } from "@/lib/types";
 import { findDraft, saveDraft } from "@/lib/zohoMail";
 import { type QuoteEmailInput, ZIA_MAILBOX, isTeamEmail, mergeCc, ziaBrief, ziaPrompt } from "@/lib/quoteEmails";
@@ -16,6 +16,7 @@ import { TS, type ZEstimate, buildTsQuote, parseMarkups, rollMarkups, tsQuoteNum
 import { tsQuotePdf } from "@/lib/totalSupplyPdf";
 import { sendTsMail, tsMailOn } from "@/lib/totalSupplyMail";
 import { WORKDRIVE_LINK, WORKDRIVE_SCOPES, connectWorkdrive, goodWdId, parseWdPath, workdriveFolder, workdriveInfo, workdrivePdf } from "@/lib/workdrive";
+import { coordinatorRecipients, readCoordinator } from "@/lib/trainingManager";
 
 export const dynamic = "force-dynamic";
 
@@ -267,14 +268,22 @@ export async function GET(request: Request) {
     if (emailId) {
       if (!/^\d+$/.test(emailId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
       type ToContact = { email?: string; first_name?: string; last_name?: string; selected?: boolean };
-      const [j, brochures] = await Promise.all([zohoGet<Record<string, unknown> & { data?: Record<string, unknown> }>(`/estimates/${emailId}/email`), quoteBrochures(emailId).catch(() => [])]);
+      // `customer`: their contact persons' numbers, for the training coordinator's "Same as original" (step 2).
+      const customer = q.get("customer") ?? "";
+      type Person = { email?: string; mobile?: string; phone?: string };
+      const [j, brochures, persons] = await Promise.all([
+        zohoGet<Record<string, unknown> & { data?: Record<string, unknown> }>(`/estimates/${emailId}/email`),
+        quoteBrochures(emailId).catch(() => []),
+        /^\d+$/.test(customer) ? zohoGet<{ contact?: { contact_persons?: Person[] } }>(`/contacts/${customer}`).then((c) => c.contact?.contact_persons ?? []).catch(() => [] as Person[]) : Promise.resolve([] as Person[]),
+      ]);
+      const phoneOf = (email: string) => { const p = persons.find((x) => (x.email ?? "").toLowerCase() === email.toLowerCase()); return (p?.mobile || p?.phone || "").trim() || null; };
       type FromEmail = { email?: string; selected?: boolean; is_org_email_id?: boolean };
       const d = (j.data ?? j) as { subject?: string; body?: string; file_name?: string; to_contacts?: ToContact[]; from_emails?: FromEmail[] };
       const senders = d.from_emails ?? [];
       return Response.json({
         from: (senders.find((x) => x.is_org_email_id) ?? senders.find((x) => x.selected))?.email ?? null, // emailQuote sends from the organisation's email
         brochures, ziaVia: ziaFlowOn() ? "flow" : "mail", subject: d.subject ?? "", body: d.body ?? "", fileName: d.file_name ?? null, maxBytes: EMAIL_MAX_BYTES,
-        to: (d.to_contacts ?? []).filter((x) => x.email).map((x) => ({ email: x.email!, name: [x.first_name, x.last_name].filter(Boolean).join(" ") || null, selected: x.selected !== false })),
+        to: (d.to_contacts ?? []).filter((x) => x.email).map((x) => ({ email: x.email!, name: [x.first_name, x.last_name].filter(Boolean).join(" ") || null, selected: x.selected !== false, phone: phoneOf(x.email!) })),
       });
     }
 
@@ -569,7 +578,17 @@ async function sendEmail(form: FormData | null): Promise<Response> {
   if (!form) return Response.json({ error: "Nothing to send" }, { status: 400 });
   const str = (k: string, max: number) => String(form.get(k) ?? "").trim().slice(0, max);
   const mails = (k: string) => str(k, 2000).split(/[,;\s]+/).map((x) => x.toLowerCase()).filter(Boolean);
-  const id = str("estimateId", 30), to = mails("to"), cc = mergeCc(to, mails("cc")), subject = str("subject", 300), body = str("body", 100_000);
+  const id = str("estimateId", 30), subject = str("subject", 300), body = str("body", 100_000);
+  let to = mails("to"), extraCc = mails("cc");
+  // A quote with training (docs/TRAINING_MANAGER_PLAN.md step 2): the coordinator's three fields come along; it goes to
+  // them first, the others picked are copied, and they're saved on the customer in Zoho before anything is sent.
+  const coFields = { name: str("coName", 200), email: str("coEmail", 200), phone: str("coPhone", 30) };
+  const coordinator = coFields.name || coFields.email || coFields.phone ? readCoordinator(coFields) : null;
+  if (coordinator && "error" in coordinator) return Response.json({ error: coordinator.error }, { status: 400 });
+  const customerId = str("customerId", 30);
+  if (coordinator && !/^\d+$/.test(customerId)) return Response.json({ error: "Pick a customer" }, { status: 400 });
+  if (coordinator) ({ to, cc: extraCc } = coordinatorRecipients(to, extraCc, coordinator.email));
+  const cc = mergeCc(to, extraCc);
   const files = form.getAll("attachments").filter((f): f is File => f instanceof File && f.size > 0);
   const bad = [...to, ...cc].find((m) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
@@ -589,6 +608,14 @@ async function sendEmail(form: FormData | null): Promise<Response> {
         if (!b) return Response.json({ error: "That brochure isn't on this quotation's items" }, { status: 400 });
         files.push(await brochurePdf(b.id, b.name));
       }
+    }
+    if (coordinator) {
+      const person = await upsertCoordinator({ contactId: customerId, ...coordinator });
+      // Kept for Training Management and the coordinator's portal (steps 3–8).
+      await (await db()).collection<{ _id: string } & Record<string, unknown>>("portalTrainings").updateOne({ _id: id }, {
+        $set: { customerId, coordinator: { name: `${coordinator.firstName} ${coordinator.lastName}`, email: coordinator.email, phone: coordinator.phone, contactPersonId: person.id }, updatedAt: new Date().toISOString() },
+        $setOnInsert: { createdAt: new Date().toISOString() },
+      }, { upsert: true });
     }
     await emailQuote(id, { to, cc, subject, body, fileName: str("fileName", 120) || undefined, files });
     // Zoho marked it Sent — so does our record ("went to them N days ago" counts it from now).

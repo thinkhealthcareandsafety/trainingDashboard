@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isTrainingOnly, toTrainingQuote, trainingName } from "../src/lib/trainingManager";
+import { cleanPhone, coordinatorRecipients, isTrainingOnly, readCoordinator, toTrainingQuote, trainingName } from "../src/lib/trainingManager";
 
 const T = new Set(["cpr", "fa"]);
 const doc = (lines: { item_id: string; name: string; quantity?: number }[]) => ({
@@ -22,4 +22,20 @@ test("the client-facing name drops (I); expected = the training line's quantity"
   assert.equal(q.expected, 40);
   assert.equal(q.contact?.name, "Riya Mehta");
   assert.equal(q.contact?.phone, "9800000000");
+});
+
+
+test("coordinator: a full name, a real email and a 10-digit mobile (+91 / 0 dropped)", () => {
+  assert.equal(cleanPhone("+91 98765 43210"), "9876543210");
+  assert.equal(cleanPhone("09876543210"), "9876543210");
+  assert.equal(cleanPhone("12345"), "");
+  assert.deepEqual(readCoordinator({ name: " Riya  Mehta ", email: "Riya@Hotel.com", phone: "+919876543210" }), { firstName: "Riya", lastName: "Mehta", email: "riya@hotel.com", phone: "9876543210" });
+  assert.match((readCoordinator({ name: "Riya", email: "riya@hotel.com", phone: "9876543210" }) as { error: string }).error, /first and last/);
+  assert.match((readCoordinator({ name: "Riya Mehta", email: "riya@", phone: "9876543210" }) as { error: string }).error, /email/);
+  assert.match((readCoordinator({ name: "Riya Mehta", email: "riya@hotel.com", phone: "123" }) as { error: string }).error, /10-digit/);
+});
+
+test("it goes to the coordinator first; everyone else picked is copied, once", () => {
+  assert.deepEqual(coordinatorRecipients(["a@x.com", "riya@hotel.com"], ["b@x.com", "A@x.com"], "Riya@Hotel.com"), { to: ["riya@hotel.com"], cc: ["a@x.com", "b@x.com"] });
+  assert.deepEqual(coordinatorRecipients([], [], "riya@hotel.com"), { to: ["riya@hotel.com"], cc: [] });
 });

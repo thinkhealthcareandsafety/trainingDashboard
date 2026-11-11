@@ -27,7 +27,7 @@ export function TrainingManagement() {
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
     if (!quotes || !t) return quotes ?? [];
-    return quotes.filter((x) => [x.customer, x.number, x.contact?.name, ...x.lines.map((l) => l.name)].some((s) => s?.toLowerCase().includes(t)));
+    return quotes.filter((x) => [x.customer, x.number, x.contact?.name, x.coordinator?.name, ...x.lines.map((l) => l.name)].some((s) => s?.toLowerCase().includes(t)));
   }, [quotes, q]);
 
   if (error) return <p className="rounded-xl border border-line bg-surface p-4 text-[14px] text-high">{error}</p>;
@@ -73,7 +73,7 @@ function Detail({ x }: { x: TrainingQuote }) {
         {row("Phone", x.contact?.phone)}
         {row("Quote", `${x.number} · ${fmtDate(x.date, { day: "numeric", month: "short", year: "numeric" })} · ${STATUS[x.status] ?? x.status}`)}
         {row("Expected", x.expected ? `${x.expected} participants` : "")}
-        {row("Coordinator", <span className="text-muted">Added when the quote is sent (coming next)</span>)}
+        {row("Coordinator", x.coordinator ? <>{x.coordinator.name} <span className="text-muted">· {x.coordinator.phone} · </span><a className="text-brand hover:underline" href={`mailto:${x.coordinator.email}`}>{x.coordinator.email}</a></> : <span className="text-muted">Added when the quote is emailed from Quotations</span>)}
       </section>
       <section className="space-y-3">
         {x.lines.map((l, i) => (

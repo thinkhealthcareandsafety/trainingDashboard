@@ -4,6 +4,7 @@ import { type ItemChanges, type ItemFields, gstKnown, itemBody, itemPictures, it
 import { db } from "./db";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
+import { COORDINATOR_DESIGNATION, type Coordinator } from "./trainingManager";
 
 /*
  * Quotations (owner, 28 Oct: "all of our contacts are here, we need to click one time and a quotation is sent through
@@ -216,6 +217,31 @@ export async function addContactPerson(p: { contactId: string; firstName: string
   const made = answered?.contact_person_id ? answered : (await people()).find(mine);
   if (!made?.contact_person_id) throw new Error("Zoho Books took it but didn't say who was added — check the customer in Zoho");
   return shape({ first_name: p.firstName, last_name: p.lastName, ...made }, false);
+}
+
+/**
+ * The training coordinator (docs/TRAINING_MANAGER_PLAN.md step 2): a contact person on the customer with the designation
+ * "Training Coordinator" and their mobile. Someone already there with that email is updated, never added twice: the
+ * designation only when theirs is empty (an "HR Manager" stays one), the mobile when they have none.
+ */
+export async function upsertCoordinator(p: { contactId: string } & Coordinator): Promise<{ id: string; existed: boolean }> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
+  type Person = { contact_person_id?: unknown; email?: string; designation?: string; mobile?: string; first_name?: string; last_name?: string };
+  const people = async () => (((await books(c, "GET", `/contacts/${p.contactId}`)).contact as { contact_persons?: Person[] } | undefined)?.contact_persons ?? []);
+  const mine = (x: Person) => (x.email ?? "").toLowerCase() === p.email;
+  const noRight = (e: Error) => { throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs one more permission to add contacts — Admin: Reconnect on the Quotations page") : e; };
+  const had = (await people()).find(mine);
+  if (had?.contact_person_id) {
+    const id = String(had.contact_person_id);
+    const change = { ...(had.designation?.trim() ? {} : { designation: COORDINATOR_DESIGNATION }), ...(had.mobile?.trim() ? {} : { mobile: p.phone }) };
+    if (Object.keys(change).length) await books(c, "PUT", `/contacts/contactpersons/${id}`, {}, { contact_id: p.contactId, first_name: had.first_name || p.firstName, last_name: had.last_name ?? p.lastName, email: p.email, ...change }).catch(noRight);
+    return { id, existed: true };
+  }
+  await books(c, "POST", "/contacts/contactpersons", {}, { contact_id: p.contactId, first_name: p.firstName, last_name: p.lastName, email: p.email, mobile: p.phone, designation: COORDINATOR_DESIGNATION }).catch(noRight);
+  const made = (await people()).find(mine);
+  if (!made?.contact_person_id) throw new Error("Zoho Books took the coordinator but didn't say who was added — check the customer in Zoho");
+  return { id: String(made.contact_person_id), existed: false };
 }
 
 export async function createCustomer(n: NewCustomer & { stateName: string }): Promise<{ id: string; name: string }> {

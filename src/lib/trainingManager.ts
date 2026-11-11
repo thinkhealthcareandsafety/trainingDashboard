@@ -19,6 +19,8 @@ export type TrainingQuote = {
   customer: string;
   customerId: string;
   contact: TrainingPerson | null;
+  /** Saved when the quote email went with the coordinator's details (step 2). */
+  coordinator?: TrainingPerson | null;
   lines: TrainingLine[];
   expected: number;
   total: number;
@@ -73,3 +75,32 @@ export function toTrainingQuote(doc: ZDoc, trainingIds: Set<string>): TrainingQu
 
 /** Newest first. */
 export const byNewest = (a: TrainingQuote, b: TrainingQuote) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number);
+
+/* ---------------- The training coordinator (step 2: on the quote email) ---------------- */
+
+export const COORDINATOR_DESIGNATION = "Training Coordinator";
+export type Coordinator = { firstName: string; lastName: string; email: string; phone: string };
+
+/** Indian mobile: 10 digits, a leading +91 / 91 / 0 dropped. "" when it isn't one. */
+export function cleanPhone(raw: string): string {
+  const d = raw.replace(/\D/g, "").replace(/^(91|0)(?=\d{10}$)/, "");
+  return /^[6-9]\d{9}$/.test(d) ? d : "";
+}
+
+/** The coordinator from the email step's three fields, or why not. Zoho needs a first and a last name. */
+export function readCoordinator(f: { name: string; email: string; phone: string }): Coordinator | { error: string } {
+  const parts = f.name.trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
+  const email = f.email.trim().toLowerCase();
+  const phone = cleanPhone(f.phone);
+  if (parts.length < 2) return { error: "Type the training coordinator's first and last name" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "The training coordinator's email doesn't look right" };
+  if (!phone) return { error: "The training coordinator's number should be a 10-digit mobile" };
+  return { firstName: parts[0].slice(0, 100), lastName: parts.slice(1).join(" ").slice(0, 100), email: email.slice(0, 200), phone };
+}
+
+/** The coordinator gets it first (owner: "a mail should always be first sent to this training coordinator"); the others picked are copied. */
+export function coordinatorRecipients(to: string[], cc: string[], coordinator: string): { to: string[]; cc: string[] } {
+  const c = coordinator.toLowerCase();
+  const rest = [...to, ...cc].map((m) => m.toLowerCase()).filter((m, i, all) => m !== c && all.indexOf(m) === i);
+  return { to: [c], cc: rest };
+}

@@ -698,7 +698,7 @@ const kb = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} M
  * Zoho Books, which marks the quote Sent and keeps the email in its history. Production only.
  */
 function EmailStep({ quote, live, customerId, onContact, known, compose, onBack, onSent, onTsSent }: { quote: { estimateId: string; number: string }; live: boolean; customerId: string; onContact: (p: AddedPerson) => void; known: { email: string | null; name: string | null }[]; compose: QuoteEmailInput; onBack: () => void; onSent: (to: string, from: HTMLElement) => void; onTsSent: (number: string, to: string, from: HTMLElement) => void }) {
-  type Draft = { from?: string | null; subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean }[]; error?: string; ziaVia?: "flow" | "mail"; brochures?: { id: string; name: string; item: string }[] };
+  type Draft = { from?: string | null; subject: string; body: string; fileName: string | null; maxBytes: number; to: { email: string; name: string | null; selected: boolean; phone?: string | null }[]; error?: string; ziaVia?: "flow" | "mail"; brochures?: { id: string; name: string; item: string }[] };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [cc, setCc] = useState("");
@@ -710,7 +710,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   const body = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    fetch(`/api/quotations?email=${quote.estimateId}`).then((r) => r.json()).then((j: Draft) => {
+    fetch(`/api/quotations?email=${quote.estimateId}&customer=${customerId}`).then((r) => r.json()).then((j: Draft) => {
       setDraft(j);
       if (j.error) return;
       setPicked(j.to.filter((x) => x.selected).map((x) => x.email));
@@ -719,6 +719,11 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   // Templates (owner, 3 Nov): the tone is picked here, a paragraph per kind of item comes from the quote's items (each
   // can be switched off), names / numbers / dates filled in. "Zoho's standard email" is Zoho's own template.
   const topics = useMemo(() => topicsOf(compose.lines), [compose.lines]);
+  // The training coordinator (owner, 10 Nov — docs/TRAINING_MANAGER_PLAN.md step 2): a quote with training can't go
+  // without them. It goes to them first; they're saved on the customer in Zoho as "Training Coordinator".
+  const hasTraining = topics.some((t) => t.id === "training");
+  const [co, setCo] = useState({ name: "", phone: "", email: "" });
+  const [coSame, setCoSame] = useState(false);
   const [tpl, setTpl] = useState(() => (compose.lines.length ? suggestTemplate(compose.lines) : "zoho"));
   const [skip, setSkip] = useState<TopicId[]>([]);
   const edited = useRef(false); // typed into the message — switching template asks first
@@ -809,8 +814,12 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   const max = draft?.maxBytes || 4 * 1024 * 1024;
   const to = picked;
   // Everyone on the customer: the quote's own, and emails added since (kept apart from `draft`, whose change refills the message).
-  const people = draft ? [...draft.to, ...known.filter((k) => k.email && !draft.to.some((x) => x.email.toLowerCase() === k.email!.toLowerCase())).map((k) => ({ email: k.email!, name: k.name, selected: false }))] : [];
-  const why = !live ? "Only the live site sends email" : ts && !ts.ready ? "Total Supply's Gmail isn't connected yet" : !to.length ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
+  const people = draft ? [...draft.to, ...known.filter((k) => k.email && !draft.to.some((x) => x.email.toLowerCase() === k.email!.toLowerCase())).map((k) => ({ email: k.email!, name: k.name, selected: false, phone: null as string | null }))] : [];
+  const original = people.find((x) => picked.includes(x.email)) ?? people[0];
+  const sameAs = (on: boolean) => { setCoSame(on); if (on && original) setCo({ name: original.name ?? "", email: original.email, phone: original.phone ?? "" }); };
+  const coNeeded = hasTraining && !ts;
+  const coMissing = coNeeded && (!co.name.trim().includes(" ") || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(co.email.trim()) || co.phone.replace(/\D/g, "").length < 10);
+  const why = coMissing ? "Add the training coordinator's full name, number and email" : !live ? "Only the live site sends email" : ts && !ts.ready ? "Total Supply's Gmail isn't connected yet" : !to.length && !coNeeded ? "Pick who it goes to" : !subject.trim() ? "Type a subject" : size > max ? "Attachments are over 4 MB together" : "";
   const send = async (e: React.MouseEvent<HTMLButtonElement>) => {
     const from = e.currentTarget;
     setBusy(true);
@@ -819,6 +828,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
     form.set(ts ? "tsEstimateId" : "estimateId", quote.estimateId);
     if (ts) { form.set("markups", ts.markups.join(",")); form.set("number", ts.number); }
     form.set("to", to.join(","));
+    if (coNeeded) { form.set("coName", co.name); form.set("coEmail", co.email); form.set("coPhone", co.phone); form.set("customerId", customerId); }
     form.set("cc", cc);
     form.set("subject", subject);
     form.set("body", body.current?.innerHTML ?? "");
@@ -832,7 +842,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
     if (!j.ok) return setError(j.error ?? "Couldn't send the email");
     // Back to the main quote's email: it's still to send, or already went.
     if (ts) { onTsSent(j.number ?? ts.number, to.join(", "), from); setTs(null); setCc(""); setFiles([]); fill(tpl, skip, null); return; }
-    onSent(to.join(", "), from);
+    onSent(coNeeded ? co.email.trim().toLowerCase() : to.join(", "), from);
   };
   const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
   if (!draft) return <p className="px-6 py-10 text-center text-[15px] text-muted">Getting Zoho&apos;s email for {quote.number}…</p>;
@@ -867,6 +877,23 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
             <input className={`${inputCls} !h-9 min-w-0 flex-1 basis-56 text-[14px]`} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Other emails, comma between" aria-label="Other Cc emails" />
           </div>
         </div>
+        {coNeeded && (
+          <div className="rounded-xl border border-line p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className={label}>Training coordinator</span>
+              <label className="flex cursor-pointer items-center gap-1.5 text-[14px] text-ink-2">
+                <input type="checkbox" className="accent-[var(--brand)]" checked={coSame} onChange={(e) => sameAs(e.target.checked)} disabled={!original} />
+                Same as original{original ? <span className="text-muted">({original.name ?? original.email})</span> : null}
+              </label>
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <input className={`${inputCls} !h-9 text-[14px]`} value={co.name} onChange={(e) => { setCoSame(false); setCo((c) => ({ ...c, name: e.target.value })); }} placeholder="Training Coordinator's Name" aria-label="Training Coordinator's Name" maxLength={200} />
+              <input className={`${inputCls} !h-9 text-[14px]`} value={co.phone} onChange={(e) => { setCoSame(false); setCo((c) => ({ ...c, phone: e.target.value })); }} placeholder="Training Coordinator's Number" aria-label="Training Coordinator's Number" inputMode="tel" maxLength={20} />
+              <input className={`${inputCls} !h-9 text-[14px]`} value={co.email} onChange={(e) => { setCoSame(false); setCo((c) => ({ ...c, email: e.target.value })); }} placeholder="Training Coordinator's Email" aria-label="Training Coordinator's Email" type="email" maxLength={200} />
+            </div>
+            <p className="mt-2 text-[13px] text-muted">The email goes to the coordinator first; everyone ticked in To is copied. They&apos;re saved on the customer in Zoho as &ldquo;Training Coordinator&rdquo;.</p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <span className={label}>Template</span>
           <select className={`${inputCls} !h-9 !w-auto text-[14px]`} value={tpl} onChange={(e) => choose(e.target.value, skip)} aria-label="Email template">
