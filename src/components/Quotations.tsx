@@ -1782,30 +1782,27 @@ function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: s
             </section>
           </div>
           <QuoteStory quote={q} training={q.training} />
-          {choosing ? (
-            <div className="rounded-2xl border border-brand/40 bg-brand-soft p-4">
-              <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold text-ink">New quotation for {customer.name}</p><button className={btn.quiet} onClick={() => setChoosing(false)}>Cancel</button></div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                {([
-                  ["copy", "Same items", `A new quotation with ${q.number}'s items, quantities and prices, ready to check and send.`, true],
-                  ["revise", "Revised quotation", revisable ? `Change ${q.number} itself — same number, Zoho keeps its history — then email it again.` : `${q.number} is ${q.status}, so it can't be revised: use Same items.`, Boolean(revisable)],
-                  ["fresh", "From scratch", "An empty quotation for this customer.", true],
-                ] as const).map(([m, t, d, on]) => (
-                  <button key={m} type="button" disabled={!on} onClick={() => onNew(m)} className="press rounded-xl border border-line bg-surface p-3 text-left transition hover:border-brand disabled:opacity-45 disabled:hover:border-line">
-                    <span className="block text-[14.5px] font-semibold text-ink">{t}</span>
-                    <span className="mt-1 block text-[13px] leading-snug text-muted">{d}</span>
-                  </button>
-                ))}
-              </div>
+          <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-6 py-4">
+            <a className={btn.ghost} href={`/api/quotations?${new URLSearchParams({ pdf: q.id, name: q.number })}`} download>⬇ Download PDF</a>
+            <a className={btn.ghost} href={q.url} target="_blank" rel="noreferrer">Open in Zoho Books</a>
+            {draft && <button className={btn.ghost} onClick={() => onNew("revise")}>Edit draft and email…</button>}
+            <button className={`${btn.primary} ml-auto`} onClick={() => setChoosing(true)}>New quotation for this customer</button>
+          </div>
+          {/* The three kinds of new quotation (owner, 11 Nov): a pop-up in the middle of the screen, over the quotation. */}
+          <Modal open={choosing} onClose={() => setChoosing(false)} title={`New quotation for ${customer.name}`}>
+            <div className="space-y-2">
+              {([
+                ["copy", "Same items", `A new quotation with ${q.number}'s items, quantities and prices, ready to check and send.`, true],
+                ["revise", "Revised quotation", revisable ? `Change ${q.number} itself — same number, Zoho keeps its history — then email it again.` : `${q.number} is ${q.status}, so it can't be revised: use Same items.`, Boolean(revisable)],
+                ["fresh", "From scratch", "An empty quotation for this customer.", true],
+              ] as const).map(([m, t, d, on]) => (
+                <button key={m} type="button" disabled={!on} onClick={() => onNew(m)} className="press block w-full rounded-xl border border-line bg-surface-2/40 p-3.5 text-left transition hover:border-brand disabled:opacity-45 disabled:hover:border-line">
+                  <span className="block text-[15px] font-semibold text-ink">{t}</span>
+                  <span className="mt-1 block text-[13.5px] leading-snug text-muted">{d}</span>
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-6 py-4">
-              <a className={btn.ghost} href={`/api/quotations?${new URLSearchParams({ pdf: q.id, name: q.number })}`} download>⬇ Download PDF</a>
-              <a className={btn.ghost} href={q.url} target="_blank" rel="noreferrer">Open in Zoho Books</a>
-              {draft && <button className={btn.ghost} onClick={() => onNew("revise")}>Edit draft and email…</button>}
-              <button className={`${btn.primary} ml-auto`} onClick={() => setChoosing(true)}>New quotation for this customer</button>
-            </div>
-          )}
+          </Modal>
         </div>
       )}
     </Modal>
