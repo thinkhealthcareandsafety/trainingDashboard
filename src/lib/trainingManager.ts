@@ -87,12 +87,12 @@ export function cleanPhone(raw: string): string {
   return /^[6-9]\d{9}$/.test(d) ? d : "";
 }
 
-/** The coordinator from the email step's three fields, or why not. Zoho needs a first and a last name. */
+/** The coordinator from the email step's three fields, or why not. A first name alone is enough (owner, 11 Nov). */
 export function readCoordinator(f: { name: string; email: string; phone: string }): Coordinator | { error: string } {
   const parts = f.name.trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
   const email = f.email.trim().toLowerCase();
   const phone = cleanPhone(f.phone);
-  if (parts.length < 2) return { error: "Type the training coordinator's first and last name" };
+  if (!parts.length) return { error: "Type the training coordinator's name" };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "The training coordinator's email doesn't look right" };
   if (!phone) return { error: "The training coordinator's number should be a 10-digit mobile" };
   return { firstName: parts[0].slice(0, 100), lastName: parts.slice(1).join(" ").slice(0, 100), email: email.slice(0, 200), phone };

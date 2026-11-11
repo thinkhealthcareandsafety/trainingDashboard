@@ -613,7 +613,7 @@ async function sendEmail(form: FormData | null): Promise<Response> {
       const person = await upsertCoordinator({ contactId: customerId, ...coordinator });
       // Kept for Training Management and the coordinator's portal (steps 3–8).
       await (await db()).collection<{ _id: string } & Record<string, unknown>>("portalTrainings").updateOne({ _id: id }, {
-        $set: { customerId, coordinator: { name: `${coordinator.firstName} ${coordinator.lastName}`, email: coordinator.email, phone: coordinator.phone, contactPersonId: person.id }, updatedAt: new Date().toISOString() },
+        $set: { customerId, coordinator: { name: [coordinator.firstName, coordinator.lastName].filter(Boolean).join(" "), email: coordinator.email, phone: coordinator.phone, contactPersonId: person.id }, updatedAt: new Date().toISOString() },
         $setOnInsert: { createdAt: new Date().toISOString() },
       }, { upsert: true });
     }

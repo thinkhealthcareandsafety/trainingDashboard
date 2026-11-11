@@ -151,7 +151,7 @@ test("Total Supply: a bad quote id is refused before anything is read", async ()
 
 test("training coordinator on the quote email: checked first; a good one goes on to Zoho (not connected here, nothing written or sent)", async () => {
   const co = { coName: "Riya Mehta", coEmail: "riya@example.com", coPhone: "9876543210", customerId: "77" };
-  assert.match((await email({ ...mail, ...co, coName: "Riya" })).j.error, /first and last/);
+  assert.match((await email({ ...mail, ...co, coName: " " })).j.error, /coordinator's (name|email)/);
   assert.match((await email({ ...mail, ...co, coPhone: "12" })).j.error, /10-digit/);
   assert.match((await email({ ...mail, ...co, customerId: "" })).j.error, /customer/);
   const ok = await email({ ...mail, ...co, to: "" }); // the coordinator alone is enough

@@ -25,12 +25,13 @@ test("the client-facing name drops (I); expected = the training line's quantity"
 });
 
 
-test("coordinator: a full name, a real email and a 10-digit mobile (+91 / 0 dropped)", () => {
+test("coordinator: a name (first alone is enough), a real email and a 10-digit mobile (+91 / 0 dropped)", () => {
   assert.equal(cleanPhone("+91 98765 43210"), "9876543210");
   assert.equal(cleanPhone("09876543210"), "9876543210");
   assert.equal(cleanPhone("12345"), "");
   assert.deepEqual(readCoordinator({ name: " Riya  Mehta ", email: "Riya@Hotel.com", phone: "+919876543210" }), { firstName: "Riya", lastName: "Mehta", email: "riya@hotel.com", phone: "9876543210" });
-  assert.match((readCoordinator({ name: "Riya", email: "riya@hotel.com", phone: "9876543210" }) as { error: string }).error, /first and last/);
+  assert.deepEqual(readCoordinator({ name: "Riya", email: "riya@hotel.com", phone: "9876543210" }), { firstName: "Riya", lastName: "", email: "riya@hotel.com", phone: "9876543210" });
+  assert.match((readCoordinator({ name: " ", email: "riya@hotel.com", phone: "9876543210" }) as { error: string }).error, /name/);
   assert.match((readCoordinator({ name: "Riya Mehta", email: "riya@", phone: "9876543210" }) as { error: string }).error, /email/);
   assert.match((readCoordinator({ name: "Riya Mehta", email: "riya@hotel.com", phone: "123" }) as { error: string }).error, /10-digit/);
 });

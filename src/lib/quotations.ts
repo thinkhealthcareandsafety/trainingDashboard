@@ -235,10 +235,10 @@ export async function upsertCoordinator(p: { contactId: string } & Coordinator):
   if (had?.contact_person_id) {
     const id = String(had.contact_person_id);
     const change = { ...(had.designation?.trim() ? {} : { designation: COORDINATOR_DESIGNATION }), ...(had.mobile?.trim() ? {} : { mobile: p.phone }) };
-    if (Object.keys(change).length) await books(c, "PUT", `/contacts/contactpersons/${id}`, {}, { contact_id: p.contactId, first_name: had.first_name || p.firstName, last_name: had.last_name ?? p.lastName, email: p.email, ...change }).catch(noRight);
+    if (Object.keys(change).length) await books(c, "PUT", `/contacts/contactpersons/${id}`, {}, { contact_id: p.contactId, first_name: had.first_name || p.firstName, ...(had.last_name || p.lastName ? { last_name: had.last_name || p.lastName } : {}), email: p.email, ...change }).catch(noRight);
     return { id, existed: true };
   }
-  await books(c, "POST", "/contacts/contactpersons", {}, { contact_id: p.contactId, first_name: p.firstName, last_name: p.lastName, email: p.email, mobile: p.phone, designation: COORDINATOR_DESIGNATION }).catch(noRight);
+  await books(c, "POST", "/contacts/contactpersons", {}, { contact_id: p.contactId, first_name: p.firstName, ...(p.lastName ? { last_name: p.lastName } : {}), email: p.email, mobile: p.phone, designation: COORDINATOR_DESIGNATION }).catch(noRight);
   const made = (await people()).find(mine);
   if (!made?.contact_person_id) throw new Error("Zoho Books took the coordinator but didn't say who was added — check the customer in Zoho");
   return { id: String(made.contact_person_id), existed: false };
