@@ -53,7 +53,7 @@ const daysSince = (ymd: string) => Math.round((Date.parse(istToday()) - Date.par
 type Sent = { _id: string; number: string; customerId: string; customerName: string; total: number; sent: boolean; status: string; by: string; byId: string; at: string; lines: number };
 const sentCol = async () => (await db()).collection<Sent>("quotationsSent");
 
-type Last = { date: string; number: string; amount: number; status: string };
+type Last = { id?: string; date: string; number: string; amount: number; status: string };
 type History = { quote?: Last; invoice?: string };
 let history: { key: string; map: Map<string, History> } | null = null;
 
@@ -68,7 +68,7 @@ async function histories(): Promise<Map<string, History>> {
     const date = day(q["Quote Date"]);
     if (!date || /draft/i.test(q["Status"] ?? "")) continue;
     const h = get(q["Customer ID"]);
-    if (!h.quote || date > h.quote.date) h.quote = { date, number: q["Quote Number"] ?? "", amount: money(q["Sub Total (BCY)"]) ?? 0, status: q["Status"] ?? "" };
+    if (!h.quote || date > h.quote.date) h.quote = { id: q["Quote ID"] || undefined, date, number: q["Quote Number"] ?? "", amount: money(q["Sub Total (BCY)"]) ?? 0, status: q["Status"] ?? "" };
   }
   for (const i of t.invoices ?? []) {
     const date = day(i["Invoice Date"]);
@@ -86,7 +86,7 @@ async function recentSent(gone?: Span): Promise<Map<string, Last>> {
   const out = new Map<string, Last>();
   for (const s of await (await sentCol()).find({ at: { $gte: since } }).sort({ at: 1 }).toArray()) {
     if (goneFrom(gone, s._id, s.at)) continue; // deleted in Zoho since
-    out.set(s.customerId, { date: new Date(Date.parse(s.at) + 5.5 * 3600_000).toISOString().slice(0, 10), number: s.number, amount: s.total, status: s.sent ? "sent" : "draft" });
+    out.set(s.customerId, { id: s._id, date: new Date(Date.parse(s.at) + 5.5 * 3600_000).toISOString().slice(0, 10), number: s.number, amount: s.total, status: s.sent ? "sent" : "draft" });
   }
   return out;
 }
@@ -295,12 +295,21 @@ export async function GET(request: Request) {
       return Response.json({ description: (i.description as string) ?? "", gst: itemGst(i) ?? null, unit: (i.unit as string) || null, rate: Number(i.rate) || null, fields: itemFieldsOf(i), pictures: itemPictures(i) });
     }
 
+    // One quotation (owner, 11 Nov): its items, status, and every email that went — ours in full, Zoho's history lines.
+    const viewId = q.get("view");
+    if (viewId) {
+      if (!/^\d+$/.test(viewId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
+      return Response.json(await quotationView(viewId));
+    }
+
     const customerId = q.get("customer");
     if (customerId) {
       if (!/^\d+$/.test(customerId)) return Response.json({ error: "Unknown customer" }, { status: 400 });
+      const fromId = /^\d+$/.test(q.get("from") ?? "") ? q.get("from")! : null;
       const [ct, list, h, mine, people, nt] = await Promise.all([
         zohoGet<{ contact?: Record<string, unknown> & { contact_persons?: Record<string, unknown>[]; billing_address?: { city?: string; state?: string } } }>(`/contacts/${customerId}`),
-        zohoGet<{ estimates?: Record<string, unknown>[] }>("/estimates", { customer_id: customerId, sort_column: "date", sort_order: "D", per_page: 1 }),
+        fromId ? zohoGet<{ estimate?: Record<string, unknown> }>(`/estimates/${fromId}`).then((r) => ({ estimates: r.estimate && String(r.estimate.customer_id) === customerId ? [r.estimate] : [] }))
+          : zohoGet<{ estimates?: Record<string, unknown>[] }>("/estimates", { customer_id: customerId, sort_column: "date", sort_order: "D", per_page: 1 }),
         histories(), zohoLatest().then((z) => recentSent(z?.quotes)), salespeople(), defaultNotesTerms(),
       ]);
       const c = ct.contact ?? {};
@@ -318,12 +327,12 @@ export async function GET(request: Request) {
       const e = list.estimates?.[0];
       type LastLine = QuoteLine & { name: string; gst: number | null };
       // `draftId`: their newest quotation is still a draft — the popup saves that one again instead of making another.
-      let last: { number: string; date: string; lines: LastLine[]; salesperson: string | null; fields: Record<string, string>; draftId?: string } | null = null;
+      let last: { id: string; status: string; number: string; date: string; lines: LastLine[]; salesperson: string | null; fields: Record<string, string>; draftId?: string } | null = null;
       if (e?.estimate_id) {
         const d = await zohoGet<{ estimate?: { line_items?: Record<string, unknown>[]; custom_fields?: CF[] } }>(`/estimates/${e.estimate_id}`);
         const cf = (api: string) => String(d.estimate?.custom_fields?.find((f) => f.api_name === api)?.value ?? "");
         last = {
-          number: String(e.estimate_number ?? ""), date: String(e.date ?? ""), salesperson: (e.salesperson_name as string) || null,
+          id: String(e.estimate_id), status: String(e.status ?? ""), number: String(e.estimate_number ?? ""), date: String(e.date ?? ""), salesperson: (e.salesperson_name as string) || null,
           ...(e.status === "draft" ? { draftId: String(e.estimate_id) } : {}),
           lines: (d.estimate?.line_items ?? []).filter((l) => l.item_id).map((l) => ({
             itemId: String(l.item_id), name: String(l.name ?? ""), qty: Number(l.quantity) || 1, rate: Number(l.rate) || 0,
@@ -400,9 +409,9 @@ export async function POST(request: Request) {
     if (form?.get("brochure")) return saveBrochure(form, me);
     if (form?.get("picture")) return savePicture(form, me);
     if (!canQuote(me)) return refused();
-    return form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form);
+    return form?.get("tsEstimateId") ? sendTotalSupply(form, me) : sendEmail(form, me.name);
   }
-  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; wdPick?: { itemId?: string; path?: string; fileId?: string } };
+  const body = (await request.json().catch(() => ({}))) as { customerId?: string; contactPersonIds?: string[]; lines?: QuoteLine[]; details?: Partial<QuoteDetails>; send?: boolean; again?: boolean; newCustomer?: Partial<NewCustomer>; estimateId?: string; revise?: boolean; zia?: { request?: string; quote?: QuoteEmailInput }; addEmail?: { customerId?: string; firstName?: string; lastName?: string; email?: string }; editItem?: { id?: string; fields?: Partial<Record<keyof ItemFields, unknown>> }; wdPick?: { itemId?: string; path?: string; fileId?: string } };
   if (body.wdPick) return pickFromWorkdrive(body.wdPick, me);
   if (body.editItem) return saveItem(body.editItem, me);
   if (!canQuote(me)) return refused();
@@ -434,7 +443,8 @@ export async function POST(request: Request) {
       if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
       const had = (await zohoGet<{ estimate?: { status?: string; customer_id?: string; estimate_number?: string } }>(`/estimates/${id}`).catch(() => ({ estimate: undefined }))).estimate;
       if (!had || String(had.customer_id) !== customerId) return Response.json({ error: "That draft isn't in Zoho Books any more — close this and quote again" }, { status: 404 });
-      if (had.status !== "draft") return Response.json({ error: `${had.estimate_number ?? "That quotation"} isn't a draft any more — make a new one with “start a new quotation”` }, { status: 409 });
+      const revisable = body.revise === true ? ["draft", "sent", "declined", "expired"] : ["draft"];
+      if (!revisable.includes(String(had.status))) return Response.json({ error: body.revise === true ? `${had.estimate_number ?? "That quotation"} is ${had.status} — make a new one with the same items instead` : `${had.estimate_number ?? "That quotation"} isn't a draft any more — make a new one with “start a new quotation”` }, { status: 409 });
       const saved = await updateQuote(id, { customerId, contactPersonIds: people, lines: quoteLines, details });
       const now = new Date().toISOString();
       await (await sentCol()).updateOne({ _id: id }, { $set: { number: saved.number, customerId, customerName: customer.name, total: saved.total, status: saved.status, lines: lines.length }, $setOnInsert: { sent: false, by: me.name, byId: me.id, at: now } }, { upsert: true });
@@ -574,7 +584,7 @@ async function addEmail(a: { customerId?: string; firstName?: string; lastName?:
 }
 
 /** The email step's Send (multipart: estimateId, to, cc, subject, body, fileName, attachments) — checked, then through Zoho Books. */
-async function sendEmail(form: FormData | null): Promise<Response> {
+async function sendEmail(form: FormData | null, by: string): Promise<Response> {
   if (!form) return Response.json({ error: "Nothing to send" }, { status: 400 });
   const str = (k: string, max: number) => String(form.get(k) ?? "").trim().slice(0, max);
   const mails = (k: string) => str(k, 2000).split(/[,;\s]+/).map((x) => x.toLowerCase()).filter(Boolean);
@@ -618,6 +628,11 @@ async function sendEmail(form: FormData | null): Promise<Response> {
       }, { upsert: true });
     }
     await emailQuote(id, { to, cc, subject, body, fileName: str("fileName", 120) || undefined, files });
+    await (await db()).collection<EmailRecord>("quoteEmailLog").insertOne({
+      estimateId: id, at: new Date().toISOString(), by, to, cc, subject,
+      attachments: [str("fileName", 120) || "the quotation PDF", ...files.map((f) => f.name)],
+      ...(coordinator ? { coordinator: [coordinator.firstName, coordinator.lastName].filter(Boolean).join(" ") } : {}),
+    }).catch((e) => console.error("[quotations] couldn't keep the email's details:", e));
     // Zoho marked it Sent — so does our record ("went to them N days ago" counts it from now).
     await (await sentCol()).updateOne({ _id: id }, { $set: { sent: true, status: "sent" } }).catch(() => undefined);
     return Response.json({ ok: true });
@@ -772,4 +787,33 @@ export async function PUT(request: Request) {
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't connect" }, { status: 400 });
   }
+}
+
+/* ---------------- One quotation's view (owner, 11 Nov) ---------------- */
+
+type EmailRecord = { estimateId: string; at: string; by: string; to: string[]; cc: string[]; subject: string; attachments: string[]; coordinator?: string };
+type ZLine = { name?: string; quantity?: unknown; rate?: unknown; tax_percentage?: unknown; item_total?: unknown };
+type ZComment = { description?: string; commented_by?: string; date?: string; time?: string; date_description?: string };
+
+async function quotationView(id: string) {
+  const d = await db();
+  const [est, history, emails, portal] = await Promise.all([
+    zohoGet<{ estimate?: Record<string, unknown> & { line_items?: ZLine[] } }>(`/estimates/${id}`),
+    // Zoho's own history of the quote (created, emailed, status changes): also covers emails sent from Zoho itself.
+    zohoGet<{ comments?: ZComment[] }>(`/estimates/${id}/comments`).then((r) => r.comments ?? []).catch(() => [] as ZComment[]),
+    d.collection<EmailRecord>("quoteEmailLog").find({ estimateId: id }).sort({ at: -1 }).toArray(),
+    d.collection<{ _id: string; coordinator?: { name: string; email: string; phone: string } }>("portalTrainings").findOne({ _id: id }),
+  ]);
+  const e = est.estimate;
+  if (!e) return { error: "That quotation isn't in Zoho Books any more" };
+  const n = (v: unknown) => (v === undefined || v === null || v === "" ? null : Number(v));
+  return {
+    id, number: String(e.estimate_number ?? ""), date: String(e.date ?? ""), expiry: (e.expiry_date as string) || null, status: String(e.status ?? ""),
+    total: Number(e.total) || 0, reference: (e.reference_number as string) || null, salesperson: (e.salesperson_name as string) || null,
+    customerId: String(e.customer_id ?? ""), customer: String(e.customer_name ?? ""), url: zohoLink(id),
+    lines: (e.line_items ?? []).map((l) => ({ name: String(l.name ?? "").replace(/\s*\(I\)\s*/gi, " ").trim(), qty: Number(l.quantity) || 0, rate: Number(l.rate) || 0, gst: n(l.tax_percentage), total: Number(l.item_total) || 0 })),
+    emails: emails.map(({ at, by, to, cc, subject, attachments, coordinator }) => ({ at, by, to, cc, subject, attachments, coordinator: coordinator ?? null })),
+    history: history.map((c) => ({ text: String(c.description ?? "").trim(), by: c.commented_by ?? null, when: [c.date_description || c.date, c.time].filter(Boolean).join(" ") })).filter((c) => c.text),
+    coordinator: portal?.coordinator ?? null,
+  };
 }

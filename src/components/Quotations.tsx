@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { celebrate } from "@/lib/confetti";
 import { useStore } from "@/lib/store";
 import { GSTIN_RE, GST_LABEL, fromGstin, gstTreatment } from "@/lib/gstin";
-import { btn, inputCls } from "./ui";
+import { Modal, btn, inputCls } from "./ui";
 import { docStatus } from "@/lib/docStatus";
 import { canQuote as mayQuote, isAdmin } from "@/lib/roles";
 import { BROCHURE_MAX_BYTES, GST_OPTIONS, type ItemFields, PICTURE_MAX_BYTES, STOCK_OPTIONS } from "@/lib/itemEdit";
@@ -25,7 +25,7 @@ import { readCoordinator } from "@/lib/trainingManager";
  * stock and GST per item, editable descriptions, the totals as Zoho works them out, notes and terms.
  */
 
-type Last = { date: string; number: string; amount: number; status: string };
+type Last = { id?: string; date: string; number: string; amount: number; status: string };
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
 type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; customerTypes: string[]; customerSectors: string[]; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
 type Item = { id: string; active?: boolean; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null; demand?: number; brochure?: string | null };
@@ -35,7 +35,7 @@ type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: str
 type Detail = {
   contacts: Contact[];
   customer: { gstin: string | null; state: string | null; city: string | null; place: string | null; tax: "intra" | "inter" | "none" };
-  last: { number: string; date: string; salesperson: string | null; fields: Record<string, string>; lines: Omit<Line, "key">[]; draftId?: string } | null;
+  last: { id: string; status: string; number: string; date: string; salesperson: string | null; fields: Record<string, string>; lines: Omit<Line, "key">[]; draftId?: string } | null;
   recent: { number: string; date: string; days: number } | null;
   salespeople: string[]; salesperson: string | null; options: Opts; notes: string; terms: string; today: string; error?: string;
 };
@@ -121,7 +121,8 @@ export function Quotations() {
   const [page, setPage] = useState(0);
   const [res, setRes] = useState<ListRes | null>(null);
   const [loading, setLoading] = useState(false);
-  const [quoting, setQuoting] = useState<{ c: Customer; fresh: boolean } | null>(null);
+  const [quoting, setQuoting] = useState<{ c: Customer; fresh: boolean; fromId?: string; mode?: "copy" | "revise" } | null>(null);
+  const [viewing, setViewing] = useState<{ c: Customer; id: string } | null>(null); // one quotation (owner, 11 Nov)
   const [connecting, setConnecting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [tick, setTick] = useState(0);
@@ -180,7 +181,7 @@ export function Quotations() {
           </thead>
           <tbody className={`divide-y divide-line ${loading ? "opacity-60" : ""}`}>
             {res?.customers.map((c) => (
-              <tr key={c.id} className={`hover:bg-surface-2/60 ${res.connected ? "cursor-pointer" : ""}`} onClick={(e) => { if (res.connected && !(e.target as Element).closest("a, button, input")) setQuoting({ c, fresh: false }); }}>
+              <tr key={c.id} className={`hover:bg-surface-2/60 ${res.connected ? "cursor-pointer" : ""}`} onClick={(e) => { if (!res.connected || (e.target as Element).closest("a, button, input")) return; if (c.lastQuote?.id) setViewing({ c, id: c.lastQuote.id }); else setQuoting({ c, fresh: false }); }}>
                 <td className="px-4 py-2.5">
                   <div className="font-medium text-ink">{c.name}</div>
                   <div className="text-[13px] text-muted">{[c.type, c.sector].filter(Boolean).join(" · ") || "—"}</div>
@@ -215,7 +216,8 @@ export function Quotations() {
           )}
         </div>
       )}
-      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
+      {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} fromId={quoting.fromId} mode={quoting.mode} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
+      {viewing && <QuoteView customer={viewing.c} id={viewing.id} onClose={() => setViewing(null)} onNew={(mode) => { const c = viewing.c, id = viewing.id; setViewing(null); setQuoting(mode === "fresh" ? { c, fresh: true } : { c, fresh: false, fromId: id, mode }); }} />}
       {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true }); }} onClose={() => setStarting(false)} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
     </div>
@@ -328,7 +330,7 @@ function StockCell({ item }: { item: Item | undefined }) {
 const GRID = "grid grid-cols-[4.5rem_minmax(0,1fr)_6.5rem_2rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_5rem_7.5rem_4.5rem_7.5rem_2rem]";
 
 /** `fresh` ("New quotation"): from scratch — no lines or fields from their last quote (it can still be copied in). */
-function QuotePopup({ customer, fresh = false, start, live, onClose }: { customer: Customer; fresh?: boolean; start?: Item[]; live: boolean; onClose: (sent: boolean) => void }) {
+function QuotePopup({ customer, fresh = false, start, fromId, mode, live, onClose }: { customer: Customer; fresh?: boolean; start?: Item[]; fromId?: string; mode?: "copy" | "revise"; live: boolean; onClose: (sent: boolean) => void }) {
   useNoPageScroll();
   const { toast } = useStore();
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -365,7 +367,7 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
   const [emailing, setEmailing] = useState(false);
   // Their newest quotation is still a draft (owner, 30 Oct: "Save and email" → back → reopened → a second quotation was
   // made): opening them continues that draft — saving updates it in Zoho; "start a new quotation" makes another.
-  const [newInstead, setNewInstead] = useState(fresh);
+  const [newInstead, setNewInstead] = useState(fresh || mode === "copy");
   const key = useRef(0);
   const row = (l: Omit<Line, "key">): Line => ({ ...l, key: ++key.current });
   const blank = () => row({ itemId: "", name: "", qty: 1, rate: 0, gst: null });
@@ -374,7 +376,7 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
   useEffect(() => {
     let current = true; // a late answer (an earlier open) must not reset lines someone is already editing
     loadItems().then((i) => current && setItems(i));
-    fetch(`/api/quotations?customer=${customer.id}`).then((r) => r.json()).then((j: Detail) => {
+    fetch(`/api/quotations?customer=${customer.id}${fromId ? `&from=${fromId}` : ""}`).then((r) => r.json()).then((j: Detail) => {
       if (!current) return;
       setDetail(j);
       if (j.error) return;
@@ -430,7 +432,8 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
     setFocusKey(b.key);
   };
 
-  const draftId = !newInstead ? detail?.last?.draftId : undefined;
+  const revising = mode === "revise" && !newInstead && detail?.last?.id === fromId;
+  const draftId = !newInstead ? (revising ? fromId : detail?.last?.draftId) : undefined;
   const filled = lines.filter((l) => l.itemId);
   const t = f && detail?.customer ? totals(lines, f, detail.customer.tax) : null;
   // Product type follows the main item until someone picks one; then the deal name follows the product type.
@@ -456,7 +459,7 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
         notes: f.notes, terms: f.terms,
       };
       const estimateId = draftId ?? undefined;
-      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send: false, estimateId, details, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
+      const r = await fetch("/api/quotations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId: customer.id, contactPersonIds: to, send: false, estimateId, revise: revising || undefined, details, lines: filled.map(({ itemId, qty, rate, description }) => ({ itemId, qty, rate, description })) }) });
       const j = (await r.json()) as { ok?: boolean; error?: string; quote?: { estimateId: string; number: string; total: number; url: string } };
       if (!r.ok || !j.quote) throw new Error(j.error ?? "Couldn't create the quotation");
       setDone({ ...j.quote, ours: t.total });
@@ -483,7 +486,7 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
       <div role="dialog" aria-label={`Quotation for ${customer.name}`} className="modal-in flex max-h-[96vh] w-full min-w-0 max-w-[88rem] flex-col rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-6 pt-5">
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">{draftId && !done ? `Draft ${detail?.last?.number}` : "New quotation"}</p>
+            <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">{draftId && !done ? `${revising && detail?.last?.status !== "draft" ? "Revising" : "Draft"} ${detail?.last?.number}` : "New quotation"}</p>
             <h3 className="truncate text-[21px] font-bold tracking-tight text-ink" title={customer.name}>{customer.name}</h3>
             {gstLine && <p className="text-[13.5px] text-muted">{gstLine}</p>}
           </div>
@@ -521,7 +524,8 @@ function QuotePopup({ customer, fresh = false, start, live, onClose }: { custome
         ) : (
           <>
             <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-6 pb-3 pt-3">
-              {draftId && <p className="mb-3 rounded-xl border border-brand/40 bg-brand-soft px-3 py-2 text-[14px] text-ink">Continuing the draft <b>{detail.last!.number}</b> ({fmtDay(detail.last!.date)}) — saving updates it in Zoho Books, no second quotation. <button className="font-semibold text-brand hover:underline" onClick={() => { setNewInstead(true); setLines([blank()]); }}>Start a new quotation instead</button></p>}
+              {draftId && revising && detail.last!.status !== "draft" && <p className="mb-3 rounded-xl border border-brand/40 bg-brand-soft px-3 py-2 text-[14px] text-ink">Revising <b>{detail.last!.number}</b> ({fmtDay(detail.last!.date)}) — saving updates it in Zoho Books with the same number, then you can email it again. <button className="font-semibold text-brand hover:underline" onClick={() => { setNewInstead(true); }}>Make it a new quotation instead</button></p>}
+              {draftId && !(revising && detail.last!.status !== "draft") && <p className="mb-3 rounded-xl border border-brand/40 bg-brand-soft px-3 py-2 text-[14px] text-ink">Continuing the draft <b>{detail.last!.number}</b> ({fmtDay(detail.last!.date)}) — saving updates it in Zoho Books, no second quotation. <button className="font-semibold text-brand hover:underline" onClick={() => { setNewInstead(true); setLines([blank()]); }}>Start a new quotation instead</button></p>}
               {detail.recent && !draftId && <p className="mb-3 rounded-xl border border-medium/50 bg-medium-bg px-3 py-2 text-[14px] font-medium text-medium">⚑ {detail.recent.number} went to them {detail.recent.days === 0 ? "today" : `${detail.recent.days} days ago`} — a quotation is valid 15 days.</p>}
 
               <p className={label}>To</p>
@@ -1691,5 +1695,96 @@ function ConnectBooks({ scopes, onClose, workdrive = false }: { scopes: string; 
         </div>
       </div>
     </div>
+  );
+}
+
+/*
+ * One quotation (owner, 11 Nov: "when i click any quotation here, only that quotation should open up … it should show
+ * whatever email is sent, what and all whom was it sent to"): its items and status; for a sent one, every email that
+ * went from here in full, and Zoho's own history (which also has the ones sent from Zoho). Then a new quotation for the
+ * customer: the same items, a revised one (same number), or from scratch.
+ */
+type QuoteViewData = {
+  id: string; number: string; date: string; expiry: string | null; status: string; total: number; reference: string | null; salesperson: string | null; url: string;
+  lines: { name: string; qty: number; rate: number; gst: number | null; total: number }[];
+  emails: { at: string; by: string; to: string[]; cc: string[]; subject: string; attachments: string[]; coordinator: string | null }[];
+  history: { text: string; by: string | null; when: string }[];
+  coordinator: { name: string; email: string; phone: string } | null;
+  error?: string;
+};
+function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: string; onClose: () => void; onNew: (mode: "copy" | "revise" | "fresh") => void }) {
+  const [q, setQ] = useState<QuoteViewData | null>(null);
+  const [choosing, setChoosing] = useState(false);
+  useEffect(() => {
+    fetch(`/api/quotations?view=${id}`).then((r) => r.json()).then(setQ).catch(() => setQ({ error: "Couldn't reach the server" } as QuoteViewData));
+  }, [id]);
+  const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
+  const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+  const draft = q?.status === "draft";
+  const revisable = q && ["draft", "sent", "declined", "expired"].includes(q.status);
+  return (
+    <Modal open onClose={onClose} title={q?.number ? `${q.number} · ${customer.name}` : customer.name} wide top>
+      {!q ? <p className="py-6 text-center text-[15px] text-muted">Getting the quotation from Zoho…</p>
+        : q.error ? <p className="py-6 text-center text-[15px] text-high">{q.error}</p>
+        : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-ink-2">
+            <StatusChip status={q.status} />
+            <span>{fmtDay(q.date)}</span>
+            {q.expiry && <span className="text-muted">valid until {fmtDay(q.expiry)}</span>}
+            {q.salesperson && <span className="text-muted">· {q.salesperson}</span>}
+            {q.reference && <span className="text-muted">· ref {q.reference}</span>}
+            <span className="ml-auto text-[16px] font-semibold text-ink">{inr2(q.total)} <span className="text-[12.5px] font-normal text-muted">incl. GST</span></span>
+          </div>
+          <div className="no-scrollbar overflow-x-auto">
+            <table className="w-full min-w-[28rem] text-[14px]">
+              <thead><tr className="text-left text-[12.5px] text-muted"><th className="py-1 pr-3 font-semibold">Item</th><th className="py-1 pr-3 text-right font-semibold">Qty</th><th className="py-1 pr-3 text-right font-semibold">Rate</th><th className="py-1 pr-3 text-right font-semibold">GST</th><th className="py-1 text-right font-semibold">Amount</th></tr></thead>
+              <tbody>{q.lines.map((l, i) => (
+                <tr key={i} className="border-t border-line text-ink"><td className="py-1.5 pr-3">{l.name}</td><td className="num py-1.5 pr-3 text-right">{l.qty}</td><td className="num py-1.5 pr-3 text-right">{inr2(l.rate)}</td><td className="num py-1.5 pr-3 text-right text-muted">{l.gst === null ? "—" : `${l.gst}%`}</td><td className="num py-1.5 text-right">{inr2(l.total)}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {q.coordinator && <p className="text-[14px] text-ink-2"><span className={label}>Training coordinator</span> <span className="ml-1">{q.coordinator.name} · {q.coordinator.phone} · {q.coordinator.email}</span></p>}
+          <section>
+            <p className={label}>{draft ? "Not sent yet" : "Sent details"}</p>
+            {draft && <p className="mt-1 text-[14px] text-muted">It&apos;s a draft in Zoho Books. Edit it to check the items, then save and email it.</p>}
+            {q.emails.map((m, i) => (
+              <div key={i} className="mt-2 rounded-xl border border-line p-3 text-[14px]">
+                <div className="flex flex-wrap justify-between gap-2"><b className="text-ink">{m.subject}</b><span className="text-muted">{when(m.at)} · by {m.by}</span></div>
+                <p className="mt-1 text-ink-2"><span className="text-muted">To</span> {m.to.join(", ")}</p>
+                {m.cc.length > 0 && <p className="text-ink-2"><span className="text-muted">Cc</span> {m.cc.join(", ")}</p>}
+                {m.coordinator && <p className="text-ink-2"><span className="text-muted">Training coordinator</span> {m.coordinator}</p>}
+                <p className="text-ink-2"><span className="text-muted">Attached</span> {m.attachments.join(", ")}</p>
+              </div>
+            ))}
+            {!draft && !q.emails.length && <p className="mt-1 text-[14px] text-muted">Not emailed from the dashboard since 11 Nov — Zoho&apos;s history below shows when and to whom it went.</p>}
+            {q.history.length > 0 && (
+              <details className="mt-3" open={!q.emails.length}>
+                <summary className="cursor-pointer text-[13.5px] font-medium text-ink-2">Zoho&apos;s history ({q.history.length})</summary>
+                <ul className="mt-1 space-y-1">{q.history.map((h, i) => <li key={i} className="text-[13.5px] text-ink-2"><span className="text-muted">{h.when}{h.by ? ` · ${h.by}` : ""}</span> — {h.text}</li>)}</ul>
+              </details>
+            )}
+          </section>
+          {choosing ? (
+            <div className="rounded-xl border border-brand/40 bg-brand-soft p-3">
+              <p className="text-[14px] font-semibold text-ink">New quotation for {customer.name}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button className={btn.primary} onClick={() => onNew("copy")} title={`A new quotation with ${q.number}'s items, quantities and prices`}>Same items</button>
+                <button className={btn.ghost} onClick={() => onNew("revise")} disabled={!revisable} title={revisable ? `Change ${q.number} itself — same number; Zoho keeps its history — then email it again` : `${q.number} is ${q.status}: make a new one with the same items instead`}>Revised quotation</button>
+                <button className={btn.ghost} onClick={() => onNew("fresh")}>From scratch</button>
+                <button className={btn.quiet} onClick={() => setChoosing(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+              <a className={btn.ghost} href={`/api/quotations?${new URLSearchParams({ pdf: q.id, name: q.number })}`} download>⬇ Download PDF</a>
+              <a className={btn.ghost} href={q.url} target="_blank" rel="noreferrer">Open in Zoho Books</a>
+              {draft && <button className={btn.ghost} onClick={() => onNew("revise")}>Edit draft and email…</button>}
+              <button className={`${btn.primary} ml-auto`} onClick={() => setChoosing(true)}>New quotation for this customer</button>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }

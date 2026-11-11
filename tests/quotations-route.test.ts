@@ -159,3 +159,10 @@ test("training coordinator on the quote email: checked first; a good one goes on
   assert.match(ok.j.error, /isn't connected/);
   assert.equal(await (await db()).collection("portalTrainings").countDocuments({}), 0);
 });
+
+test("one quotation's view: a bad id is refused; a failed send keeps no email record", async () => {
+  const view = async (id: string) => GET(new Request(`http://x/api/quotations?view=${id}`, { headers: { "x-test-member": JSON.stringify(sumit) } }));
+  assert.equal((await view("abc")).status, 400);
+  await email(mail); // Zoho not connected: nothing sent
+  assert.equal(await (await db()).collection("quoteEmailLog").countDocuments({}), 0);
+});
