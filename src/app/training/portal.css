@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+/*
+ * Think Health Training Manager (the coordinators' portal) — its own look, apart from the staff dashboard. Direction:
+ * "Safety-sign system" (.impeccable/surfaces/src-app-training.md): deep petrol navy for the band and the ink, white
+ * sign panels, the safety-sign colours only as programme identity, and one action colour — blue means you can press it
+ * (#0077b6: the brand's cerulean #0088c8 deepened so white text on it reads at 4.9:1). Light, always: coordinators use
+ * it at a desk in daylight, participants on a phone.
+ */
+:root {
+  --navy: #034f72;
+  --navy-deep: #023a55;
+  --action: #0077b6;
+  --action-hover: #00659b;
+  --cerulean: #0088c8;
+  --ink: #0f2a3a;
+  --ink-2: #3a5263;
+  --muted: #587080;
+  --line: #d3dfe7;
+  --line-strong: #b5c7d3;
+  --ground: #f2f6f9;
+  --surface: #ffffff;
+  --sign-green: #00843d;
+  --sign-red: #c8102e;
+  --danger: #b42318;
+  --danger-bg: #fdf0ee;
+  --ok-bg: #e9f6ef;
+}
+
+@theme inline {
+  --color-navy: var(--navy);
+  --color-navy-deep: var(--navy-deep);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-cerulean: var(--cerulean);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-sign-green: var(--sign-green);
+  --color-sign-red: var(--sign-red);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-ok-bg: var(--ok-bg);
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+}
+
+html { color-scheme: light; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--navy); color: #fff; }
+input { caret-color: var(--action); }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--action) 45%, transparent); outline-offset: 2px; }
+input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px var(--surface) inset; -webkit-text-fill-color: var(--ink); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* The one authored moment on the sign-in page: the programme signs set in, one after another. */
+@keyframes sign-in { from { opacity: 0; transform: translateY(10px) scale(0.94); } to { opacity: 1; transform: none; } }
+.sign-tile { animation: sign-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@media (prefers-reduced-motion: reduce) { .sign-tile { animation: none; } }
