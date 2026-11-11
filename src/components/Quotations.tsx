@@ -725,7 +725,9 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   // without them. It goes to them first; they're saved on the customer in Zoho as "Training Coordinator".
   const hasTraining = topics.some((t) => t.id === "training");
   const [co, setCo] = useState({ name: "", phone: "", email: "" });
-  const [coSame, setCoSame] = useState(false);
+  // Same as original, field by field (owner, 11 Nov: "could be one or all"): each copies that one from the person ticked in To.
+  type CoKey = "name" | "phone" | "email";
+  const [coSame, setCoSame] = useState<Record<CoKey, boolean>>({ name: false, phone: false, email: false });
   const [tpl, setTpl] = useState(() => (compose.lines.length ? suggestTemplate(compose.lines) : "zoho"));
   const [skip, setSkip] = useState<TopicId[]>([]);
   const edited = useRef(false); // typed into the message — switching template asks first
@@ -818,7 +820,13 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
   // Everyone on the customer: the quote's own, and emails added since (kept apart from `draft`, whose change refills the message).
   const people = draft ? [...draft.to, ...known.filter((k) => k.email && !draft.to.some((x) => x.email.toLowerCase() === k.email!.toLowerCase())).map((k) => ({ email: k.email!, name: k.name, selected: false, phone: null as string | null }))] : [];
   const original = people.find((x) => picked.includes(x.email)) ?? people[0];
-  const sameAs = (on: boolean) => { setCoSame(on); if (on && original) setCo({ name: original.name ?? "", email: original.email, phone: original.phone ?? "" }); };
+  const fromOriginal: Record<CoKey, string> = { name: original?.name ?? "", phone: original?.phone ?? "", email: original?.email ?? "" };
+  const sameAs = (keys: CoKey[], on: boolean) => {
+    setCoSame((s) => ({ ...s, ...Object.fromEntries(keys.map((k) => [k, on])) }));
+    if (on) setCo((c) => ({ ...c, ...Object.fromEntries(keys.map((k) => [k, fromOriginal[k]])) }));
+  };
+  const typeCo = (k: CoKey, v: string) => { setCoSame((s) => ({ ...s, [k]: false })); setCo((c) => ({ ...c, [k]: v })); };
+  const allSame = coSame.name && coSame.phone && coSame.email;
   const coNeeded = hasTraining && !ts;
   // The server's own check, so the reason shown is the one it would give (owner, 11 Nov: Send stayed grey, nothing said why).
   const coCheck = coNeeded ? readCoordinator(co) : null;
@@ -890,15 +898,22 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
           <div className="rounded-xl border border-line p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className={label}>Training coordinator</span>
-              <label className="flex cursor-pointer items-center gap-1.5 text-[14px] text-ink-2">
-                <input type="checkbox" className="accent-[var(--brand)]" checked={coSame} onChange={(e) => sameAs(e.target.checked)} disabled={!original} />
-                Same as original{original ? <span className="text-muted">({original.name ?? original.email})</span> : null}
-              </label>
+              {original && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-ink-2">
+                  <span className="text-muted">Same as original ({original.name ?? original.email}):</span>
+                  <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" className="accent-[var(--brand)]" checked={allSame} onChange={(e) => sameAs(["name", "phone", "email"], e.target.checked)} />All</label>
+                  {([["name", "Name"], ["phone", "Number"], ["email", "Email"]] as const).map(([k, l]) => (
+                    <label key={k} className="flex cursor-pointer items-center gap-1.5" title={fromOriginal[k] ? `Copy ${fromOriginal[k]}` : `${original.name ?? original.email} has no ${l.toLowerCase()} in Zoho`}>
+                      <input type="checkbox" className="accent-[var(--brand)]" checked={coSame[k]} onChange={(e) => sameAs([k], e.target.checked)} />{l}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <input className={`${inputCls} !h-9 text-[14px]`} value={co.name} onChange={(e) => { setCoSame(false); setCo((c) => ({ ...c, name: e.target.value })); }} placeholder="Training Coordinator's Name" aria-label="Training Coordinator's Name" maxLength={200} />
-              <input className={`${inputCls} !h-9 text-[14px]`} value={co.phone} onChange={(e) => { setCoSame(false); setCo((c) => ({ ...c, phone: e.target.value })); }} placeholder="Training Coordinator's Number" aria-label="Training Coordinator's Number" inputMode="tel" maxLength={20} />
-              <input className={`${inputCls} !h-9 text-[14px]`} value={co.email} onChange={(e) => { setCoSame(false); setCo((c) => ({ ...c, email: e.target.value })); }} placeholder="Training Coordinator's Email" aria-label="Training Coordinator's Email" type="email" maxLength={200} />
+              <input className={`${inputCls} !h-9 text-[14px]`} value={co.name} onChange={(e) => typeCo("name", e.target.value)} placeholder="Training Coordinator's Name" aria-label="Training Coordinator's Name" maxLength={200} />
+              <input className={`${inputCls} !h-9 text-[14px]`} value={co.phone} onChange={(e) => typeCo("phone", e.target.value)} placeholder={coSame.phone && !fromOriginal.phone ? "Not in Zoho: type it" : "Training Coordinator's Number"} aria-label="Training Coordinator's Number" inputMode="tel" maxLength={20} />
+              <input className={`${inputCls} !h-9 text-[14px]`} value={co.email} onChange={(e) => typeCo("email", e.target.value)} placeholder="Training Coordinator's Email" aria-label="Training Coordinator's Email" type="email" maxLength={200} />
             </div>
             <p className="mt-2 text-[13px] text-muted">The email goes to the coordinator first; everyone ticked in To is copied. They&apos;re saved on the customer in Zoho as &ldquo;Training Coordinator&rdquo;.</p>
           </div>
