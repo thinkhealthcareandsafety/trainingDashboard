@@ -15,6 +15,7 @@ import { onItemsPage } from "@/lib/itemsPage";
 import { type QuoteEmailInput, TEMPLATES, type TemplateOverrides, type TopicId, ZIA_MAILBOX, buildQuoteEmail, isTeamEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
 import { buildTsEmail } from "@/lib/totalSupply";
 import { readCoordinator } from "@/lib/trainingManager";
+import { QuoteStory } from "./QuoteStory";
 
 /*
  * Quotations (owner, 28 Oct): every Zoho customer, newest activity first; "Quote" opens a check — who it goes to, the
@@ -1722,7 +1723,6 @@ function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: s
   const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
   const draft = q?.status === "draft";
   const revisable = q && ["draft", "sent", "declined", "expired"].includes(q.status);
-  const emailed = (t: string) => /emailed|email sent|sent to/i.test(t);
   const card = "rounded-2xl border border-line bg-surface-2/40 p-4";
   const facts = q && !q.error ? [["Date", fmtDay(q.date)], ["Valid until", q.expiry ? fmtDay(q.expiry) : "—"], ["Sales person", q.salesperson ?? "—"], ["Reference", q.reference ?? "—"]] : [];
   return (
@@ -1777,20 +1777,10 @@ function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: s
                   </dl>
                 </div>
               ))}
-              {!draft && !q.emails.length && <p className="mt-1.5 text-[13.5px] text-muted">Sent before the dashboard kept full details (11 Nov) — Zoho&apos;s history shows when and to whom.</p>}
-              {q.history.length > 0 && (
-                <ol className="relative mt-4 space-y-3 border-l border-line pl-4">
-                  {q.history.map((h, i) => (
-                    <li key={i} className="relative">
-                      <span className={`absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-surface ${emailed(h.text) ? "bg-brand" : "bg-line-strong"}`} />
-                      <p className={`text-[13.5px] ${emailed(h.text) ? "font-semibold text-ink" : h.by === "Zoho Books" ? "text-muted" : "text-ink-2"}`}>{h.text}</p>
-                      <p className="text-[12.5px] text-faint">{h.when}{h.by ? ` · ${h.by}` : ""}</p>
-                    </li>
-                  ))}
-                </ol>
-              )}
+              {!draft && !q.emails.length && <p className="mt-1.5 text-[13.5px] text-muted">Sent before the dashboard kept full details (11 Nov): the story below shows when and to whom.</p>}
             </section>
           </div>
+          <QuoteStory history={q.history} />
           {choosing ? (
             <div className="rounded-2xl border border-brand/40 bg-brand-soft p-4">
               <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold text-ink">New quotation for {customer.name}</p><button className={btn.quiet} onClick={() => setChoosing(false)}>Cancel</button></div>
