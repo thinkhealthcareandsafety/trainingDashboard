@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtDate } from "@/lib/dates";
 import type { TrainingQuote } from "@/lib/trainingManager";
 import { Modal, Skeleton, inputCls } from "./ui";
+import { QuoteStory } from "./QuoteStory";
+import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 
 // Training Management (docs/TRAINING_MANAGER_PLAN.md step 1): the training-only quotes — read-only for now. The
 // coordinator, portal status and participants columns arrive with steps 2–7.
@@ -55,37 +57,54 @@ export function TrainingManagement() {
           </button>
         ))}
       </div>
-      <Modal open={Boolean(open)} onClose={() => setOpen(null)} title={open ? `${open.number} · ${open.customer}` : ""} wide top>
+      <Modal open={Boolean(open)} onClose={() => setOpen(null)} title={open ? `${open.number} · ${open.customer}` : ""} top size="xl">
         {open && <Detail x={open} />}
       </Modal>
     </div>
   );
 }
 
+/** The quotation's story, the same as on Quotations (owner, 11 Nov: "those are all the same thing"). */
+type StoryQuote = { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[]; error?: string };
+
 function Detail({ x }: { x: TrainingQuote }) {
-  const row = (k: string, v: React.ReactNode) => <div className="flex gap-3 py-1.5 text-[14px]"><span className="w-36 shrink-0 text-muted">{k}</span><span className="text-ink">{v || "—"}</span></div>;
+  const [story, setStory] = useState<StoryQuote | null>(null);
+  useEffect(() => {
+    fetch(`/api/quotations?view=${x.id}`).then((r) => r.json()).then(setStory).catch(() => setStory({ error: "Couldn't reach the server" } as StoryQuote));
+  }, [x.id]);
+  const row = (k: string, v: React.ReactNode) => <div className="flex gap-3 py-1.5 text-[14px]"><span className="w-32 shrink-0 text-muted">{k}</span><span className="min-w-0 break-words text-ink">{v || "—"}</span></div>;
+  const card = "rounded-2xl border border-line bg-surface-2/40 p-4";
+  const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
   return (
     <div className="space-y-5">
-      <section>
-        {row("Customer", x.customer)}
-        {row("Contact", x.contact?.name)}
-        {row("Email", x.contact?.email && <a className="text-brand hover:underline" href={`mailto:${x.contact.email}`}>{x.contact.email}</a>)}
-        {row("Phone", x.contact?.phone)}
-        {row("Quote", `${x.number} · ${fmtDate(x.date, { day: "numeric", month: "short", year: "numeric" })} · ${STATUS[x.status] ?? x.status}`)}
-        {row("Expected", x.expected ? `${x.expected} participants` : "")}
-        {row("Coordinator", x.coordinator ? <>{x.coordinator.name} <span className="text-muted">· {x.coordinator.phone} · </span><a className="text-brand hover:underline" href={`mailto:${x.coordinator.email}`}>{x.coordinator.email}</a></> : <span className="text-muted">Added when the quote is emailed from Quotations</span>)}
-      </section>
-      <section className="space-y-3">
-        {x.lines.map((l, i) => (
-          <div key={i} className="rounded-xl border border-line p-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-[15px] font-semibold">{l.name}</h3>
-              <span className="text-[13px] text-muted">{l.qty} × {inr(l.rate)} = {inr(l.total)}</span>
-            </div>
-            {l.description && <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed text-ink-2">{l.description}</p>}
+      <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
+        <section className={card}>
+          <p className={label}>Customer</p>
+          <div className="mt-1">
+            {row("Customer", x.customer)}
+            {row("Contact", x.contact?.name)}
+            {row("Email", x.contact?.email && <a className="text-brand hover:underline" href={`mailto:${x.contact.email}`}>{x.contact.email}</a>)}
+            {row("Phone", x.contact?.phone)}
+            {row("Quote", `${x.number} · ${fmtDate(x.date, { day: "numeric", month: "short", year: "numeric" })} · ${STATUS[x.status] ?? x.status}`)}
+            {row("Expected", x.expected ? `${x.expected} participants` : "")}
+            {row("Coordinator", x.coordinator ? <>{x.coordinator.name} <span className="text-muted">· {x.coordinator.phone} · </span><a className="text-brand hover:underline" href={`mailto:${x.coordinator.email}`}>{x.coordinator.email}</a></> : <span className="text-muted">Added when the quote is emailed from Quotations</span>)}
           </div>
-        ))}
-      </section>
+        </section>
+        <section className="space-y-3">
+          {x.lines.map((l, i) => (
+            <div key={i} className={card}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-[15px] font-semibold">{l.name}</h3>
+                <span className="text-[13px] text-muted">{l.qty} × {inr(l.rate)} = {inr(l.total)}</span>
+              </div>
+              {l.description && <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed text-ink-2">{l.description}</p>}
+            </div>
+          ))}
+        </section>
+      </div>
+      {!story ? <p className="text-[14px] text-muted">Getting the story of this quotation…</p>
+        : story.error ? <p className="text-[14px] text-high">{story.error}</p>
+        : <QuoteStory quote={story} training />}
     </div>
   );
 }
