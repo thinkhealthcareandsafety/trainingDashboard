@@ -1,9 +1,54 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Thu 12 Nov 2026 (end of session 26). **Live = `a101b19`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel status
-success); GitHub = this docs commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: Thu 12 Nov 2026 (end of session 27). **Live = `9509c51`** (portal dashboard + the owner's social links). Steps 5–9 of the
+Training Manager are committed on top and wait for the owner's "push". Written for the next Claude Code session (and the owner)._
 
-**Start of the next session (27). Do these first:**
+**Start of the next session (28). Do these first:**
+1. `git fetch`; `git status`; `git log --oneline origin/master..HEAD`. Unless the owner pushed, expect c7bd832 (steps 5–8) and the step 9
+   design commit to be waiting. Push only on "push", with `git push origin master` in the foreground.
+2. `npm test` (**237** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. `nslookup training.thinkhealth.in 1.1.1.1`. When it resolves, the owner sets **`PORTAL_BASE_URL=https://training.thinkhealth.in`** on
+   Vercel (Production) and redeploys. The login emails and QR links then point there; nothing in the code changes.
+4. The first real test, once pushed: a training-only quote to the test customer **"dashboard testing"**, with the **owner's own email** as
+   coordinator. That checks the login box in the email, signing in, proposing a date, adding names, and the QR join on a phone.
+5. Next build (owner, 12 Nov): Accept date → Performa. Accept converts the quote to a Draft sales order in Zoho; then the draft is edited on our dashboard (training quantity = the coordinator's headcount, else the quote's) and saved straight to the Zoho draft; Performa email templates (training only for now) carry the confirmation. Waiting on the owner's Zoho screenshots: the draft sales order, and the field the training date goes into. Welcome line changed to "…managed in one place." (owner).
+
+**Session 27 in short (12 Nov):**
+- **Step 4, live at `6e17c82`:**
+  - The portal dashboard: welcome, Our programmes, Your trainings, Stay connected.
+  - Templates → **Portal content**: programmes, YouTube videos, photos and links (kv `portal_content`, `portalPhotos`).
+  - `9509c51`: the owner's links (WhatsApp card new; YouTube playlist).
+  - The programme photos and videos are left empty on purpose (owner).
+- **Steps 5–8, `c7bd832` (not pushed):**
+  - Files: `lib/portalRules.ts` (pure), `lib/portalTrainings.ts`, `lib/portalEmail.ts`, `lib/xlsxRead.ts` (no package), `components/portal/{TrainingTools,Participant,Qr}.tsx`.
+  - Routes: `/api/portal/{training,join}` and `/training/[number]/{join,[th]}`. The only new package is qrcode-generator@2.0.4.
+  - Proposals keep the earlier ones (struck through).
+  - TH numbers come from `counters` "th" and are never reused.
+  - Participant pages need their private `?p=` token.
+  - The login box goes on training-only quote emails (re-checked in Zoho; a password only the first time; a login made for an email that
+    failed is taken back).
+  - **Send login** on Trainings sends only from production.
+  - Trainings shows the portal state and glows green on a proposed date.
+- **Step 9 (finish review + DESIGN.md):**
+  - A fresh reviewer ran 2 rounds. Fixes: trainings first; the band holds the logo on a white plate plus the 4-sign strip.
+  - ISO sign grammar: CPR is a blue circle in `--sign-blue`, never the action blue; Fire is an extinguisher. Signs on navy have a white rim.
+  - Stamps stack with their dates.
+  - Real headings, no kickers; no hero metric.
+  - Content mounts after the welcome.
+  - DESIGN.md + `.impeccable/design.json` written from the build.
+- **Owner's side:**
+  - The Cloudflare CNAME (waiting on the account holder).
+  - The Gmail App Password for saletotalsupply@ (waiting).
+  - The Zia steps in Zoho Flow: open the flow, map Generate customized response to the webhook's Prompt, Save, switch On; a History
+    screenshot if it fails.
+- **Traps:**
+  - Headless Chrome can't go narrower than ~500px.
+  - A colour `transition` swapping primary/secondary classes can be captured mid-flight as a blank button. Use `transition-none` on
+    toggles; keying the button breaks keyboard focus.
+  - `TaskStop` on `next dev` can leave the server running; kill its PID.
+  - Preview pages under `src/app/training/zz-*` were temporary and are deleted. Never commit such pages.
+
+**(Done) Start of session 27 — old checklist:**
 1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
 2. `npm test` (**221** should pass) and `npx tsc --noEmit -p tsconfig.json`. If `.next/types` errors name the old paths (`src/app/calendar/page.js`
    and so on), they're stale: `npx next build` regenerates them. The staff pages now live in `src/app/(staff)/`.

@@ -28,9 +28,8 @@ function Band({ children }: { children?: React.ReactNode }) {
         </div>
       </header>
       <section className="relative overflow-hidden bg-navy text-white">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full border-[28px] border-white/[0.05]" aria-hidden />
         <div className="relative mx-auto max-w-3xl px-5 pb-10 pt-8">
-          <div className="flex gap-2">{SIGNS.map((s, i) => <SignTile key={s.key} sign={s} size={34} delay={100 + i * 100} />)}</div>
+          <div className="flex gap-2">{SIGNS.map((s, i) => <SignTile key={s.key} sign={s} size={34} delay={100 + i * 100} rim />)}</div>
           {children}
         </div>
       </section>
@@ -93,9 +92,8 @@ export function JoinPage({ number, k }: { number: string; k: string }) {
   return (
     <main className="min-h-screen bg-ground">
       <Band>
-        <p className="mt-6 text-[15px] text-white/75">You&apos;re invited to</p>
-        <h1 className="mt-1 text-[32px] font-extrabold leading-[1.06] tracking-[-0.025em] sm:text-[40px]">{invite.training}</h1>
-        <p className="mt-2 text-[15.5px] text-white/80">{invite.coordinator ? <>by <b className="text-white">{invite.coordinator}</b>, </> : ""}{invite.customer}</p>
+        <h1 className="mt-6 text-[32px] font-extrabold leading-[1.06] tracking-[-0.025em] sm:text-[40px]">{invite.training}</h1>
+        <p className="mt-2 text-[15.5px] leading-relaxed text-white/80">{invite.coordinator ? <><b className="text-white">{invite.coordinator}</b> at {invite.customer} invites you to register.</> : <>{invite.customer} invites you to register.</>}</p>
       </Band>
       <form onSubmit={submit} className="mx-auto max-w-3xl space-y-4 px-5 py-8" noValidate>
         <p className="text-[17px] font-bold text-ink">Register for the training</p>
@@ -141,8 +139,7 @@ export function ParticipantPage({ number, th, p }: { number: string; th: string;
   return (
     <div className="portal-reveal min-h-screen bg-ground">
       <Band>
-        <p className="mt-6 text-[15px] text-white/75">Registered</p>
-        <h1 className="mt-1 text-[34px] font-extrabold leading-[1.04] tracking-[-0.025em] sm:text-[44px]">{page.name}</h1>
+        <h1 className="mt-6 text-[34px] font-extrabold leading-[1.04] tracking-[-0.025em] sm:text-[44px]">{page.name}</h1>
         <p className="num mt-3 inline-block rounded-lg bg-white/10 px-3 py-1.5 text-[18px] font-extrabold tracking-[0.06em] ring-1 ring-white/15">{page.th}</p>
       </Band>
       <main className="mx-auto max-w-3xl px-5">

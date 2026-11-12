@@ -1,0 +1,572 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T04:34:00.021Z",
+  "title": "Design System: Think Health Training Manager",
+  "extensions": {
+    "colorMeta": {
+      "navy": {
+        "role": "primary",
+        "displayName": "Petrol Navy",
+        "canonical": "oklch(40.5% 0.087 237)",
+        "tonalRamp": [
+          "#000d17",
+          "#04273a",
+          "#014564",
+          "#236488",
+          "#4988ae",
+          "#6eadd5",
+          "#93d4fd",
+          "#def2ff"
+        ]
+      },
+      "navy-deep": {
+        "role": "primary",
+        "displayName": "Deep Petrol",
+        "canonical": "oklch(33.0% 0.071 237)",
+        "tonalRamp": [
+          "#000d17",
+          "#02273b",
+          "#114560",
+          "#336381",
+          "#5687a5",
+          "#7aaccc",
+          "#9fd2f3",
+          "#dff2fe"
+        ]
+      },
+      "action": {
+        "role": "secondary",
+        "displayName": "Press Blue",
+        "canonical": "oklch(54.6% 0.131 242)",
+        "tonalRamp": [
+          "#000c18",
+          "#00273f",
+          "#044469",
+          "#0b6397",
+          "#2387c8",
+          "#50adf0",
+          "#99d2ff",
+          "#e1f1fe"
+        ]
+      },
+      "action-hover": {
+        "role": "secondary",
+        "displayName": "Press Blue, Pressed",
+        "canonical": "oklch(48.6% 0.116 242)",
+        "tonalRamp": [
+          "#000c19",
+          "#02273e",
+          "#084468",
+          "#136394",
+          "#3587c0",
+          "#5dade7",
+          "#9ad2fd",
+          "#e0f1ff"
+        ]
+      },
+      "cerulean": {
+        "role": "secondary",
+        "displayName": "Brand Cerulean",
+        "canonical": "oklch(59.8% 0.137 239)",
+        "tonalRamp": [
+          "#000d18",
+          "#00273e",
+          "#034467",
+          "#0a6493",
+          "#0289c9",
+          "#43aff1",
+          "#99d2fc",
+          "#e0f1fe"
+        ]
+      },
+      "sign-green": {
+        "role": "tertiary",
+        "displayName": "Safe-Condition Green",
+        "canonical": "oklch(53.6% 0.146 150)",
+        "tonalRamp": [
+          "#001003",
+          "#012d11",
+          "#074d23",
+          "#117036",
+          "#28984f",
+          "#55be73",
+          "#7de598",
+          "#c8ffd3"
+        ]
+      },
+      "sign-blue": {
+        "role": "tertiary",
+        "displayName": "Mandatory Blue",
+        "canonical": "oklch(42.8% 0.110 245)",
+        "tonalRamp": [
+          "#000c1a",
+          "#002642",
+          "#03436d",
+          "#1a6297",
+          "#4286bd",
+          "#67abe5",
+          "#a0d0fb",
+          "#e2f1fe"
+        ]
+      },
+      "sign-red": {
+        "role": "tertiary",
+        "displayName": "Fire Red",
+        "canonical": "oklch(53.0% 0.207 22)",
+        "tonalRamp": [
+          "#1e0002",
+          "#49040c",
+          "#7c0117",
+          "#b00626",
+          "#e13542",
+          "#f97675",
+          "#fcb6b2",
+          "#fee9e7"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Deep Ink",
+        "canonical": "oklch(27.2% 0.044 237)",
+        "tonalRamp": [
+          "#000d17",
+          "#0c2737",
+          "#284354",
+          "#466274",
+          "#688598",
+          "#8ba9bd",
+          "#b0cfe4",
+          "#dff2ff"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Slate Ink",
+        "canonical": "oklch(42.6% 0.041 239)",
+        "tonalRamp": [
+          "#000d18",
+          "#0f2736",
+          "#2b4353",
+          "#496173",
+          "#6a8496",
+          "#8ea9bc",
+          "#b3cfe3",
+          "#e0f1fe"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Harbour Grey",
+        "canonical": "oklch(53.2% 0.038 237)",
+        "tonalRamp": [
+          "#000d17",
+          "#112734",
+          "#2c4352",
+          "#4a6171",
+          "#6b8494",
+          "#8fa9ba",
+          "#b4cfe1",
+          "#def2ff"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "oklch(89.7% 0.017 236)",
+        "tonalRamp": [
+          "#050c11",
+          "#1c252b",
+          "#384148",
+          "#555f66",
+          "#778289",
+          "#9ba6ae",
+          "#c1ccd4",
+          "#e4f1f9"
+        ]
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Rule, Strong",
+        "canonical": "oklch(82.0% 0.026 236)",
+        "tonalRamp": [
+          "#020d15",
+          "#18262f",
+          "#33424c",
+          "#50606b",
+          "#72838e",
+          "#96a7b3",
+          "#bbceda",
+          "#dff2fe"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Mist",
+        "canonical": "oklch(97.1% 0.006 239)",
+        "tonalRamp": [
+          "#070c10",
+          "#1f2529",
+          "#3a4146",
+          "#585f64",
+          "#7a8187",
+          "#9ea6ab",
+          "#c4ccd2",
+          "#e8f0f6"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Panel White",
+        "canonical": "oklch(100.0% 0.000 89)",
+        "tonalRamp": [
+          "#0d0d0d",
+          "#262626",
+          "#424242",
+          "#606060",
+          "#838383",
+          "#a7a7a7",
+          "#cdcdcd",
+          "#f1f1f1"
+        ]
+      },
+      "danger": {
+        "role": "neutral",
+        "displayName": "Alarm",
+        "canonical": "oklch(50.0% 0.182 29)",
+        "tonalRamp": [
+          "#1f0000",
+          "#4a0302",
+          "#790d07",
+          "#ad1a10",
+          "#d74839",
+          "#fc7664",
+          "#feb6aa",
+          "#ffe9e5"
+        ]
+      },
+      "danger-bg": {
+        "role": "neutral",
+        "displayName": "Alarm Wash",
+        "canonical": "oklch(96.5% 0.014 28)",
+        "tonalRamp": [
+          "#110908",
+          "#2b2120",
+          "#473d3b",
+          "#665b59",
+          "#897d7b",
+          "#ada1a0",
+          "#d4c7c5",
+          "#f8ebe9"
+        ]
+      },
+      "ok-bg": {
+        "role": "neutral",
+        "displayName": "Clear Wash",
+        "canonical": "oklch(96.2% 0.017 162)",
+        "tonalRamp": [
+          "#050d09",
+          "#1d2722",
+          "#38433d",
+          "#56615b",
+          "#78837d",
+          "#9ca8a1",
+          "#c1cec7",
+          "#e5f2eb"
+        ]
+      },
+      "warn": {
+        "role": "neutral",
+        "displayName": "Caution",
+        "canonical": "#9a5b00"
+      },
+      "warn-bg": {
+        "role": "neutral",
+        "displayName": "Caution Wash",
+        "canonical": "#fff7e6"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The welcome's first line only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "The band greeting, the participant's name, the join page's training name."
+      },
+      "section": {
+        "displayName": "Section",
+        "purpose": "Sentence-case section headings; never preceded by a kicker."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "A training panel's name."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Descriptions, prompts and notes, 46-56ch."
+      },
+      "field-label": {
+        "displayName": "Field label",
+        "purpose": "Sentence-case label above an input."
+      },
+      "value-label": {
+        "displayName": "Value label",
+        "purpose": "Small-caps name of a shown value (On / At / For); the only small caps outside stamps."
+      },
+      "stamp": {
+        "displayName": "Stamp",
+        "purpose": "The state word inside an ink stamp."
+      },
+      "subhead": {
+        "displayName": "Subhead",
+        "purpose": "A form title inside a training panel (Propose a date)."
+      },
+      "value": {
+        "displayName": "Value",
+        "purpose": "The participant page On / At / For values."
+      },
+      "secondary": {
+        "displayName": "Secondary",
+        "purpose": "Supporting text: customer names, notes, list details."
+      },
+      "stamp-date": {
+        "displayName": "Stamp date",
+        "purpose": "The date under a state stamp."
+      }
+    },
+    "shadows": [
+      {
+        "name": "mounted-sign",
+        "value": "0 2px 6px rgb(2 40 60 / 0.25)",
+        "purpose": "Every sign tile."
+      },
+      {
+        "name": "logo-plate",
+        "value": "0 2px 6px rgb(0 20 35 / 0.3)",
+        "purpose": "The white plate behind the wordmark on navy."
+      },
+      {
+        "name": "pressable-lift",
+        "value": "0 2px 8px rgb(0 80 130 / 0.22)",
+        "purpose": "Primary buttons."
+      },
+      {
+        "name": "panel-rest",
+        "value": "0 1px 2px rgb(2 40 60 / 0.06)",
+        "purpose": "Programme tiles, under their ring."
+      },
+      {
+        "name": "play-disc",
+        "value": "0 6px 18px rgb(0 40 70 / 0.35)",
+        "purpose": "The play disc on programme videos."
+      },
+      {
+        "name": "selected-tab",
+        "value": "0 1px 3px rgb(2 40 60 / 0.12)",
+        "purpose": "The active segment of a segmented control."
+      },
+      {
+        "name": "sign-rim",
+        "value": "0 0 0 2px #ffffff",
+        "purpose": "The white rim of a sign set on navy."
+      },
+      {
+        "name": "stamp-double-rule",
+        "value": "inset 0 0 0 2px var(--surface), inset 0 0 0 3.5px var(--navy)",
+        "purpose": "The inner rule of a state stamp, inside its 2px navy border."
+      },
+      {
+        "name": "focus",
+        "value": "outline: 3px solid color-mix(in srgb, var(--action) 45%, transparent); outline-offset: 2px",
+        "purpose": "Focus on every interactive element; fields add a 4px action-at-15% ring."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-set",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "All authored entrance motion."
+      },
+      {
+        "name": "sign-in",
+        "value": "0.7s: from opacity 0, translateY(10px) scale(0.94)",
+        "purpose": "Signs set in, staggered 110-140ms (welcome, sign-in panel, bands)."
+      },
+      {
+        "name": "line-up",
+        "value": "0.9s: from opacity 0, translateY(28px)",
+        "purpose": "The welcome's three lines, 800ms apart; the participant thank-you."
+      },
+      {
+        "name": "reveal",
+        "value": "0.6s ease-out opacity",
+        "purpose": "The dashboard mounting after the welcome."
+      },
+      {
+        "name": "stamp",
+        "value": "0.45s after 0.5s: from rotate(-4deg) scale(1.5)",
+        "purpose": "The newest state stamp landing."
+      },
+      {
+        "name": "welcome-duration",
+        "value": "4600ms, 500ms fade out",
+        "purpose": "The welcome's length; skippable by tap or key."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce -> no animation, no welcome",
+        "purpose": "Respected everywhere."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one pressable slab: proposing, sending, adding, signing in.",
+      "html": "<button class=\"ds-btn-primary\">Propose a date</button>",
+      "css": ".ds-btn-primary{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 20px;border:0;border-radius:12px;background:var(--action,#0077b6);color:#fff;font-size:15px;font-weight:700;box-shadow:0 2px 8px rgb(0 80 130/.22);cursor:pointer;transition:background .15s,transform .15s}.ds-btn-primary:hover{background:var(--action-hover,#00659b)}.ds-btn-primary:active{transform:scale(.99)}.ds-btn-primary:focus-visible{outline:3px solid color-mix(in srgb,#0077b6 45%,transparent);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Blue-ruled outline for the second choice: Change, Cancel, Download QR.",
+      "html": "<button class=\"ds-btn-secondary\">Change</button>",
+      "css": ".ds-btn-secondary{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 16px;border:0;border-radius:12px;background:#fff;color:var(--action,#0077b6);font-size:15px;font-weight:700;box-shadow:inset 0 0 0 1px rgb(0 119 182/.35);cursor:pointer;transition:background .15s}.ds-btn-secondary:hover{background:rgb(0 119 182/.06)}.ds-btn-secondary:focus-visible{outline:3px solid color-mix(in srgb,#0077b6 45%,transparent);outline-offset:2px}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Labelled text field; focus turns the border press blue with a soft ring.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Location</span><input class=\"ds-input\" placeholder=\"e.g. The Grand, Pune · Ballroom 2\"></label>",
+      "css": ".ds-field{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);display:block;max-width:360px}.ds-field-label{display:block;margin-bottom:6px;font-size:13.5px;font-weight:600;color:var(--ink-2,#3a5263)}.ds-input{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);width:100%;height:44px;padding:0 14px;border:1px solid var(--line,#d3dfe7);border-radius:12px;background:#fff;color:var(--ink,#0f2a3a);font-size:15px;transition:border-color .15s,box-shadow .15s}.ds-input::placeholder{color:rgb(88 112 128/.7)}.ds-input:focus{outline:none;border-color:var(--action,#0077b6);box-shadow:0 0 0 4px rgb(0 119 182/.15)}"
+    },
+    {
+      "name": "Navy Band",
+      "kind": "nav",
+      "refersTo": "navy-band",
+      "description": "The single header: wordmark on a white plate, title, greeting, and the labelled strip of rimmed signs.",
+      "html": "<header class=\"ds-band\"><div class=\"ds-band-top\"><span class=\"ds-plate\"><b>think</b> health</span><span class=\"ds-band-title\">Training Manager</span><button class=\"ds-band-out\">Sign out</button></div><div class=\"ds-band-body\"><h1>Welcome, Priya.</h1><ul class=\"ds-strip\"><li><span class=\"ds-sign ds-sq\" style=\"background:#00843d\"><svg viewBox=\"0 0 32 32\" width=\"26\" height=\"26\"><path d=\"M13 6h6v7h7v6h-7v7h-6v-7H6v-6h7z\" fill=\"#fff\"/></svg></span>First Aid</li><li><span class=\"ds-sign ds-ci\" style=\"background:#005387\"><svg viewBox=\"0 0 32 32\" width=\"26\" height=\"26\"><path d=\"M5 17h5.5l2.2-5 3.6 10 2.6-6.5 1.4 1.5H27\" fill=\"none\" stroke=\"#fff\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span>CPR</li><li><span class=\"ds-sign ds-sq\" style=\"background:#c8102e\"><svg viewBox=\"0 0 32 32\" width=\"26\" height=\"26\"><rect x=\"11\" y=\"11\" width=\"9\" height=\"16\" rx=\"2.6\" fill=\"#fff\"/><rect x=\"13.5\" y=\"7.5\" width=\"4\" height=\"4\" rx=\"0.8\" fill=\"#fff\"/><path d=\"M12 7.2h7.5\" stroke=\"#fff\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><path d=\"M17.5 9.2h3.3c1.6 0 2.7 1.1 2.7 2.7V19l1.5 2.2\" fill=\"none\" stroke=\"#fff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span>Fire Safety</li></ul></div></header>",
+      "css": ".ds-band{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);background:var(--navy,#034f72);color:#fff;padding:16px 28px 32px}.ds-band-top{display:flex;align-items:center;gap:14px}.ds-plate{background:#fff;color:#0088c8;border-radius:8px;padding:6px 10px;font-size:15px;box-shadow:0 2px 6px rgb(0 20 35/.3)}.ds-band-title{font-size:15px;font-weight:600;color:rgb(255 255 255/.9);flex:1}.ds-band-out{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);background:none;border:0;color:#fff;font-weight:600;font-size:14px;padding:8px 12px;border-radius:8px;box-shadow:inset 0 0 0 1px rgb(255 255 255/.25);cursor:pointer}.ds-band-out:hover{background:rgb(255 255 255/.1)}.ds-band-out:focus-visible{outline:3px solid color-mix(in srgb,#0077b6 45%,transparent);outline-offset:2px}.ds-band-body{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-top:20px;flex-wrap:wrap}.ds-band h1{margin:0;font-size:40px;font-weight:800;letter-spacing:-.025em;line-height:1.04}.ds-strip{display:flex;gap:16px;list-style:none;margin:0;padding:0}.ds-strip li{display:flex;flex-direction:column;align-items:center;gap:6px;width:56px;text-align:center;font-size:11.5px;font-weight:600;color:rgb(255 255 255/.75)}.ds-sign{display:inline-grid;place-items:center;width:40px;height:40px;box-shadow:0 0 0 2px #fff,0 2px 6px rgb(2 40 60/.25)}.ds-sq{border-radius:10px}.ds-ci{border-radius:9999px}"
+    },
+    {
+      "name": "Sign Tiles",
+      "kind": "custom",
+      "refersTo": "sign-square",
+      "description": "Programme identity in ISO 7010 grammar: green and red squares, a sign-blue circle; pictogram 66% of the tile.",
+      "html": "<div class=\"ds-signs\"><span class=\"ds-sign2 ds-sq2\" style=\"background:#00843d\"><svg viewBox=\"0 0 32 32\" width=\"34\" height=\"34\"><path d=\"M13 6h6v7h7v6h-7v7h-6v-7H6v-6h7z\" fill=\"#fff\"/></svg></span><span class=\"ds-sign2 ds-ci2\" style=\"background:#005387\"><svg viewBox=\"0 0 32 32\" width=\"34\" height=\"34\"><path d=\"M5 17h5.5l2.2-5 3.6 10 2.6-6.5 1.4 1.5H27\" fill=\"none\" stroke=\"#fff\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span><span class=\"ds-sign2 ds-sq2\" style=\"background:#c8102e\"><svg viewBox=\"0 0 32 32\" width=\"34\" height=\"34\"><rect x=\"11\" y=\"11\" width=\"9\" height=\"16\" rx=\"2.6\" fill=\"#fff\"/><rect x=\"13.5\" y=\"7.5\" width=\"4\" height=\"4\" rx=\"0.8\" fill=\"#fff\"/><path d=\"M12 7.2h7.5\" stroke=\"#fff\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><path d=\"M17.5 9.2h3.3c1.6 0 2.7 1.1 2.7 2.7V19l1.5 2.2\" fill=\"none\" stroke=\"#fff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span></div>",
+      "css": ".ds-signs{display:flex;gap:12px}.ds-sign2{display:inline-grid;place-items:center;width:52px;height:52px;box-shadow:0 2px 6px rgb(2 40 60/.25)}.ds-sq2{border-radius:10px}.ds-ci2{border-radius:9999px}"
+    },
+    {
+      "name": "State Stamps",
+      "kind": "chip",
+      "refersTo": "state-stamp",
+      "description": "Double-rule ink stamps that stack; earlier states stay faded with their dates.",
+      "html": "<div class=\"ds-stamps\"><span class=\"ds-stamp ds-past\"><b>Awaiting date</b><i>12 Nov</i></span><span class=\"ds-stamp\"><b>Proposed</b><i>14 Nov</i></span></div>",
+      "css": ".ds-stamps{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);display:flex;flex-direction:column;align-items:flex-end;gap:10px}.ds-stamp{display:inline-flex;flex-direction:column;align-items:center;padding:6px 10px 4px;border:2px solid var(--navy,#034f72);border-radius:6px;background:#fff;color:var(--navy,#034f72);transform:rotate(-4deg);box-shadow:inset 0 0 0 2px #fff,inset 0 0 0 3.5px var(--navy,#034f72)}.ds-stamp b{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;line-height:1}.ds-stamp i{font-style:normal;margin-top:4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;line-height:1;font-variant-numeric:tabular-nums}.ds-past{opacity:.4;transform:rotate(-4deg) scale(.9)}"
+    },
+    {
+      "name": "Training Panel",
+      "kind": "card",
+      "refersTo": "training-panel",
+      "description": "A training as a white sign panel: sign, number and date, title, customer; sections split by hairlines; value labels in small caps.",
+      "html": "<article class=\"ds-panel\"><div class=\"ds-panel-head\"><span class=\"ds-sign3\" style=\"background:#005387\"><svg viewBox=\"0 0 32 32\" width=\"34\" height=\"34\"><path d=\"M5 17h5.5l2.2-5 3.6 10 2.6-6.5 1.4 1.5H27\" fill=\"none\" stroke=\"#fff\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span><div><p class=\"ds-meta\">QT-00412 · 12 Nov 2026</p><h3>CPR and AED</h3><p class=\"ds-cust\">The Grand, Pune</p></div></div><div class=\"ds-panel-sec\"><p class=\"ds-vlabel\">At</p><p class=\"ds-val\">Ballroom 2</p></div></article>",
+      "css": ".ds-panel{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);max-width:520px;background:#fff;border-radius:16px;box-shadow:0 0 0 1px var(--line,#d3dfe7);overflow:hidden;color:var(--ink,#0f2a3a)}.ds-panel-head{display:flex;gap:20px;padding:28px;border-bottom:1px solid var(--line,#d3dfe7)}.ds-panel-head h3{margin:4px 0 0;font-size:24px;font-weight:800;letter-spacing:-.015em;line-height:1.25}.ds-meta{margin:0;font-size:13px;font-weight:600;color:var(--muted,#587080);font-variant-numeric:tabular-nums}.ds-cust{margin:4px 0 0;font-size:14.5px;color:var(--ink-2,#3a5263)}.ds-panel-sec{padding:28px}.ds-vlabel{margin:0;font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted,#587080)}.ds-val{margin:6px 0 0;font-size:15px;font-weight:600}.ds-sign3{display:inline-grid;place-items:center;flex-shrink:0;width:52px;height:52px;border-radius:9999px;box-shadow:0 2px 6px rgb(2 40 60/.25)}"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "nav",
+      "refersTo": "",
+      "description": "The attendee-list tabs: a mist tray with a white selected segment.",
+      "html": "<div class=\"ds-seg\" role=\"tablist\"><button class=\"ds-seg-on\">Type names</button><button>Excel / CSV</button><button>QR code</button></div>",
+      "css": ".ds-seg{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--ground,#f2f6f9);max-width:440px}.ds-seg button{font-family: var(--font-sans, Manrope, ui-sans-serif, system-ui, sans-serif);flex:1;height:40px;border:0;border-radius:8px;background:none;color:var(--muted,#587080);font-size:14px;font-weight:700;cursor:pointer;transition:color .15s}.ds-seg button:hover{color:var(--ink,#0f2a3a)}.ds-seg .ds-seg-on{background:#fff;color:var(--ink,#0f2a3a);box-shadow:0 1px 3px rgb(2 40 60/.12)}.ds-seg button:focus-visible{outline:3px solid color-mix(in srgb,#0077b6 45%,transparent);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Safety Sign Board",
+    "overview": "The Training Manager speaks the international safety-sign language (ISO 7010) as an identity system. Every programme is a sign: First Aid and AED are safe-condition green squares, Fire Safety is a fire-equipment red square carrying an extinguisher, CPR is a mandatory-action blue circle. The signs are set with signage discipline: fixed shapes, a fixed pictogram-to-tile ratio, white pictograms, and identical tiles on one baseline. Around them sits a calm, light world of deep petrol navy and white panels, the way a printed sign board is mounted on a wall.\n\nHierarchy comes from scale contrast in a single face, not from colour or boxes. Headings are large, heavy, sentence-case statements; values sit in panels under small field labels; colour is rationed by meaning. Blue means one of two things and never both: the pressable action blue, or the sign blue of a mandatory sign. The portal is a separate world from the staff dashboard (work.thinkhealth.in); it has its own root layout and stylesheet, and nothing from the dashboard's look carries over.\n\nThe world is light only (`color-scheme: light`): coordinators use it at a desk in daylight, participants on a phone. It rejects the generic SaaS portal of grey cards and a sidebar.",
+    "keyCharacteristics": [
+      "One navy band at the top carries the wordmark on a white plate, the page's greeting, and a compact labelled strip of the four signs.",
+      "Safety-sign colours appear only as programme identity, inside sign tiles.",
+      "Action blue marks only things you can press.",
+      "States are ink stamps that stack; nothing vanishes.",
+      "One face (Manrope) at extreme weight and size contrast; sentence-case headings, no kickers.",
+      "One authored motion moment, the welcome; everything respects reduced motion."
+    ],
+    "rules": [
+      {
+        "name": "The Press Blue Rule",
+        "body": "Action blue is used only on things you can press: buttons, links, the play disc, the checked toggle, focus. If it cannot be pressed, it is not action blue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Blues Rule",
+        "body": "Sign blue (CPR) and action blue never trade places. A sign is never a button colour; a button is never sign blue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sign Colour Rule",
+        "body": "Green, red and sign blue appear only as programme identity, inside a sign tile. They are not status colours.",
+        "section": "colors"
+      },
+      {
+        "name": "The White Rim Rule",
+        "body": "A sign set on navy carries a 2px white rim, as printed signs do; without it the CPR blue sinks into the band. Signs on white carry no rim.",
+        "section": "colors"
+      },
+      {
+        "name": "The Scale Not Kicker Rule",
+        "body": "Section headings are display-scale, sentence case, and stand alone. No eyebrow or kicker sits above a heading. Small caps exist only as labels for values (On / At / For) and inside stamps.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Numbers Rule",
+        "body": "Every TH number, date, count and phone number uses tabular figures.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mounted Not Floating Rule",
+        "body": "Shadows are soft and close (2px to 8px blur, navy-tinted). No hard offset shadows, no large ambient glows; panels separate by ring and tone.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do put the wordmark on a white plate whenever it sits on navy; the logo is blue on white and has no reversed form.",
+      "Do draw programmes only as sign tiles in their ISO 7010 shape and colour: green squares for First Aid and AED, a red square with an extinguisher for Fire Safety, a sign-blue circle for CPR.",
+      "Do give every sign on navy a 2px white rim.",
+      "Do keep action blue (#0077b6) for things you can press, and sign blue (#005387) for the CPR sign only.",
+      "Do show state as stacked double-rule ink stamps that keep earlier states, faded, with their dates.",
+      "Do set section headings at display scale in sentence case, and use small caps only to label values (On / At / For).",
+      "Do use tabular figures for every TH number, date, count and phone number.",
+      "Do honour `prefers-reduced-motion`: no welcome, no set-in, no stamp landing."
+    ],
+    "donts": [
+      "Don't add eyebrows or kickers above headings.",
+      "Don't use sign green, sign red or sign blue as status, success or decoration colours.",
+      "Don't use action blue on anything that cannot be pressed, or sign blue on anything that can.",
+      "Don't draw Fire Safety as a flame, or put any programme in a shape its sign category does not use.",
+      "Don't add a dark theme; the portal is light only.",
+      "Don't use hard offset shadows or large glows; mounted objects get the soft, close navy shadow.",
+      "Don't borrow the staff dashboard's look, sidebar or grey-card layout.",
+      "Don't add a second authored motion moment; the welcome is the one. Entrance motion elsewhere reuses its vocabulary (the sign set-in, the line rise) and stays brief."
+    ]
+  }
+}

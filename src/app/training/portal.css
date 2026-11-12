@@ -21,10 +21,13 @@
   --ground: #f2f6f9;
   --surface: #ffffff;
   --sign-green: #00843d;
+  --sign-blue: #005387; /* ISO 7010 mandatory blue: a sign, never pressable */
   --sign-red: #c8102e;
   --danger: #b42318;
   --danger-bg: #fdf0ee;
   --ok-bg: #e9f6ef;
+  --warn: #9a5b00; /* "the quotation is for 40", "same phone twice" */
+  --warn-bg: #fff7e6;
 }
 
 @theme inline {
@@ -41,10 +44,13 @@
   --color-ground: var(--ground);
   --color-surface: var(--surface);
   --color-sign-green: var(--sign-green);
+  --color-sign-blue: var(--sign-blue);
   --color-sign-red: var(--sign-red);
   --color-danger: var(--danger);
   --color-danger-bg: var(--danger-bg);
   --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
   --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
 }
 

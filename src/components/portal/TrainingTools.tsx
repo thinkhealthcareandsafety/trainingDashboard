@@ -49,7 +49,7 @@ export function ProposalView({ p, history, expected }: { p: Proposal; history: P
         <p className={sectionTitle}>Attending</p>
         <p className="num mt-1.5 text-[15px] font-semibold text-ink">{p.headcount} people</p>
         {changed("headcount") && <p className="num mt-1 text-[13.5px] text-muted line-through">{prev!.headcount} people</p>}
-        {expected > 0 && p.headcount !== expected && <p className="mt-1 text-[13px] font-semibold text-[#9a5b00]">The quotation is for {expected}. We&apos;ll be in touch about the difference.</p>}
+        {expected > 0 && p.headcount !== expected && <p className="mt-1 text-[13px] font-semibold text-warn">The quotation is for {expected}. We&apos;ll be in touch about the difference.</p>}
       </div>
     </div>
   );
@@ -87,7 +87,7 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
                 onChange={(e) => setDates(dates.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)))} required />
               <input type="time" className={`${field} min-w-0 flex-1`} value={d.time} step={900} aria-label={`Day ${i + 1} start time`}
                 onChange={(e) => setDates(dates.map((x, j) => (j === i ? { ...x, time: e.target.value } : x)))} />
-              {dates.length > 1 && <button type="button" className="grid size-11 shrink-0 place-items-center rounded-xl text-[20px] text-muted hover:bg-ground" aria-label={`Remove day ${i + 1}`} onClick={() => setDates(dates.filter((_, j) => j !== i))}>×</button>}
+              {dates.length > 1 && <button type="button" className="grid size-11 shrink-0 place-items-center rounded-xl text-muted hover:bg-ground" aria-label={`Remove day ${i + 1}`} onClick={() => setDates(dates.filter((_, j) => j !== i))}><svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M5 5l10 10M15 5L5 15" /></svg></button>}
             </div>
           ))}
         </div>
@@ -109,7 +109,7 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
         <span className={label}>People attending</span>
         <input className={`${field} num`} inputMode="numeric" value={headcount} onChange={(e) => setHeadcount(e.target.value.replace(/\D/g, "").slice(0, 4))} required />
       </label>
-      {t.expected > 0 && n > 0 && n !== t.expected && <p className="-mt-3 text-[13.5px] font-semibold text-[#9a5b00]">The quotation is for {t.expected} people. You can still send {n}; we&apos;ll be in touch about the difference.</p>}
+      {t.expected > 0 && n > 0 && n !== t.expected && <p className="-mt-3 text-[13.5px] font-semibold text-warn">The quotation is for {t.expected} people. You can still send {n}; we&apos;ll be in touch about the difference.</p>}
       {error && <p className="rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger" role="alert">{error}</p>}
       <div className="flex flex-wrap gap-2.5">
         <button className={primaryBtn} disabled={busy}>{busy ? "Sending…" : p ? "Send the change to Think Health" : "Send to Think Health"}</button>
@@ -123,7 +123,7 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
 
 const SOURCE: Record<Row["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR" };
 
-export function Participants({ t, confirmed, onCount }: { t: ToolTraining; confirmed: number; onCount: (n: number) => void }) {
+export function Participants({ t, onCount }: { t: ToolTraining; onCount: (n: number) => void }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"type" | "excel" | "qr">("type");
@@ -165,21 +165,21 @@ export function Participants({ t, confirmed, onCount }: { t: ToolTraining; confi
       </div>
 
       <div>
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-[15px] font-bold text-ink"><span className="num">{rows?.length ?? t.registered}</span> registered{confirmed ? <> of <span className="num">{confirmed}</span></> : ""} on the list</p>
-          {rows && rows.length > 0 && <button type="button" className={linkBtn} onClick={download}>Download the list</button>}
-        </div>
         {error && <p className="mt-2 rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger" role="alert">{error}</p>}
         {!rows && !error && <p className="mt-3 text-[14px] text-muted">Loading the list…</p>}
         {rows && rows.length === 0 && <p className="mt-3 text-[14.5px] text-muted">No one yet. Type names above, import a file, or share the QR code.</p>}
         {rows && rows.length > 0 && (
-          <ul className="mt-3 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
+          <ul className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
+            <li className="flex items-center justify-between gap-3 bg-ground px-3.5 py-2">
+              <span className="text-[13.5px] font-semibold text-ink-2">The list, in the order people were added</span>
+              <button type="button" className={linkBtn} onClick={download}>Download</button>
+            </li>
             {rows.map((r) => (
-              <li key={r.th} className={`flex items-center gap-3 px-3.5 py-2.5 ${r.duplicate ? "bg-[#fff7e6]" : "bg-surface"}`}>
+              <li key={r.th} className={`flex items-center gap-3 px-3.5 py-2.5 ${r.duplicate ? "bg-warn-bg" : "bg-surface"}`}>
                 <span className="num w-14 shrink-0 text-[13px] font-semibold text-muted">{r.th}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[15px] font-semibold text-ink">{r.name}</span>
-                  <span className="num block text-[13px] text-muted">{r.phone}{r.email ? ` · ${r.email}` : ""} · {SOURCE[r.source]}{r.duplicate && <b className="ml-1.5 font-bold text-[#9a5b00]">Same phone twice</b>}</span>
+                  <span className="num block text-[13px] text-muted">{r.phone}{r.email ? ` · ${r.email}` : ""} · {SOURCE[r.source]}{r.duplicate && <b className="ml-1.5 font-bold text-warn">Same phone twice</b>}</span>
                 </span>
                 <button type="button" className="shrink-0 rounded-lg px-2.5 py-1.5 text-[13.5px] font-semibold text-danger hover:bg-danger-bg" onClick={() => remove(r.th, r.name)}>Remove</button>
               </li>
@@ -218,7 +218,7 @@ function TypeIn({ id, onAdded }: { id: string; onAdded: (l: Row[]) => void }) {
       <div className="flex flex-wrap items-center gap-3 pt-2">
         <button className={primaryBtn} disabled={busy || !filled.length}>{busy ? "Adding…" : filled.length > 1 ? `Add ${filled.length} people` : "Add to the list"}</button>
         <button type="button" className={linkBtn} onClick={() => setPeople([...people, blank, blank])}>+ More rows</button>
-        {msg && <span className={`text-[14px] ${/added/.test(msg) ? "text-sign-green" : "text-danger"}`} role="status">{msg}</span>}
+        {msg && <span className={`text-[14px] ${/added/.test(msg) ? "font-semibold text-ink-2" : "text-danger"}`} role="status">{msg}</span>}
       </div>
     </form>
   );
@@ -263,7 +263,7 @@ function ImportFile({ id, onAdded }: { id: string; onAdded: (l: Row[]) => void }
       {found && found.people.length > 0 && (
         <div className="rounded-xl bg-ground p-4">
           <p className="text-[15px] font-bold text-ink">{found.people.length} to add{found.skipped.length ? `, ${found.skipped.length} skipped` : ""} <span className="font-medium text-muted">· {found.file}</span></p>
-          {dups.size > 0 && <p className="mt-1 text-[13.5px] font-semibold text-[#9a5b00]">{dups.size} phone number{dups.size > 1 ? "s appear" : " appears"} twice in the file. Both rows are added and marked, so you can remove one.</p>}
+          {dups.size > 0 && <p className="mt-1 text-[13.5px] font-semibold text-warn">{dups.size} phone number{dups.size > 1 ? "s appear" : " appears"} twice in the file. Both rows are added and marked, so you can remove one.</p>}
           <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto text-[13.5px] text-ink-2">
             {found.people.slice(0, 200).map((p, i) => <li key={i} className="num">{p.name} · {p.phone}</li>)}
           </ul>
@@ -279,7 +279,7 @@ function ImportFile({ id, onAdded }: { id: string; onAdded: (l: Row[]) => void }
           </div>
         </div>
       )}
-      {msg && <p className={`text-[14px] ${/added/.test(msg) ? "text-sign-green" : "text-danger"}`} role="status">{msg}</p>}
+      {msg && <p className={`text-[14px] ${/added/.test(msg) ? "font-semibold text-ink-2" : "text-danger"}`} role="status">{msg}</p>}
     </div>
   );
 }

@@ -13,7 +13,7 @@
 | 6 | Participants: type, Excel import, duplicates, remove | **Built 12 Nov** (.xlsx read in the browser, no package; CSV) |
 | 7 | QR join page + TH IDs + participant page | **Built 12 Nov** (participant page needs its private link token) |
 | 8 | Login block in the quote email + Send login on Trainings | **Built 12 Nov**; links use `PORTAL_BASE_URL` (default work.thinkhealth.in/training; set it to https://training.thinkhealth.in on Vercel once DNS works) |
-| 9 | Design finish review + DESIGN.md + handoff | **Next** |
+| 9 | Design finish review + DESIGN.md + handoff | **Done 12 Nov** (2 review rounds; DESIGN.md written from the build) |
 | later | Green glowing row on a proposed date; Accept → Performa in Zoho + training scheduled | Idea (§5) |
 
 Also built along the way: on Quotations, clicking a quotation opens only that quotation, with its sent details, the new-quotation choice (same items, revised or from scratch) and the story from quotation to payment, or for training quotes to the certificates received.

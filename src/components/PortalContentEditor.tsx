@@ -15,8 +15,8 @@ import { btn, inputCls } from "./ui";
 type Saved = PortalContent & { by?: string; at?: string };
 
 // The portal's sign colours, for the tiles shown here (the staff pages don't carry the portal's colours).
-const SIGN_VARS = { "--sign-green": "#00843d", "--sign-red": "#c8102e", "--action": "#0077b6" } as React.CSSProperties;
-const SIGN_NAMES: Record<SignKey, string> = { "first-aid": "First Aid (green cross)", aed: "AED (green heart)", cpr: "CPR (blue)", fire: "Fire (red)" };
+const SIGN_VARS = { "--sign-green": "#00843d", "--sign-red": "#c8102e", "--sign-blue": "#005387" } as React.CSSProperties;
+const SIGN_NAMES: Record<SignKey, string> = { "first-aid": "First Aid (green cross)", aed: "AED (green heart)", cpr: "CPR (blue circle)", fire: "Fire (red, extinguisher)" };
 const signOf = (k: string) => SIGNS.find((s) => s.key === k) ?? SIGNS[0];
 
 /** A photo, made at most 1200 px wide as a JPEG, so the portal stays light on phones. */

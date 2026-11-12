@@ -8,6 +8,12 @@
         "value": "arial",
         "createdAt": "2026-10-08T10:13:58.265Z",
         "reason": "Claude: outgoing email HTML (src/lib/mailTemplates.ts) needs a web-safe font that renders in every mail client; not UI typography"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "arial",
+        "createdAt": "2026-11-12T04:33:53.400Z",
+        "reason": "Claude: outgoing email HTML (portal reset-code and login emails in src/app/api/portal/route.ts, src/lib/portalEmail.ts) needs a web-safe font stack that renders in every mail client; not portal UI typography"
       }
     ]
   }

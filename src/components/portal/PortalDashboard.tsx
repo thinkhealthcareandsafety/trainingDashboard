@@ -49,45 +49,57 @@ export function PortalDashboard({ me, number, welcome, onOut }: { me: Me; number
   return (
     <>
       {intro && <Welcome name={firstName(me)} onDone={() => setIntro(false)} />}
-      <div className={intro ? "invisible" : "portal-reveal"}>
-        <header className="bg-surface">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3.5 sm:px-8">
-            <div className="flex items-center gap-3.5">
-              {/* eslint-disable-next-line @next/next/no-img-element -- the brand mark, a fixed small PNG */}
-              <img src="/portal/think-health-logo.png" alt="Think Health" width={112} height={50} className="h-auto w-[96px] sm:w-[112px]" />
-              <span className="h-7 w-px bg-line" aria-hidden />
-              <span className="text-[14px] font-semibold tracking-tight text-ink-2 sm:text-[15px]">Training Manager</span>
+      {!intro && (
+        <div className="portal-reveal">
+          <header className="bg-navy text-white">
+            <div className="mx-auto max-w-6xl px-5 sm:px-8">
+              <div className="flex items-center justify-between gap-4 py-4">
+                <div className="flex items-center gap-3.5">
+                  {/* The wordmark on a white plate, the way it is mounted on a sign: the logo is blue on white. */}
+                  <span className="rounded-lg bg-white px-2.5 py-1.5 shadow-[0_2px_6px_rgb(0_20_35/0.3)]">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- the brand mark, a fixed small PNG */}
+                    <img src="/portal/think-health-logo.png" alt="Think Health" width={96} height={43} className="h-auto w-[80px] sm:w-[92px]" />
+                  </span>
+                  <span className="text-[14px] font-semibold tracking-tight text-white/90 sm:text-[15px]">Training Manager</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="hidden max-w-[28ch] truncate text-[13.5px] text-white/65 md:inline">{me.email}</span>
+                  <button type="button" onClick={out} className="rounded-lg px-3 py-2 text-[14px] font-semibold text-white ring-1 ring-inset ring-white/25 transition hover:bg-white/10">Sign out</button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-6 pb-8 pt-4 sm:pb-10 sm:pt-6 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h1 className="text-[34px] font-extrabold leading-[1.04] tracking-[-0.025em] sm:text-[48px]">Welcome, {firstName(me)}.</h1>
+                  <p className="mt-2.5 max-w-[56ch] text-[16px] leading-relaxed text-white/80 sm:text-[17px]">
+                    {home ? summary(home.trainings) : "Your trainings with Think Health, in one place."}
+                  </p>
+                </div>
+                <ul className="flex gap-4 sm:gap-5" aria-label="Our programmes">
+                  {SIGNS.map((s, i) => (
+                    <li key={s.key} className="flex w-14 flex-col items-center gap-1.5 text-center">
+                      <SignTile sign={s} size={40} delay={150 + i * 120} rim />
+                      <span className="text-[11.5px] font-semibold leading-tight text-white/75">{s.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="hidden max-w-[28ch] truncate text-[13.5px] text-muted md:inline">{me.email}</span>
-              <button type="button" onClick={out} className="rounded-lg px-3 py-2 text-[14px] font-semibold text-action hover:bg-ground">Sign out</button>
-            </div>
-          </div>
-        </header>
+          </header>
 
-        <section className="relative overflow-hidden bg-navy text-white">
-          <div className="pointer-events-none absolute -right-28 -top-28 h-96 w-96 rounded-full border-[32px] border-white/[0.05]" aria-hidden />
-          <div className="relative mx-auto max-w-6xl px-5 pb-12 pt-10 sm:px-8 sm:pb-16 sm:pt-14">
-            <div className="flex gap-2.5">{SIGNS.map((s, i) => <SignTile key={s.key} sign={s} size={40} delay={intro ? 0 : 150 + i * 120} />)}</div>
-            <h1 className="mt-6 text-[36px] font-extrabold leading-[1.04] tracking-[-0.025em] sm:text-[52px]">Welcome, {firstName(me)}.</h1>
-            <p className="mt-3 max-w-[52ch] text-[16px] leading-relaxed text-white/80 sm:text-[17px]">
-              {home ? summary(home.trainings) : "Your trainings with Think Health, in one place."}
-            </p>
-          </div>
-        </section>
-
-        <main className="mx-auto max-w-6xl px-5 sm:px-8">
-          {error && <p className="mt-8 rounded-xl bg-danger-bg px-4 py-3 text-[14.5px] text-danger" role="alert">{error}</p>}
-          {!home && !error && <div className="h-[60vh]" aria-busy aria-label="Loading your trainings" />}
-          {home && (
-            <>
-              <Programmes list={home.content.programmes} />
-              <Trainings list={home.trainings} focus={number} />
-            </>
-          )}
-        </main>
-        {home && <StayConnected social={home.content.social} />}
-      </div>
+          <main className="mx-auto max-w-6xl px-5 sm:px-8">
+            {error && <p className="mt-8 rounded-xl bg-danger-bg px-4 py-3 text-[14.5px] text-danger" role="alert">{error}</p>}
+            {!home && !error && <div className="h-[60vh]" aria-busy aria-label="Loading your trainings" />}
+            {home && (
+              <>
+                <Trainings list={home.trainings} focus={number} />
+                <Programmes list={home.content.programmes} />
+                <div className="h-16 sm:h-20" />
+              </>
+            )}
+          </main>
+          {home && <StayConnected social={home.content.social} />}
+        </div>
+      )}
     </>
   );
 }
@@ -100,7 +112,7 @@ function summary(t: Training[]): string {
 
 /* ---------------- The welcome: three lines, then the dashboard ---------------- */
 
-const WELCOME_MS = 4200;
+const WELCOME_MS = 4600;
 
 function Welcome({ name, onDone }: { name: string; onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
@@ -111,15 +123,15 @@ function Welcome({ name, onDone }: { name: string; onDone: () => void }) {
     window.addEventListener("keydown", key);
     return () => { clearTimeout(a); clearTimeout(b); window.removeEventListener("keydown", key); };
   }, [onDone]);
-  const lines = [`Welcome, ${name}.`, "Your trainings, managed in a single touch.", "Every attendee, accounted for."];
+  const lines = [`Welcome, ${name}.`, "Your trainings, managed in one place.", "Every attendee, accounted for."];
   return (
     <div role="dialog" aria-label="Welcome" onClick={onDone}
       className={`fixed inset-0 z-50 flex cursor-pointer flex-col justify-center bg-navy px-6 text-white transition-opacity duration-500 sm:px-16 ${leaving ? "opacity-0" : "opacity-100"}`}>
-      <div className="pointer-events-none absolute -right-32 -top-32 h-[28rem] w-[28rem] rounded-full border-[36px] border-white/[0.05]" aria-hidden />
       <div className="mx-auto w-full max-w-5xl">
+        <div className="mb-8 flex gap-3 sm:mb-10">{SIGNS.map((s, i) => <SignTile key={s.key} sign={s} size={52} delay={i * 140} rim />)}</div>
         {lines.map((l, i) => (
           <p key={l} className={`welcome-line ${i === 0 ? "text-[40px] sm:text-[72px]" : "mt-3 text-[24px] text-white/85 sm:mt-4 sm:text-[40px]"} font-extrabold leading-[1.06] tracking-[-0.03em]`}
-            style={{ animationDelay: `${i * 850}ms` }}>{l}</p>
+            style={{ animationDelay: `${650 + i * 800}ms` }}>{l}</p>
         ))}
       </div>
       <p className="absolute inset-x-0 bottom-8 text-center text-[13px] text-white/55">Tap anywhere to continue</p>
@@ -129,10 +141,10 @@ function Welcome({ name, onDone }: { name: string; onDone: () => void }) {
 
 /* ---------------- Our Programmes ---------------- */
 
-export function Programmes({ list, title = "Our Programmes" }: { list: Programme[]; title?: string }) {
+export function Programmes({ list, title = "Our programmes" }: { list: Programme[]; title?: string }) {
   return (
-    <section className="pt-12 sm:pt-16" aria-labelledby="programmes">
-      <h2 id="programmes" className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted">{title}</h2>
+    <section className="pt-4 sm:pt-6" aria-labelledby="programmes">
+      <h2 id="programmes" className="text-[26px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[32px]">{title}</h2>
       <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {list.map((p, i) => <ProgrammeTile key={p.key} p={p} delay={250 + i * 110} />)}
       </div>
@@ -147,7 +159,7 @@ function ProgrammeTile({ p, delay }: { p: Programme; delay: number }) {
   const poster = p.photo ? `/api/portal/photo?id=${p.photo}` : yt?.kind === "video" ? `https://i.ytimg.com/vi/${yt.id}/hqdefault.jpg` : "";
   return (
     <article className="sign-tile flex flex-col overflow-hidden rounded-2xl bg-surface shadow-[0_1px_2px_rgb(2_40_60/0.06)] ring-1 ring-line" style={{ animationDelay: `${delay}ms` }}>
-      <div className="relative aspect-video overflow-hidden" style={poster ? undefined : { background: sign.bg }}>
+      <div className="relative aspect-video overflow-hidden bg-ground">
         {playing && yt ? (
           <iframe src={yt.embed} title={`${p.name} video`} className="absolute inset-0 h-full w-full" allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen />
         ) : (
@@ -156,8 +168,8 @@ function ProgrammeTile({ p, delay }: { p: Programme; delay: number }) {
               // eslint-disable-next-line @next/next/no-img-element -- small photos and YouTube thumbnails, lazily loaded
               <img src={poster} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
             ) : (
-              <div className="absolute inset-0 grid place-items-center" aria-hidden>
-                <svg viewBox="0 0 32 32" className="h-[46%] w-auto opacity-95">{sign.icon}</svg>
+              <div className="absolute inset-0 grid place-items-center">
+                <SignTile sign={sign} size={76} delay={delay + 120} />
               </div>
             )}
             {yt && (
@@ -171,8 +183,7 @@ function ProgrammeTile({ p, delay }: { p: Programme; delay: number }) {
           </>
         )}
       </div>
-      <div className="flex flex-1 flex-col gap-2.5 p-3.5 sm:flex-row sm:gap-3.5 sm:p-4">
-        <SignTile sign={sign} size={34} />
+      <div className="flex-1 p-3.5 sm:p-4">
         <div className="min-w-0">
           <h3 className="text-[16px] font-extrabold sm:text-[17px] leading-tight tracking-[-0.01em] text-ink">{p.name}</h3>
           {p.line && <p className="mt-1 text-[13px] leading-snug text-ink-2 sm:text-[14px]">{p.line}</p>}
@@ -186,8 +197,8 @@ function ProgrammeTile({ p, delay }: { p: Programme; delay: number }) {
 
 function Trainings({ list, focus }: { list: Training[]; focus?: string }) {
   return (
-    <section className="pb-16 pt-12 sm:pb-20 sm:pt-16" aria-labelledby="trainings">
-      <h2 id="trainings" className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted">Your trainings</h2>
+    <section className="pb-14 pt-9 sm:pb-16 sm:pt-11" aria-labelledby="trainings">
+      <h2 id="trainings" className="text-[26px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[32px]">Your trainings</h2>
       {list.length ? (
         <div className="mt-5 space-y-4">{list.map((t) => <TrainingPanel key={t.id} t={t} focused={t.number === focus} />)}</div>
       ) : (
@@ -218,16 +229,16 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           <p className="num text-[13px] font-semibold text-muted">{t.number}{t.date ? ` · ${fmtDate(t.date)}` : ""}</p>
           <h3 className="mt-1 text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink sm:text-[24px]">{title}</h3>
           {t.customer && <p className="mt-1 text-[14.5px] text-ink-2">{t.customer}</p>}
-          <div className="mt-3 sm:hidden"><Stamp key={t.stamp} label={t.stamp} /></div>
+          <div className="mt-3 sm:hidden"><Stamps t={t} /></div>
         </div>
-        <div className="hidden sm:block"><Stamp key={t.stamp} label={t.stamp} /></div>
+        <div className="hidden sm:block"><Stamps t={t} /></div>
       </div>
 
       {/* Step 5: the date, the place, how many. */}
       <div className="border-b border-line p-5 sm:p-7">
         {editing ? (
           <>
-            <p className={`${sub} mb-4`}>{t.proposal ? "Change the date, place or headcount" : "Propose a date"}</p>
+            <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">{t.proposal ? "Change the date, place or headcount" : "Propose a date"}</h4>
             <ProposeForm t={tool} onCancel={() => setEditing(false)} onSaved={(proposal, history) => { setT({ ...t, proposal, history, stamp: "Proposed" }); setEditing(false); }} />
           </>
         ) : t.proposal ? (
@@ -246,23 +257,19 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
         )}
       </div>
 
-      {/* Steps 6–7: the attendee list. */}
+      {/* Steps 6–7: the attendee list. The toggle doesn't animate its colour (transition-none), so no frame shows it blank. */}
       <div className="border-b border-line p-5 sm:p-7">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className={sub}>Participants</p>
             <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
           </div>
-          <button type="button" className={people ? secondaryBtn : primaryBtn} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Close the list" : "Add participants"}</button>
+          <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Close the list" : "Add participants"}</button>
         </div>
-        {people && <div className="mt-6"><Participants t={tool} confirmed={t.proposal?.headcount ?? t.expected} onCount={(registered) => setT((x) => ({ ...x, registered }))} /></div>}
+        {people && <div className="mt-6"><Participants t={tool} onCount={(registered) => setT((x) => ({ ...x, registered }))} /></div>}
       </div>
 
-      <div className="grid gap-6 p-5 sm:grid-cols-[180px_minmax(0,1fr)] sm:gap-8 sm:p-7">
-        <div>
-          <p className={sub}>Expected participants</p>
-          <p className="num mt-1 text-[44px] font-extrabold leading-none tracking-[-0.03em] text-navy">{t.expected || "—"}</p>
-        </div>
+      <div className="p-5 sm:p-7">
         <div className="min-w-0">
           <p className={sub}>What&apos;s included</p>
           <div className="mt-2 space-y-4">
@@ -291,11 +298,24 @@ function Included({ name, text }: { name: string; text: string }) {
   );
 }
 
-/** A state stamp (Awaiting date → Proposed → Confirmed → Done): it stamps onto the panel and never vanishes. */
-function Stamp({ label }: { label: string }) {
-  const solid = label !== "Awaiting date";
+/** The state stamps (Awaiting date → Proposed → Confirmed → Done): each lands like an ink stamp and none ever goes;
+ * the earlier ones stay on the panel, faded, with the date they landed. */
+function Stamps({ t }: { t: Training }) {
+  const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const list = [{ label: "Awaiting date", date: t.date ? shortDate(`${t.date}T00:00:00`) : "" }, ...(t.proposal ? [{ label: "Proposed", date: shortDate(t.proposal.at) }] : [])];
   return (
-    <span className={`stamp inline-block shrink-0 rotate-[-4deg] rounded-md border-2 px-2.5 py-1 text-[11.5px] font-extrabold uppercase tracking-[0.14em] ${solid ? "border-navy bg-navy text-white" : "border-navy/70 text-navy/80"}`}>{label}</span>
+    <div className="flex flex-wrap items-center gap-2.5 sm:flex-col sm:items-end">
+      {list.map((st, i) => <Stamp key={st.label} label={st.label} date={st.date} past={i < list.length - 1} />)}
+    </div>
+  );
+}
+
+function Stamp({ label, date, past }: { label: string; date: string; past: boolean }) {
+  return (
+    <span className={`${past ? "scale-90 opacity-40" : "stamp"} inline-flex rotate-[-4deg] flex-col items-center rounded-md border-2 border-navy px-2.5 pb-1 pt-1.5 text-navy shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--navy)]`}>
+      <span className="text-[11.5px] font-extrabold uppercase leading-none tracking-[0.14em]">{label}</span>
+      {date && <span className="num mt-1 text-[10px] font-bold uppercase leading-none tracking-[0.1em]">{date}</span>}
+    </span>
   );
 }
 
@@ -317,7 +337,7 @@ export function StayConnected({ social }: { social: Social[] }) {
       <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-14">
         {shown.length > 0 && (
           <>
-            <h2 className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/60">Stay connected</h2>
+            <h2 className="text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-white sm:text-[28px]">Stay connected</h2>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {shown.map((s) => (
                 <a key={s.key} href={s.url} target="_blank" rel="noopener noreferrer"

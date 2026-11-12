@@ -67,11 +67,10 @@ function SignInScreen({ number, onIn }: { number?: string; onIn: (m: Me) => void
     <main className="grid min-h-screen lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
       {/* The navy panel: the programmes in safety-sign language, and what this place is for. */}
       <section className="relative flex flex-col justify-between overflow-hidden bg-navy px-6 py-8 text-white sm:px-10 lg:min-h-screen lg:px-14 lg:py-14">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full border-[28px] border-white/5" aria-hidden />
         <div className="hidden lg:block" aria-hidden />
         <div>
           <div className="flex flex-wrap gap-2.5 sm:gap-3">
-            {SIGNS.map((s, i) => <SignTile key={s.key} sign={s} size={48} delay={120 + i * 110} />)}
+            {SIGNS.map((s, i) => <SignTile key={s.key} sign={s} size={48} delay={120 + i * 110} rim />)}
           </div>
           <h2 className="mt-5 max-w-[15ch] text-[28px] font-extrabold leading-[1.08] tracking-[-0.02em] sm:mt-8 sm:text-[44px] lg:text-[52px]">Your trainings, in one place.</h2>
           <p className="mt-4 hidden max-w-[46ch] text-[16px] leading-relaxed text-white/80 sm:block">Propose a date, confirm how many will attend, and gather your attendee list. Think Health sees it the moment you do.</p>
