@@ -324,6 +324,11 @@ const connection = async () => {
   return c;
 };
 
+/** Any Zoho Books call on the quotations connection (full access) — the Performa from a quotation (performa.ts). */
+export async function booksApi(method: "GET" | "POST" | "PUT", path: string, params: Record<string, string> = {}, body?: unknown): Promise<Record<string, unknown>> {
+  return books(await connection(), method, path, params, body);
+}
+
 /** Creates the quotation in Zoho Books; `send` = Zoho emails it (standard email + PDF) to the contact persons on it. */
 export async function createQuote(q: QuoteInput & { send: boolean }): Promise<MadeQuote> {
   return made(await books(await connection(), "POST", "/estimates", { send: String(q.send) }, quoteBody(q)));

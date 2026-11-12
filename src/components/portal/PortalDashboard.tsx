@@ -12,7 +12,7 @@ import { Participants, ProposalView, ProposeForm, primaryBtn, secondaryBtn } fro
  * trainings as sign panels with a state stamp, and Stay connected. Prices are never shown here.
  */
 type Me = { email: string; name: string };
-type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number };
+type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -244,10 +244,14 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
         ) : t.proposal ? (
           <>
             <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
-            <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <button type="button" className={secondaryBtn} onClick={() => setEditing(true)}>Change</button>
-              <span className="text-[13.5px] text-muted">Sent to Think Health. We&apos;ll confirm with you.</span>
-            </div>
+            {t.confirmedAt ? (
+              <p className="mt-5 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, write to <a className="font-semibold text-action hover:underline" href="mailto:learn@thinkhealth.in">learn@thinkhealth.in</a>.</p>
+            ) : (
+              <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <button type="button" className={secondaryBtn} onClick={() => setEditing(true)}>Change</button>
+                <span className="text-[13.5px] text-muted">Sent to Think Health. We&apos;ll confirm with you.</span>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -302,7 +306,7 @@ function Included({ name, text }: { name: string; text: string }) {
  * the earlier ones stay on the panel, faded, with the date they landed. */
 function Stamps({ t }: { t: Training }) {
   const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const list = [{ label: "Awaiting date", date: t.date ? shortDate(`${t.date}T00:00:00`) : "" }, ...(t.proposal ? [{ label: "Proposed", date: shortDate(t.proposal.at) }] : [])];
+  const list = [{ label: "Awaiting date", date: t.date ? shortDate(`${t.date}T00:00:00`) : "" }, ...(t.proposal ? [{ label: "Proposed", date: shortDate(t.proposal.at) }] : []), ...(t.confirmedAt ? [{ label: "Confirmed", date: shortDate(t.confirmedAt) }] : [])];
   return (
     <div className="flex flex-wrap items-center gap-2.5 sm:flex-col sm:items-end">
       {list.map((st, i) => <Stamp key={st.label} label={st.label} date={st.date} past={i < list.length - 1} />)}

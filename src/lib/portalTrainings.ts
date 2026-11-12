@@ -19,7 +19,10 @@ type Coordinator = { name: string; email: string; phone: string; contactPersonId
 export type TrainingDoc = {
   _id: string; customerId?: string; coordinator?: Coordinator;
   proposal?: Proposal; history?: Proposal[]; joinKey?: string; loginSentAt?: string; createdAt?: string; updatedAt?: string;
+  /** Accept date → Performa (owner, 12 Nov): we accepted the proposal and made the Draft Performa from the quote. */
+  confirmed?: Confirmed;
 };
+export type Confirmed = { at: string; by: string; salesorderId: string; number: string; emailedAt?: string };
 export type Source = "typed" | "excel" | "qr";
 type ParticipantDoc = { _id: string; trainingId: string; name: string; phone: string; email?: string; source: Source; token: string; addedAt: string };
 
@@ -51,7 +54,7 @@ async function idOfNumber(number: string): Promise<string | null> {
   return hit ? String(hit.doc.estimate_id) : null;
 }
 
-const stampOf = (t: TrainingDoc): Stamp => (t.proposal ? "Proposed" : "Awaiting date");
+const stampOf = (t: TrainingDoc): Stamp => (t.confirmed ? "Confirmed" : t.proposal ? "Proposed" : "Awaiting date");
 const titleOf = (q: TrainingQuote) => q.lines.map((l) => l.name).join(" + ") || "Training";
 
 async function peopleOf(trainingId: string): Promise<ParticipantDoc[]> {
@@ -64,7 +67,7 @@ async function peopleOf(trainingId: string): Promise<ParticipantDoc[]> {
 export type PortalTraining = {
   id: string; number: string; customer: string; date: string;
   lines: { name: string; description: string; qty: number }[];
-  expected: number; stamp: Stamp; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number;
+  expected: number; stamp: Stamp; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null;
 };
 
 /** The trainings this coordinator was named on (step 2), newest first. A join key is made the first time they're shown. */
@@ -81,7 +84,7 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
     out.push({
       id: x.id, number: x.number, customer: x.customer, date: x.date,
       lines: x.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })),
-      expected: x.expected, stamp: stampOf(t), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length,
+      expected: x.expected, stamp: stampOf(t), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.at ?? null,
     });
   }
   return out.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
@@ -98,6 +101,7 @@ const notYours: Fail = { error: "That training isn't on your list", status: 404 
 export async function propose(email: string, id: unknown, raw: unknown): Promise<{ ok: true; proposal: Proposal } | Fail> {
   const t = await own(email, id);
   if (!t) return notYours;
+  if (t.confirmed) return { error: "Think Health has confirmed this date. To change it, write to learn@thinkhealth.in.", status: 409 };
   const p = readProposal(raw, indiaToday());
   if ("error" in p) return { error: p.error, status: 400 };
   if (t.proposal && sameProposal(t.proposal, p)) return { ok: true, proposal: t.proposal };
@@ -220,8 +224,8 @@ export async function participantPage(number: unknown, th: unknown, token: unkno
 
 /* ---------------- Our side: the Trainings page ---------------- */
 
-export type PortalStatus = "No coordinator" | "Login not sent" | "Login sent" | "Logged in" | "Date proposed";
-export type StaffPortal = { status: PortalStatus; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null };
+export type PortalStatus = "No coordinator" | "Login not sent" | "Login sent" | "Logged in" | "Date proposed" | "Confirmed";
+export type StaffPortal = { status: PortalStatus; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: Confirmed | null };
 
 /** Each training's portal state, for the Trainings page list. */
 export async function staffPortal(ids: string[]): Promise<Map<string, StaffPortal>> {
@@ -235,8 +239,8 @@ export async function staffPortal(ids: string[]): Promise<Map<string, StaffPorta
   const out = new Map<string, StaffPortal>();
   for (const t of docs) {
     const lastLogin = logins.get((t.coordinator?.email ?? "").toLowerCase()) ?? null;
-    const status: PortalStatus = !t.coordinator ? "No coordinator" : t.proposal ? "Date proposed" : lastLogin ? "Logged in" : t.loginSentAt ? "Login sent" : "Login not sent";
-    out.set(t._id, { status, proposal: t.proposal ?? null, history: t.history ?? [], registered: counts.get(t._id) ?? 0, loginSentAt: t.loginSentAt ?? null, lastLogin });
+    const status: PortalStatus = !t.coordinator ? "No coordinator" : t.confirmed ? "Confirmed" : t.proposal ? "Date proposed" : lastLogin ? "Logged in" : t.loginSentAt ? "Login sent" : "Login not sent";
+    out.set(t._id, { status, proposal: t.proposal ?? null, history: t.history ?? [], registered: counts.get(t._id) ?? 0, loginSentAt: t.loginSentAt ?? null, lastLogin, confirmed: t.confirmed ?? null });
   }
   return out;
 }
@@ -268,4 +272,14 @@ export async function setCoordinator(id: string, customerId: string, co: Coordin
   const had = await col.findOne({ _id: id });
   const { _id: _, ...rest } = had ?? { _id: id };
   await col.replaceOne({ _id: id }, { ...rest, customerId, coordinator: co, updatedAt: at, createdAt: had?.createdAt ?? at }, { upsert: true });
+}
+
+/** Accept date → Performa: the proposal accepted and its Draft Performa noted (the portal stamps Confirmed). */
+export async function markConfirmed(id: string, c: Confirmed): Promise<void> {
+  await (await trainingsCol()).updateOne({ _id: id }, { $set: { confirmed: c, updatedAt: c.at } });
+}
+
+/** The Performa went out by email from the Trainings page. */
+export async function markPerformaEmailed(id: string): Promise<void> {
+  await (await trainingsCol()).updateOne({ _id: id }, { $set: { "confirmed.emailedAt": new Date().toISOString() } });
 }

@@ -79,7 +79,7 @@ test("route: who may read and change what", async () => {
   assert.equal((await call("GET", null)).status, 401);
   assert.equal((await call("GET", priyanka)).status, 403);
   const list = (await call("GET", ashish)).json.templates as Entry[];
-  assert.equal(list.length, 7 + 19 + 7 + 7 + 3 + 1 + 2); // + the Training Manager login's two
+  assert.equal(list.length, 7 + 19 + 7 + 7 + 3 + 1 + 2 + 1); // + the Training Manager login's two, the Performa email
   assert.equal(list.find((t) => t.key === "quote:new")!.canEdit, true);
   assert.equal(list.find((t) => t.key === "aed_onboarding:0")!.canEdit, false);
   assert.equal((await call("PUT", ashish, { key: "aed_onboarding:1", body: "x {invoice}" })).status, 403);

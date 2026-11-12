@@ -6,6 +6,7 @@ import type { TrainingQuote } from "@/lib/trainingManager";
 import { type Proposal, fmtProposalDate } from "@/lib/portalRules";
 import { Modal, Skeleton, btn, inputCls } from "./ui";
 import { QuoteStory } from "./QuoteStory";
+import { PerformaEditor } from "./PerformaEditor";
 import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 
 // Training Management (docs/TRAINING_MANAGER_PLAN.md): the training-only quotes and their Training Manager — the
@@ -13,14 +14,14 @@ import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const STATUS: Record<string, string> = { draft: "Draft", sent: "Sent", accepted: "Accepted", declined: "Declined", invoiced: "Invoiced", expired: "Expired" };
 
-type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null };
+type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string } | null };
 type Quote = TrainingQuote & { portal: Portal | null };
 type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr"; addedAt: string; duplicate: boolean };
 
 const portalStatus = (x: Quote) => x.portal?.status ?? (x.coordinator ? "Login not sent" : "No coordinator");
-const proposed = (x: Quote) => Boolean(x.portal?.proposal);
+const proposed = (x: Quote) => Boolean(x.portal?.proposal) && !x.portal?.confirmed;
 const STATUS_TONE: Record<string, string> = {
-  "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Date proposed": "font-semibold text-low",
+  "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Date proposed": "font-semibold text-low", "Confirmed": "text-ink-2",
 };
 
 export function TrainingManagement() {
@@ -96,7 +97,13 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
   const row = (k: string, v: React.ReactNode) => <div className="flex gap-3 py-1.5 text-[14px]"><span className="w-32 shrink-0 text-muted">{k}</span><span className="min-w-0 break-words text-ink">{v || "—"}</span></div>;
   return (
     <div className="space-y-5">
-      {x.portal?.proposal && <ProposalCard p={x.portal.proposal} history={x.portal.history} expected={x.expected} />}
+      {x.portal?.proposal && <ProposalCard id={x.id} p={x.portal.proposal} history={x.portal.history} expected={x.expected} confirmed={x.portal.confirmed} onChanged={onChanged} />}
+      {x.portal?.confirmed && (
+        <section className={card}>
+          <p className={label}>Performa</p>
+          <div className="mt-2"><PerformaEditor id={x.id} /></div>
+        </section>
+      )}
       <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
         <div className="space-y-5">
           <section className={card}>
@@ -133,13 +140,25 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
 }
 
 /** Step 5, our side: what the coordinator proposed, with the earlier values struck through. */
-function ProposalCard({ p, history, expected }: { p: Proposal; history: Proposal[]; expected: number }) {
+function ProposalCard({ id, p, history, expected, confirmed, onChanged }: { id: string; p: Proposal; history: Proposal[]; expected: number; confirmed: Portal["confirmed"]; onChanged: () => void }) {
   const prev = history.at(-1);
   const differs = expected > 0 && p.headcount !== expected;
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  // Accept date → Performa (owner, 12 Nov): confirmed on our side first, then Accept makes the Draft Performa in Zoho.
+  const accept = async () => {
+    if (!window.confirm(`Accept this date? The quotation becomes a Draft Performa in Zoho (training at ${p.headcount} people, Training Date ${fmtProposalDate(p.dates[0])}), and the coordinator's portal shows Confirmed.`)) return;
+    setBusy(true); setMsg("");
+    const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "accept", id }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!j.ok) return setMsg(j.error ?? "Couldn't accept it");
+    onChanged();
+  };
   return (
-    <section className="rounded-2xl border-2 border-low bg-low-bg/50 p-4 shadow-[0_0_0_4px_color-mix(in_srgb,var(--low)_12%,transparent)]">
+    <section className={confirmed ? "rounded-2xl border border-line bg-surface-2/40 p-4" : "rounded-2xl border-2 border-low bg-low-bg/50 p-4 shadow-[0_0_0_4px_color-mix(in_srgb,var(--low)_12%,transparent)]"}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[15px] font-semibold text-low">Date proposed by the coordinator</p>
+        <p className={`text-[15px] font-semibold ${confirmed ? "text-ink" : "text-low"}`}>{confirmed ? `Date accepted by ${confirmed.by}, ${fmtDate(confirmed.at, { day: "numeric", month: "short" })}` : "Date proposed by the coordinator"}</p>
         <span className="text-[12.5px] text-muted">{fmtDate(p.at, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}{history.length ? ` · changed ${history.length} time${history.length > 1 ? "s" : ""}` : ""}</span>
       </div>
       <div className="mt-3 grid gap-4 sm:grid-cols-3">
@@ -159,6 +178,13 @@ function ProposalCard({ p, history, expected }: { p: Proposal; history: Proposal
           {prev && prev.headcount !== p.headcount && <p className="text-[13px] text-muted line-through">{prev.headcount} people</p>}
         </div>
       </div>
+      {!confirmed && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" className={btn.primary} disabled={busy} onClick={accept}>{busy ? "Making the Performa in Zoho…" : "Accept date → make Performa"}</button>
+          <span className="text-[12.5px] text-muted">Confirm with the client first. You edit the draft Performa here after.</span>
+        </div>
+      )}
+      {msg && <p className="mt-2 text-[13px] text-high" role="alert">{msg}</p>}
     </section>
   );
 }

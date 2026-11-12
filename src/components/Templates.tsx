@@ -6,6 +6,7 @@ import { buildTsEmail } from "@/lib/totalSupply";
 import { renderTemplate, templateProblems } from "@/lib/templateText";
 import { fmtDate } from "@/lib/dates";
 import { PORTAL_TEMPLATES, loginBoxHtml, loginEmail } from "@/lib/portalEmail";
+import { piEmail } from "@/lib/performaRules";
 import { btn, inputCls, selectCls } from "./ui";
 
 /*
@@ -15,7 +16,7 @@ import { btn, inputCls, selectCls } from "./ui";
  */
 
 type Entry = {
-  key: string; group: "quote" | "topic" | "ts" | "sign" | "portal" | "aed" | "fulfil"; label: string; owner?: string;
+  key: string; group: "quote" | "topic" | "ts" | "pi" | "sign" | "portal" | "aed" | "fulfil"; label: string; owner?: string;
   subject: string | null; body: string; builtin: { subject: string | null; body: string };
   vars: string[]; choices: boolean; adminOnly: boolean; note?: string;
   edited: boolean; editedBy?: string; editedAt?: string; canEdit: boolean;
@@ -25,6 +26,7 @@ const GROUPS: { id: Entry["group"]; label: string }[] = [
   { id: "quote", label: "Quotation emails" },
   { id: "topic", label: "Item paragraphs" },
   { id: "ts", label: "Total Supply emails" },
+  { id: "pi", label: "Performa emails" },
   { id: "sign", label: "Signatures" },
   { id: "portal", label: "Training Manager login" },
   { id: "aed", label: "AED onboarding (hello@)" },
@@ -41,6 +43,7 @@ const VAR_HELP: Record<string, string> = {
   invoice: "the invoice number", person: "the concerned person (or \"Sir/ Ma'am\")", location: "the training's location", customer: "the customer's name",
   course: "the training's name", dates: "the training dates", people: "how many people came",
   training: "the training's name, \"CPR & AED Training\"",
+  quote: "the quotation number",
 };
 
 // A made-up quote, so the preview shows every part (nothing here is a real customer).
@@ -73,6 +76,10 @@ function preview(e: Entry, subject: string, body: string, noExpiry: boolean, sav
     const o = { ...saved, [e.key]: { subject, body } };
     const m = e.group === "ts" ? buildTsEmail(id, q, [], o) : buildQuoteEmail(id, q, [], undefined, o);
     return { subject: m.subject, html: m.html };
+  }
+  if (e.group === "pi") {
+    const m = piEmail({ subject, body }, { name: "Riya Mehta", number: "Performa-25-1196", quote: SAMPLE.number, training: "CPR & AED Training", dates: "Fri, 4 Dec 2026, 10:00 am + Sat, 5 Dec 2026", location: "The Grand, Pune · Ballroom 2", people: "36", total: "₹45,000", sign: `Warm regards,\n${signature(SAMPLE.salesperson ?? "", saved)}` });
+    return { subject: m.subject, html: textHtml(m.text) };
   }
   if (e.group === "portal") {
     const v = { name: "Riya Mehta", training: "CPR & AED Training", number: SAMPLE.number };
@@ -238,7 +245,7 @@ export function Templates() {
             </label>
           )}
         </div>
-        <p className="mt-0.5 text-[12px] text-faint">{entry.group === "sign" ? "As it shows under the email." : entry.group === "aed" || entry.group === "fulfil" || entry.group === "portal" ? "Filled in with made-up details." : `A made-up quote: ${SAMPLE.lines.map((l) => l.name).join(", ")}.`}</p>
+        <p className="mt-0.5 text-[12px] text-faint">{entry.group === "sign" ? "As it shows under the email." : entry.group === "aed" || entry.group === "fulfil" || entry.group === "portal" || entry.group === "pi" ? "Filled in with made-up details." : `A made-up quote: ${SAMPLE.lines.map((l) => l.name).join(", ")}.`}</p>
         {shown ? (
           <>
             {shown.subject !== null && <p className="mt-3 text-[13.5px]"><span className="text-muted">Subject: </span><span className="font-medium">{shown.subject}</span></p>}

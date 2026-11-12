@@ -8,7 +8,7 @@ import { cleanPhone } from "./trainingManager";
 
 export type ProposalDate = { date: string; time: string }; // "2026-12-04", "10:00" ("" = no time yet)
 export type Proposal = { dates: ProposalDate[]; tentative: boolean; location: string; headcount: number; at: string; by: string };
-export type Stamp = "Awaiting date" | "Proposed";
+export type Stamp = "Awaiting date" | "Proposed" | "Confirmed";
 
 export const MAX_DATES = 10;
 export const MAX_PEOPLE = 2000;
