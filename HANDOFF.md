@@ -1,9 +1,105 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Tue 10 Nov 2026 (end of session 25). **Live = `d499663`** (both addresses; Vercel status success); GitHub = this docs commit. Written for the next
-Claude Code session (and the owner, sshah@thinkhealth.in)._
+_Last updated: Thu 12 Nov 2026 (end of session 26). **Live = `a101b19`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel status
+success); GitHub = this docs commit. Written for the next Claude Code session (and the owner, sshah@thinkhealth.in)._
 
-**Start of the next session (26) — do these first:**
+**Start of the next session (27). Do these first:**
+1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
+2. `npm test` (**221** should pass) and `npx tsc --noEmit -p tsconfig.json`. If `.next/types` errors name the old paths (`src/app/calendar/page.js`
+   and so on), they're stale: `npx next build` regenerates them. The staff pages now live in `src/app/(staff)/`.
+3. **training.thinkhealth.in:** `nslookup training.thinkhealth.in 1.1.1.1`. On 12 Nov it didn't exist yet.
+   - Vercel side: done by the owner on 11 Nov. The domain was added to this same project (Production) and shows "Invalid Configuration" until the
+     DNS record exists.
+   - Cloudflare side: still to do, by whoever manages thinkhealth.in's Cloudflare (the owner can't see that account). The record:
+     **CNAME `training` → `4145140deaae64f5.vercel-dns-017.com`, DNS only (grey cloud)**, the same target as work.thinkhealth.in.
+   - Once it resolves: `curl https://training.thinkhealth.in/` should give the title "Think Health Training Manager".
+     `/Quotation-24-002787` should show "Training Quotation-24-002787". `/quotations` must show the portal, never the dashboard.
+4. Read-only checks:
+   - `portalTrainings`: the coordinators saved by quote emails. On 11 Nov there was one, Quotation-24-002787 · dashboard testing · Jasmeet.
+   - `quoteEmailLog`: full records of every quote email sent from the dashboard since 11 Nov.
+   - `portalLogins`: should still be empty, since nothing creates logins yet (step 8).
+   - Don't print emails' bodies, phone numbers or any hash.
+5. Ask the owner, in one AskUserQuestion round:
+   - Is the Cloudflare record added?
+   - Did the coordinator rename work? Sending to "dashboard testing" with Jasmeet should have turned the Zoho contact "think s" into "Jasmeet". I
+     haven't seen it happen. If Zoho refused the empty last name, the error showed next to Send.
+   - Should step 4 start?
+6. **Next to build: step 4 of `docs/TRAINING_MANAGER_PLAN.md`.** Restate with defaults and wait for "yeah". Contents:
+   - the welcome sequence;
+   - Our Programmes as sign tiles;
+   - Your trainings: the name without "(I)", the item description, the expected people;
+   - the Stay connected cards (thinkhealth.in, LinkedIn, Instagram, YouTube playlist, Facebook; links in PRODUCT.md);
+   - the staff **"Portal content"** screen to edit programme names, descriptions, YouTube links, photos and social links.
+   - Then steps 5–8 in order. Step 8 creates logins with `issueLogin` and adds the login box to the quote email. Its link should be
+     training.thinkhealth.in/<number> once that resolves, and work.thinkhealth.in/training/<number> until then.
+
+**Session 26 in short (10–12 Nov), all live at `a101b19`:**
+- **10 Nov, before the Training Manager:** each person's own signature (`4612c59`). Zia sends both key spellings, Quote/Prompt (`6a74414`): the
+  owner still has to save the Flow steps, and the last run still failed. Member **Anuj Agarwal** with full access (`48aa15f`; PIN set by the owner,
+  never stored). Brochure 404 fixed by `parseZoho`, which keeps 18-digit ids whole (`907a2e7`). Anuj off the Progress tracker entirely (`a97ca10`,
+  `d3972db`; `hiddenFromTracker` in `progress/model.ts`).
+- **Training Manager plan**: `docs/TRAINING_MANAGER_PLAN.md` (`f23f100`, `8977b9d`, `1e5b71d`) is the source of truth. PRODUCT.md is the
+  Impeccable product record. `.impeccable/surfaces/src-app-training.md` is the design brief: the **Safety-sign** direction, seed `ea9867ba`, with a
+  FINISH line still to discharge at the end (finish review, DESIGN.md, raster provenance). Owner's answers:
+  - only training-only quotes get a portal;
+  - mail is sent from learn@ through Zoho Mail;
+  - the quote PDF stays in the first email and the login box is added;
+  - no hotel logos and no AHA logo;
+  - staff edit videos and links themselves;
+  - the Zoho test customer is **"dashboard testing"**;
+  - English, phone-first.
+- **Step 1, the Trainings page** `/training-management` (`157950c`): built from `zohoDocs` training-only estimates (`isTrainingOnly`, travel lines
+  aside). Now with the quotation story and the coordinator (`d606d0d`).
+- **Step 2, the coordinator in the quote email** (`8154a71`, `2145896`, `ebcd064`, `f3e7d40`, `4f52ca0`):
+  - **The box:** shown when the quote has a training topic. Name, number and email are required; a first name alone is enough, and the number
+    must be a 10-digit mobile.
+  - **"Same as original":** per field (All / Name / Number / Email), copied from the person ticked in To.
+  - **On send:** `upsertCoordinator` adds the coordinator to the Zoho customer with designation Training Coordinator. If someone with that email
+    exists, Zoho gets the typed name and mobile, and the designation only when theirs is empty.
+  - **Recipients:** To is the coordinator; the others ticked are copied in Cc. Saved in `portalTrainings`.
+  - **Also:** sales@ and sshah@ in Cc became untickable checkboxes (`ccOff`), and the reason Send is greyed out shows next to it.
+- **Quotations, one quotation's view** (`2c5fa33`, `bcae9eb`, `d2a3bb5`, `26f10d5`, `1fd5e97`):
+  - **Opening it:** clicking a customer row opens `QuoteView` for their latest quote (`?view=<id>`: estimate, Zoho comments, `quoteEmailLog`,
+    coordinator, training flag). A customer with no quote opens the quote form as before.
+  - **Sent details:** every email sent from the dashboard is kept in full from 11 Nov.
+  - **New quotation** gives three choices in a centred pop-up:
+    - Same items (`mode: "copy"`);
+    - Revised quotation (`mode: "revise"`: same number, POST with `revise: true`, allowed for draft, sent, declined or expired);
+    - From scratch.
+  - **The story** (`lib/quoteStory.ts` `storyPhases`, `components/QuoteStory.tsx`): one box per phase, status inside, in a snake.
+    - Every quote: Quotation → Performa → Invoice → Payment received. Links: the Performa's reference or Zoho's "converted to Sales Order X" line;
+      the invoice's reference; payments by invoice id.
+    - Training quotes add, from the boards (built in the browser with `usePipeline`, `buildBoard` and `buildFulfillmentBoard`, plus
+      `set_logistics` events): Training scheduled, Training completed, Gratitude, Certificates, Sent to Logistics, Packed, Shipped, Received by
+      client.
+    - Zoho's automation lines are hidden behind "Show all".
+  - **Pop-ups:** `Modal` in ui.tsx is now a portal on `<body>` (it drifted when the page scrolled). It locks page scroll, and has `size="xl"` and
+    `top`.
+- **Step 3, the portal sign-in** (`fe6ad0f`):
+  - **Layout:** the staff pages moved into the route group `src/app/(staff)/` with the old root layout, same URLs. The portal has its own root
+    layout, `src/app/training/layout.tsx` (Manrope, `portal.css`). Moving between the two causes a full page load, as the docs say.
+  - **Pages:** `/training` and `/training/[number]` render `components/portal/PortalLogin.tsx`: a navy panel with the 4 sign tiles (`SignTiles.tsx`)
+    and a white panel with the logo (`public/portal/think-health-logo.png`, from thinkhealth.in's Wix assets), the title and the form.
+  - **Auth** (`lib/portalAuth.ts`, `/api/portal` GET + POST actions signin, signout, code, reset):
+    - `portalLogins` (_id = email): password scrypt + salt, 5 wrong tries → 15 minutes locked; OTP hashed, 10 minutes, 5 tries, 3 an hour.
+    - `portalSessions`: sha256 of the token, 30 days. Cookie `th_portal`: HttpOnly, SameSite=Lax, Secure on Vercel.
+    - The reset code goes from learn@ through `sendMail`, and only from the live site.
+    - The answers never reveal whether an email has a login.
+  - **Logins:** none exist yet. They're created by step 8. A test login would be test data in the live database: don't make one without asking.
+- **Domain** (`a101b19`): `src/proxy.ts` (Next 16 renamed middleware to proxy) plus `lib/portalHost.ts`. On training.thinkhealth.in, `/` →
+  `/training` and `/<x>` → `/training/<x>`. The matcher skips `_next`, `api`, `portal` and favicon. Other hosts pass straight through.
+- **Open points:**
+  - FLAME University's Performa box shows "Not yet" although the deal is invoiced: the board doesn't mark it as `piSkipped`.
+  - Packed, Shipped and Received haven't been seen with real data.
+  - The Trainings page pop-up still takes a moment to load the story, because it fetches `/api/sales` and `/api/pipeline` in the browser.
+- **Traps learned this session:**
+  - The auto-mode classifier blocked one `git push` run in the background. Run the push in the foreground.
+  - On Windows, `Stop-Process` on `next start` leaves the port held for a while: use a fresh port each time (3041 was the last).
+  - A Windows lock stopped `git mv` of a whole folder. Moving the files one by one worked.
+  - In a JS `String.replace` replacement, `$$` turns into `$`: use split/join.
+  - sed with `\n` tripped the rm safety check. Write edit scripts with the Write tool.
+
+**(Done) Start of session 26 — old checklist, kept for reference:**
 1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
 2. `npm test` (**199** should pass) and `npx tsc --noEmit -p tsconfig.json`.
 3. Read-only checks as in step 3 of the session 25 block below, plus: `mailTemplateEdits` (has anyone saved a template yet? who, which key; don't
