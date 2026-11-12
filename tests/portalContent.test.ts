@@ -26,7 +26,7 @@ test("YouTube links: a video (watch, youtu.be, shorts) or a playlist; anything e
   assert.equal(youtube("not a link"), null);
 });
 
-test("the content check: names needed, YouTube only, https links, at least one programme; social always all five", () => {
+test("the content check: names needed, YouTube only, https links, at least one programme; social always all six", () => {
   assert.deepEqual(cleanContent(DEFAULT_CONTENT), DEFAULT_CONTENT);
   const p = DEFAULT_CONTENT.programmes[0];
   assert.match((cleanContent({ ...DEFAULT_CONTENT, programmes: [] }) as { error: string }).error, /at least one/);
@@ -38,7 +38,7 @@ test("the content check: names needed, YouTube only, https links, at least one p
   assert.ok(!("error" in c));
   if (!("error" in c)) {
     assert.deepEqual(c.programmes.map((x) => x.key), ["bls-for-staff", "bls-for-staff-2"]);
-    assert.deepEqual(c.social.map((s) => s.key), ["website", "linkedin", "instagram", "youtube", "facebook"]);
+    assert.deepEqual(c.social.map((s) => s.key), ["website", "whatsapp", "linkedin", "instagram", "facebook", "youtube"]);
   }
 });
 

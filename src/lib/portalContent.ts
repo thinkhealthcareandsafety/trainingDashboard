@@ -18,16 +18,15 @@ export type Programme = {
   photo: string; // a portalPhotos id, or ""
 };
 
-export const SOCIAL_KEYS = ["website", "linkedin", "instagram", "youtube", "facebook"] as const;
+export const SOCIAL_KEYS = ["website", "whatsapp", "linkedin", "instagram", "facebook", "youtube"] as const;
 export type SocialKey = (typeof SOCIAL_KEYS)[number];
 export type Social = { key: SocialKey; label: string; line: string; url: string };
 
 export type PortalContent = { programmes: Programme[]; social: Social[] };
 
-export const SOCIAL_LABELS: Record<SocialKey, string> = { website: "Website", linkedin: "LinkedIn", instagram: "Instagram", youtube: "YouTube", facebook: "Facebook" };
+export const SOCIAL_LABELS: Record<SocialKey, string> = { website: "Website", whatsapp: "WhatsApp", linkedin: "LinkedIn", instagram: "Instagram", facebook: "Facebook", youtube: "YouTube" };
 
-// The built-in content. The links are the ones PRODUCT.md records from thinkhealth.in. YouTube and Facebook stay empty
-// (so hidden) until someone pastes the exact links on Portal content.
+// The built-in content. The links are the owner's (12 Nov); staff change them on Portal content.
 export const DEFAULT_CONTENT: PortalContent = {
   programmes: [
     { key: "cpr", name: "CPR", line: "Chest compressions and rescue breaths for adults, children and infants.", sign: "cpr", video: "", photo: "" },
@@ -37,10 +36,11 @@ export const DEFAULT_CONTENT: PortalContent = {
   ],
   social: [
     { key: "website", label: "Website", line: "Our programmes and equipment", url: "https://www.thinkhealth.in" },
+    { key: "whatsapp", label: "WhatsApp", line: "Message us on +91 93560 80806", url: "https://wa.me/919356080806" },
     { key: "linkedin", label: "LinkedIn", line: "News from Think Health", url: "https://www.linkedin.com/in/thinkhealth" },
-    { key: "instagram", label: "Instagram", line: "Moments from our trainings", url: "https://www.instagram.com/think_health_india" },
-    { key: "youtube", label: "YouTube", line: "Training videos", url: "" },
-    { key: "facebook", label: "Facebook", line: "Think Health Care Pune", url: "" },
+    { key: "instagram", label: "Instagram", line: "Moments from our trainings", url: "https://www.instagram.com/think_health_india/" },
+    { key: "facebook", label: "Facebook", line: "Think Health Care Pune", url: "https://www.facebook.com/people/Think-Health-Care-Pune/61560270224373/" },
+    { key: "youtube", label: "YouTube", line: "Training videos", url: "https://www.youtube.com/playlist?list=PLYroJ0G3J6hg-FkVxvznb8En_flcBmrit" },
   ],
 };
 

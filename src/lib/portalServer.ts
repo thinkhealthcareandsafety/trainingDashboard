@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { db } from "./db";
 import { itemSets, type ZItem } from "./zoho";
 import { toTrainingQuote } from "./trainingManager";
-import { DEFAULT_CONTENT, PHOTO_ID, type PortalContent, cleanContent, photosIn } from "./portalContent";
+import { DEFAULT_CONTENT, PHOTO_ID, SOCIAL_KEYS, type PortalContent, cleanContent, photosIn } from "./portalContent";
 
 /*
  * The portal's dashboard data (docs/TRAINING_MANAGER_PLAN.md step 4): the signed-in coordinator's trainings, and the
@@ -19,7 +19,11 @@ const photos = async () => (await db()).collection<Photo>("portalPhotos");
 /** What the portal shows: the saved content, or the built-in one. */
 export async function readContent(): Promise<PortalContent & { by?: string; at?: string }> {
   const saved = await (await kv()).findOne({ _id: "portal_content" });
-  return saved?.content ? { ...saved.content, by: saved.by, at: saved.at } : DEFAULT_CONTENT;
+  if (!saved?.content) return DEFAULT_CONTENT;
+  // A card added since it was saved (WhatsApp, 12 Nov) comes in with its built-in link, in its place.
+  const have = new Map(saved.content.social.map((s) => [s.key, s]));
+  const social = SOCIAL_KEYS.map((k) => have.get(k) ?? DEFAULT_CONTENT.social.find((s) => s.key === k)!);
+  return { ...saved.content, social, by: saved.by, at: saved.at };
 }
 
 /** Staff's save: checked, kept, and photos nobody uses any more (older than an hour, so an upload mid-edit stays) removed. */

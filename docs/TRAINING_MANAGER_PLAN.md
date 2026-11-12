@@ -8,7 +8,7 @@
 | 2 | Coordinator fields in the quote email + Zoho contact person | **Live** (first name enough; Same as original per field; existing email renamed) |
 | 3 | Portal sign-in + OTP reset | **Live** at work.thinkhealth.in/training/<number>; no logins exist until step 8 |
 | — | training.thinkhealth.in | **Code live**; Vercel domain added; **waiting on the Cloudflare CNAME** `training` → `4145140deaae64f5.vercel-dns-017.com` (DNS only) |
-| 4 | Welcome + Our Programmes + Your trainings + Stay connected + Portal content editor | **Built 12 Nov**, waiting for "push" (Facebook and YouTube links still to paste on Templates → Portal content) |
+| 4 | Welcome + Our Programmes + Your trainings + Stay connected + Portal content editor | **Live** 12 Nov; social links (incl. WhatsApp) from the owner built in |
 | 5 | Propose date / location / confirm headcount | **Next** |
 | 6 | Participants: type, Excel import, duplicates, remove | To do |
 | 7 | QR join page + TH IDs + participant page | To do |
