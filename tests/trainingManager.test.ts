@@ -40,3 +40,13 @@ test("it goes to the coordinator first; everyone else picked is copied, once", (
   assert.deepEqual(coordinatorRecipients(["a@x.com", "riya@hotel.com"], ["b@x.com", "A@x.com"], "Riya@Hotel.com"), { to: ["riya@hotel.com"], cc: ["a@x.com", "b@x.com"] });
   assert.deepEqual(coordinatorRecipients([], [], "riya@hotel.com"), { to: ["riya@hotel.com"], cc: [] });
 });
+
+test("the Training board's items: Stress Management counts, with or without (I) and either spelling", async () => {
+  const { isQuoteTrainingItem, itemSets } = await import("../src/lib/zoho");
+  assert.equal(isQuoteTrainingItem("Stress Management Training (Customised)"), true);
+  assert.equal(isQuoteTrainingItem("Stress Management Training (Customized) (I)"), true);
+  assert.equal(isQuoteTrainingItem("THCAS CPR Training 2026"), true);
+  assert.equal(isQuoteTrainingItem("Stress ball"), false);
+  const sets = itemSets([{ id: "s1", name: "stress management training (customised)" }, { id: "x", name: "Zoll AED Plus" }] as never);
+  assert.deepEqual([...sets.quoteTraining], ["s1"]);
+});

@@ -312,14 +312,20 @@ export const QUOTE_TRAINING_ITEMS = [
   "THCAS BLS Training 2025 (I)",
   "THCAS CPR Training 2026 (I)",
   "THCAS First Aid Training (I)",
+  "Stress Management Training (Customised)", // owner, 12 Nov
 ];
 
-/** training: Item Identifier "Training Services" (Overview); quoteTraining: the four Follow-ups items; aed: "All AEDs" minus trainers/rentals. */
+/** Item names compared without "(I)", spacing, case or Customised/Customized, so a small spelling difference in Zoho still counts. */
+const itemKey = (n: string) => n.replace(/\s*\(I\)\s*/gi, " ").replace(/customized/gi, "customised").replace(/\s+/g, " ").trim().toLowerCase();
+const QUOTE_TRAINING_KEYS = new Set(QUOTE_TRAINING_ITEMS.map(itemKey));
+export const isQuoteTrainingItem = (name: string) => QUOTE_TRAINING_KEYS.has(itemKey(name));
+
+/** training: Item Identifier "Training Services" (Overview); quoteTraining: the Follow-ups items above; aed: "All AEDs" minus trainers/rentals. */
 export interface ItemSets { training: Set<string>; quoteTraining: Set<string>; aed: Set<string> }
 export function itemSets(items: ZItem[]): ItemSets {
   return {
-    training: new Set(items.filter((i) => i.identifier === TRAINING_SERVICES || QUOTE_TRAINING_ITEMS.includes(i.name)).map((i) => i.id)),
-    quoteTraining: new Set(items.filter((i) => QUOTE_TRAINING_ITEMS.includes(i.name)).map((i) => i.id)),
+    training: new Set(items.filter((i) => i.identifier === TRAINING_SERVICES || isQuoteTrainingItem(i.name)).map((i) => i.id)),
+    quoteTraining: new Set(items.filter((i) => isQuoteTrainingItem(i.name)).map((i) => i.id)),
     aed: new Set(items.filter((i) => i.identifier === ALL_AEDS && !AED_EXCLUDED.has(i.name.trim().toLowerCase())).map((i) => i.id)),
   };
 }
