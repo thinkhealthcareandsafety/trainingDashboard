@@ -6,12 +6,12 @@ import { byNewest, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/li
 import { markLoginSent, newerQuotes, quoteOf, setCoordinator, staffParticipants, staffPortal, trainingDoc } from "@/lib/portalTrainings";
 import { passwordForEmail } from "@/lib/portalAuth";
 import { portalTemplates } from "@/lib/templateStore";
-import { loginEmail, trainingLink } from "@/lib/portalEmail";
+import { declineLink, loginEmail, trainingLink } from "@/lib/portalEmail";
 import { portalBase } from "@/lib/portalHost";
 import { upsertCoordinator } from "@/lib/quotations";
 import { sendMail } from "@/lib/zohoMail";
-import { convertToPerforma, emailPerforma, readPerforma, savePerforma } from "@/lib/performa";
-import { markConfirmed, markPerformaEmailed, markRejectedInZoho, reopen } from "@/lib/portalTrainings";
+import { convertToPerforma, emailPerforma, readPerforma, salespersonFor, savePerforma } from "@/lib/performa";
+import { declineKeyFor, markConfirmed, markPerformaEmailed, markRejectedInZoho, reopen } from "@/lib/portalTrainings";
 import { setQuoteStatus } from "@/lib/quotations";
 import { piEmail, textToHtml } from "@/lib/performaRules";
 import { fmtProposalDate, indiaToday } from "@/lib/portalRules";
@@ -126,7 +126,9 @@ export async function POST(request: Request) {
       if (t?.rejected) return Response.json({ error: "The coordinator rejected this quotation. Reopen it first." }, { status: 409 });
       if (!t?.proposal) return Response.json({ error: "The coordinator hasn't accepted with a date yet" }, { status: 400 });
       if (t.confirmed) return Response.json({ error: `Already accepted: ${t.confirmed.number}` }, { status: 409 });
-      const draft = await convertToPerforma(id, t.proposal, await trainingSet(), indiaToday());
+      // Zoho converts only an Accepted quote: marked when the coordinator accepted; again here in case that didn't go through.
+      if (q.status !== "accepted") await setQuoteStatus(id, "accepted").catch((e) => console.error("[training-management] couldn't mark the quote Accepted:", e));
+      const draft = await convertToPerforma(id, t.proposal, await trainingSet(), indiaToday(), await salespersonFor(me));
       await markConfirmed(id, { at: new Date().toISOString(), by: me.name, salesorderId: draft.salesorderId, number: draft.number });
       console.log(`[training-management] ${me.name} accepted ${q.number}'s date: ${draft.number} (draft)`);
       return Response.json({ ok: true, draft });
@@ -163,7 +165,7 @@ export async function POST(request: Request) {
       if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site sends email" }, { status: 409 });
       const email = t.coordinator.email.toLowerCase();
       const { password, undo } = await passwordForEmail(email, t.coordinator.name);
-      const m = loginEmail(await portalTemplates(), { name: t.coordinator.name, training: q.lines.map((l) => l.name).join(" + ") || "your training", number: q.number }, { link: trainingLink(portalBase(), q.number), email, password });
+      const m = loginEmail(await portalTemplates(), { name: t.coordinator.name, training: q.lines.map((l) => l.name).join(" + ") || "your training", number: q.number }, { link: trainingLink(portalBase(), q.number), email, password, ...(t.confirmed || t.rejected ? {} : { declineLink: declineLink(portalBase(), q.number, await declineKeyFor(id)) }) });
       try { await sendMail(FROM, { to: email, subject: m.subject, html: m.html }); } catch (e) { await undo().catch(() => undefined); throw e; }
       await markLoginSent(id);
       console.log(`[training-management] ${me.name} sent the Training Manager login for ${q.number}`);

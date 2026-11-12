@@ -119,19 +119,20 @@ test("accept (propose): only on their own training; a change keeps the earlier o
   assert.equal((await staffPortal(["1"])).get("1")?.status, "Accepted");
 });
 
-test("the list: typed and imported people get TH numbers in order; duplicates marked; remove; others can't touch it", async () => {
+test("the list: TH numbers in order; one person per mobile number (repeats skipped, said how many); remove; others can't touch it", async () => {
   await seed();
-  const r = await addPeople(RIYA, "1", [{ name: "Aman", phone: "9876543210" }, { name: "Neha", phone: "98765 43211" }], "typed");
-  assert.ok("list" in r);
-  const r2 = await addPeople(RIYA, "1", [{ name: "Aman twice", phone: "+919876543210" }], "excel");
+  const r = await addPeople(RIYA, "1", [{ name: "Aman", phone: "9876543210" }, { name: "Neha", phone: "98765 43211" }, { name: "Neha again", phone: "9876543211" }], "typed");
+  assert.ok("list" in r && r.added === 2 && r.already === 1);
+  const r2 = await addPeople(RIYA, "1", [{ name: "Aman twice", phone: "+919876543210" }, { name: "Ravi", phone: "9876543212" }], "excel");
   assert.ok("list" in r2);
   if ("list" in r2) {
-    assert.deepEqual(r2.list.map((p) => [p.th, p.duplicate, p.source]), [["TH001", true, "typed"], ["TH002", false, "typed"], ["TH003", true, "excel"]]);
+    assert.deepEqual([r2.added, r2.already], [1, 1]);
+    assert.deepEqual(r2.list.map((p) => [p.th, p.name, p.source]), [["TH001", "Aman", "typed"], ["TH002", "Neha", "typed"], ["TH003", "Ravi", "excel"]]);
   }
   assert.match(((await addPeople(RIYA, "1", [{ name: "X", phone: "1" }], "typed")) as { error: string }).error, /10-digit/);
   assert.equal(((await removePerson("someone@else.com", "1", "TH001")) as { status: number }).status, 404);
   const after = await removePerson(RIYA, "1", "TH003");
-  assert.ok("list" in after && after.list.every((p) => !p.duplicate));
+  assert.ok("list" in after && after.list.length === 2);
   // Numbers are never reused.
   const r3 = await addPeople(RIYA, "1", [{ name: "Ravi", phone: "9876543212" }], "typed");
   assert.ok("list" in r3 && r3.list.at(-1)?.th === "TH004");
@@ -244,4 +245,37 @@ test("a quote emailed since the last hourly sync still shows: from its snapshot,
   assert.ok((await joinInfo("QT-2", t2.joinKey))?.training);
   const { newerQuotes } = await import("@/lib/portalTrainings");
   assert.deepEqual((await newerQuotes(new Set(["1"]))).map((q) => q.number), ["QT-2"]);
+});
+
+test("accepting marks the quote Accepted in Zoho (once); a Zoho failure doesn't lose the acceptance", async () => {
+  await seed();
+  const marked: string[] = [];
+  const p = { dates: [{ date: "2099-01-10", time: "" }], location: "The Grand", headcount: 30 };
+  assert.ok("proposal" in (await propose(RIYA, "1", p, async (id) => { marked.push(id); })));
+  assert.ok("proposal" in (await propose(RIYA, "1", { ...p, headcount: 31 }, async (id) => { marked.push(id); })));
+  assert.deepEqual(marked, ["1"]);
+  await seed2();
+  assert.ok("proposal" in (await propose(RIYA, "9", p, async () => { throw new Error("Zoho down"); })));
+});
+const seed2 = async () => {
+  const d = await db();
+  await d.collection<{ _id: string } & Record<string, unknown>>("portalTrainings").insertOne({ _id: "9", coordinator: { name: "Riya", email: RIYA, phone: "9800000000" } });
+};
+
+test("decline from the email: the link's key opens the page without changing anything; the button declines (Zoho too)", async () => {
+  await seed();
+  const { declineKeyFor, declineInfo, declineByLink } = await import("@/lib/portalTrainings");
+  const k = await declineKeyFor("1");
+  assert.equal(await declineKeyFor("1"), k);
+  assert.deepEqual(await declineInfo("QT-1", k), { training: "CPR & AED Training", customer: "The Grand", number: "QT-1", state: "open" });
+  assert.equal(await declineInfo("QT-1", "nope-nope-12"), null);
+  assert.equal((await trainingsFor(RIYA))[0].stamp, "Awaiting decision"); // opening it changed nothing
+  const declined: string[] = [];
+  assert.deepEqual(await declineByLink("QT-1", k, "Not this year", async (id) => { declined.push(id); }), { ok: true });
+  assert.deepEqual(declined, ["1"]);
+  const [t] = await trainingsFor(RIYA);
+  assert.equal(t.stamp, "Rejected");
+  assert.equal(t.rejected?.reason, "Not this year");
+  assert.equal((await declineInfo("QT-1", k))?.state, "rejected");
+  assert.equal(((await declineByLink("QT-1", "wrong-key-123", "", async () => undefined)) as { status: number }).status, 404);
 });

@@ -19,9 +19,9 @@ import { WORKDRIVE_LINK, WORKDRIVE_SCOPES, connectWorkdrive, goodWdId, parseWdPa
 import { type Coordinator, coordinatorRecipients, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
 import { passwordForEmail } from "@/lib/portalAuth";
 import { portalTemplates } from "@/lib/templateStore";
-import { loginBoxHtml, trainingLink } from "@/lib/portalEmail";
+import { declineLink, loginBoxHtml, trainingLink } from "@/lib/portalEmail";
 import { portalBase } from "@/lib/portalHost";
-import { markLoginSent } from "@/lib/portalTrainings";
+import { declineKeyFor, markLoginSent } from "@/lib/portalTrainings";
 import { renderTemplate } from "@/lib/templateText";
 
 export const dynamic = "force-dynamic";
@@ -672,7 +672,7 @@ async function portalBox(id: string, co: Coordinator): Promise<{ html: string; u
   const { password, undo } = await passwordForEmail(co.email, name);
   const t = await portalTemplates();
   const vars = { name: co.firstName, training: q.lines.map((l) => l.name).join(" + ") || "your training", number: q.number };
-  return { html: loginBoxHtml({ intro: renderTemplate(t.box, vars), link: trainingLink(portalBase(), q.number), email: co.email, password }), undo };
+  return { html: loginBoxHtml({ intro: renderTemplate(t.box, vars), link: trainingLink(portalBase(), q.number), email: co.email, password, declineLink: declineLink(portalBase(), q.number, await declineKeyFor(id)) }), undo };
 }
 
 /** The brochures of a quotation's items, each once: from the items copy, or the item itself when the copy doesn't have its file id yet (added since the last sync). */

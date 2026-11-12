@@ -26,7 +26,7 @@ export const PORTAL_TEMPLATES: PortalTemplate[] = [
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const paragraphs = (s: string) => s.split(/\n{2,}/).map((p) => `<p style="margin:0 0 1em">${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
 
-export type LoginBox = { intro: string; link: string; email: string; password: string | null };
+export type LoginBox = { intro: string; link: string; email: string; password: string | null; declineLink?: string };
 
 /** The login box: a bordered panel that reads well in Gmail and Outlook (tables, inline styles). */
 export function loginBoxHtml(b: LoginBox): string {
@@ -39,7 +39,8 @@ export function loginBoxHtml(b: LoginBox): string {
 <p style="margin:0 0 6px;font-size:17px;font-weight:700;color:#034f72">Your Training Manager</p>
 <p style="margin:0 0 14px;font-size:14px;line-height:1.55;color:#3a5263">${esc(b.intro)}</p>
 <table role="presentation" cellpadding="0" cellspacing="0">${row("Link", `<a href="${esc(b.link)}" style="color:#0077b6">${esc(b.link.replace(/^https?:\/\//, ""))}</a>`)}${row("Email", esc(b.email))}${row("Password", password)}</table>
-<p style="margin:16px 0 0"><a href="${esc(b.link)}" style="display:inline-block;background:#0077b6;color:#ffffff;padding:11px 22px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none">Sign in</a></p>
+<p style="margin:16px 0 0"><a href="${esc(b.link)}" style="display:inline-block;background:#0077b6;color:#ffffff;padding:11px 22px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none">Sign in</a></p>${b.declineLink ? `
+<p style="margin:14px 0 0;font-size:13px;color:#587080">Not going ahead? <a href="${esc(b.declineLink)}" style="color:#b42318">Decline the quotation</a></p>` : ""}
 </td></tr></table>`;
 }
 
@@ -56,3 +57,5 @@ export function loginEmail(t: { subject: string; body: string; box: string }, v:
 
 /** The training's link in emails and QR codes: <base>/<Training Number>. */
 export const trainingLink = (base: string, number: string) => `${base}/${encodeURIComponent(number)}`;
+/** The login email's "Decline the quotation" link (owner, 12 Nov): <base>/<Training Number>/decline?k=… */
+export const declineLink = (base: string, number: string, key: string) => `${trainingLink(base, number)}/decline?k=${encodeURIComponent(key)}`;

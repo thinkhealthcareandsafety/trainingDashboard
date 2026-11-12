@@ -283,9 +283,9 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             <p className={sub}>Participants</p>
             <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
           </div>
-          <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Close the list" : "Add participants"}</button>
+          <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>
         </div>
-        {people && <div className="mt-6"><Participants t={tool} onCount={(registered) => setT((x) => ({ ...x, registered }))} /></div>}
+        <div className="mt-5"><Participants t={tool} adding={people} onCount={(registered) => setT((x) => ({ ...x, registered }))} /></div>
       </div>}
 
       <div className="p-5 sm:p-7">

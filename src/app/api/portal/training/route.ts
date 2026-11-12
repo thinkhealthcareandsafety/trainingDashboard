@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     const me = await portalUser(portalToken(request));
     if (!me) return Response.json({ error: "Please sign in again" }, { status: 401 });
     const b = (await request.json().catch(() => null)) as { id?: unknown; action?: string; people?: unknown; source?: unknown; th?: unknown; reason?: unknown } | null;
-    const r = b?.action === "propose" ? await propose(me.email, b.id, b)
+    const r = b?.action === "propose" ? await propose(me.email, b.id, b, (id) => setQuoteStatus(id, "accepted"))
       : b?.action === "reject" ? await reject(me.email, b.id, b.reason, (id) => setQuoteStatus(id, "declined"))
       : b?.action === "people" ? await participants(me.email, b.id)
       : b?.action === "add" ? await addPeople(me.email, b.id, b.people, b.source)

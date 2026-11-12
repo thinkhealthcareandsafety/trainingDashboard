@@ -124,15 +124,16 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
 
 const SOURCE: Record<Row["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR" };
 
-export function Participants({ t, onCount }: { t: ToolTraining; onCount: (n: number) => void }) {
+/** The list always shows (owner, 12 Nov: "let me see the user without opening it"); the ways to add, when `adding`. */
+export function Participants({ t, adding, onCount }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"type" | "excel" | "qr">("type");
   const [joinKey, setJoinKey] = useState(t.joinKey);
 
   useEffect(() => {
-    act<{ list?: Row[] }>({ action: "people", id: t.id }).then((r) => (r.list ? setRows(r.list) : setError(r.error ?? "Couldn't load the list")));
-  }, [t.id]);
+    act<{ list?: Row[] }>({ action: "people", id: t.id }).then((r) => { if (r.list) { setRows(r.list); onCount(r.list.length); } else setError(r.error ?? "Couldn't load the list"); });
+  }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const update = (list: Row[]) => { setRows(list); onCount(list.length); };
   const remove = async (th: string, name: string) => {
     if (!window.confirm(`Take ${name} (${th}) off the list?`)) return;
@@ -151,7 +152,7 @@ export function Participants({ t, onCount }: { t: ToolTraining; onCount: (n: num
   const tabs: { id: typeof tab; label: string }[] = [{ id: "type", label: "Type names" }, { id: "excel", label: "Excel / CSV" }, { id: "qr", label: "QR code" }];
   return (
     <div className="space-y-6">
-      <div>
+      {adding && <div>
         <div className="flex gap-1 rounded-xl bg-ground p-1" role="tablist">
           {tabs.map((x) => (
             <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} onClick={() => setTab(x.id)}
@@ -163,12 +164,12 @@ export function Participants({ t, onCount }: { t: ToolTraining; onCount: (n: num
           {tab === "excel" && <ImportFile id={t.id} onAdded={update} />}
           {tab === "qr" && <JoinLink t={t} joinKey={joinKey} onNew={setJoinKey} />}
         </div>
-      </div>
+      </div>}
 
       <div>
         {error && <p className="mt-2 rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger" role="alert">{error}</p>}
-        {!rows && !error && <p className="mt-3 text-[14px] text-muted">Loading the list…</p>}
-        {rows && rows.length === 0 && <p className="mt-3 text-[14.5px] text-muted">No one yet. Type names above, import a file, or share the QR code.</p>}
+        {!rows && !error && <p className="text-[14px] text-muted">Loading the list…</p>}
+        {rows && rows.length === 0 && <p className="text-[14.5px] text-muted">{adding ? "No one yet. Type names above, import a file, or share the QR code." : "No one yet. Add participants: type names, import a file, or share the QR code."}</p>}
         {rows && rows.length > 0 && (
           <ul className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
             <li className="flex items-center justify-between gap-3 bg-ground px-3.5 py-2">
@@ -201,12 +202,12 @@ function TypeIn({ id, onAdded }: { id: string; onAdded: (l: Row[]) => void }) {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setMsg("");
-    const r = await act<{ added?: number; list?: Row[] }>({ action: "add", id, people: filled, source: "typed" });
+    const r = await act<{ added?: number; already?: number; list?: Row[] }>({ action: "add", id, people: filled, source: "typed" });
     setBusy(false);
     if (!r.list) return setMsg(r.error ?? "Couldn't add them");
     onAdded(r.list);
     setPeople([blank, blank, blank]);
-    setMsg(`${r.added} added.`);
+    setMsg(`${r.added} added${r.already ? `; ${r.already} already on the list (same mobile number)` : ""}.`);
   };
   return (
     <form onSubmit={save} className="space-y-2" noValidate>
@@ -247,12 +248,12 @@ function ImportFile({ id, onAdded }: { id: string; onAdded: (l: Row[]) => void }
   const save = async () => {
     if (!found) return;
     setBusy(true); setMsg("");
-    const r = await act<{ added?: number; list?: Row[] }>({ action: "add", id, people: found.people, source: "excel" });
+    const r = await act<{ added?: number; already?: number; list?: Row[] }>({ action: "add", id, people: found.people, source: "excel" });
     setBusy(false);
     if (!r.list) return setMsg(r.error ?? "Couldn't add them");
     onAdded(r.list);
     setFound(null);
-    setMsg(`${r.added} added from the file.`);
+    setMsg(`${r.added} added from the file${r.already ? `; ${r.already} already on the list (same mobile number)` : ""}.`);
   };
   return (
     <div className="space-y-3">
@@ -264,7 +265,7 @@ function ImportFile({ id, onAdded }: { id: string; onAdded: (l: Row[]) => void }
       {found && found.people.length > 0 && (
         <div className="rounded-xl bg-ground p-4">
           <p className="text-[15px] font-bold text-ink">{found.people.length} to add{found.skipped.length ? `, ${found.skipped.length} skipped` : ""} <span className="font-medium text-muted">· {found.file}</span></p>
-          {dups.size > 0 && <p className="mt-1 text-[13.5px] font-semibold text-warn">{dups.size} phone number{dups.size > 1 ? "s appear" : " appears"} twice in the file. Both rows are added and marked, so you can remove one.</p>}
+          {dups.size > 0 && <p className="mt-1 text-[13.5px] font-semibold text-warn">{dups.size} mobile number{dups.size > 1 ? "s appear" : " appears"} twice in the file; each person is added once.</p>}
           <ul className="mt-2 max-h-48 space-y-0.5 overflow-y-auto text-[13.5px] text-ink-2">
             {found.people.slice(0, 200).map((p, i) => <li key={i} className="num">{p.name} · {p.phone}</li>)}
           </ul>
@@ -303,7 +304,7 @@ function JoinLink({ t, joinKey, onNew }: { t: ToolTraining; joinKey: string; onN
     <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
       <div className="mx-auto shrink-0 rounded-2xl p-2 ring-1 ring-line sm:mx-0"><Qr text={link} size={200} label={`QR code to join ${t.title}`} /></div>
       <div className="min-w-0 flex-1 space-y-3">
-        <p className="text-[14.5px] leading-relaxed text-ink-2">Your team scans this, types their name and mobile number, and they&apos;re on the list with their own TH number. Someone who joins twice is only listed once.</p>
+        <p className="text-[14.5px] leading-relaxed text-ink-2">Your team scans this, types their name and mobile number, and they&apos;re on the list with their own TH number. One person per mobile number: joining twice lists them once.</p>
         <p className="break-all rounded-xl bg-ground px-3.5 py-2.5 font-mono text-[12.5px] text-ink-2">{link}</p>
         <div className="flex flex-wrap gap-2">
           <button type="button" className={primaryBtn} onClick={copy}>{copied ? "Copied" : "Copy link"}</button>

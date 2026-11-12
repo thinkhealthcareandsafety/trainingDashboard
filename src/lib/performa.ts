@@ -1,5 +1,6 @@
 import "server-only";
 import { booksApi } from "./quotations";
+import { db } from "./db";
 import { type PiDraft, type PiFields, type PiLine, acceptDefaults, fieldsFromZoho, readPiEdit, zohoCustomFields } from "./performaRules";
 import type { Proposal } from "./portalRules";
 
@@ -41,7 +42,7 @@ function toDraft(so: Z, trainingIds: Set<string>): PiDraft {
  * terms as the quote; reference = the quote number; the training lines at the coordinator's headcount; Training Date,
  * PO date / number and Product Type filled; the training's date, place and headcount in the Notes.
  */
-export async function convertToPerforma(estimateId: string, proposal: Proposal | null, trainingIds: Set<string>, today: string): Promise<PiDraft> {
+export async function convertToPerforma(estimateId: string, proposal: Proposal | null, trainingIds: Set<string>, today: string, salesperson?: string): Promise<PiDraft> {
   const e = (await booksApi("GET", `/estimates/${estimateId}`)).estimate as Z | undefined;
   if (!e) throw new Error("Zoho Books didn't give the quotation");
   const d = acceptDefaults(proposal, today);
@@ -65,7 +66,7 @@ export async function convertToPerforma(estimateId: string, proposal: Proposal |
     line_items: lines,
     custom_fields: zohoCustomFields(d.fields),
     ...(people.length ? { contact_persons: people } : {}),
-    ...(str(e.salesperson_name) ? { salesperson_name: str(e.salesperson_name) } : {}),
+    ...(salesperson || str(e.salesperson_name) ? { salesperson_name: salesperson || str(e.salesperson_name) } : {}),
     ...(str(e.location_id) ? { location_id: str(e.location_id) } : {}),
     ...(str(e.place_of_supply) ? { place_of_supply: str(e.place_of_supply) } : {}),
     ...(str(e.gst_treatment) ? { gst_treatment: str(e.gst_treatment) } : {}),
@@ -79,6 +80,19 @@ export async function convertToPerforma(estimateId: string, proposal: Proposal |
   const so = (await booksApi("POST", "/salesorders", {}, body)).salesorder as Z | undefined;
   if (!so?.salesorder_id) throw new Error("Zoho Books took the Performa but didn't say which it is. Check Sales Orders in Zoho.");
   return toDraft(so, trainingIds);
+}
+
+/**
+ * The Performa's salesperson (owner, 12 Nov): whoever confirms it, as Zoho spells their name ("names are the same");
+ * Admin is Sumit. Matched by first name against the salespeople on our copy of Zoho's documents; undefined when there's
+ * no match (the quote's own salesperson stays).
+ */
+export async function salespersonFor(me: { id: string; name: string }): Promise<string | undefined> {
+  const first = (me.id === "admin" ? "sumit" : me.name.trim().split(/\s+/)[0] ?? "").toLowerCase();
+  if (!first) return undefined;
+  const docs = await (await db()).collection<{ _id: string; doc?: { salesperson_name?: string } }>("zohoDocs").find({}, { projection: { "doc.salesperson_name": 1 } }).toArray();
+  const names = [...new Set(docs.map((d) => String(d.doc?.salesperson_name ?? "").trim()).filter(Boolean))];
+  return names.find((n) => n.split(/\s+/)[0].toLowerCase() === first);
 }
 
 export async function readPerforma(salesorderId: string, trainingIds: Set<string>): Promise<PiDraft> {

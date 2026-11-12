@@ -24,6 +24,8 @@ export type TrainingDoc = {
   confirmed?: Confirmed;
   /** The coordinator rejected the quotation (owner, 12 Nov); zoho: whether Zoho marked it Declined. Only we can reopen it. */
   rejected?: Rejected;
+  /** The key in the login email's "Decline the quotation" link (owner, 12 Nov: decline straight from the email). */
+  declineKey?: string;
   /** The quote as Zoho had it, read when it wasn't in our hourly copy yet (owner, 12 Nov: a new quote didn't show). */
   quoteDoc?: Record<string, unknown>;
 };
@@ -145,7 +147,7 @@ async function own(email: string, id: unknown): Promise<TrainingDoc | null> {
 const notYours: Fail = { error: "That training isn't on your list", status: 404 };
 
 /** Step 5: the coordinator proposes (or changes) the dates, location and headcount. The earlier proposal is kept. */
-export async function propose(email: string, id: unknown, raw: unknown): Promise<{ ok: true; proposal: Proposal } | Fail> {
+export async function propose(email: string, id: unknown, raw: unknown, acceptInZoho?: (estimateId: string) => Promise<void>): Promise<{ ok: true; proposal: Proposal } | Fail> {
   const t = await own(email, id);
   if (!t) return notYours;
   if (t.confirmed) return { error: "Think Health has confirmed this date. To change it, write to learn@thinkhealth.in.", status: 409 };
@@ -156,6 +158,9 @@ export async function propose(email: string, id: unknown, raw: unknown): Promise
   const proposal: Proposal = { ...p, at: new Date().toISOString(), by: email };
   const history = t.proposal ? [...(t.history ?? []), t.proposal].slice(-20) : t.history ?? [];
   await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { proposal, history, updatedAt: proposal.at } });
+  // The coordinator accepted: Zoho marks the quote Accepted (only then can it become a sales order). A Zoho problem
+  // doesn't lose their acceptance; Confirm tries again.
+  if (!t.proposal && acceptInZoho) await acceptInZoho(t._id).catch((e) => console.error("[portal] couldn't mark the quote Accepted in Zoho:", e));
   return { ok: true, proposal };
 }
 
@@ -187,7 +192,7 @@ async function insertPeople(trainingId: string, people: Person[], source: Source
 }
 
 /** Step 6: typed rows or an Excel/CSV import, each person checked (the file is read in their browser). */
-export async function addPeople(email: string, id: unknown, raw: unknown, sourceRaw: unknown): Promise<{ added: number; list: ParticipantView[] } | Fail> {
+export async function addPeople(email: string, id: unknown, raw: unknown, sourceRaw: unknown): Promise<{ added: number; already: number; list: ParticipantView[] } | Fail> {
   const t = await own(email, id);
   if (!t) return notYours;
   const source: Source = sourceRaw === "excel" ? "excel" : "typed";
@@ -200,9 +205,12 @@ export async function addPeople(email: string, id: unknown, raw: unknown, source
   }
   if (!people.length) return { error: "Add at least one person", status: 400 };
   const have = await peopleOf(t._id);
-  if (have.length + people.length > MAX_PEOPLE) return { error: `A training's list holds at most ${MAX_PEOPLE} people`, status: 400 };
-  await insertPeople(t._id, people, source);
-  return { added: people.length, list: view(await peopleOf(t._id)) };
+  // One person per phone number on a training (owner, 12 Nov): numbers already on the list, or twice in this batch, are skipped.
+  const seen = new Set(have.map((p) => p.phone));
+  const fresh = people.filter((p) => (seen.has(p.phone) ? false : (seen.add(p.phone), true)));
+  if (have.length + fresh.length > MAX_PEOPLE) return { error: `A training's list holds at most ${MAX_PEOPLE} people`, status: 400 };
+  if (fresh.length) await insertPeople(t._id, fresh, source);
+  return { added: fresh.length, already: people.length - fresh.length, list: view(await peopleOf(t._id)) };
 }
 
 export async function removePerson(email: string, id: unknown, th: unknown): Promise<{ list: ParticipantView[] } | Fail> {
@@ -358,4 +366,47 @@ export async function reopen(id: string, reopenInZoho: (estimateId: string) => P
   if (t.rejected.zoho === "declined") await reopenInZoho(id);
   await (await trainingsCol()).updateOne({ _id: id }, { $unset: { rejected: "" }, $set: { updatedAt: new Date().toISOString() } });
   return { ok: true };
+}
+
+/* ---------------- Decline straight from the email (owner, 12 Nov) ---------------- */
+
+/** The training's decline key for the login email's link (made the first time). */
+export async function declineKeyFor(id: string): Promise<string> {
+  const col = await trainingsCol();
+  const t = await col.findOne({ _id: id });
+  if (t?.declineKey) return t.declineKey;
+  const declineKey = newKey();
+  await col.updateOne({ _id: id }, { $set: { declineKey } });
+  return declineKey;
+}
+
+/** The training behind a decline link, or null when the link is wrong. */
+async function byDeclineLink(number: unknown, key: unknown): Promise<{ t: TrainingDoc; q: TrainingQuote } | null> {
+  const id = await idOfNumber(String(number ?? ""));
+  if (!id) return null;
+  const t = await (await trainingsCol()).findOne({ _id: id });
+  const k = String(key ?? "");
+  if (!t?.declineKey || !k || !same(t.declineKey, k)) return null;
+  const q = (await quotes(new Set([id]))).get(id);
+  return q ? { t, q } : null;
+}
+
+export type DeclineInfo = { training: string; customer: string; number: string; state: "open" | "rejected" | "accepted" | "confirmed" };
+/** What the decline page shows (opening the link changes nothing — an email scanner may open it). */
+export async function declineInfo(number: unknown, key: unknown): Promise<DeclineInfo | null> {
+  const d = await byDeclineLink(number, key);
+  if (!d) return null;
+  const state = d.t.rejected ? "rejected" : d.t.confirmed ? "confirmed" : d.t.proposal ? "accepted" : "open";
+  return { training: titleOf(d.q), customer: d.q.customer, number: d.q.number, state };
+}
+
+/** Declined from the email's link: the same as the portal's Decline (Zoho marks it Declined). */
+export async function declineByLink(number: unknown, key: unknown, reasonRaw: unknown, decline: (estimateId: string) => Promise<void>): Promise<{ ok: true } | Fail> {
+  const d = await byDeclineLink(number, key);
+  if (!d) return { error: "This link doesn't work any more. Write to learn@thinkhealth.in.", status: 404 };
+  if (d.t.rejected) return { ok: true };
+  if (d.t.confirmed) return { error: "Think Health has already confirmed this training. To cancel, write to learn@thinkhealth.in.", status: 409 };
+  const email = d.t.coordinator?.email ?? "";
+  const r = await reject(email, d.t._id, reasonRaw, decline);
+  return "error" in r ? r : { ok: true };
 }
