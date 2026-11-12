@@ -20,7 +20,9 @@ import {
  *   - customers: the 200 most recently changed (1 call); payments: only for paid invoices that changed;
  *   - the 9 am and 2 pm syncs are full checks: every tracked document by item (catches deletions), the full
  *     customer list, items and team. "Sync now" is one too, unless a full check ran in the last 10 minutes.
- * Schedule: automatically on the hour, 9 am–7 pm IST, Monday–Saturday (none on Sunday); "Sync now" any time.
+ * Schedule (owner, 12 Nov: "live sync, every minute, keep the limit 2500"): every minute, 9 am–8 pm IST, Monday–Saturday,
+ *   while anyone has the dashboard open (its heartbeat asks each minute), paced so the day stays under the limit — a
+ *   sync runs only while today's calls are on or under the pace line (paceAllowance); none on Sunday; "Sync now" any time.
  * MongoDB is updated as part of each sync, so pages show the new data as soon as it finishes.
  * Zoho calls are counted per day; automatic syncing pauses at 95% of ZOHO_DAILY_LIMIT.
  */
@@ -58,6 +60,40 @@ export function lastSlot(hours: number[], now = Date.now()): number {
 }
 /** An automatic sync is due when a scheduled hour has passed since the last successful sync. */
 export const scheduledSyncDue = (syncedAt?: string, now = Date.now()) => lastSlot(SYNC_HOURS, now) > (syncedAt ? new Date(syncedAt).getTime() : 0);
+
+/* ---------------- Live sync: every minute, paced to the daily limit ---------------- */
+
+export const LIVE_EVERY_MS = 60_000;
+const DAY_START = 9, DAY_END = 20; // 9 am–8 pm IST
+const WINDOW_MIN = (DAY_END - DAY_START) * 60;
+const MORNING = 400; // calls allowed straight away: the 9 am full check and the first syncs never wait
+
+/** Minutes since 9 am IST today (negative before), and whether today is a sync day (Mon–Sat) inside 9 am–8 pm. */
+function syncClock(now: number): { minutes: number; open: boolean } {
+  const ist = new Date(now + IST_MS);
+  const minutes = (ist.getUTCHours() - DAY_START) * 60 + ist.getUTCMinutes();
+  return { minutes, open: ist.getUTCDay() !== 0 && minutes >= 0 && minutes < WINDOW_MIN };
+}
+
+/** The calls today may have used by now: MORNING at 9 am, rising evenly to 95% of the limit at 8 pm. */
+export function paceAllowance(now = Date.now(), limit = DAILY_LIMIT): number {
+  const cap = limit * 0.95;
+  const { minutes } = syncClock(now);
+  return Math.min(cap, MORNING + (cap - MORNING) * Math.min(1, Math.max(0, minutes) / WINDOW_MIN));
+}
+
+/** A live sync is due: inside 9 am–8 pm Mon–Sat, a minute since the last one, and today's calls on or under the pace. */
+export function liveSyncDue(syncedAt: string | undefined, callsToday: number, now = Date.now(), limit = DAILY_LIMIT): boolean {
+  if (!syncClock(now).open) return false;
+  if (syncedAt && now - new Date(syncedAt).getTime() < LIVE_EVERY_MS) return false;
+  return callsToday <= paceAllowance(now, limit);
+}
+/** When the next sync can run: within 9 am–8 pm a minute after the last one, else 9 am on the next sync day. */
+export function nextLiveSync(syncedAt: string | undefined, now = Date.now()): number {
+  if (syncClock(now).open) return Math.max(now, (syncedAt ? new Date(syncedAt).getTime() : 0) + LIVE_EVERY_MS);
+  return nextSlot(now);
+}
+
 /** The next scheduled time after now (on the hour, 9 am–7 pm IST, Mon–Sat). */
 export function nextSlot(now = Date.now()): number {
   for (let d = 0; d <= 8; d++) {
@@ -86,6 +122,8 @@ type SyncState = {
   reconcileAt?: number;
   itemsAt?: number;
   usersAt?: number;
+  quietLogHour?: string; // live sync: the hour whose quiet sync is already in the log
+  mailAt?: number; // the reply checks and training reminders, hourly even with the live sync
   attemptAt?: number; // last sync attempt (successful or not)
 };
 
@@ -366,7 +404,11 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
       log.salesError = e instanceof Error ? e.message : String(e);
       console.error(`[sales sync] failed: ${log.salesError}`);
     }
-    // Replies to the gratitude emails ride along with the hourly sync; a mail problem never fails the Books sync.
+    // The reply checks and the training reminders stay hourly (live sync, 12 Nov): Zoho Mail has its own limits, and a
+    // reminder doesn't need minute precision. On the full checks too.
+    if (!fullDue && now - (state.mailAt ?? 0) < 60 * 60_000) return "done";
+    state.mailAt = now;
+    // Replies to the gratitude emails ride along; a mail problem never fails the Books sync.
     try {
       log.replies = (await checkGratitudeReplies()) || undefined;
     } catch (e) {
@@ -403,10 +445,15 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     if (changed) state.version = (state.version ?? 0) + 1;
     if (!error) state.syncedAt = new Date().toISOString();
     state.error = error;
+    // Live sync: a sync that brought nothing in is logged once an hour (the log's hour view still shows it ran), not each minute.
+    const hour = new Date(Date.now() + IST_MS).toISOString().slice(0, 13);
+    const quiet = !error && log.result === "ok" && log.mode === "quick" && !changed && !log.replies && !log.aedReplies && !log.reminders && !log.whatsapp && !log.sales && log.trigger !== "manual";
+    const skipLog = quiet && state.quietLogHour === hour;
+    if (quiet) state.quietLogHour = hour;
     await (await kv()).replaceOne({ _id: "zoho_state" }, state as unknown as Record<string, unknown>, { upsert: true });
     log.calls = await countCalls();
     await releaseLock(owner);
-    await writeSyncLog({ ...log, ms: Date.now() - log.at.getTime(), error });
+    if (!skipLog) await writeSyncLog({ ...log, ms: Date.now() - log.at.getTime(), error });
   }
 }
 
@@ -493,7 +540,7 @@ export async function getSnapshot(force = false): Promise<Snapshot | null> {
     return snap;
   }
   const retryOk = !snap.attemptAt || Date.now() - snap.attemptAt > RETRY_MS;
-  if (scheduledSyncDue(snap.syncedAt) && retryOk) after(() => runSync({ trigger: "page" }).then(() => undefined, () => undefined));
+  if (retryOk && liveSyncDue(snap.syncedAt, await zohoCallsToday())) after(() => runSync({ trigger: "page" }).then(() => undefined, () => undefined));
   return snap;
 }
 
@@ -521,19 +568,19 @@ export async function forceSync(by?: string): Promise<false | "full" | "quick"> 
 export async function syncIfDue(who: () => Promise<string | undefined> = async () => undefined): Promise<void> {
   const state = await loadState();
   const retryOk = !state.attemptAt || Date.now() - state.attemptAt > RETRY_MS;
-  if (scheduledSyncDue(state.syncedAt) && retryOk) await runSync({ trigger: "heartbeat", by: await who() });
+  if (retryOk && liveSyncDue(state.syncedAt, await zohoCallsToday())) await runSync({ trigger: "heartbeat", by: await who() });
 }
 
 export type SyncStatus = { syncedAt?: string; error?: string; due: boolean; running: boolean; nextAt: number };
 /** Last successful sync, the next scheduled one, and whether one is running now. */
 export async function syncStatus(): Promise<SyncStatus> {
-  const [state, lock] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_sync_lock" })]);
+  const [state, lock, calls] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_sync_lock" }), zohoCallsToday()]);
   return {
     syncedAt: state.syncedAt,
     error: state.error ?? undefined,
-    due: scheduledSyncDue(state.syncedAt),
+    due: liveSyncDue(state.syncedAt, calls),
     running: Number(lock?.until ?? 0) > Date.now(),
-    nextAt: nextSlot(),
+    nextAt: nextLiveSync(state.syncedAt),
   };
 }
 

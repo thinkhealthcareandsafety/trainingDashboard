@@ -6,7 +6,8 @@ import { forceSync, syncIfDue, syncStatus } from "@/lib/zohoSync";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // a full check (9 am / 2 pm) takes about a minute
 
-// The sidebar's sync panel. GET = heartbeat: runs the hourly sync if it's due, then reports last / next sync.
+// The sidebar's sync panel. GET = heartbeat (each minute): runs the live sync if it's due (a minute since the last, paced
+// to the daily limit), then reports last / next sync.
 // POST = "Sync now" (at most once a minute for everyone together; a full check — deletions too — unless one ran in the
 // last 10 minutes). The sync log records whose page started it.
 export async function GET(request: Request) {

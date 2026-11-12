@@ -202,7 +202,7 @@ function useZohoSync(active: boolean) {
   useEffect(() => {
     if (!active) return;
     beat();
-    const t = setInterval(beat, 2 * 60_000);
+    const t = setInterval(beat, 60_000); // live sync (owner, 12 Nov): the server runs one each minute, paced to the daily limit
     const onVisible = () => { if (document.visibilityState === "visible") beat(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
