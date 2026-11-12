@@ -836,7 +836,7 @@ async function quotationView(id: string) {
     // Zoho's own history of the quote (created, emailed, status changes): also covers emails sent from Zoho itself.
     zohoGet<{ comments?: ZComment[] }>(`/estimates/${id}/comments`).then((r) => r.comments ?? []).catch(() => [] as ZComment[]),
     d.collection<EmailRecord>("quoteEmailLog").find({ estimateId: id }).sort({ at: -1 }).toArray(),
-    d.collection<{ _id: string; coordinator?: { name: string; email: string; phone: string } }>("portalTrainings").findOne({ _id: id }),
+    d.collection<{ _id: string; coordinator?: { name: string; email: string; phone: string }; rejected?: { at: string; reason: string } }>("portalTrainings").findOne({ _id: id }),
     d.collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }),
   ]);
   // A training quote (any training item) gets the training, certificate and logistics phases in its story.
@@ -852,6 +852,7 @@ async function quotationView(id: string) {
     emails: emails.map(({ at, by, to, cc, subject, attachments, coordinator }) => ({ at, by, to, cc, subject, attachments, coordinator: coordinator ?? null })),
     history: history.map((c) => ({ text: String(c.description ?? "").trim(), by: c.commented_by ?? null, when: [c.date_description || c.date, c.time].filter(Boolean).join(" ") })).filter((c) => c.text),
     coordinator: portal?.coordinator ?? null,
+    rejection: portal?.rejected ? { at: portal.rejected.at, reason: portal.rejected.reason } : null,
     training: (est.estimate?.line_items ?? []).some((l) => trainingIds.has(String(l.item_id))),
   };
 }

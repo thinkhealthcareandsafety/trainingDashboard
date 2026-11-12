@@ -329,6 +329,11 @@ export async function booksApi(method: "GET" | "POST" | "PUT", path: string, par
   return books(await connection(), method, path, params, body);
 }
 
+/** A quote's status in Zoho (owner, 12 Nov): Declined when the coordinator rejects it on the portal; Sent again when we reopen it. */
+export async function setQuoteStatus(estimateId: string, status: "declined" | "sent"): Promise<void> {
+  await books(await connection(), "POST", `/estimates/${estimateId}/status/${status}`);
+}
+
 /** Creates the quotation in Zoho Books; `send` = Zoho emails it (standard email + PDF) to the contact persons on it. */
 export async function createQuote(q: QuoteInput & { send: boolean }): Promise<MadeQuote> {
   return made(await books(await connection(), "POST", "/estimates", { send: String(q.send) }, quoteBody(q)));

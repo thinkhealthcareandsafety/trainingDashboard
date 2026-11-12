@@ -1,11 +1,13 @@
 import { portalToken, portalUser } from "@/lib/portalAuth";
-import { addPeople, newJoinKey, participants, propose, removePerson } from "@/lib/portalTrainings";
+import { addPeople, newJoinKey, participants, propose, reject, removePerson } from "@/lib/portalTrainings";
+import { setQuoteStatus } from "@/lib/quotations";
 
 export const dynamic = "force-dynamic";
 
 /*
  * What a signed-in coordinator does on one of their trainings (docs/TRAINING_MANAGER_PLAN.md steps 5–7). POST { id, action }:
- *  "propose"  { dates: [{ date, time }], tentative, location, headcount } — sends it to Think Health (stamped Proposed)
+ *  "propose"  { dates: [{ date, time }], tentative, location, headcount } — accepts the quotation (stamped Accepted); location = "course conducted at"
+ *  "reject"   { reason? } — declines the quotation (stamped Rejected; Zoho marks it Declined)
  *  "people"   — the attendee list
  *  "add"      { people: [{ name, phone, email? }], source: "typed" | "excel" }
  *  "remove"   { th }
@@ -16,8 +18,9 @@ export async function POST(request: Request) {
   try {
     const me = await portalUser(portalToken(request));
     if (!me) return Response.json({ error: "Please sign in again" }, { status: 401 });
-    const b = (await request.json().catch(() => null)) as { id?: unknown; action?: string; people?: unknown; source?: unknown; th?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { id?: unknown; action?: string; people?: unknown; source?: unknown; th?: unknown; reason?: unknown } | null;
     const r = b?.action === "propose" ? await propose(me.email, b.id, b)
+      : b?.action === "reject" ? await reject(me.email, b.id, b.reason, (id) => setQuoteStatus(id, "declined"))
       : b?.action === "people" ? await participants(me.email, b.id)
       : b?.action === "add" ? await addPeople(me.email, b.id, b.people, b.source)
       : b?.action === "remove" ? await removePerson(me.email, b.id, b.th)

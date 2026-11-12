@@ -8,7 +8,8 @@ import { cleanPhone } from "./trainingManager";
 
 export type ProposalDate = { date: string; time: string }; // "2026-12-04", "10:00" ("" = no time yet)
 export type Proposal = { dates: ProposalDate[]; tentative: boolean; location: string; headcount: number; at: string; by: string };
-export type Stamp = "Awaiting date" | "Proposed" | "Confirmed";
+/** The coordinator accepts (with the date, "course conducted at" and headcount) or rejects; we then confirm. Owner, 12 Nov. */
+export type Stamp = "Awaiting decision" | "Accepted" | "Confirmed" | "Rejected";
 
 export const MAX_DATES = 10;
 export const MAX_PEOPLE = 2000;
@@ -32,11 +33,14 @@ export function readProposal(raw: unknown, today: string): Omit<Proposal, "at" |
   if (!dates.length) return { error: "Pick the training date" };
   if (dates.length > MAX_DATES) return { error: `At most ${MAX_DATES} days` };
   const location = String(r.location ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
-  if (location.length < 2) return { error: "Where will the training be? Type the location." };
+  if (location.length < 2) return { error: "Type where the course is conducted, as it should be printed on the certificates" };
   const headcount = Number(r.headcount);
   if (!Number.isInteger(headcount) || headcount < 1 || headcount > 5000) return { error: "How many people will attend? Type the number." };
   return { dates: dates.sort((a, b) => a.date.localeCompare(b.date)), tentative: r.tentative === true, location, headcount };
 }
+
+/** A rejection's optional reason. */
+export const readReason = (raw: unknown) => String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
 
 /** The proposal's fields people compare (to tell whether anything changed). */
 export const sameProposal = (a: Omit<Proposal, "at" | "by">, b: Omit<Proposal, "at" | "by">) =>

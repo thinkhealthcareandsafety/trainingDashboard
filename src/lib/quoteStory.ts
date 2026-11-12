@@ -26,7 +26,7 @@ const cap = (s: string) => s.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperC
 const cites = (ref: string | undefined, num: string) => Boolean(ref && num && ref.toLowerCase().includes(num.toLowerCase()));
 
 export type StoryInput = {
-  quote: { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[] };
+  quote: { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[]; rejection?: { at: string; reason: string } | null };
   training: boolean;
   /** The Sales copy (every quote, Performa, invoice and payment); null while loading. */
   docs: { pis: ZohoPI[]; invoices: ZohoInvoice[]; payments: ZohoPayment[] } | null;
@@ -71,6 +71,13 @@ export function storyPhases(input: StoryInput): Phase[] {
     changes.length ? `Price changed ${rupees(changes[0][1])} → ${rupees(changes.at(-1)![2])}` : "",
   ].filter(Boolean);
   const qs = quote.status.toLowerCase();
+  // Rejected by the coordinator on the portal (owner, 12 Nov): the story is just "sent" and "rejected".
+  if (quote.rejection) {
+    return [
+      { key: "quote", title: "Quotation", state: "done", status: "Sent", tone: "info", lines: [quote.number, ...qLines] },
+      { key: "rejected", title: "Rejected", state: "stopped", status: "By the coordinator", tone: "bad", lines: [quote.rejection.reason ? `“${quote.rejection.reason}”` : "No reason given", day(quote.rejection.at)].filter(Boolean) },
+    ];
+  }
   const lost = qs === "declined" || qs === "expired";
   const phases: Phase[] = [{ key: "quote", title: "Quotation", state: lost ? "stopped" : "done", status: cap(qs), tone: lost ? "bad" : qs === "accepted" || qs === "invoiced" ? "good" : "info", lines: [quote.number, ...qLines] }];
   if (lost) return phases;

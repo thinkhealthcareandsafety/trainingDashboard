@@ -41,7 +41,7 @@ export function ProposalView({ p, history, expected }: { p: Proposal; history: P
         {changed("dates") && <ul className="mt-1 space-y-0.5 text-[13.5px] text-muted line-through">{prev!.dates.map((d) => <li key={d.date}>{fmtProposalDate(d)}</li>)}</ul>}
       </div>
       <div>
-        <p className={sectionTitle}>At</p>
+        <p className={sectionTitle}>Course conducted at</p>
         <p className="mt-1.5 text-[15px] font-semibold text-ink">{p.location}</p>
         {changed("location") && <p className="mt-1 text-[13.5px] text-muted line-through">{prev!.location}</p>}
       </div>
@@ -102,8 +102,9 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
         <span className="text-[15px] text-ink">Tentative <span className="text-muted">— the date may still change</span></span>
       </label>
       <label className="block">
-        <span className={label}>Location</span>
-        <input className={field} placeholder="e.g. The Grand, Pune · Ballroom 2" value={location} maxLength={200} onChange={(e) => setLocation(e.target.value)} required />
+        <span className={label}>Course conducted at</span>
+        <input className={field} placeholder="e.g. The Grand Hotel, Pune" value={location} maxLength={200} onChange={(e) => setLocation(e.target.value)} required />
+        <span className="mt-1.5 block text-[13px] text-muted">As it should be printed on the certificates.</span>
       </label>
       <label className="block max-w-[220px]">
         <span className={label}>People attending</span>
@@ -112,7 +113,7 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
       {t.expected > 0 && n > 0 && n !== t.expected && <p className="-mt-3 text-[13.5px] font-semibold text-warn">The quotation is for {t.expected} people. You can still send {n}; we&apos;ll be in touch about the difference.</p>}
       {error && <p className="rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger" role="alert">{error}</p>}
       <div className="flex flex-wrap gap-2.5">
-        <button className={primaryBtn} disabled={busy}>{busy ? "Sending…" : p ? "Send the change to Think Health" : "Send to Think Health"}</button>
+        <button className={primaryBtn} disabled={busy}>{busy ? "Sending…" : p ? "Send the change to Think Health" : "Accept and send to Think Health"}</button>
         <button type="button" className={secondaryBtn} onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
     </form>
@@ -312,5 +313,34 @@ function JoinLink({ t, joinKey, onNew }: { t: ToolTraining; joinKey: string; onN
         <button type="button" className={`${linkBtn} !text-muted`} onClick={renew} disabled={busy}>{busy ? "Making a new link…" : "Make a new link (the old one stops working)"}</button>
       </div>
     </div>
+  );
+}
+
+/** Decline the quotation (owner, 12 Nov): an optional reason; final for the coordinator (we can reopen it). */
+export function RejectForm({ id, onDone, onCancel }: { id: string; onDone: (reason: string) => void; onCancel: () => void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError("");
+    const r = await act<{ ok?: boolean }>({ action: "reject", id, reason });
+    setBusy(false);
+    if (!r.ok) return setError(r.error ?? "Couldn't send it");
+    onDone(reason.trim());
+  };
+  return (
+    <form onSubmit={send} className="space-y-4" noValidate>
+      <label className="block">
+        <span className={label}>Tell us why <span className="font-normal text-muted">(optional)</span></span>
+        <textarea className={`${field} !h-auto min-h-[96px] py-3 leading-relaxed`} rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </label>
+      <p className="text-[14px] text-muted">Once declined, it can&apos;t be accepted here; write to learn@thinkhealth.in if you change your mind.</p>
+      {error && <p className="rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger" role="alert">{error}</p>}
+      <div className="flex flex-wrap gap-2.5">
+        <button className="inline-flex h-11 items-center justify-center rounded-xl bg-danger px-5 text-[15px] font-bold text-white transition hover:brightness-110 disabled:opacity-50" disabled={busy}>{busy ? "Sending…" : "Decline the quotation"}</button>
+        <button type="button" className={secondaryBtn} onClick={onCancel} disabled={busy}>Keep it open</button>
+      </div>
+    </form>
   );
 }

@@ -11,7 +11,8 @@ import { portalBase } from "@/lib/portalHost";
 import { upsertCoordinator } from "@/lib/quotations";
 import { sendMail } from "@/lib/zohoMail";
 import { convertToPerforma, emailPerforma, readPerforma, savePerforma } from "@/lib/performa";
-import { markConfirmed, markPerformaEmailed } from "@/lib/portalTrainings";
+import { markConfirmed, markPerformaEmailed, markRejectedInZoho, reopen } from "@/lib/portalTrainings";
+import { setQuoteStatus } from "@/lib/quotations";
 import { piEmail, textToHtml } from "@/lib/performaRules";
 import { fmtProposalDate, indiaToday } from "@/lib/portalRules";
 import { piTemplate, templateOverrides } from "@/lib/templateStore";
@@ -31,6 +32,8 @@ export const dynamic = "force-dynamic";
  *  GET ?pi=<id>                       — that draft, as Zoho has it now, plus the email ready to send
  *  POST { action: "pisave", id, edit } — our edit saved straight to the Zoho draft
  *  POST { action: "piemail", id, to, cc, subject, text } — the Performa emailed from Zoho with its PDF (live site only)
+ *  POST { action: "reopen", id }     — a rejected quotation open again (Zoho back to Sent)
+ *  POST { action: "decline", id }    — retry marking a rejected quotation Declined in Zoho
  */
 const trainingSet = async () => itemSets(((await (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? []).training;
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -101,9 +104,25 @@ export async function POST(request: Request) {
       return Response.json({ ok: true, coordinator: { name: coordinator.name, email: coordinator.email, phone: coordinator.phone } });
     }
 
+    if (b?.action === "reopen") {
+      const r = await reopen(id, (x) => setQuoteStatus(x, "sent"));
+      if ("error" in r) return Response.json({ error: r.error }, { status: r.status });
+      console.log(`[training-management] ${me.name} reopened ${q.number}`);
+      return Response.json({ ok: true });
+    }
+
+    if (b?.action === "decline") {
+      const t = await trainingDoc(id);
+      if (!t?.rejected) return Response.json({ error: "This quotation isn't rejected" }, { status: 400 });
+      await setQuoteStatus(id, "declined");
+      await markRejectedInZoho(id);
+      return Response.json({ ok: true });
+    }
+
     if (b?.action === "accept") {
       const t = await trainingDoc(id);
-      if (!t?.proposal) return Response.json({ error: "The coordinator hasn't proposed a date yet" }, { status: 400 });
+      if (t?.rejected) return Response.json({ error: "The coordinator rejected this quotation. Reopen it first." }, { status: 409 });
+      if (!t?.proposal) return Response.json({ error: "The coordinator hasn't accepted with a date yet" }, { status: 400 });
       if (t.confirmed) return Response.json({ error: `Already accepted: ${t.confirmed.number}` }, { status: 409 });
       const draft = await convertToPerforma(id, t.proposal, await trainingSet(), indiaToday());
       await markConfirmed(id, { at: new Date().toISOString(), by: me.name, salesorderId: draft.salesorderId, number: draft.number });

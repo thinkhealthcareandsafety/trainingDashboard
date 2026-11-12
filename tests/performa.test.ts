@@ -78,7 +78,7 @@ test("routes: Accept needs a proposal and makes nothing when Zoho can't be reach
   await propose(RIYA, "1", proposal);
   // Tests never reach Zoho: Accept fails safely and the training is not marked confirmed.
   assert.equal((await post({ action: "accept", id: "1" })).status, 502);
-  assert.equal((await staffPortal(["1"])).get("1")?.status, "Date proposed");
+  assert.equal((await staffPortal(["1"])).get("1")?.status, "Accepted");
   assert.equal((await post({ action: "pisave", id: "1", edit: {} })).status, 404);
   assert.equal((await tmGet(new Request("http://x/api/training-management?pi=1", { headers: ashish }))).status, 404);
   await markConfirmed("1", { at: "2026-11-12T10:00:00Z", by: "Ashish", salesorderId: "999", number: "Performa-25-1" });

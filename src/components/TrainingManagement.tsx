@@ -14,14 +14,16 @@ import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const STATUS: Record<string, string> = { draft: "Draft", sent: "Sent", accepted: "Accepted", declined: "Declined", invoiced: "Invoiced", expired: "Expired" };
 
-type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string } | null };
+type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string } | null; rejected: { at: string; by: string; reason: string; zoho: "declined" | "failed" } | null };
 type Quote = TrainingQuote & { portal: Portal | null };
 type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr"; addedAt: string; duplicate: boolean };
 
 const portalStatus = (x: Quote) => x.portal?.status ?? (x.coordinator ? "Login not sent" : "No coordinator");
-const proposed = (x: Quote) => Boolean(x.portal?.proposal) && !x.portal?.confirmed;
+const proposed = (x: Quote) => Boolean(x.portal?.proposal) && !x.portal?.confirmed && !x.portal?.rejected;
+const rejected = (x: Quote) => Boolean(x.portal?.rejected) || (x.status === "declined" && !x.portal?.confirmed);
+const glow = (x: Quote) => (proposed(x) ? 2 : rejected(x) ? 1 : 0);
 const STATUS_TONE: Record<string, string> = {
-  "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Date proposed": "font-semibold text-low", "Confirmed": "text-ink-2",
+  "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Accepted": "font-semibold text-low", "Confirmed": "text-ink-2", "Rejected": "font-semibold text-high",
 };
 
 export function TrainingManagement() {
@@ -41,12 +43,14 @@ export function TrainingManagement() {
     const t = q.trim().toLowerCase();
     const list = quotes ?? [];
     // Proposed dates first: they're waiting for us.
-    const sorted = [...list].sort((a, b) => Number(proposed(b)) - Number(proposed(a)));
+    // Accepted first (waiting for us), then rejected, then the rest.
+    const sorted = [...list].sort((a, b) => glow(b) - glow(a));
     if (!t) return sorted;
     return sorted.filter((x) => [x.customer, x.number, x.contact?.name, x.coordinator?.name, portalStatus(x), ...x.lines.map((l) => l.name)].some((s) => s?.toLowerCase().includes(t)));
   }, [quotes, q]);
   const open = quotes?.find((x) => x.id === openId) ?? null;
   const waiting = quotes?.filter(proposed).length ?? 0;
+  const lost = quotes?.filter((x) => Boolean(x.portal?.rejected)).length ?? 0;
 
   if (error) return <p className="rounded-xl border border-line bg-surface p-4 text-[14px] text-high">{error}</p>;
   return (
@@ -54,7 +58,8 @@ export function TrainingManagement() {
       <div className="flex flex-wrap items-center gap-3">
         <input className={`${inputCls} max-w-sm`} placeholder="Search customer, quote, training or status" value={q} onChange={(e) => setQ(e.target.value)} />
         {quotes && <span className="text-[13px] text-muted">{shown.length} of {quotes.length} training quotes</span>}
-        {waiting > 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-low-bg px-2.5 py-1 text-[12.5px] font-semibold text-low"><span className="size-2 animate-pulse rounded-full bg-low" />{waiting} date{waiting > 1 ? "s" : ""} proposed</span>}
+        {waiting > 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-low-bg px-2.5 py-1 text-[12.5px] font-semibold text-low"><span className="size-2 animate-pulse rounded-full bg-low" />{waiting} accepted, waiting for you</span>}
+        {lost > 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-high-bg px-2.5 py-1 text-[12.5px] font-semibold text-high"><span className="size-2 rounded-full bg-high" />{lost} rejected</span>}
       </div>
       <div className="overflow-hidden rounded-2xl border border-line bg-surface">
         <div className="hidden grid-cols-[1.3fr_0.8fr_1.5fr_0.5fr_0.7fr_0.9fr] gap-3 border-b border-line px-4 py-2.5 text-[12px] font-medium uppercase tracking-wide text-faint md:grid">
@@ -64,7 +69,7 @@ export function TrainingManagement() {
         {quotes && !shown.length && <p className="p-6 text-center text-[14px] text-muted">{quotes.length ? "Nothing matches that search." : "No training-only quotes yet."}</p>}
         {shown.map((x) => (
           <button key={x.id} type="button" onClick={() => setOpenId(x.id)}
-            className={`grid w-full grid-cols-2 gap-x-3 gap-y-1 border-b border-line px-4 py-3 text-left text-[14px] last:border-b-0 md:grid-cols-[1.3fr_0.8fr_1.5fr_0.5fr_0.7fr_0.9fr] md:items-center ${proposed(x) ? "bg-low-bg/60 shadow-[inset_4px_0_0_var(--low)] hover:bg-low-bg" : "hover:bg-surface-2"}`}>
+            className={`grid w-full grid-cols-2 gap-x-3 gap-y-1 border-b border-line px-4 py-3 text-left text-[14px] last:border-b-0 md:grid-cols-[1.3fr_0.8fr_1.5fr_0.5fr_0.7fr_0.9fr] md:items-center ${proposed(x) ? "bg-low-bg/50 shadow-[inset_0_0_0_2px_var(--low),0_0_14px_color-mix(in_srgb,var(--low)_28%,transparent)] hover:bg-low-bg" : rejected(x) ? "bg-high-bg/50 shadow-[inset_0_0_0_2px_var(--high),0_0_14px_color-mix(in_srgb,var(--high)_24%,transparent)] hover:bg-high-bg" : "hover:bg-surface-2"}`}>
             <span className="font-medium text-ink">{x.customer}</span>
             <span className="text-right text-muted md:text-left">{x.number} · {fmtDate(x.date)}</span>
             <span className="col-span-2 text-ink-2 md:col-span-1">{x.lines.map((l) => l.name).join(", ")}</span>
@@ -97,7 +102,8 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
   const row = (k: string, v: React.ReactNode) => <div className="flex gap-3 py-1.5 text-[14px]"><span className="w-32 shrink-0 text-muted">{k}</span><span className="min-w-0 break-words text-ink">{v || "—"}</span></div>;
   return (
     <div className="space-y-5">
-      {x.portal?.proposal && <ProposalCard id={x.id} p={x.portal.proposal} history={x.portal.history} expected={x.expected} confirmed={x.portal.confirmed} onChanged={onChanged} />}
+      {x.portal?.rejected && <RejectedCard id={x.id} r={x.portal.rejected} onChanged={onChanged} />}
+      {x.portal?.proposal && !x.portal?.rejected && <ProposalCard id={x.id} p={x.portal.proposal} history={x.portal.history} expected={x.expected} confirmed={x.portal.confirmed} onChanged={onChanged} />}
       {x.portal?.confirmed && (
         <section className={card}>
           <p className={label}>Performa</p>
@@ -139,6 +145,36 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
   );
 }
 
+/** The coordinator rejected the quotation (owner, 12 Nov): why, when; Zoho marked it Declined (or retry); Reopen if they change their mind. */
+function RejectedCard({ id, r, onChanged }: { id: string; r: NonNullable<Portal["rejected"]>; onChanged: () => void }) {
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const post = async (action: "reopen" | "decline") => {
+    if (action === "reopen" && !window.confirm("Reopen this quotation? The coordinator can accept or reject it again, and Zoho shows it as Sent.")) return;
+    setBusy(action); setMsg("");
+    const res = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, id }) }).catch(() => null);
+    const j = res ? ((await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
+    setBusy("");
+    if (!j.ok) return setMsg(j.error ?? "Couldn't do it");
+    onChanged();
+  };
+  return (
+    <section className="rounded-2xl border-2 border-high bg-high-bg/50 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[15px] font-semibold text-high">Rejected by the coordinator</p>
+        <span className="text-[12.5px] text-muted">{fmtDate(r.at, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} · {r.by}</span>
+      </div>
+      <p className="mt-1.5 text-[14px] text-ink-2">{r.reason ? <>&ldquo;{r.reason}&rdquo;</> : "No reason given."}</p>
+      <p className="mt-1 text-[13px] text-muted">{r.zoho === "declined" ? "Marked Declined in Zoho." : "Zoho couldn't be marked Declined."}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {r.zoho === "failed" && <button type="button" className={btn.ghost} disabled={Boolean(busy)} onClick={() => post("decline")}>{busy === "decline" ? "Marking…" : "Mark Declined in Zoho"}</button>}
+        <button type="button" className={btn.ghost} disabled={Boolean(busy)} onClick={() => post("reopen")}>{busy === "reopen" ? "Reopening…" : "Reopen the quotation"}</button>
+      </div>
+      {msg && <p className="mt-2 text-[13px] text-high" role="alert">{msg}</p>}
+    </section>
+  );
+}
+
 /** Step 5, our side: what the coordinator proposed, with the earlier values struck through. */
 function ProposalCard({ id, p, history, expected, confirmed, onChanged }: { id: string; p: Proposal; history: Proposal[]; expected: number; confirmed: Portal["confirmed"]; onChanged: () => void }) {
   const prev = history.at(-1);
@@ -147,7 +183,7 @@ function ProposalCard({ id, p, history, expected, confirmed, onChanged }: { id: 
   const [msg, setMsg] = useState("");
   // Accept date → Performa (owner, 12 Nov): confirmed on our side first, then Accept makes the Draft Performa in Zoho.
   const accept = async () => {
-    if (!window.confirm(`Accept this date? The quotation becomes a Draft Performa in Zoho (training at ${p.headcount} people, Training Date ${fmtProposalDate(p.dates[0])}), and the coordinator's portal shows Confirmed.`)) return;
+    if (!window.confirm(`Confirm this training? The quotation becomes a Draft Performa in Zoho (training at ${p.headcount} people, Training Date ${fmtProposalDate(p.dates[0])}), and the coordinator's portal shows Confirmed.`)) return;
     setBusy(true); setMsg("");
     const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "accept", id }) }).catch(() => null);
     const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
@@ -158,7 +194,7 @@ function ProposalCard({ id, p, history, expected, confirmed, onChanged }: { id: 
   return (
     <section className={confirmed ? "rounded-2xl border border-line bg-surface-2/40 p-4" : "rounded-2xl border-2 border-low bg-low-bg/50 p-4 shadow-[0_0_0_4px_color-mix(in_srgb,var(--low)_12%,transparent)]"}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className={`text-[15px] font-semibold ${confirmed ? "text-ink" : "text-low"}`}>{confirmed ? `Date accepted by ${confirmed.by}, ${fmtDate(confirmed.at, { day: "numeric", month: "short" })}` : "Date proposed by the coordinator"}</p>
+        <p className={`text-[15px] font-semibold ${confirmed ? "text-ink" : "text-low"}`}>{confirmed ? `Date accepted by ${confirmed.by}, ${fmtDate(confirmed.at, { day: "numeric", month: "short" })}` : "Accepted by the coordinator"}</p>
         <span className="text-[12.5px] text-muted">{fmtDate(p.at, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}{history.length ? ` · changed ${history.length} time${history.length > 1 ? "s" : ""}` : ""}</span>
       </div>
       <div className="mt-3 grid gap-4 sm:grid-cols-3">
@@ -180,7 +216,7 @@ function ProposalCard({ id, p, history, expected, confirmed, onChanged }: { id: 
       </div>
       {!confirmed && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" className={btn.primary} disabled={busy} onClick={accept}>{busy ? "Making the Performa in Zoho…" : "Accept date → make Performa"}</button>
+          <button type="button" className={btn.primary} disabled={busy} onClick={accept}>{busy ? "Making the Performa in Zoho…" : "Confirm → make Performa"}</button>
           <span className="text-[12.5px] text-muted">Confirm with the client first. You edit the draft Performa here after.</span>
         </div>
       )}

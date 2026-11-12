@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
 import type { Proposal } from "@/lib/portalRules";
-import { Participants, ProposalView, ProposeForm, primaryBtn, secondaryBtn } from "./TrainingTools";
+import { Participants, ProposalView, ProposeForm, RejectForm, primaryBtn, secondaryBtn } from "./TrainingTools";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -12,7 +12,7 @@ import { Participants, ProposalView, ProposeForm, primaryBtn, secondaryBtn } fro
  * trainings as sign panels with a state stamp, and Stay connected. Prices are never shown here.
  */
 type Me = { email: string; name: string };
-type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null };
+type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; rejected: { at: string; reason: string } | null };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -216,6 +216,7 @@ function Trainings({ list, focus }: { list: Training[]; focus?: string }) {
 function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean }) {
   const [t, setT] = useState(initial);
   const [editing, setEditing] = useState(false);
+  const [declining, setDeclining] = useState(false);
   const [people, setPeople] = useState(false);
   const title = t.lines.map((l) => l.name).join(" + ") || "Training";
   const sign = signFor(title);
@@ -234,12 +235,23 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
         <div className="hidden sm:block"><Stamps t={t} /></div>
       </div>
 
-      {/* Step 5: the date, the place, how many. */}
+      {/* The decision (owner, 12 Nov): accept with the date, "course conducted at" and headcount, or reject. */}
       <div className="border-b border-line p-5 sm:p-7">
-        {editing ? (
+        {t.rejected ? (
+          <div>
+            <p className="text-[16px] font-bold text-ink">You declined this quotation{t.rejected.at ? ` on ${fmtDate(t.rejected.at.slice(0, 10))}` : ""}.</p>
+            {t.rejected.reason && <p className="mt-1.5 text-[14.5px] text-ink-2">&ldquo;{t.rejected.reason}&rdquo;</p>}
+            <p className="mt-2 text-[14.5px] text-muted">Changed your mind? Write to <a className="font-semibold text-action hover:underline" href="mailto:learn@thinkhealth.in">learn@thinkhealth.in</a> and we&apos;ll reopen it.</p>
+          </div>
+        ) : editing ? (
           <>
-            <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">{t.proposal ? "Change the date, place or headcount" : "Propose a date"}</h4>
-            <ProposeForm t={tool} onCancel={() => setEditing(false)} onSaved={(proposal, history) => { setT({ ...t, proposal, history, stamp: "Proposed" }); setEditing(false); }} />
+            <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">{t.proposal ? "Change the date, place or headcount" : "Accept the quotation"}</h4>
+            <ProposeForm t={tool} onCancel={() => setEditing(false)} onSaved={(proposal, history) => { setT({ ...t, proposal, history, stamp: "Accepted" }); setEditing(false); }} />
+          </>
+        ) : declining ? (
+          <>
+            <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Decline the quotation</h4>
+            <RejectForm id={t.id} onCancel={() => setDeclining(false)} onDone={(reason) => { setT({ ...t, stamp: "Rejected", rejected: { at: new Date().toISOString(), reason } }); setDeclining(false); setPeople(false); }} />
           </>
         ) : t.proposal ? (
           <>
@@ -249,20 +261,23 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             ) : (
               <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <button type="button" className={secondaryBtn} onClick={() => setEditing(true)}>Change</button>
-                <span className="text-[13.5px] text-muted">Sent to Think Health. We&apos;ll confirm with you.</span>
+                <span className="text-[13.5px] text-muted">Accepted and sent to Think Health. We&apos;ll confirm with you.</span>
               </div>
             )}
           </>
         ) : (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="max-w-[46ch] text-[15.5px] leading-relaxed text-ink-2">When would you like the training? Propose a date, the place and how many will attend; it comes straight to us.</p>
-            <button type="button" className={`${primaryBtn} shrink-0`} onClick={() => setEditing(true)}>Propose a date</button>
+            <p className="max-w-[48ch] text-[15.5px] leading-relaxed text-ink-2">Would you like to go ahead? Accept with the training date, where the course is conducted and how many will attend; it comes straight to us.</p>
+            <div className="flex shrink-0 flex-wrap gap-2.5">
+              <button type="button" className={primaryBtn} onClick={() => setEditing(true)}>Accept quotation</button>
+              <button type="button" className={secondaryBtn} onClick={() => setDeclining(true)}>Decline</button>
+            </div>
           </div>
         )}
       </div>
 
       {/* Steps 6–7: the attendee list. The toggle doesn't animate its colour (transition-none), so no frame shows it blank. */}
-      <div className="border-b border-line p-5 sm:p-7">
+      {!t.rejected && <div className="border-b border-line p-5 sm:p-7">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className={sub}>Participants</p>
@@ -271,7 +286,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Close the list" : "Add participants"}</button>
         </div>
         {people && <div className="mt-6"><Participants t={tool} onCount={(registered) => setT((x) => ({ ...x, registered }))} /></div>}
-      </div>
+      </div>}
 
       <div className="p-5 sm:p-7">
         <div className="min-w-0">
@@ -302,11 +317,16 @@ function Included({ name, text }: { name: string; text: string }) {
   );
 }
 
-/** The state stamps (Awaiting date → Proposed → Confirmed → Done): each lands like an ink stamp and none ever goes;
+/** The state stamps (Awaiting decision → Accepted → Confirmed, or → Rejected): each lands like an ink stamp and none ever goes;
  * the earlier ones stay on the panel, faded, with the date they landed. */
 function Stamps({ t }: { t: Training }) {
   const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const list = [{ label: "Awaiting date", date: t.date ? shortDate(`${t.date}T00:00:00`) : "" }, ...(t.proposal ? [{ label: "Proposed", date: shortDate(t.proposal.at) }] : []), ...(t.confirmedAt ? [{ label: "Confirmed", date: shortDate(t.confirmedAt) }] : [])];
+  const list = [
+    { label: "Awaiting decision", date: t.date ? shortDate(`${t.date}T00:00:00`) : "" },
+    ...(t.rejected ? [{ label: "Rejected", date: t.rejected.at ? shortDate(t.rejected.at) : "" }] : []),
+    ...(!t.rejected && t.proposal ? [{ label: "Accepted", date: shortDate(t.proposal.at) }] : []),
+    ...(!t.rejected && t.confirmedAt ? [{ label: "Confirmed", date: shortDate(t.confirmedAt) }] : []),
+  ];
   return (
     <div className="flex flex-wrap items-center gap-2.5 sm:flex-col sm:items-end">
       {list.map((st, i) => <Stamp key={st.label} label={st.label} date={st.date} past={i < list.length - 1} />)}
@@ -315,8 +335,9 @@ function Stamps({ t }: { t: Training }) {
 }
 
 function Stamp({ label, date, past }: { label: string; date: string; past: boolean }) {
+  const ink = label === "Rejected" ? "border-danger text-danger shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--danger)]" : "border-navy text-navy shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--navy)]";
   return (
-    <span className={`${past ? "scale-90 opacity-40" : "stamp"} inline-flex rotate-[-4deg] flex-col items-center rounded-md border-2 border-navy px-2.5 pb-1 pt-1.5 text-navy shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--navy)]`}>
+    <span className={`${past ? "scale-90 opacity-40" : "stamp"} inline-flex rotate-[-4deg] flex-col items-center rounded-md border-2 px-2.5 pb-1 pt-1.5 ${ink}`}>
       <span className="text-[11.5px] font-extrabold uppercase leading-none tracking-[0.14em]">{label}</span>
       {date && <span className="num mt-1 text-[10px] font-bold uppercase leading-none tracking-[0.1em]">{date}</span>}
     </span>

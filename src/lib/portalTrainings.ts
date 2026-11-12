@@ -3,7 +3,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { db } from "./db";
 import { itemSets, type ZItem } from "./zoho";
 import { type TrainingQuote, toTrainingQuote } from "./trainingManager";
-import { MAX_PEOPLE, type Person, type Proposal, type Stamp, TH_ID, duplicatePhones, indiaToday, readPerson, readProposal, sameProposal, thId } from "./portalRules";
+import { MAX_PEOPLE, type Person, type Proposal, type Stamp, TH_ID, duplicatePhones, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 
 /*
  * The trainings on the Training Manager portal (docs/TRAINING_MANAGER_PLAN.md steps 4–7), for the signed-in coordinator,
@@ -21,7 +21,10 @@ export type TrainingDoc = {
   proposal?: Proposal; history?: Proposal[]; joinKey?: string; loginSentAt?: string; createdAt?: string; updatedAt?: string;
   /** Accept date → Performa (owner, 12 Nov): we accepted the proposal and made the Draft Performa from the quote. */
   confirmed?: Confirmed;
+  /** The coordinator rejected the quotation (owner, 12 Nov); zoho: whether Zoho marked it Declined. Only we can reopen it. */
+  rejected?: Rejected;
 };
+export type Rejected = { at: string; by: string; reason: string; zoho: "declined" | "failed" };
 export type Confirmed = { at: string; by: string; salesorderId: string; number: string; emailedAt?: string };
 export type Source = "typed" | "excel" | "qr";
 type ParticipantDoc = { _id: string; trainingId: string; name: string; phone: string; email?: string; source: Source; token: string; addedAt: string };
@@ -33,7 +36,7 @@ const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(
 const newKey = () => randomBytes(9).toString("base64url");
 type Fail = { error: string; status: number };
 
-/** The training quotes with these ids, from our copy of Zoho (declined ones left out). */
+/** The training quotes with these ids, from our copy of Zoho (declined ones too: they show as Rejected). */
 async function quotes(ids: Set<string>): Promise<Map<string, TrainingQuote>> {
   if (!ids.size) return new Map();
   const d = await db();
@@ -41,7 +44,7 @@ async function quotes(ids: Set<string>): Promise<Map<string, TrainingQuote>> {
   const training = itemSets(items).training;
   const docs = (await d.collection<{ _id: string; kind?: string; doc: Record<string, unknown> }>("zohoDocs")
     .find({ kind: "estimates", "doc.estimate_id": { $in: [...ids] } }, { projection: { doc: 1, kind: 1 } }).toArray())
-    .filter((x) => ids.has(String(x.doc?.estimate_id ?? "")) && String(x.doc?.status ?? "") !== "declined");
+    .filter((x) => ids.has(String(x.doc?.estimate_id ?? "")));
   return new Map(docs.map((x) => { const q = toTrainingQuote(x.doc, training); return [q.id, q]; }));
 }
 
@@ -54,7 +57,7 @@ async function idOfNumber(number: string): Promise<string | null> {
   return hit ? String(hit.doc.estimate_id) : null;
 }
 
-const stampOf = (t: TrainingDoc): Stamp => (t.confirmed ? "Confirmed" : t.proposal ? "Proposed" : "Awaiting date");
+const stampOf = (t: TrainingDoc, quoteStatus = ""): Stamp => (t.rejected || (quoteStatus === "declined" && !t.confirmed) ? "Rejected" : t.confirmed ? "Confirmed" : t.proposal ? "Accepted" : "Awaiting decision");
 const titleOf = (q: TrainingQuote) => q.lines.map((l) => l.name).join(" + ") || "Training";
 
 async function peopleOf(trainingId: string): Promise<ParticipantDoc[]> {
@@ -68,6 +71,7 @@ export type PortalTraining = {
   id: string; number: string; customer: string; date: string;
   lines: { name: string; description: string; qty: number }[];
   expected: number; stamp: Stamp; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null;
+  rejected: { at: string; reason: string } | null;
 };
 
 /** The trainings this coordinator was named on (step 2), newest first. A join key is made the first time they're shown. */
@@ -84,7 +88,8 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
     out.push({
       id: x.id, number: x.number, customer: x.customer, date: x.date,
       lines: x.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })),
-      expected: x.expected, stamp: stampOf(t), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.at ?? null,
+      expected: x.expected, stamp: stampOf(t, x.status), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.at ?? null,
+      rejected: t.rejected ? { at: t.rejected.at, reason: t.rejected.reason } : x.status === "declined" && !t.confirmed ? { at: "", reason: "" } : null,
     });
   }
   return out.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
@@ -102,6 +107,7 @@ export async function propose(email: string, id: unknown, raw: unknown): Promise
   const t = await own(email, id);
   if (!t) return notYours;
   if (t.confirmed) return { error: "Think Health has confirmed this date. To change it, write to learn@thinkhealth.in.", status: 409 };
+  if (t.rejected) return { error: "You declined this quotation. To go ahead after all, write to learn@thinkhealth.in.", status: 409 };
   const p = readProposal(raw, indiaToday());
   if ("error" in p) return { error: p.error, status: 400 };
   if (t.proposal && sameProposal(t.proposal, p)) return { ok: true, proposal: t.proposal };
@@ -183,7 +189,7 @@ async function byJoinLink(number: unknown, key: unknown): Promise<{ t: TrainingD
   if (!id) return null;
   const t = await (await trainingsCol()).findOne({ _id: id });
   const k = String(key ?? "");
-  if (!t?.joinKey || !k || !same(t.joinKey, k)) return null;
+  if (!t?.joinKey || !k || !same(t.joinKey, k) || t.rejected) return null;
   const q = (await quotes(new Set([id]))).get(id);
   return q ? { t, q } : null;
 }
@@ -224,8 +230,8 @@ export async function participantPage(number: unknown, th: unknown, token: unkno
 
 /* ---------------- Our side: the Trainings page ---------------- */
 
-export type PortalStatus = "No coordinator" | "Login not sent" | "Login sent" | "Logged in" | "Date proposed" | "Confirmed";
-export type StaffPortal = { status: PortalStatus; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: Confirmed | null };
+export type PortalStatus = "No coordinator" | "Login not sent" | "Login sent" | "Logged in" | "Accepted" | "Confirmed" | "Rejected";
+export type StaffPortal = { status: PortalStatus; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: Confirmed | null; rejected: Rejected | null };
 
 /** Each training's portal state, for the Trainings page list. */
 export async function staffPortal(ids: string[]): Promise<Map<string, StaffPortal>> {
@@ -239,8 +245,8 @@ export async function staffPortal(ids: string[]): Promise<Map<string, StaffPorta
   const out = new Map<string, StaffPortal>();
   for (const t of docs) {
     const lastLogin = logins.get((t.coordinator?.email ?? "").toLowerCase()) ?? null;
-    const status: PortalStatus = !t.coordinator ? "No coordinator" : t.confirmed ? "Confirmed" : t.proposal ? "Date proposed" : lastLogin ? "Logged in" : t.loginSentAt ? "Login sent" : "Login not sent";
-    out.set(t._id, { status, proposal: t.proposal ?? null, history: t.history ?? [], registered: counts.get(t._id) ?? 0, loginSentAt: t.loginSentAt ?? null, lastLogin, confirmed: t.confirmed ?? null });
+    const status: PortalStatus = t.rejected ? "Rejected" : !t.coordinator ? "No coordinator" : t.confirmed ? "Confirmed" : t.proposal ? "Accepted" : lastLogin ? "Logged in" : t.loginSentAt ? "Login sent" : "Login not sent";
+    out.set(t._id, { status, proposal: t.proposal ?? null, history: t.history ?? [], registered: counts.get(t._id) ?? 0, loginSentAt: t.loginSentAt ?? null, lastLogin, confirmed: t.confirmed ?? null, rejected: t.rejected ?? null });
   }
   return out;
 }
@@ -282,4 +288,32 @@ export async function markConfirmed(id: string, c: Confirmed): Promise<void> {
 /** The Performa went out by email from the Trainings page. */
 export async function markPerformaEmailed(id: string): Promise<void> {
   await (await trainingsCol()).updateOne({ _id: id }, { $set: { "confirmed.emailedAt": new Date().toISOString() } });
+}
+
+/**
+ * The coordinator rejects the quotation (owner, 12 Nov): kept with its optional reason; Zoho marks it Declined (`decline`
+ * calls Zoho; when that fails the rejection still counts and our side can retry). Not after we confirmed.
+ */
+export async function reject(email: string, id: unknown, reasonRaw: unknown, decline: (estimateId: string) => Promise<void>): Promise<{ ok: true; zoho: Rejected["zoho"] } | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  if (t.confirmed) return { error: "Think Health has already confirmed this training. To cancel, write to learn@thinkhealth.in.", status: 409 };
+  if (t.rejected) return { ok: true, zoho: t.rejected.zoho };
+  const zoho: Rejected["zoho"] = await decline(t._id).then(() => "declined" as const, (e) => { console.error("[portal] couldn't mark the quote Declined in Zoho:", e); return "failed" as const; });
+  await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { rejected: { at: new Date().toISOString(), by: email, reason: readReason(reasonRaw), zoho }, updatedAt: new Date().toISOString() } });
+  return { ok: true, zoho };
+}
+
+/** Our side retries marking a rejected quote Declined in Zoho. */
+export async function markRejectedInZoho(id: string): Promise<void> {
+  await (await trainingsCol()).updateOne({ _id: id }, { $set: { "rejected.zoho": "declined" } });
+}
+
+/** Our side reopens a rejected quotation (the client changed their mind); Zoho goes back to Sent (`reopenInZoho`). */
+export async function reopen(id: string, reopenInZoho: (estimateId: string) => Promise<void>): Promise<{ ok: true } | Fail> {
+  const t = await (await trainingsCol()).findOne({ _id: id });
+  if (!t?.rejected) return { error: "This quotation isn't rejected", status: 400 };
+  if (t.rejected.zoho === "declined") await reopenInZoho(id);
+  await (await trainingsCol()).updateOne({ _id: id }, { $unset: { rejected: "" }, $set: { updatedAt: new Date().toISOString() } });
+  return { ok: true };
 }

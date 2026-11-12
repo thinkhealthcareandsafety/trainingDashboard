@@ -74,13 +74,14 @@ const seed = async () => {
   for (const [id, email] of [["1", "riya@grand.com"], ["2", "riya@grand.com"], ["3", "riya@grand.com"], ["4", "someone@else.com"]]) await d.collection<{ _id: string }>("portalTrainings").insertOne({ _id: id, ...co(email) });
 };
 
-test("a coordinator sees only their own trainings, newest first, declined ones left out, and never a price", async () => {
+test("a coordinator sees only their own trainings, newest first, a declined one stamped Rejected, and never a price", async () => {
   await seed();
   const t = await trainingsFor("riya@grand.com");
-  assert.deepEqual(t.map((x) => x.number), ["QT-2", "QT-1"]);
+  assert.deepEqual(t.map((x) => [x.number, x.stamp]), [["QT-3", "Rejected"], ["QT-2", "Awaiting decision"], ["QT-1", "Awaiting decision"]]);
+  t.shift();
   assert.equal(t[0].lines[0].name, "CPR & AED Training");
   assert.equal(t[0].expected, 30);
-  assert.equal(t[0].stamp, "Awaiting date");
+  assert.equal(t[0].stamp, "Awaiting decision");
   assert.ok(!/99999|45000|1500/.test(JSON.stringify(t)));
   assert.deepEqual(await trainingsFor("nobody@grand.com"), []);
 });
@@ -93,7 +94,7 @@ test("/api/portal/home: 401 without a session; with one, their trainings and the
   const r = await home(new Request("http://x/api/portal/home", { headers: { cookie: `th_portal=${s.ok ? s.token : ""}` } }));
   const j = (await r.json()) as { me: { name: string }; trainings: { number: string }[]; content: { programmes: unknown[]; social: unknown[] } };
   assert.equal(j.me.name, "Riya Mehta");
-  assert.deepEqual(j.trainings.map((x) => x.number), ["QT-2", "QT-1"]);
+  assert.deepEqual(j.trainings.map((x) => x.number), ["QT-3", "QT-2", "QT-1"]);
   assert.equal(j.content.programmes.length, 4);
 });
 

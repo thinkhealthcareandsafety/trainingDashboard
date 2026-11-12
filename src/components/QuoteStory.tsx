@@ -37,7 +37,7 @@ function Box({ p, n }: { p: Phase; n: number }) {
   );
 }
 
-type Quote = { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[] };
+type Quote = { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[]; rejection?: { at: string; reason: string } | null };
 
 export function QuoteStory({ quote, training }: { quote: Quote; training: boolean }) {
   const sales = useSalesData(true);

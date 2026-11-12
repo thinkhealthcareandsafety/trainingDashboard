@@ -6,7 +6,8 @@ import { deflateRawSync } from "node:zlib";
 import { duplicatePhones, fmtProposalDate, parseCsv, peopleFromRows, readPerson, readProposal, thId } from "@/lib/portalRules";
 import { sheetRows, readXlsx } from "@/lib/xlsxRead";
 import { loginBoxHtml, loginEmail, trainingLink } from "@/lib/portalEmail";
-import { addPeople, join, joinInfo, newJoinKey, participantPage, propose, removePerson, staffPortal, trainingsFor } from "@/lib/portalTrainings";
+import { addPeople, join, joinInfo, newJoinKey, participantPage, propose, reject, removePerson, reopen, staffPortal, trainingsFor } from "@/lib/portalTrainings";
+import { storyPhases } from "@/lib/quoteStory";
 import { issueLogin, signIn } from "@/lib/portalAuth";
 import { POST as training } from "@/app/api/portal/training/route";
 import { GET as joinGet, POST as joinPost } from "@/app/api/portal/join/route";
@@ -37,7 +38,7 @@ test("a proposal: dates today or later, a location, a headcount; days sorted; th
   assert.match(err({ dates: [{ date: "2026-11-01" }], location: "x y", headcount: 3 }), /past/);
   assert.match(err({ dates: [{ date: "2026-12-01" }, { date: "2026-12-01" }], location: "x y", headcount: 3 }), /twice/);
   assert.match(err({ dates: [{ date: "2026-12-01", time: "25:00" }], location: "x y", headcount: 3 }), /time/);
-  assert.match(err({ dates: [{ date: "2026-12-01" }], location: "", headcount: 3 }), /location/);
+  assert.match(err({ dates: [{ date: "2026-12-01" }], location: "", headcount: 3 }), /course is conducted/);
   assert.match(err({ dates: [{ date: "2026-12-01" }], location: "x y", headcount: 0 }), /How many/);
   assert.equal(fmtProposalDate({ date: "2026-12-04", time: "14:30" }), "Fri, 4 Dec 2026, 2:30 pm");
 });
@@ -101,21 +102,21 @@ test("the login box: link, email, password (escaped), or 'the password you alrea
 
 /* ---------------- The coordinator's side ---------------- */
 
-test("propose: only on their own training; a change keeps the earlier one; the stamp says Proposed", async () => {
+test("accept (propose): only on their own training; a change keeps the earlier one; the stamp says Accepted", async () => {
   await seed();
   const p = { dates: [{ date: "2099-01-10", time: "10:00" }], location: "Ballroom 2", headcount: 30 };
   assert.equal(((await propose("someone@else.com", "1", p)) as { status: number }).status, 404);
   assert.ok("proposal" in (await propose(RIYA, "1", p)));
   await propose(RIYA, "1", { ...p, headcount: 32 });
   const [t] = await trainingsFor(RIYA);
-  assert.equal(t.stamp, "Proposed");
+  assert.equal(t.stamp, "Accepted");
   assert.equal(t.proposal?.headcount, 32);
   assert.deepEqual(t.history.map((h) => h.headcount), [30]);
   assert.ok(t.joinKey.length >= 10);
   // Sending the same again changes nothing.
   await propose(RIYA, "1", { ...p, headcount: 32 });
   assert.equal((await trainingsFor(RIYA))[0].history.length, 1);
-  assert.equal((await staffPortal(["1"])).get("1")?.status, "Date proposed");
+  assert.equal((await staffPortal(["1"])).get("1")?.status, "Accepted");
 });
 
 test("the list: typed and imported people get TH numbers in order; duplicates marked; remove; others can't touch it", async () => {
@@ -194,4 +195,38 @@ test("Trainings page: portal state and the list for staff; Send login only from 
   assert.equal(send.status, 409);
   const outsider = await tmPost(new Request("http://x/api/training-management", { method: "POST", headers: { ...ashish, "x-test-member": JSON.stringify({ id: "z", name: "Zed" }) }, body: JSON.stringify({ action: "sendlogin", id: "1" }) }));
   assert.equal(outsider.status, 403);
+});
+
+test("reject: an optional reason, Zoho asked to decline; then no accepting, no joining; only we reopen", async () => {
+  await seed();
+  const [t0] = await trainingsFor(RIYA);
+  const declined: string[] = [];
+  assert.equal(((await reject("someone@else.com", "1", "", async () => undefined)) as { status: number }).status, 404);
+  const r = await reject(RIYA, "1", "  Budget   moved to next year ", async (id) => { declined.push(id); });
+  assert.deepEqual(r, { ok: true, zoho: "declined" });
+  assert.deepEqual(declined, ["1"]);
+  const [t] = await trainingsFor(RIYA);
+  assert.equal(t.stamp, "Rejected");
+  assert.equal(t.rejected?.reason, "Budget moved to next year");
+  assert.equal(((await propose(RIYA, "1", { dates: [{ date: "2099-01-10", time: "" }], location: "The Grand", headcount: 30 })) as { status: number }).status, 409);
+  assert.equal(await joinInfo("QT-1", t0.joinKey), null);
+  const sp = (await staffPortal(["1"])).get("1");
+  assert.equal(sp?.status, "Rejected");
+  assert.equal(sp?.rejected?.zoho, "declined");
+  // Zoho failing doesn't stop the rejection; it's noted so our side can retry.
+  const reopened: string[] = [];
+  assert.deepEqual(await reopen("1", async (id) => { reopened.push(id); }), { ok: true });
+  assert.deepEqual(reopened, ["1"]);
+  assert.equal((await trainingsFor(RIYA))[0].stamp, "Awaiting decision");
+  const r2 = await reject(RIYA, "1", "", async () => { throw new Error("Zoho down"); });
+  assert.deepEqual(r2, { ok: true, zoho: "failed" });
+});
+
+test("the story of a rejected quote: just Quotation (sent) and Rejected, with the reason", () => {
+  const phases = storyPhases({
+    quote: { id: "1", number: "QT-1", date: "2026-11-01", status: "declined", total: 45000, history: [], emails: [], rejection: { at: "2026-11-12T10:00:00Z", reason: "Budget moved" } },
+    training: true, docs: null, today: "2026-11-12",
+  } as never);
+  assert.deepEqual(phases.map((p) => [p.key, p.status, p.state]), [["quote", "Sent", "done"], ["rejected", "By the coordinator", "stopped"]]);
+  assert.match(phases[1].lines[0], /Budget moved/);
 });
