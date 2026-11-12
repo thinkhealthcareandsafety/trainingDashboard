@@ -88,12 +88,12 @@ test("Excel: shared strings, inline strings, long numbers, gaps between cells", 
   assert.deepEqual(peopleFromRows(rows).people.map((p) => p.phone), ["9876543210", "9876543211"]);
 });
 
-test("the login box: link, email, password (escaped), or 'the password you already have'", () => {
+test("the login box: link, email, password (escaped), or 'the password you chose'", () => {
   const html = loginBoxHtml({ intro: "Hi <there>", link: trainingLink("https://work.thinkhealth.in/training", "QT-1"), email: RIYA, password: "abc&def" });
   assert.match(html, /work\.thinkhealth\.in\/training\/QT-1/);
   assert.match(html, /abc&amp;def/);
   assert.match(html, /Hi &lt;there&gt;/);
-  assert.match(loginBoxHtml({ intro: "", link: "https://x/QT-1", email: RIYA, password: null }), /password you already have/);
+  assert.match(loginBoxHtml({ intro: "", link: "https://x/QT-1", email: RIYA, password: null }), /password you chose/);
   const m = loginEmail({ subject: "Login · {number}", body: "Hello {name},\n\nFor {training}.", box: "Box for {training}" }, { name: "Riya Mehta", training: "CPR", number: "QT-1" }, { link: "https://x/QT-1", email: RIYA, password: "p" });
   assert.equal(m.subject, "Login · QT-1");
   assert.match(m.html, /Hello Riya,/);

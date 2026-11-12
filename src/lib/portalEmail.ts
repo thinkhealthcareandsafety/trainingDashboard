@@ -33,7 +33,7 @@ export function loginBoxHtml(b: LoginBox): string {
   const row = (k: string, v: string) => `<tr><td style="padding:4px 14px 4px 0;color:#587080;font-size:14px;white-space:nowrap;vertical-align:top">${k}</td><td style="padding:4px 0;color:#0f2a3a;font-size:14px">${v}</td></tr>`;
   const password = b.password
     ? `<span style="font-family:Consolas,Menlo,monospace;font-size:16px;font-weight:700;letter-spacing:1px;color:#034f72">${esc(b.password)}</span>`
-    : `The password you already have. Forgot it? Choose &ldquo;Forgot or want to change your password?&rdquo; on the sign-in page.`;
+    : `The password you chose. Forgot it? Choose &ldquo;Forgot or want to change your password?&rdquo; on the sign-in page.`;
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;border:1px solid #d3dfe7;border-radius:12px;border-collapse:separate;max-width:560px;font-family:Segoe UI,Arial,sans-serif">
 <tr><td style="padding:20px 22px">
 <p style="margin:0 0 6px;font-size:17px;font-weight:700;color:#034f72">Your Training Manager</p>

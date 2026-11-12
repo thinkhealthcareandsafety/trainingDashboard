@@ -285,7 +285,7 @@ function TrainingManagerCard({ x, onChanged }: { x: Quote; onChanged: () => void
   };
   const sendLogin = async () => {
     const again = Boolean(x.portal?.loginSentAt);
-    if (!window.confirm(`${again ? "Send a new login" : "Send the Training Manager login"} to ${x.coordinator?.email}?${again ? " Their old password stops working." : ""}`)) return;
+    if (!window.confirm(`Send the Training Manager login to ${x.coordinator?.email}? It carries a fresh password (any earlier one stops working), unless they chose their own; then it only gives the link.`)) return;
     setBusy("login"); setMsg("");
     const j = await post({ action: "sendlogin" });
     setBusy("");

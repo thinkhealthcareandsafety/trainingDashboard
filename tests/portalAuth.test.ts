@@ -69,3 +69,22 @@ test("the route: sign in sets the cookie, GET knows who it is; the reset code go
   delete process.env.VERCEL_ENV;
   assert.equal((await call({ action: "code", email: EMAIL })).status, 409);
 });
+
+test("every login email: a fresh password (the old one stops), unless they chose their own; undo puts it back", async () => {
+  const { passwordForEmail } = await import("@/lib/portalAuth");
+  const first = await passwordForEmail(EMAIL, "Riya Mehta");
+  assert.ok(first.password);
+  const second = await passwordForEmail(EMAIL, "Riya Mehta");
+  assert.ok(second.password && second.password !== first.password);
+  assert.equal((await signIn(EMAIL, first.password!)).ok, false);
+  assert.equal((await signIn(EMAIL, second.password!)).ok, true);
+  // The email failed: back to how it was, so the second password still works.
+  const third = await passwordForEmail(EMAIL, "Riya Mehta");
+  await third.undo();
+  assert.equal((await signIn(EMAIL, second.password!)).ok, true);
+  // They choose their own (reset by code): never replaced.
+  await (await db()).collection<{ _id: string }>("portalLogins").updateOne({ _id: EMAIL }, { $set: { own: true } });
+  const fourth = await passwordForEmail(EMAIL, "Riya Mehta");
+  assert.equal(fourth.password, null);
+  assert.equal((await signIn(EMAIL, second.password!)).ok, true);
+});

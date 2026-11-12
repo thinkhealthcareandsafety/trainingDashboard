@@ -17,7 +17,7 @@ import { tsQuotePdf } from "@/lib/totalSupplyPdf";
 import { sendTsMail, tsMailOn } from "@/lib/totalSupplyMail";
 import { WORKDRIVE_LINK, WORKDRIVE_SCOPES, connectWorkdrive, goodWdId, parseWdPath, workdriveFolder, workdriveInfo, workdrivePdf } from "@/lib/workdrive";
 import { type Coordinator, coordinatorRecipients, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
-import { dropLogin, hasLogin, issueLogin } from "@/lib/portalAuth";
+import { passwordForEmail } from "@/lib/portalAuth";
 import { portalTemplates } from "@/lib/templateStore";
 import { loginBoxHtml, trainingLink } from "@/lib/portalEmail";
 import { portalBase } from "@/lib/portalHost";
@@ -616,7 +616,7 @@ async function sendEmail(form: FormData | null, by: string): Promise<Response> {
   // Brochures (9 Nov): only the ones on this quote's items, read from Books here, so nothing big goes through the browser.
   const wanted = form.getAll("brochureDocs").map(String).filter((x) => /^\d+$/.test(x));
   if (files.length + wanted.length > 10) return Response.json({ error: "At most 10 attachments, brochures included" }, { status: 400 });
-  let box: { html: string; issued: string | null } | null = null;
+  let box: { html: string; undo: () => Promise<void> } | null = null;
   try {
     if (wanted.length) {
       const mine = new Map((await quoteBrochures(id)).map((b) => [b.id, b]));
@@ -648,18 +648,18 @@ async function sendEmail(form: FormData | null, by: string): Promise<Response> {
     return Response.json({ ok: true });
   } catch (e) {
     console.error("[quotations] email failed:", e);
-    // A login made for this email that never went out is taken back, so the next send makes a fresh one.
-    if (box?.issued) await dropLogin(box.issued).catch(() => undefined);
+    // The login goes back to how it was when this email never went out (the old password still works).
+    if (box) await box.undo().catch(() => undefined);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't send the email" }, { status: 502 });
   }
 }
 
 /**
  * The Training Manager login box for a quote email (docs/TRAINING_MANAGER_PLAN.md step 8): only for a training-only quote,
- * read from Zoho now (a quote made minutes ago isn't in the hourly copy yet). A new password only when the coordinator has
- * no login yet; otherwise the box says to use the one they have. `issued`: the email a login was just made for.
+ * read from Zoho now (a quote made minutes ago isn't in the hourly copy yet). A fresh password every time, unless the
+ * coordinator chose their own (then the box says to use it). `undo`: the login back as it was, if the email fails.
  */
-async function portalBox(id: string, co: Coordinator): Promise<{ html: string; issued: string | null } | null> {
+async function portalBox(id: string, co: Coordinator): Promise<{ html: string; undo: () => Promise<void> } | null> {
   const [est, doc] = await Promise.all([
     zohoGet<{ estimate?: Record<string, unknown> }>(`/estimates/${id}`),
     (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }),
@@ -669,11 +669,10 @@ async function portalBox(id: string, co: Coordinator): Promise<{ html: string; i
   if (!e || !isTrainingOnly(e, training)) return null;
   const q = toTrainingQuote(e, training);
   const name = [co.firstName, co.lastName].filter(Boolean).join(" ");
-  const fresh = !(await hasLogin(co.email));
-  const password = fresh ? await issueLogin(co.email, name) : null;
+  const { password, undo } = await passwordForEmail(co.email, name);
   const t = await portalTemplates();
   const vars = { name: co.firstName, training: q.lines.map((l) => l.name).join(" + ") || "your training", number: q.number };
-  return { html: loginBoxHtml({ intro: renderTemplate(t.box, vars), link: trainingLink(portalBase(), q.number), email: co.email, password }), issued: fresh ? co.email : null };
+  return { html: loginBoxHtml({ intro: renderTemplate(t.box, vars), link: trainingLink(portalBase(), q.number), email: co.email, password }), undo };
 }
 
 /** The brochures of a quotation's items, each once: from the items copy, or the item itself when the copy doesn't have its file id yet (added since the last sync). */

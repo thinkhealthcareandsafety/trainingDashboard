@@ -4,7 +4,7 @@ import { canQuote } from "@/lib/roles";
 import { itemSets, type ZItem } from "@/lib/zoho";
 import { byNewest, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
 import { markLoginSent, newerQuotes, quoteOf, setCoordinator, staffParticipants, staffPortal, trainingDoc } from "@/lib/portalTrainings";
-import { issueLogin } from "@/lib/portalAuth";
+import { passwordForEmail } from "@/lib/portalAuth";
 import { portalTemplates } from "@/lib/templateStore";
 import { loginEmail, trainingLink } from "@/lib/portalEmail";
 import { portalBase } from "@/lib/portalHost";
@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
  *  GET                    — the list, each with its coordinator and portal state (status, proposal, registered)
  *  GET ?people=<id>       — a training's attendee list
  *  POST { action: "coordinator", id, name, email, phone } — set the coordinator (saved on the customer in Zoho)
- *  POST { action: "sendlogin", id } — a new password to the coordinator from learn@ (step 8)
+ *  POST { action: "sendlogin", id } — the login from learn@ (step 8): a fresh password, unless they chose their own
  * Accept date → Performa (owner, 12 Nov):
  *  POST { action: "accept", id }      — the quote becomes a Draft Performa in Zoho; the portal stamps Confirmed
  *  GET ?pi=<id>                       — that draft, as Zoho has it now, plus the email ready to send
@@ -162,9 +162,9 @@ export async function POST(request: Request) {
       // Like the other emails: only the live site sends them, so a local copy can't email a client by accident.
       if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site sends email" }, { status: 409 });
       const email = t.coordinator.email.toLowerCase();
-      const password = await issueLogin(email, t.coordinator.name);
+      const { password, undo } = await passwordForEmail(email, t.coordinator.name);
       const m = loginEmail(await portalTemplates(), { name: t.coordinator.name, training: q.lines.map((l) => l.name).join(" + ") || "your training", number: q.number }, { link: trainingLink(portalBase(), q.number), email, password });
-      await sendMail(FROM, { to: email, subject: m.subject, html: m.html });
+      try { await sendMail(FROM, { to: email, subject: m.subject, html: m.html }); } catch (e) { await undo().catch(() => undefined); throw e; }
       await markLoginSent(id);
       console.log(`[training-management] ${me.name} sent the Training Manager login for ${q.number}`);
       return Response.json({ ok: true });
