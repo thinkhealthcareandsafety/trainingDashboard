@@ -9,11 +9,11 @@
 | 3 | Portal sign-in + OTP reset | **Live** at work.thinkhealth.in/training/<number>; no logins exist until step 8 |
 | — | training.thinkhealth.in | **Code live**; Vercel domain added; **waiting on the Cloudflare CNAME** `training` → `4145140deaae64f5.vercel-dns-017.com` (DNS only) |
 | 4 | Welcome + Our Programmes + Your trainings + Stay connected + Portal content editor | **Live** 12 Nov; social links (incl. WhatsApp) from the owner built in |
-| 5 | Propose date / location / confirm headcount | **Next** |
-| 6 | Participants: type, Excel import, duplicates, remove | To do |
-| 7 | QR join page + TH IDs + participant page | To do |
-| 8 | Login block in the quote email + Send login on Trainings | To do (creates the logins) |
-| 9 | Design finish review + DESIGN.md + handoff | To do |
+| 5 | Propose date / location / confirm headcount | **Built 12 Nov** (several days, tentative, old values struck through; row glows green on Trainings) |
+| 6 | Participants: type, Excel import, duplicates, remove | **Built 12 Nov** (.xlsx read in the browser, no package; CSV) |
+| 7 | QR join page + TH IDs + participant page | **Built 12 Nov** (participant page needs its private link token) |
+| 8 | Login block in the quote email + Send login on Trainings | **Built 12 Nov**; links use `PORTAL_BASE_URL` (default work.thinkhealth.in/training; set it to https://training.thinkhealth.in on Vercel once DNS works) |
+| 9 | Design finish review + DESIGN.md + handoff | **Next** |
 | later | Green glowing row on a proposed date; Accept → Performa in Zoho + training scheduled | Idea (§5) |
 
 Also built along the way: on Quotations, clicking a quotation opens only that quotation, with its sent details, the new-quotation choice (same items, revised or from scratch) and the story from quotation to payment, or for training quotes to the certificates received.

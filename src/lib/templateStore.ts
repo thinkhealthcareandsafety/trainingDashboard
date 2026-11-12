@@ -3,6 +3,7 @@ import { db } from "./db";
 import { DEFAULTS as MAIL_DEFAULTS, type MailTemplate } from "./mailTemplates";
 import { SIGNATURE_DETAILS, SIGNATURE_VARS, SIGNERS, TEMPLATES, TEMPLATE_VARS, TOPICS, TOPIC_EXTRAS, TOPIC_VARS, type TemplateOverrides, builtinSignature, signerKey } from "./quoteEmails";
 import { TS_TEMPLATES } from "./totalSupply";
+import { PORTAL_TEMPLATES, PORTAL_VARS } from "./portalEmail";
 import { templateProblems } from "./templateText";
 import { canQuote, isAdmin } from "./roles";
 
@@ -15,10 +16,11 @@ import { canQuote, isAdmin } from "./roles";
  *    (one subject for the thread). Admin only.
  *  - "sign:<first name>": that person's signature on quotation emails (owner, 10 Nov), saved like "quote:" — the person
  *    themself or Admin; "sign:details", the company block every signature shows as {details} — Admin only.
+ *  - "portal:box", "portal:login": the Training Manager login (step 8 of docs/TRAINING_MANAGER_PLAN.md), saved like "quote:".
  * Every save and reset is logged in `mailTemplateEdits` (key, by, at, before, after; after = null for a reset).
  */
 
-export type TemplateGroup = "quote" | "topic" | "ts" | "sign" | "aed" | "fulfil";
+export type TemplateGroup = "quote" | "topic" | "ts" | "sign" | "portal" | "aed" | "fulfil";
 export type TemplateEntry = {
   key: string; group: TemplateGroup; label: string;
   subject: string | null; body: string; // null subject = this one has none
@@ -60,7 +62,11 @@ function catalogue(): TemplateEntry[] {
     { key: "sign:details", group: "sign", label: "Company details (in every signature)", subject: null, body: SIGNATURE_DETAILS, builtin: { subject: null, body: SIGNATURE_DETAILS },
       vars: [], choices: false, adminOnly: true, note: "Shown as {details} in each person's signature. Admin only." },
   ];
-  return [...quote("quote", TEMPLATES), ...topics, ...quote("ts", TS_TEMPLATES), ...signs, ...flows];
+  const portal: TemplateEntry[] = PORTAL_TEMPLATES.map((t) => ({
+    key: `portal:${t.id}`, group: "portal", label: t.label, subject: t.subject, body: t.body, builtin: { subject: t.subject, body: t.body },
+    vars: PORTAL_VARS, choices: false, adminOnly: false, note: t.note,
+  }));
+  return [...quote("quote", TEMPLATES), ...topics, ...quote("ts", TS_TEMPLATES), ...signs, ...portal, ...flows];
 }
 
 const flowOf = (key: string) => { const m = key.match(/^(\w+):(\d+)$/); return m && MAIL_DEFAULTS[m[1]] ? { id: m[1], step: Number(m[2]) } : null; };
@@ -90,6 +96,13 @@ export async function templateOverrides(): Promise<TemplateOverrides> {
   const out: TemplateOverrides = {};
   for (const d of await (await col()).find({}).toArray()) if (/^(quote|ts|topic|sign):/.test(d._id) && typeof d.body === "string") out[d._id] = { ...(d.subject ? { subject: d.subject } : {}), body: d.body };
   return out;
+}
+
+/** The Training Manager login's wording (saved, or built in). */
+export async function portalTemplates(): Promise<{ subject: string; body: string; box: string }> {
+  const saved = new Map((await (await col()).find({}).toArray()).filter((d) => d._id.startsWith("portal:")).map((d) => [d._id, d]));
+  const login = PORTAL_TEMPLATES.find((t) => t.id === "login")!, box = PORTAL_TEMPLATES.find((t) => t.id === "box")!;
+  return { subject: saved.get("portal:login")?.subject ?? login.subject!, body: saved.get("portal:login")?.body ?? login.body, box: saved.get("portal:box")?.body ?? box.body };
 }
 
 export type SaveResult = { ok: true } | { error: string; status: number };

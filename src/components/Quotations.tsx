@@ -920,7 +920,7 @@ function EmailStep({ quote, live, customerId, onContact, known, compose, onBack,
               <input className={`${inputCls} !h-9 text-[14px]`} value={co.phone} onChange={(e) => typeCo("phone", e.target.value)} placeholder={coSame.phone && !fromOriginal.phone ? "Not in Zoho: type it" : "Training Coordinator's Number"} aria-label="Training Coordinator's Number" inputMode="tel" maxLength={20} />
               <input className={`${inputCls} !h-9 text-[14px]`} value={co.email} onChange={(e) => typeCo("email", e.target.value)} placeholder="Training Coordinator's Email" aria-label="Training Coordinator's Email" type="email" maxLength={200} />
             </div>
-            <p className="mt-2 text-[13px] text-muted">The email goes to the coordinator first; everyone ticked in To is copied. They&apos;re saved on the customer in Zoho as &ldquo;Training Coordinator&rdquo;; if that email is already there, its name and number change to these.</p>
+            <p className="mt-2 text-[13px] text-muted">The email goes to the coordinator first; everyone ticked in To is copied. They&apos;re saved on the customer in Zoho as &ldquo;Training Coordinator&rdquo;; if that email is already there, its name and number change to these. On a quote with only training, their Training Manager login goes under the message (a password only the first time).</p>
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">

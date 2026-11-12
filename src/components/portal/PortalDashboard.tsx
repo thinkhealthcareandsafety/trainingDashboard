@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
+import type { Proposal } from "@/lib/portalRules";
+import { Participants, ProposalView, ProposeForm, primaryBtn, secondaryBtn } from "./TrainingTools";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -10,7 +12,7 @@ import { type PortalContent, type Programme, type Social, type SocialKey, youtub
  * trainings as sign panels with a state stamp, and Stay connected. Prices are never shown here.
  */
 type Me = { email: string; name: string };
-type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string };
+type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -127,10 +129,10 @@ function Welcome({ name, onDone }: { name: string; onDone: () => void }) {
 
 /* ---------------- Our Programmes ---------------- */
 
-function Programmes({ list }: { list: Programme[] }) {
+export function Programmes({ list, title = "Our Programmes" }: { list: Programme[]; title?: string }) {
   return (
     <section className="pt-12 sm:pt-16" aria-labelledby="programmes">
-      <h2 id="programmes" className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted">Our Programmes</h2>
+      <h2 id="programmes" className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted">{title}</h2>
       <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {list.map((p, i) => <ProgrammeTile key={p.key} p={p} delay={250 + i * 110} />)}
       </div>
@@ -200,9 +202,14 @@ function Trainings({ list, focus }: { list: Training[]; focus?: string }) {
   );
 }
 
-function TrainingPanel({ t, focused }: { t: Training; focused: boolean }) {
+function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean }) {
+  const [t, setT] = useState(initial);
+  const [editing, setEditing] = useState(false);
+  const [people, setPeople] = useState(false);
   const title = t.lines.map((l) => l.name).join(" + ") || "Training";
   const sign = signFor(title);
+  const tool = { id: t.id, number: t.number, title, expected: t.expected, proposal: t.proposal, history: t.history, joinKey: t.joinKey, registered: t.registered };
+  const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
   return (
     <article id={`training-${t.number}`} className={`scroll-mt-6 overflow-hidden rounded-2xl bg-surface ring-1 ${focused ? "ring-2 ring-navy" : "ring-line"}`}>
       <div className="flex items-start gap-4 border-b border-line p-5 sm:gap-5 sm:p-7">
@@ -211,17 +218,53 @@ function TrainingPanel({ t, focused }: { t: Training; focused: boolean }) {
           <p className="num text-[13px] font-semibold text-muted">{t.number}{t.date ? ` · ${fmtDate(t.date)}` : ""}</p>
           <h3 className="mt-1 text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink sm:text-[24px]">{title}</h3>
           {t.customer && <p className="mt-1 text-[14.5px] text-ink-2">{t.customer}</p>}
-          <div className="mt-3 sm:hidden"><Stamp label={t.stamp} /></div>
+          <div className="mt-3 sm:hidden"><Stamp key={t.stamp} label={t.stamp} /></div>
         </div>
-        <div className="hidden sm:block"><Stamp label={t.stamp} /></div>
+        <div className="hidden sm:block"><Stamp key={t.stamp} label={t.stamp} /></div>
       </div>
+
+      {/* Step 5: the date, the place, how many. */}
+      <div className="border-b border-line p-5 sm:p-7">
+        {editing ? (
+          <>
+            <p className={`${sub} mb-4`}>{t.proposal ? "Change the date, place or headcount" : "Propose a date"}</p>
+            <ProposeForm t={tool} onCancel={() => setEditing(false)} onSaved={(proposal, history) => { setT({ ...t, proposal, history, stamp: "Proposed" }); setEditing(false); }} />
+          </>
+        ) : t.proposal ? (
+          <>
+            <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
+            <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <button type="button" className={secondaryBtn} onClick={() => setEditing(true)}>Change</button>
+              <span className="text-[13.5px] text-muted">Sent to Think Health. We&apos;ll confirm with you.</span>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-[46ch] text-[15.5px] leading-relaxed text-ink-2">When would you like the training? Propose a date, the place and how many will attend; it comes straight to us.</p>
+            <button type="button" className={`${primaryBtn} shrink-0`} onClick={() => setEditing(true)}>Propose a date</button>
+          </div>
+        )}
+      </div>
+
+      {/* Steps 6–7: the attendee list. */}
+      <div className="border-b border-line p-5 sm:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className={sub}>Participants</p>
+            <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
+          </div>
+          <button type="button" className={people ? secondaryBtn : primaryBtn} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Close the list" : "Add participants"}</button>
+        </div>
+        {people && <div className="mt-6"><Participants t={tool} confirmed={t.proposal?.headcount ?? t.expected} onCount={(registered) => setT((x) => ({ ...x, registered }))} /></div>}
+      </div>
+
       <div className="grid gap-6 p-5 sm:grid-cols-[180px_minmax(0,1fr)] sm:gap-8 sm:p-7">
         <div>
-          <p className="text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">Expected participants</p>
+          <p className={sub}>Expected participants</p>
           <p className="num mt-1 text-[44px] font-extrabold leading-none tracking-[-0.03em] text-navy">{t.expected || "—"}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">What&apos;s included</p>
+          <p className={sub}>What&apos;s included</p>
           <div className="mt-2 space-y-4">
             {t.lines.map((l, i) => <Included key={i} name={t.lines.length > 1 ? l.name : ""} text={l.description} />)}
           </div>
@@ -250,8 +293,9 @@ function Included({ name, text }: { name: string; text: string }) {
 
 /** A state stamp (Awaiting date → Proposed → Confirmed → Done): it stamps onto the panel and never vanishes. */
 function Stamp({ label }: { label: string }) {
+  const solid = label !== "Awaiting date";
   return (
-    <span className="stamp inline-block shrink-0 rotate-[-4deg] rounded-md border-2 border-navy/70 px-2.5 py-1 text-[11.5px] font-extrabold uppercase tracking-[0.14em] text-navy/80">{label}</span>
+    <span className={`stamp inline-block shrink-0 rotate-[-4deg] rounded-md border-2 px-2.5 py-1 text-[11.5px] font-extrabold uppercase tracking-[0.14em] ${solid ? "border-navy bg-navy text-white" : "border-navy/70 text-navy/80"}`}>{label}</span>
   );
 }
 

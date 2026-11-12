@@ -2,7 +2,8 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_CONTENT, cleanContent, youtube } from "@/lib/portalContent";
-import { readContent, readPhoto, saveContent, savePhoto, trainingsFor } from "@/lib/portalServer";
+import { readContent, readPhoto, saveContent, savePhoto } from "@/lib/portalServer";
+import { trainingsFor } from "@/lib/portalTrainings";
 import { issueLogin, signIn } from "@/lib/portalAuth";
 import { GET as home } from "@/app/api/portal/home/route";
 import { GET as getContent, POST as postPhoto, PUT as putContent } from "@/app/api/portal-content/route";

@@ -2,29 +2,91 @@ import { signedInMember, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { canQuote } from "@/lib/roles";
 import { itemSets, type ZItem } from "@/lib/zoho";
-import { type TrainingPerson, byNewest, isTrainingOnly, toTrainingQuote } from "@/lib/trainingManager";
+import { byNewest, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
+import { markLoginSent, quoteOf, setCoordinator, staffParticipants, staffPortal, trainingDoc } from "@/lib/portalTrainings";
+import { issueLogin } from "@/lib/portalAuth";
+import { portalTemplates } from "@/lib/templateStore";
+import { loginEmail, trainingLink } from "@/lib/portalEmail";
+import { portalBase } from "@/lib/portalHost";
+import { upsertCoordinator } from "@/lib/quotations";
+import { sendMail } from "@/lib/zohoMail";
 
 export const dynamic = "force-dynamic";
 
-// Training Management (docs/TRAINING_MANAGER_PLAN.md step 1): the training-only quotes, read-only, from our copy of
-// Zoho (zohoDocs, kept by the hourly sync). Those who send quotations.
+/*
+ * Training Management (docs/TRAINING_MANAGER_PLAN.md): the training-only quotes, from our copy of Zoho (zohoDocs, kept by
+ * the hourly sync), with each one's Training Manager state. Those who send quotations.
+ *  GET                    — the list, each with its coordinator and portal state (status, proposal, registered)
+ *  GET ?people=<id>       — a training's attendee list
+ *  POST { action: "coordinator", id, name, email, phone } — set the coordinator (saved on the customer in Zoho)
+ *  POST { action: "sendlogin", id } — a new password to the coordinator from learn@ (step 8)
+ */
+const FROM = "learn@thinkhealth.in";
+
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!canQuote(me)) return Response.json({ error: "Only those who send quotations see Training Management" }, { status: 403 });
   try {
+    const people = new URL(request.url).searchParams.get("people");
+    if (people) return Response.json({ list: await staffParticipants(people) });
     const d = await db();
     const items = ((await d.collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? [];
     const training = itemSets(items).training;
     const docs = await d.collection<{ _id: string; doc: Record<string, unknown> }>("zohoDocs")
       .find({ kind: "estimates", training: true }, { projection: { doc: 1 } }).toArray();
     const quotes = docs.map((x) => x.doc).filter((doc) => isTrainingOnly(doc, training)).map((doc) => toTrainingQuote(doc, training)).sort(byNewest);
-    // The coordinators saved by the quote email (step 2).
-    const portal = await d.collection<{ _id: string; coordinator?: TrainingPerson }>("portalTrainings").find({ _id: { $in: quotes.map((x) => x.id) } }, { projection: { coordinator: 1 } }).toArray();
-    const co = new Map(portal.map((p) => [p._id, p.coordinator ?? null]));
-    for (const x of quotes) x.coordinator = co.get(x.id) ?? null;
-    return Response.json({ quotes });
+    const ids = quotes.map((x) => x.id);
+    const [portal, co] = await Promise.all([
+      staffPortal(ids),
+      d.collection<{ _id: string; coordinator?: { name: string; email: string; phone: string } }>("portalTrainings").find({ _id: { $in: ids } }, { projection: { coordinator: 1 } }).toArray(),
+    ]);
+    const coordinators = new Map(co.map((p) => [p._id, p.coordinator ?? null]));
+    return Response.json({
+      quotes: quotes.map((x) => ({ ...x, coordinator: coordinators.get(x.id) ?? null, portal: portal.get(x.id) ?? null })),
+    });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't read the training quotes" }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  const me = await signedInMember(request);
+  if (!me) return unauthorized();
+  if (!canQuote(me)) return Response.json({ error: "Only those who send quotations use Training Management" }, { status: 403 });
+  const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; name?: unknown; email?: unknown; phone?: unknown } | null;
+  const id = String(b?.id ?? "").slice(0, 30);
+  if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown training" }, { status: 400 });
+  try {
+    const q = await quoteOf(id);
+    if (!q) return Response.json({ error: "That training quote isn't in our copy of Zoho yet. Refresh in a minute." }, { status: 404 });
+
+    if (b?.action === "coordinator") {
+      const co = readCoordinator({ name: String(b.name ?? ""), email: String(b.email ?? ""), phone: String(b.phone ?? "") });
+      if ("error" in co) return Response.json({ error: co.error }, { status: 400 });
+      const person = await upsertCoordinator({ contactId: q.customerId, ...co });
+      const coordinator = { name: [co.firstName, co.lastName].filter(Boolean).join(" "), email: co.email, phone: co.phone, contactPersonId: person.id };
+      await setCoordinator(id, q.customerId, coordinator);
+      console.log(`[training-management] ${me.name} set the coordinator of ${q.number}`);
+      return Response.json({ ok: true, coordinator: { name: coordinator.name, email: coordinator.email, phone: coordinator.phone } });
+    }
+
+    if (b?.action === "sendlogin") {
+      const t = await trainingDoc(id);
+      if (!t?.coordinator?.email) return Response.json({ error: "Add the training coordinator first" }, { status: 400 });
+      // Like the other emails: only the live site sends them, so a local copy can't email a client by accident.
+      if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site sends email" }, { status: 409 });
+      const email = t.coordinator.email.toLowerCase();
+      const password = await issueLogin(email, t.coordinator.name);
+      const m = loginEmail(await portalTemplates(), { name: t.coordinator.name, training: q.lines.map((l) => l.name).join(" + ") || "your training", number: q.number }, { link: trainingLink(portalBase(), q.number), email, password });
+      await sendMail(FROM, { to: email, subject: m.subject, html: m.html });
+      await markLoginSent(id);
+      console.log(`[training-management] ${me.name} sent the Training Manager login for ${q.number}`);
+      return Response.json({ ok: true });
+    }
+    return Response.json({ error: "Unknown action" }, { status: 400 });
+  } catch (e) {
+    console.error("[training-management]", e);
+    return Response.json({ error: e instanceof Error ? e.message : "Something went wrong" }, { status: 502 });
   }
 }

@@ -3,62 +3,80 @@
 import { useEffect, useMemo, useState } from "react";
 import { fmtDate } from "@/lib/dates";
 import type { TrainingQuote } from "@/lib/trainingManager";
-import { Modal, Skeleton, inputCls } from "./ui";
+import { type Proposal, fmtProposalDate } from "@/lib/portalRules";
+import { Modal, Skeleton, btn, inputCls } from "./ui";
 import { QuoteStory } from "./QuoteStory";
 import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 
-// Training Management (docs/TRAINING_MANAGER_PLAN.md step 1): the training-only quotes — read-only for now. The
-// coordinator, portal status and participants columns arrive with steps 2–7.
+// Training Management (docs/TRAINING_MANAGER_PLAN.md): the training-only quotes and their Training Manager — the
+// coordinator, the login (step 8), the date they proposed (step 5, the row glows green) and the attendee list (steps 6–7).
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const STATUS: Record<string, string> = { draft: "Draft", sent: "Sent", accepted: "Accepted", declined: "Declined", invoiced: "Invoiced", expired: "Expired" };
 
+type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null };
+type Quote = TrainingQuote & { portal: Portal | null };
+type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr"; addedAt: string; duplicate: boolean };
+
+const portalStatus = (x: Quote) => x.portal?.status ?? (x.coordinator ? "Login not sent" : "No coordinator");
+const proposed = (x: Quote) => Boolean(x.portal?.proposal);
+const STATUS_TONE: Record<string, string> = {
+  "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Date proposed": "font-semibold text-low",
+};
+
 export function TrainingManagement() {
-  const [quotes, setQuotes] = useState<TrainingQuote[] | null>(null);
+  const [quotes, setQuotes] = useState<Quote[] | null>(null);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<TrainingQuote | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/training-management").then(async (r) => {
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) return setError(j.error ?? "Couldn't load the training quotes");
-      setQuotes(j.quotes);
-    }).catch(() => setError("Couldn't load the training quotes"));
-  }, []);
+  const load = () => fetch("/api/training-management").then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return setError(j.error ?? "Couldn't load the training quotes");
+    setQuotes(j.quotes);
+  }).catch(() => setError("Couldn't load the training quotes"));
+  useEffect(() => { load(); }, []);
 
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
-    if (!quotes || !t) return quotes ?? [];
-    return quotes.filter((x) => [x.customer, x.number, x.contact?.name, x.coordinator?.name, ...x.lines.map((l) => l.name)].some((s) => s?.toLowerCase().includes(t)));
+    const list = quotes ?? [];
+    // Proposed dates first: they're waiting for us.
+    const sorted = [...list].sort((a, b) => Number(proposed(b)) - Number(proposed(a)));
+    if (!t) return sorted;
+    return sorted.filter((x) => [x.customer, x.number, x.contact?.name, x.coordinator?.name, portalStatus(x), ...x.lines.map((l) => l.name)].some((s) => s?.toLowerCase().includes(t)));
   }, [quotes, q]);
+  const open = quotes?.find((x) => x.id === openId) ?? null;
+  const waiting = quotes?.filter(proposed).length ?? 0;
 
   if (error) return <p className="rounded-xl border border-line bg-surface p-4 text-[14px] text-high">{error}</p>;
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        <input className={`${inputCls} max-w-sm`} placeholder="Search customer, quote or training" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className={`${inputCls} max-w-sm`} placeholder="Search customer, quote, training or status" value={q} onChange={(e) => setQ(e.target.value)} />
         {quotes && <span className="text-[13px] text-muted">{shown.length} of {quotes.length} training quotes</span>}
+        {waiting > 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-low-bg px-2.5 py-1 text-[12.5px] font-semibold text-low"><span className="size-2 animate-pulse rounded-full bg-low" />{waiting} date{waiting > 1 ? "s" : ""} proposed</span>}
       </div>
       <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-        <div className="hidden grid-cols-[1.4fr_0.8fr_1.6fr_0.6fr_0.7fr_0.6fr] gap-3 border-b border-line px-4 py-2.5 text-[12px] font-medium uppercase tracking-wide text-faint md:grid">
-          <span>Customer</span><span>Quote</span><span>Training</span><span className="text-right">Expected</span><span className="text-right">Total</span><span>Status</span>
+        <div className="hidden grid-cols-[1.3fr_0.8fr_1.5fr_0.5fr_0.7fr_0.9fr] gap-3 border-b border-line px-4 py-2.5 text-[12px] font-medium uppercase tracking-wide text-faint md:grid">
+          <span>Customer</span><span>Quote</span><span>Training</span><span className="text-right">Expected</span><span className="text-right">Total</span><span>Training Manager</span>
         </div>
         {!quotes && <div className="space-y-2 p-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-10" />)}</div>}
         {quotes && !shown.length && <p className="p-6 text-center text-[14px] text-muted">{quotes.length ? "Nothing matches that search." : "No training-only quotes yet."}</p>}
         {shown.map((x) => (
-          <button key={x.id} type="button" onClick={() => setOpen(x)}
-            className="grid w-full grid-cols-2 gap-x-3 gap-y-1 border-b border-line px-4 py-3 text-left text-[14px] last:border-b-0 hover:bg-surface-2 md:grid-cols-[1.4fr_0.8fr_1.6fr_0.6fr_0.7fr_0.6fr] md:items-center">
+          <button key={x.id} type="button" onClick={() => setOpenId(x.id)}
+            className={`grid w-full grid-cols-2 gap-x-3 gap-y-1 border-b border-line px-4 py-3 text-left text-[14px] last:border-b-0 md:grid-cols-[1.3fr_0.8fr_1.5fr_0.5fr_0.7fr_0.9fr] md:items-center ${proposed(x) ? "bg-low-bg/60 shadow-[inset_4px_0_0_var(--low)] hover:bg-low-bg" : "hover:bg-surface-2"}`}>
             <span className="font-medium text-ink">{x.customer}</span>
             <span className="text-right text-muted md:text-left">{x.number} · {fmtDate(x.date)}</span>
             <span className="col-span-2 text-ink-2 md:col-span-1">{x.lines.map((l) => l.name).join(", ")}</span>
             <span className="text-muted md:text-right"><span className="md:hidden">Expected </span>{x.expected || "—"}</span>
             <span className="text-right text-ink-2">{inr(x.total)}</span>
-            <span className="col-span-2 text-[13px] text-muted md:col-span-1">{STATUS[x.status] ?? x.status}</span>
+            <span className={`col-span-2 text-[13px] md:col-span-1 ${STATUS_TONE[portalStatus(x)] ?? "text-muted"}`}>
+              {portalStatus(x)}{x.portal?.proposal ? ` · ${fmtProposalDate(x.portal.proposal.dates[0])}` : ""}{x.portal && x.portal.registered > 0 ? ` · ${x.portal.registered} registered` : ""}
+            </span>
           </button>
         ))}
       </div>
-      <Modal open={Boolean(open)} onClose={() => setOpen(null)} title={open ? `${open.number} · ${open.customer}` : ""} top size="xl">
-        {open && <Detail x={open} />}
+      <Modal open={Boolean(open)} onClose={() => setOpenId(null)} title={open ? `${open.number} · ${open.customer}` : ""} top size="xl">
+        {open && <Detail x={open} onChanged={load} />}
       </Modal>
     </div>
   );
@@ -67,29 +85,33 @@ export function TrainingManagement() {
 /** The quotation's story, the same as on Quotations (owner, 11 Nov: "those are all the same thing"). */
 type StoryQuote = { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[]; error?: string };
 
-function Detail({ x }: { x: TrainingQuote }) {
+const card = "rounded-2xl border border-line bg-surface-2/40 p-4";
+const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
+
+function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
   const [story, setStory] = useState<StoryQuote | null>(null);
   useEffect(() => {
     fetch(`/api/quotations?view=${x.id}`).then((r) => r.json()).then(setStory).catch(() => setStory({ error: "Couldn't reach the server" } as StoryQuote));
   }, [x.id]);
   const row = (k: string, v: React.ReactNode) => <div className="flex gap-3 py-1.5 text-[14px]"><span className="w-32 shrink-0 text-muted">{k}</span><span className="min-w-0 break-words text-ink">{v || "—"}</span></div>;
-  const card = "rounded-2xl border border-line bg-surface-2/40 p-4";
-  const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
   return (
     <div className="space-y-5">
+      {x.portal?.proposal && <ProposalCard p={x.portal.proposal} history={x.portal.history} expected={x.expected} />}
       <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
-        <section className={card}>
-          <p className={label}>Customer</p>
-          <div className="mt-1">
-            {row("Customer", x.customer)}
-            {row("Contact", x.contact?.name)}
-            {row("Email", x.contact?.email && <a className="text-brand hover:underline" href={`mailto:${x.contact.email}`}>{x.contact.email}</a>)}
-            {row("Phone", x.contact?.phone)}
-            {row("Quote", `${x.number} · ${fmtDate(x.date, { day: "numeric", month: "short", year: "numeric" })} · ${STATUS[x.status] ?? x.status}`)}
-            {row("Expected", x.expected ? `${x.expected} participants` : "")}
-            {row("Coordinator", x.coordinator ? <>{x.coordinator.name} <span className="text-muted">· {x.coordinator.phone} · </span><a className="text-brand hover:underline" href={`mailto:${x.coordinator.email}`}>{x.coordinator.email}</a></> : <span className="text-muted">Added when the quote is emailed from Quotations</span>)}
-          </div>
-        </section>
+        <div className="space-y-5">
+          <section className={card}>
+            <p className={label}>Customer</p>
+            <div className="mt-1">
+              {row("Customer", x.customer)}
+              {row("Contact", x.contact?.name)}
+              {row("Email", x.contact?.email && <a className="text-brand hover:underline" href={`mailto:${x.contact.email}`}>{x.contact.email}</a>)}
+              {row("Phone", x.contact?.phone)}
+              {row("Quote", `${x.number} · ${fmtDate(x.date, { day: "numeric", month: "short", year: "numeric" })} · ${STATUS[x.status] ?? x.status}`)}
+              {row("Expected", x.expected ? `${x.expected} participants` : "")}
+            </div>
+          </section>
+          <TrainingManagerCard x={x} onChanged={onChanged} />
+        </div>
         <section className="space-y-3">
           {x.lines.map((l, i) => (
             <div key={i} className={card}>
@@ -102,9 +124,151 @@ function Detail({ x }: { x: TrainingQuote }) {
           ))}
         </section>
       </div>
+      <ParticipantList x={x} />
       {!story ? <p className="text-[14px] text-muted">Getting the story of this quotation…</p>
         : story.error ? <p className="text-[14px] text-high">{story.error}</p>
         : <QuoteStory quote={story} training />}
     </div>
+  );
+}
+
+/** Step 5, our side: what the coordinator proposed, with the earlier values struck through. */
+function ProposalCard({ p, history, expected }: { p: Proposal; history: Proposal[]; expected: number }) {
+  const prev = history.at(-1);
+  const differs = expected > 0 && p.headcount !== expected;
+  return (
+    <section className="rounded-2xl border-2 border-low bg-low-bg/50 p-4 shadow-[0_0_0_4px_color-mix(in_srgb,var(--low)_12%,transparent)]">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[15px] font-semibold text-low">Date proposed by the coordinator</p>
+        <span className="text-[12.5px] text-muted">{fmtDate(p.at, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}{history.length ? ` · changed ${history.length} time${history.length > 1 ? "s" : ""}` : ""}</span>
+      </div>
+      <div className="mt-3 grid gap-4 sm:grid-cols-3">
+        <div>
+          <p className={label}>On{p.tentative && <span className="ml-2 rounded bg-medium-bg px-1.5 py-0.5 text-[11px] text-medium">Tentative</span>}</p>
+          {p.dates.map((d) => <p key={d.date} className="mt-1 text-[14.5px] font-medium">{fmtProposalDate(d)}</p>)}
+          {prev && JSON.stringify(prev.dates) !== JSON.stringify(p.dates) && prev.dates.map((d) => <p key={d.date} className="text-[13px] text-muted line-through">{fmtProposalDate(d)}</p>)}
+        </div>
+        <div>
+          <p className={label}>At</p>
+          <p className="mt-1 text-[14.5px] font-medium">{p.location}</p>
+          {prev && prev.location !== p.location && <p className="text-[13px] text-muted line-through">{prev.location}</p>}
+        </div>
+        <div>
+          <p className={label}>Attending</p>
+          <p className={`mt-1 text-[14.5px] font-medium ${differs ? "text-medium" : ""}`}>{p.headcount} people{differs ? ` (quote: ${expected})` : ""}</p>
+          {prev && prev.headcount !== p.headcount && <p className="text-[13px] text-muted line-through">{prev.headcount} people</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** The coordinator and their login (step 8): add or change the coordinator, Send login / Resend login. */
+function TrainingManagerCard({ x, onChanged }: { x: Quote; onChanged: () => void }) {
+  const [editing, setEditing] = useState(!x.coordinator);
+  const [co, setCo] = useState({ name: x.coordinator?.name ?? "", email: x.coordinator?.email ?? "", phone: x.coordinator?.phone ?? "" });
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const post = async (body: object) => {
+    const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: x.id, ...body }) }).catch(() => null);
+    return r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
+  };
+  const saveCo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy("co"); setMsg("");
+    const j = await post({ action: "coordinator", ...co });
+    setBusy("");
+    if (!j.ok) return setMsg(j.error ?? "Couldn't save the coordinator");
+    setEditing(false); setMsg("Coordinator saved, also on the customer in Zoho."); onChanged();
+  };
+  const sendLogin = async () => {
+    const again = Boolean(x.portal?.loginSentAt);
+    if (!window.confirm(`${again ? "Send a new login" : "Send the Training Manager login"} to ${x.coordinator?.email}?${again ? " Their old password stops working." : ""}`)) return;
+    setBusy("login"); setMsg("");
+    const j = await post({ action: "sendlogin" });
+    setBusy("");
+    if (!j.ok) return setMsg(j.error ?? "Couldn't send the login");
+    setMsg("Login sent from learn@thinkhealth.in."); onChanged();
+  };
+  const p = x.portal;
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className={label}>Training Manager</p>
+        <span className="text-[12.5px] text-muted">{portalStatus(x)}</span>
+      </div>
+      {editing ? (
+        <form onSubmit={saveCo} className="mt-2 space-y-2">
+          <input className={inputCls} placeholder="Coordinator's name" value={co.name} onChange={(e) => setCo({ ...co, name: e.target.value })} />
+          <input className={inputCls} placeholder="Email" type="email" value={co.email} onChange={(e) => setCo({ ...co, email: e.target.value })} />
+          <input className={inputCls} placeholder="Mobile number" inputMode="tel" value={co.phone} onChange={(e) => setCo({ ...co, phone: e.target.value })} />
+          <p className="text-[12.5px] text-muted">Saved on {x.customer} in Zoho as &ldquo;Training Coordinator&rdquo;. They see this training when they sign in.</p>
+          <div className="flex gap-2">
+            <button className={btn.primary} disabled={busy === "co"}>{busy === "co" ? "Saving…" : "Save coordinator"}</button>
+            {x.coordinator && <button type="button" className={btn.ghost} onClick={() => setEditing(false)}>Cancel</button>}
+          </div>
+        </form>
+      ) : x.coordinator && (
+        <div className="mt-1.5 text-[14px]">
+          <p className="font-medium text-ink">{x.coordinator.name}</p>
+          <p className="flex flex-wrap gap-x-3 text-muted"><a className="text-brand hover:underline" href={`mailto:${x.coordinator.email}`}>{x.coordinator.email}</a><span>{x.coordinator.phone}</span></p>
+          <p className="mt-1.5 text-[13px] text-muted">
+            {p?.loginSentAt ? `Login sent ${fmtDate(p.loginSentAt, { day: "numeric", month: "short" })}` : "Login not sent yet"}
+            {p?.lastLogin ? ` · last signed in ${fmtDate(p.lastLogin, { day: "numeric", month: "short" })}` : p?.loginSentAt ? " · hasn't signed in yet" : ""}
+          </p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <button type="button" className={btn.primary} disabled={busy === "login"} onClick={sendLogin}>{busy === "login" ? "Sending…" : p?.loginSentAt ? "Resend login" : "Send login"}</button>
+            <button type="button" className={btn.ghost} onClick={() => setEditing(true)}>Change coordinator</button>
+          </div>
+        </div>
+      )}
+      {msg && <p className={`mt-2 text-[13px] ${/saved|sent/i.test(msg) && !/couldn/i.test(msg) ? "text-low" : "text-high"}`} role="status">{msg}</p>}
+    </section>
+  );
+}
+
+const SOURCE: Record<Person["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR" };
+
+/** Steps 6–7, our side: the attendee list the coordinator built, downloadable. */
+function ParticipantList({ x }: { x: Quote }) {
+  const [list, setList] = useState<Person[] | null>(null);
+  useEffect(() => {
+    fetch(`/api/training-management?people=${x.id}`).then((r) => r.json()).then((j) => setList(j.list ?? [])).catch(() => setList([]));
+  }, [x.id]);
+  const confirmed = x.portal?.proposal?.headcount ?? x.expected;
+  const download = () => {
+    const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+    const csv = "﻿" + [["TH ID", "Name", "Phone", "Email", "Added by", "Added on"], ...(list ?? []).map((p) => [p.th, p.name, p.phone, p.email, SOURCE[p.source], p.addedAt.slice(0, 10)])].map((r) => r.map(esc).join(",")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `Participants ${x.number} ${x.customer}.csv`;
+    a.click();
+  };
+  if (!list) return null;
+  const dups = list.filter((p) => p.duplicate).length;
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className={label}>Participants · {list.length} registered{confirmed ? ` of ${confirmed}` : ""}{dups ? ` · ${dups} with the same phone` : ""}</p>
+        {list.length > 0 && <button type="button" className={btn.quiet} onClick={download}>Download (Excel)</button>}
+      </div>
+      {list.length === 0 ? <p className="mt-1.5 text-[13.5px] text-muted">None yet. The coordinator adds them on the Training Manager: typed, from Excel, or by their QR code.</p> : (
+        <div className="mt-2 max-h-72 overflow-y-auto rounded-xl border border-line bg-surface [scrollbar-width:thin]">
+          <table className="w-full text-[13.5px]">
+            <tbody>
+              {list.map((p) => (
+                <tr key={p.th} className={`border-b border-line last:border-b-0 ${p.duplicate ? "bg-medium-bg/60" : ""}`}>
+                  <td className="w-16 px-3 py-1.5 text-muted">{p.th}</td>
+                  <td className="px-2 py-1.5 font-medium">{p.name}</td>
+                  <td className="px-2 py-1.5 text-ink-2">{p.phone}</td>
+                  <td className="hidden px-2 py-1.5 text-muted sm:table-cell">{p.email}</td>
+                  <td className="px-3 py-1.5 text-right text-muted">{SOURCE[p.source]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

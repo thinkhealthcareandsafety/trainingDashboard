@@ -1,5 +1,6 @@
 import { portalToken, portalUser } from "@/lib/portalAuth";
-import { readContent, trainingsFor } from "@/lib/portalServer";
+import { readContent } from "@/lib/portalServer";
+import { trainingsFor } from "@/lib/portalTrainings";
 
 export const dynamic = "force-dynamic";
 

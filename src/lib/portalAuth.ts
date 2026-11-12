@@ -63,6 +63,16 @@ export async function issueLogin(email: string, name: string): Promise<string> {
   return password;
 }
 
+/** Whether this coordinator already has a login (step 8: a training quote then says "the password you already have"). */
+export async function hasLogin(email: string): Promise<boolean> {
+  return Boolean(await (await logins()).findOne({ _id: email }));
+}
+
+/** Takes back a login just made for an email that then failed to send, so the next email makes a fresh one. */
+export async function dropLogin(email: string): Promise<void> {
+  await (await logins()).deleteOne({ _id: email });
+}
+
 async function startSession(email: string): Promise<{ token: string; maxAge: number }> {
   const token = randomBytes(32).toString("base64url");
   const maxAge = SESSION_DAYS * 86_400;

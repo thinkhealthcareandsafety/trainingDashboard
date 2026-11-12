@@ -16,7 +16,13 @@ import { TS, type ZEstimate, buildTsQuote, parseMarkups, rollMarkups, tsQuoteNum
 import { tsQuotePdf } from "@/lib/totalSupplyPdf";
 import { sendTsMail, tsMailOn } from "@/lib/totalSupplyMail";
 import { WORKDRIVE_LINK, WORKDRIVE_SCOPES, connectWorkdrive, goodWdId, parseWdPath, workdriveFolder, workdriveInfo, workdrivePdf } from "@/lib/workdrive";
-import { coordinatorRecipients, readCoordinator } from "@/lib/trainingManager";
+import { type Coordinator, coordinatorRecipients, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
+import { dropLogin, hasLogin, issueLogin } from "@/lib/portalAuth";
+import { portalTemplates } from "@/lib/templateStore";
+import { loginBoxHtml, trainingLink } from "@/lib/portalEmail";
+import { portalBase } from "@/lib/portalHost";
+import { markLoginSent } from "@/lib/portalTrainings";
+import { renderTemplate } from "@/lib/templateText";
 
 export const dynamic = "force-dynamic";
 
@@ -610,6 +616,7 @@ async function sendEmail(form: FormData | null, by: string): Promise<Response> {
   // Brochures (9 Nov): only the ones on this quote's items, read from Books here, so nothing big goes through the browser.
   const wanted = form.getAll("brochureDocs").map(String).filter((x) => /^\d+$/.test(x));
   if (files.length + wanted.length > 10) return Response.json({ error: "At most 10 attachments, brochures included" }, { status: 400 });
+  let box: { html: string; issued: string | null } | null = null;
   try {
     if (wanted.length) {
       const mine = new Map((await quoteBrochures(id)).map((b) => [b.id, b]));
@@ -626,8 +633,11 @@ async function sendEmail(form: FormData | null, by: string): Promise<Response> {
         $set: { customerId, coordinator: { name: [coordinator.firstName, coordinator.lastName].filter(Boolean).join(" "), email: coordinator.email, phone: coordinator.phone, contactPersonId: person.id }, updatedAt: new Date().toISOString() },
         $setOnInsert: { createdAt: new Date().toISOString() },
       }, { upsert: true });
+      // Step 8: a training-only quote carries the coordinator's Training Manager login under the message.
+      box = await portalBox(id, coordinator);
     }
-    await emailQuote(id, { to, cc, subject, body, fileName: str("fileName", 120) || undefined, files });
+    await emailQuote(id, { to, cc, subject, body: box ? `${body}${box.html}` : body, fileName: str("fileName", 120) || undefined, files });
+    if (box) await markLoginSent(id).catch((e) => console.error("[quotations] couldn't note the login as sent:", e));
     await (await db()).collection<EmailRecord>("quoteEmailLog").insertOne({
       estimateId: id, at: new Date().toISOString(), by, to, cc, subject,
       attachments: [str("fileName", 120) || "the quotation PDF", ...files.map((f) => f.name)],
@@ -638,8 +648,32 @@ async function sendEmail(form: FormData | null, by: string): Promise<Response> {
     return Response.json({ ok: true });
   } catch (e) {
     console.error("[quotations] email failed:", e);
+    // A login made for this email that never went out is taken back, so the next send makes a fresh one.
+    if (box?.issued) await dropLogin(box.issued).catch(() => undefined);
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't send the email" }, { status: 502 });
   }
+}
+
+/**
+ * The Training Manager login box for a quote email (docs/TRAINING_MANAGER_PLAN.md step 8): only for a training-only quote,
+ * read from Zoho now (a quote made minutes ago isn't in the hourly copy yet). A new password only when the coordinator has
+ * no login yet; otherwise the box says to use the one they have. `issued`: the email a login was just made for.
+ */
+async function portalBox(id: string, co: Coordinator): Promise<{ html: string; issued: string | null } | null> {
+  const [est, doc] = await Promise.all([
+    zohoGet<{ estimate?: Record<string, unknown> }>(`/estimates/${id}`),
+    (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }),
+  ]);
+  const e = est.estimate;
+  const training = itemSets(doc?.items ?? []).training;
+  if (!e || !isTrainingOnly(e, training)) return null;
+  const q = toTrainingQuote(e, training);
+  const name = [co.firstName, co.lastName].filter(Boolean).join(" ");
+  const fresh = !(await hasLogin(co.email));
+  const password = fresh ? await issueLogin(co.email, name) : null;
+  const t = await portalTemplates();
+  const vars = { name: co.firstName, training: q.lines.map((l) => l.name).join(" + ") || "your training", number: q.number };
+  return { html: loginBoxHtml({ intro: renderTemplate(t.box, vars), link: trainingLink(portalBase(), q.number), email: co.email, password }), issued: fresh ? co.email : null };
 }
 
 /** The brochures of a quotation's items, each once: from the items copy, or the item itself when the copy doesn't have its file id yet (added since the last sync). */

@@ -22,9 +22,10 @@ const coll = (name: string) => {
       for (const k of Object.keys(u.$unset ?? {})) { const [o, last] = at(k); delete o[last]; }
       m.set(q._id, d);
     },
-    // Enough for a lock: matches the doc by _id (other conditions ignored), $set, upsert, the new doc back.
-    findOneAndUpdate: async (q: { _id: string }, u: { $set?: Record<string, unknown> }) => {
+    // Enough for a lock and a counter: matches the doc by _id (other conditions ignored), $set / $inc, upsert, the new doc back.
+    findOneAndUpdate: async (q: { _id: string }, u: { $set?: Record<string, unknown>; $inc?: Record<string, number> }) => {
       const d: Doc = { ...(m.get(q._id) ?? { _id: q._id }), ...(u.$set ?? {}) };
+      for (const [k, v] of Object.entries(u.$inc ?? {})) d[k] = (Number(d[k]) || 0) + v;
       m.set(q._id, structuredClone(d));
       return structuredClone(d);
     },

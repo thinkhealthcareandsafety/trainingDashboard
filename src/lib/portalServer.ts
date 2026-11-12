@@ -1,14 +1,11 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { db } from "./db";
-import { itemSets, type ZItem } from "./zoho";
-import { toTrainingQuote } from "./trainingManager";
 import { DEFAULT_CONTENT, PHOTO_ID, SOCIAL_KEYS, type PortalContent, cleanContent, photosIn } from "./portalContent";
 
 /*
- * The portal's dashboard data (docs/TRAINING_MANAGER_PLAN.md step 4): the signed-in coordinator's trainings, and the
- * programme / social content staff edit on Templates → Portal content. Read from our copy of Zoho (zohoDocs), so a
- * coordinator's visit never calls Zoho.
+ * The portal's content (docs/TRAINING_MANAGER_PLAN.md step 4): the programmes and social links staff edit on
+ * Templates → Portal content, and the programme photos. The trainings themselves: portalTrainings.ts.
  */
 
 type Kv = { _id: string; content?: PortalContent; by?: string; at?: string };
@@ -57,41 +54,4 @@ export async function readPhoto(id: string): Promise<{ bytes: Buffer; type: stri
   if (!PHOTO_ID.test(id)) return null;
   const p = await (await photos()).findOne({ _id: id });
   return p ? { bytes: Buffer.from(p.data, "base64"), type: p.type } : null;
-}
-
-/* ---------------- The coordinator's trainings ---------------- */
-
-export type PortalTraining = {
-  id: string;
-  number: string;
-  customer: string;
-  date: string;
-  lines: { name: string; description: string; qty: number }[];
-  expected: number;
-  stamp: "Awaiting date";
-};
-
-/**
- * The trainings this coordinator was named on (the quote email's coordinator, step 2), newest first. Only training-only
- * quotes get a coordinator, so each one here is a training. Declined quotes are left out. Prices are never sent.
- */
-export async function trainingsFor(email: string): Promise<PortalTraining[]> {
-  const d = await db();
-  const mine = (await d.collection<{ _id: string; coordinator?: { email?: string } }>("portalTrainings")
-    .find({ "coordinator.email": email }, { projection: { coordinator: 1 } }).toArray())
-    .filter((p) => (p.coordinator?.email ?? "").toLowerCase() === email);
-  if (!mine.length) return [];
-  const ids = new Set(mine.map((p) => p._id));
-  const items = ((await d.collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? [];
-  const training = itemSets(items).training;
-  const docs = (await d.collection<{ _id: string; kind?: string; doc: Record<string, unknown> }>("zohoDocs")
-    .find({ kind: "estimates", "doc.estimate_id": { $in: [...ids] } }, { projection: { doc: 1, kind: 1 } }).toArray())
-    .filter((x) => ids.has(String(x.doc?.estimate_id ?? "")) && String(x.doc?.status ?? "") !== "declined");
-  return docs.map((x) => toTrainingQuote(x.doc, training))
-    .sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number))
-    .map((q) => ({
-      id: q.id, number: q.number, customer: q.customer, date: q.date,
-      lines: q.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })),
-      expected: q.expected, stamp: "Awaiting date" as const,
-    }));
 }
