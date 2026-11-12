@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { canQuote } from "@/lib/roles";
 import { itemSets, type ZItem } from "@/lib/zoho";
 import { byNewest, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
-import { markLoginSent, quoteOf, setCoordinator, staffParticipants, staffPortal, trainingDoc } from "@/lib/portalTrainings";
+import { markLoginSent, newerQuotes, quoteOf, setCoordinator, staffParticipants, staffPortal, trainingDoc } from "@/lib/portalTrainings";
 import { issueLogin } from "@/lib/portalAuth";
 import { portalTemplates } from "@/lib/templateStore";
 import { loginEmail, trainingLink } from "@/lib/portalEmail";
@@ -68,7 +68,9 @@ export async function GET(request: Request) {
     const training = itemSets(items).training;
     const docs = await d.collection<{ _id: string; doc: Record<string, unknown> }>("zohoDocs")
       .find({ kind: "estimates", training: true }, { projection: { doc: 1 } }).toArray();
-    const quotes = docs.map((x) => x.doc).filter((doc) => isTrainingOnly(doc, training)).map((doc) => toTrainingQuote(doc, training)).sort(byNewest);
+    const synced = docs.map((x) => x.doc).filter((doc) => isTrainingOnly(doc, training)).map((doc) => toTrainingQuote(doc, training));
+    // A training quote emailed since the last hourly sync (owner, 12 Nov: "I added a new quote but don't see it").
+    const quotes = [...synced, ...(await newerQuotes(new Set(docs.map((x) => String(x.doc?.estimate_id ?? "")))))].sort(byNewest);
     const ids = quotes.map((x) => x.id);
     const [portal, co] = await Promise.all([
       staffPortal(ids),

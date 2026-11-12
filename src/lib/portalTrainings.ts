@@ -2,7 +2,8 @@ import "server-only";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { db } from "./db";
 import { itemSets, type ZItem } from "./zoho";
-import { type TrainingQuote, toTrainingQuote } from "./trainingManager";
+import { type TrainingQuote, isTrainingOnly, toTrainingQuote } from "./trainingManager";
+import { booksApi } from "./quotations";
 import { MAX_PEOPLE, type Person, type Proposal, type Stamp, TH_ID, duplicatePhones, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 
 /*
@@ -23,6 +24,8 @@ export type TrainingDoc = {
   confirmed?: Confirmed;
   /** The coordinator rejected the quotation (owner, 12 Nov); zoho: whether Zoho marked it Declined. Only we can reopen it. */
   rejected?: Rejected;
+  /** The quote as Zoho had it, read when it wasn't in our hourly copy yet (owner, 12 Nov: a new quote didn't show). */
+  quoteDoc?: Record<string, unknown>;
 };
 export type Rejected = { at: string; by: string; reason: string; zoho: "declined" | "failed" };
 export type Confirmed = { at: string; by: string; salesorderId: string; number: string; emailedAt?: string };
@@ -40,12 +43,49 @@ type Fail = { error: string; status: number };
 async function quotes(ids: Set<string>): Promise<Map<string, TrainingQuote>> {
   if (!ids.size) return new Map();
   const d = await db();
-  const items = ((await d.collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? [];
-  const training = itemSets(items).training;
+  const training = await trainingItems();
   const docs = (await d.collection<{ _id: string; kind?: string; doc: Record<string, unknown> }>("zohoDocs")
     .find({ kind: "estimates", "doc.estimate_id": { $in: [...ids] } }, { projection: { doc: 1, kind: 1 } }).toArray())
     .filter((x) => ids.has(String(x.doc?.estimate_id ?? "")));
-  return new Map(docs.map((x) => { const q = toTrainingQuote(x.doc, training); return [q.id, q]; }));
+  const out = new Map(docs.map((x) => { const q = toTrainingQuote(x.doc, training); return [q.id, q]; }));
+  // A quote made since the last hourly sync isn't in the copy yet: its snapshot, or read from Zoho now and kept.
+  for (const id of ids) {
+    if (out.has(id)) continue;
+    const doc = await snapshot(id);
+    if (doc) out.set(id, toTrainingQuote(doc, training));
+  }
+  return out;
+}
+
+const trainingItems = async () => itemSets(((await (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? []).training;
+
+/** The quote's snapshot (kept when it wasn't in our copy yet), read from Zoho the first time. null when Zoho can't say. */
+async function snapshot(id: string): Promise<Record<string, unknown> | null> {
+  const col = await trainingsCol();
+  const t = await col.findOne({ _id: id });
+  if (t?.quoteDoc) return t.quoteDoc;
+  if (!t) return null;
+  try {
+    const e = (await booksApi("GET", `/estimates/${id}`)).estimate as Record<string, unknown> | undefined;
+    if (!e?.estimate_id) return null;
+    await col.updateOne({ _id: id }, { $set: { quoteDoc: e } });
+    return e;
+  } catch (err) {
+    console.error("[portal] couldn't read a new quote from Zoho:", err);
+    return null;
+  }
+}
+
+/** Training-only quotes with a coordinator that our hourly copy doesn't have yet (for the Trainings page). */
+export async function newerQuotes(have: Set<string>): Promise<TrainingQuote[]> {
+  const training = await trainingItems();
+  const out: TrainingQuote[] = [];
+  for (const t of await (await trainingsCol()).find({}).toArray()) {
+    if (have.has(t._id) || !t.coordinator) continue;
+    const doc = await snapshot(t._id);
+    if (doc && isTrainingOnly(doc, training)) out.push(toTrainingQuote(doc, training));
+  }
+  return out;
 }
 
 /** The estimate id of a Training Number (the quote number), or null. */
@@ -54,7 +94,9 @@ async function idOfNumber(number: string): Promise<string | null> {
   const docs = await (await db()).collection<{ _id: string; kind?: string; doc: Record<string, unknown> }>("zohoDocs")
     .find({ kind: "estimates", "doc.estimate_number": number }, { projection: { doc: 1, kind: 1 } }).toArray();
   const hit = docs.find((x) => String(x.doc?.estimate_number ?? "") === number);
-  return hit ? String(hit.doc.estimate_id) : null;
+  if (hit) return String(hit.doc.estimate_id);
+  const snap = (await (await trainingsCol()).find({ "quoteDoc.estimate_number": number }).toArray()).find((t) => String(t.quoteDoc?.estimate_number ?? "") === number);
+  return snap ? snap._id : null;
 }
 
 const stampOf = (t: TrainingDoc, quoteStatus = ""): Stamp => (t.rejected || (quoteStatus === "declined" && !t.confirmed) ? "Rejected" : t.confirmed ? "Confirmed" : t.proposal ? "Accepted" : "Awaiting decision");

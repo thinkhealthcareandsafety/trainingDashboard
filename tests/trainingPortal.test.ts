@@ -230,3 +230,18 @@ test("the story of a rejected quote: just Quotation (sent) and Rejected, with th
   assert.deepEqual(phases.map((p) => [p.key, p.status, p.state]), [["quote", "Sent", "done"], ["rejected", "By the coordinator", "stopped"]]);
   assert.match(phases[1].lines[0], /Budget moved/);
 });
+
+test("a quote emailed since the last hourly sync still shows: from its snapshot, on the portal and on Trainings", async () => {
+  await seed();
+  const d = await db();
+  await d.collection<{ _id: string } & Record<string, unknown>>("portalTrainings").insertOne({
+    _id: "2", coordinator: { name: "Riya Mehta", email: RIYA, phone: "9800000000" },
+    quoteDoc: { estimate_id: "2", estimate_number: "QT-2", status: "sent", date: "2026-11-12", customer_name: "The Grand", line_items: [{ item_id: "cpr", name: "CPR & AED Training (I)", quantity: 20, rate: 1500, item_total: 30000 }] },
+  });
+  const t = await trainingsFor(RIYA);
+  assert.deepEqual(t.map((x) => x.number), ["QT-2", "QT-1"]);
+  const [t2] = t;
+  assert.ok((await joinInfo("QT-2", t2.joinKey))?.training);
+  const { newerQuotes } = await import("@/lib/portalTrainings");
+  assert.deepEqual((await newerQuotes(new Set(["1"]))).map((q) => q.number), ["QT-2"]);
+});
