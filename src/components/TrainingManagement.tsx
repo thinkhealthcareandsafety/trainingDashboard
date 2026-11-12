@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtDate } from "@/lib/dates";
 import type { TrainingQuote } from "@/lib/trainingManager";
 import { type Proposal, fmtProposalDate } from "@/lib/portalRules";
-import { Modal, Skeleton, btn, inputCls } from "./ui";
+import { Modal, Skeleton, btn, inputCls, selectCls } from "./ui";
 import { QuoteStory } from "./QuoteStory";
 import { PerformaEditor } from "./PerformaEditor";
+import type { TrainingSort, TrainingSortKey } from "@/lib/uiPrefs";
 import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 
 // Training Management (docs/TRAINING_MANAGER_PLAN.md): the training-only quotes and their Training Manager — the
@@ -20,8 +21,26 @@ type Person = { th: string; name: string; phone: string; email: string; source: 
 
 const portalStatus = (x: Quote) => x.portal?.status ?? (x.coordinator ? "Login not sent" : "No coordinator");
 const proposed = (x: Quote) => Boolean(x.portal?.proposal) && !x.portal?.confirmed && !x.portal?.rejected;
-const rejected = (x: Quote) => Boolean(x.portal?.rejected) || (x.status === "declined" && !x.portal?.confirmed);
+const rejected = (x: Quote) => Boolean(x.portal?.rejected);
 const glow = (x: Quote) => (proposed(x) ? 2 : rejected(x) ? 1 : 0);
+
+/* Column sort (owner, 12 Nov): click a header for ascending / descending; each person's choice is kept as their default. */
+const STATUS_ORDER = ["Accepted", "Rejected", "Confirmed", "Logged in", "Login sent", "Login not sent", "No coordinator"];
+const SORTS: Record<TrainingSortKey, { label: string; first: "asc" | "desc"; value: (x: Quote) => string | number; right?: boolean }> = {
+  customer: { label: "Customer", first: "asc", value: (x) => x.customer.toLowerCase() },
+  quote: { label: "Quote", first: "desc", value: (x) => `${x.date} ${x.number}` },
+  training: { label: "Training", first: "asc", value: (x) => x.lines.map((l) => l.name).join(", ").toLowerCase() },
+  expected: { label: "Expected", first: "desc", value: (x) => x.expected, right: true },
+  total: { label: "Total", first: "desc", value: (x) => x.total, right: true },
+  status: { label: "Training Manager", first: "asc", value: (x) => STATUS_ORDER.indexOf(portalStatus(x)) },
+};
+function sortQuotes(list: Quote[], sort: TrainingSort): Quote[] {
+  // Default: accepted (waiting for us) first, then rejected, then newest first as the server sends them.
+  if (!sort) return [...list].sort((a, b) => glow(b) - glow(a));
+  const v = SORTS[sort.key].value, k = sort.dir === "asc" ? 1 : -1;
+  return [...list].sort((a, b) => { const x = v(a), y = v(b); return (x < y ? -1 : x > y ? 1 : 0) * k; });
+}
+const savePref = (value: TrainingSort) => fetch("/api/ui-prefs", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "trainingsSort", value }) }).catch(() => undefined);
 const STATUS_TONE: Record<string, string> = {
   "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Accepted": "font-semibold text-low", "Confirmed": "text-ink-2", "Rejected": "font-semibold text-high",
 };
@@ -31,6 +50,15 @@ export function TrainingManagement() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [sort, setSort] = useState<TrainingSort>(null);
+  useEffect(() => {
+    fetch("/api/ui-prefs").then((r) => r.json()).then((j: { prefs?: { trainingsSort?: TrainingSort } }) => { if (j.prefs?.trainingsSort) setSort(j.prefs.trainingsSort); }).catch(() => undefined);
+  }, []);
+  const sortBy = (key: TrainingSortKey) => {
+    const next: TrainingSort = sort?.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: SORTS[key].first };
+    setSort(next); savePref(next);
+  };
+  const resetSort = () => { setSort(null); savePref(null); };
 
   const load = () => fetch("/api/training-management").then(async (r) => {
     const j = await r.json().catch(() => ({}));
@@ -42,12 +70,10 @@ export function TrainingManagement() {
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
     const list = quotes ?? [];
-    // Proposed dates first: they're waiting for us.
-    // Accepted first (waiting for us), then rejected, then the rest.
-    const sorted = [...list].sort((a, b) => glow(b) - glow(a));
+    const sorted = sortQuotes(list, sort);
     if (!t) return sorted;
     return sorted.filter((x) => [x.customer, x.number, x.contact?.name, x.coordinator?.name, portalStatus(x), ...x.lines.map((l) => l.name)].some((s) => s?.toLowerCase().includes(t)));
-  }, [quotes, q]);
+  }, [quotes, q, sort]);
   const open = quotes?.find((x) => x.id === openId) ?? null;
   const waiting = quotes?.filter(proposed).length ?? 0;
   const lost = quotes?.filter((x) => Boolean(x.portal?.rejected)).length ?? 0;
@@ -58,12 +84,26 @@ export function TrainingManagement() {
       <div className="flex flex-wrap items-center gap-3">
         <input className={`${inputCls} max-w-sm`} placeholder="Search customer, quote, training or status" value={q} onChange={(e) => setQ(e.target.value)} />
         {quotes && <span className="text-[13px] text-muted">{shown.length} of {quotes.length} training quotes</span>}
+        <select className={`${selectCls} md:hidden`} value={sort ? `${sort.key}:${sort.dir}` : ""} aria-label="Sort" onChange={(e) => { const [k, d] = e.target.value.split(":"); if (!k) return resetSort(); const next = { key: k as TrainingSortKey, dir: d as "asc" | "desc" }; setSort(next); savePref(next); }}>
+          <option value="">Default order</option>
+          {(Object.keys(SORTS) as TrainingSortKey[]).flatMap((k) => [<option key={`${k}a`} value={`${k}:asc`}>{SORTS[k].label} ↑</option>, <option key={`${k}d`} value={`${k}:desc`}>{SORTS[k].label} ↓</option>])}
+        </select>
+        {sort && <button type="button" className={`${btn.quiet} hidden md:inline-flex`} onClick={resetSort}>Default order</button>}
         {waiting > 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-low-bg px-2.5 py-1 text-[12.5px] font-semibold text-low"><span className="size-2 animate-pulse rounded-full bg-low" />{waiting} accepted, waiting for you</span>}
         {lost > 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-high-bg px-2.5 py-1 text-[12.5px] font-semibold text-high"><span className="size-2 rounded-full bg-high" />{lost} rejected</span>}
       </div>
       <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-        <div className="hidden grid-cols-[1.3fr_0.8fr_1.5fr_0.5fr_0.7fr_0.9fr] gap-3 border-b border-line px-4 py-2.5 text-[12px] font-medium uppercase tracking-wide text-faint md:grid">
-          <span>Customer</span><span>Quote</span><span>Training</span><span className="text-right">Expected</span><span className="text-right">Total</span><span>Training Manager</span>
+        <div className="hidden grid-cols-[1.3fr_0.8fr_1.5fr_0.5fr_0.7fr_0.9fr] gap-3 border-b border-line px-4 py-1.5 text-[12px] font-medium uppercase tracking-wide text-faint md:grid" role="row">
+          {(Object.keys(SORTS) as TrainingSortKey[]).map((k) => {
+            const on = sort?.key === k;
+            return (
+              <button key={k} type="button" onClick={() => sortBy(k)} aria-sort={on ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"} title={`Sort by ${SORTS[k].label.toLowerCase()}`}
+                className={`-mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 uppercase tracking-wide hover:bg-surface-2 hover:text-ink ${SORTS[k].right ? "justify-end" : ""} ${on ? "text-ink" : ""}`}>
+                {SORTS[k].label}
+                <svg viewBox="0 0 12 12" className={`size-3 shrink-0 transition ${on ? "opacity-100" : "opacity-30"} ${on && sort!.dir === "asc" ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 4.5 6 7.5 9 4.5" /></svg>
+              </button>
+            );
+          })}
         </div>
         {!quotes && <div className="space-y-2 p-4">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-10" />)}</div>}
         {quotes && !shown.length && <p className="p-6 text-center text-[14px] text-muted">{quotes.length ? "Nothing matches that search." : "No training-only quotes yet."}</p>}
