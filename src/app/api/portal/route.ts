@@ -1,4 +1,4 @@
-import { PORTAL_COOKIE, portalUser, requestCode, resetPassword, signIn, signOut } from "@/lib/portalAuth";
+import { PORTAL_COOKIE, portalToken, portalUser, requestCode, resetPassword, signIn, signOut } from "@/lib/portalAuth";
 import { sendMail } from "@/lib/zohoMail";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * { action: "code", email } (a reset code from learn@) · { action: "reset", email, code, password }.
  */
 const FROM = "learn@thinkhealth.in";
-const tokenOf = (request: Request) => (request.headers.get("cookie") ?? "").split(/;\s*/).find((c) => c.startsWith(`${PORTAL_COOKIE}=`))?.slice(PORTAL_COOKIE.length + 1);
+const tokenOf = portalToken;
 const cookie = (value: string, maxAge: number) => `${PORTAL_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${process.env.VERCEL_ENV ? "; Secure" : ""}`;
 const signedIn = (r: { token: string; maxAge: number; name: string }) => new Response(JSON.stringify({ ok: true, name: r.name }), { headers: { "content-type": "application/json", "set-cookie": cookie(r.token, r.maxAge) } });
 

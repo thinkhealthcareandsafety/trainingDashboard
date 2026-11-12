@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { SIGNS, SignTile } from "./SignTiles";
+import { PortalDashboard } from "./PortalDashboard";
 
 /*
  * The Training Manager's sign-in (docs/TRAINING_MANAGER_PLAN.md step 3), Safety-sign direction. A navy panel with the
  * programme signs and one sentence; a white panel with the logo, the title and the form. Forgot / reset: email → a code
- * from learn@ → a password of their choice. After signing in, the dashboard (step 4) — until then, a short welcome.
+ * from learn@ → a password of their choice. After signing in, the dashboard (step 4), with the welcome right after a sign-in.
  */
 type Mode = "signin" | "code" | "reset";
 type Me = { email: string; name: string };
@@ -22,12 +23,13 @@ async function post(body: object): Promise<{ ok?: boolean; name?: string; error?
 
 export function PortalLogin({ number }: { number?: string }) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [justIn, setJustIn] = useState(false);
   useEffect(() => {
     fetch("/api/portal").then((r) => (r.ok ? r.json() : null)).then(setMe).catch(() => setMe(null));
   }, []);
   if (me === undefined) return <div className="min-h-screen bg-ground" aria-busy />;
-  if (me) return <SignedIn me={me} onOut={() => setMe(null)} />;
-  return <SignInScreen number={number} onIn={setMe} />;
+  if (me) return <PortalDashboard me={me} number={number} welcome={justIn} onOut={() => { setMe(null); setJustIn(false); }} />;
+  return <SignInScreen number={number} onIn={(m) => { setJustIn(true); setMe(m); }} />;
 }
 
 function SignInScreen({ number, onIn }: { number?: string; onIn: (m: Me) => void }) {
@@ -118,25 +120,6 @@ function SignInScreen({ number, onIn }: { number?: string; onIn: (m: Me) => void
           </p>
           <p className="mt-10 text-[13px] leading-relaxed text-muted">Trouble signing in? Write to <a className={link} href="mailto:learn@thinkhealth.in">learn@thinkhealth.in</a>.</p>
         </div>
-      </section>
-    </main>
-  );
-}
-
-/** Until the dashboard (step 4): a short welcome and Sign out. */
-function SignedIn({ me, onOut }: { me: Me; onOut: () => void }) {
-  const first = (me.name || me.email).split(/[\s@]/)[0];
-  const out = async () => { await post({ action: "signout" }); onOut(); };
-  return (
-    <main className="min-h-screen bg-ground">
-      <header className="flex items-center justify-between bg-navy px-6 py-4 text-white sm:px-10">
-        <p className="text-[15px] font-bold tracking-tight">Think Health <span className="font-medium text-white/70">Training Manager</span></p>
-        <button className="rounded-lg px-3 py-1.5 text-[14px] font-semibold text-white/85 hover:bg-white/10" onClick={out}>Sign out</button>
-      </header>
-      <section className="mx-auto max-w-3xl px-6 py-16 sm:px-10">
-        <div className="flex gap-3">{SIGNS.map((s, i) => <SignTile key={s.key} sign={s} size={44} delay={i * 90} />)}</div>
-        <h1 className="mt-8 text-[36px] font-extrabold leading-tight tracking-[-0.02em] text-ink">Welcome, {first}.</h1>
-        <p className="mt-3 max-w-[52ch] text-[16px] leading-relaxed text-ink-2">You&apos;re signed in as <b>{me.email}</b>. Your trainings will appear here shortly.</p>
       </section>
     </main>
   );

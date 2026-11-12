@@ -20,6 +20,9 @@ const OTP_TRIES = 5;
 const OTP_PER_HOUR = 3;
 export const MIN_PASSWORD = 8;
 
+/** The portal session's token from a request's cookies. */
+export const portalToken = (request: Request) => (request.headers.get("cookie") ?? "").split(/;\s*/).find((c) => c.startsWith(`${PORTAL_COOKIE}=`))?.slice(PORTAL_COOKIE.length + 1);
+
 type Login = {
   _id: string; // the coordinator's email, lower case
   name: string;
