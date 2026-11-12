@@ -1,5 +1,23 @@
 # Training Manager: full plan
 
+## Status (12 Nov 2026, live at `a101b19`)
+
+| Step | What | State |
+|---|---|---|
+| 1 | Training Management page (Trainings) | **Live**, with the quotation's story and the coordinator |
+| 2 | Coordinator fields in the quote email + Zoho contact person | **Live** (first name enough; Same as original per field; existing email renamed) |
+| 3 | Portal sign-in + OTP reset | **Live** at work.thinkhealth.in/training/<number>; no logins exist until step 8 |
+| — | training.thinkhealth.in | **Code live**; Vercel domain added; **waiting on the Cloudflare CNAME** `training` → `4145140deaae64f5.vercel-dns-017.com` (DNS only) |
+| 4 | Welcome + Our Programmes + Your trainings + Stay connected + Portal content editor | **Next** |
+| 5 | Propose date / location / confirm headcount | To do |
+| 6 | Participants: type, Excel import, duplicates, remove | To do |
+| 7 | QR join page + TH IDs + participant page | To do |
+| 8 | Login block in the quote email + Send login on Trainings | To do (creates the logins) |
+| 9 | Design finish review + DESIGN.md + handoff | To do |
+| later | Green glowing row on a proposed date; Accept → Performa in Zoho + training scheduled | Idea (§5) |
+
+Also built along the way: on Quotations, clicking a quotation opens only that quotation, with its sent details, the new-quotation choice (same items, revised or from scratch) and the story from quotation to payment, or for training quotes to the certificates received.
+
 Owner's brief, 10 Nov 2026. Decisions already made:
 
 - **Quotes:** only quotes with nothing but training items get a portal.
