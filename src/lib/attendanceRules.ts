@@ -11,7 +11,40 @@ export type DayWindow =
   | { state: "none"; of: 0 } // no dates yet (or the board says "to be decided")
   | { state: "before"; next: string; of: number }
   | { state: "open"; day: string; dayNo: number; of: number }
+  /** A training day the coordinator hasn't pressed Start on yet (owner, 13 Nov: the coordinator starts the training). */
+  | { state: "waiting"; day: string; dayNo: number; of: number }
+  /** A training day whose session the coordinator ended. */
+  | { state: "ended"; day: string; dayNo: number; of: number }
   | { state: "after"; last: string; of: number };
+
+/** One day's session: Start training → End training (owner, 13 Nov). Valid only on its own day. */
+export type Session = { day: string; startedAt: string; startedBy: string; endedAt?: string; endedBy?: string };
+
+/**
+ * Where attendance (and the quiz) stands, now that the coordinator starts the training (owner, 13 Nov: "instead of the
+ * attendance starting by default on the training date, let the coordinator start the training"): on a training day it is
+ * open only while that day's session runs — "waiting" before Start, "ended" after End. Start is offered only on a
+ * training day (owner: "only on the training date"); a session left running ends with its day.
+ */
+export function sessionWindow(days: string[], today: string, sessions: Session[] = []): DayWindow {
+  const w = attendanceWindow(days, today);
+  if (w.state !== "open") return w;
+  const s = sessions.find((x) => x.day === today);
+  if (!s) return { ...w, state: "waiting" };
+  return s.endedAt ? { ...w, state: "ended" } : w;
+}
+
+/**
+ * The quiz (owner, 13 Nov): visible only while a session runs ("only when the training is commenced"); the right answers
+ * show once the last training day's session ended, or that day has passed (so nobody passes answers around between days).
+ */
+export function quizState(days: string[], today: string, sessions: Session[] = []): "none" | "open" | "closed" | "revealed" {
+  if (!days.length || !sessions.length) return "none";
+  if (sessionWindow(days, today, sessions).state === "open") return "open";
+  const last = [...days].sort().at(-1)!;
+  const lastEnded = sessions.some((s) => s.day === last && s.endedAt);
+  return lastEnded || today > last ? "revealed" : "closed";
+}
 
 /** Where the training's days stand today (YYYY-MM-DD, India time). Several days: open on each of them, shut in between. */
 export function attendanceWindow(days: string[], today: string): DayWindow {

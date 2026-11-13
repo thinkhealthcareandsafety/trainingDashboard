@@ -6,8 +6,10 @@ import { type TrainingQuote, isTrainingOnly, toTrainingQuote } from "./trainingM
 import { booksApi } from "./quotations";
 import { MAX_PEOPLE, type Person, type Proposal, type ProposalDate, type Stamp, TH_ID, duplicatePhones, fmtProposalDate, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 import { cleanPhone } from "./trainingManager";
-import { type CurrentDates, type DayWindow, type Mark, attendanceId, attendanceWindow, currentDates, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
+import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
 import { boardScheduleFor } from "./boardDates";
+import type { Quiz } from "./quizCprAed";
+import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, leaderboard, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
 
 /*
  * The trainings on the Training Manager portal (docs/TRAINING_MANAGER_PLAN.md steps 4–7), for the signed-in coordinator,
@@ -33,6 +35,8 @@ export type TrainingDoc = {
   quoteDoc?: Record<string, unknown>;
   /** The key in the fixed attendance QR (owner, 13 Nov); made once the training is confirmed; New QR replaces it. */
   attendKey?: string;
+  /** Start training / End training per day (owner, 13 Nov): attendance and the quiz run only while a session does. */
+  sessions?: Session[];
 };
 export type Rejected = { at: string; by: string; reason: string; zoho: "declined" | "failed" };
 /**
@@ -149,6 +153,10 @@ export type PortalTraining = {
   dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null;
   /** The fixed attendance QR's key (confirmed trainings only, else ""); where attendance stands today; how many came. */
   attendKey: string; window: DayWindow; attended: number;
+  /** The training's quiz (CPR / AED trainings) and where it stands: open only while a session runs (owner, 13 Nov). */
+  quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null;
+  /** Today's session: when Start training / End training were pressed. */
+  session: { startedAt: string; endedAt: string | null } | null;
 };
 
 /** The trainings this coordinator was named on (step 2), newest first. A join key is made the first time they're shown. */
@@ -172,7 +180,9 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       expected: x.expected, stamp: stampOf(t, x.status, cur.completedAt), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.zohoAt ?? null, locked: Boolean(t.confirmed),
       rejected: t.rejected ? { at: t.rejected.at, reason: t.rejected.reason } : x.status === "declined" && !t.confirmed ? { at: "", reason: "" } : null,
       dates: cur.dates, datesWas: cur.was, tbd: cur.tbd, trainers: cur.trainers, completedAt: cur.completedAt,
-      attendKey: t.confirmed?.zohoAt ? attendKey : "", window: attendanceWindow(daysOf(cur), indiaToday()), attended: presentByPerson(marks).size,
+      attendKey: t.confirmed?.zohoAt ? attendKey : "", window: sessionWindow(daysOf(cur), indiaToday(), t.sessions), attended: presentByPerson(marks).size,
+      session: (() => { const ss = (t.sessions ?? []).find((x) => x.day === indiaToday()); return ss ? { startedAt: ss.startedAt, endedAt: ss.endedAt ?? null } : null; })(),
+      quiz: (() => { const qz = quizFor(x.lines.map((l) => l.name)); return qz ? { title: qz.title, state: quizState(daysOf(cur), indiaToday(), t.sessions) } : null; })(),
     });
   }
   return out.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
@@ -216,7 +226,7 @@ export type PeopleResult = { list: ParticipantView[]; days: string[]; window: Da
 async function peopleResult(t: TrainingDoc): Promise<PeopleResult> {
   const attendance = Boolean(t.confirmed?.zohoAt);
   const days = attendance ? daysOf(await datesOf(t)) : [];
-  return { list: view(await peopleOf(t._id), attendance ? await marksOf(t._id) : []), days, window: attendanceWindow(days, indiaToday()), attendance };
+  return { list: view(await peopleOf(t._id), attendance ? await marksOf(t._id) : []), days, window: sessionWindow(days, indiaToday(), t.sessions), attendance };
 }
 
 export async function participants(email: string, id: unknown): Promise<PeopleResult | Fail> {
@@ -356,12 +366,15 @@ async function byAttendLink(number: unknown, key: unknown): Promise<AttendLink |
   const q = (await quotes(new Set([id]))).get(id);
   if (!q) return null;
   const cur = await datesOf(t);
-  return { t, q, cur, win: attendanceWindow(daysOf(cur), indiaToday()) };
+  return { t, q, cur, win: sessionWindow(daysOf(cur), indiaToday(), t.sessions) };
 }
 const badAttendLink: Fail = { error: "This attendance code has changed. Please scan the one your training coordinator is showing.", status: 404 };
 /** What the attendance page says when it isn't a training day. */
 export const shutText = (w: DayWindow) =>
-  w.state === "before" ? `Attendance opens on ${fmtDay(w.next)}.` : w.state === "after" ? "Attendance for this training has closed." : "The training date isn't set yet. Please speak to your training coordinator.";
+  w.state === "before" ? `Attendance opens on ${fmtDay(w.next)}, once your training starts.`
+  : w.state === "waiting" ? "Your training hasn't started yet. Attendance opens when your coordinator starts it."
+  : w.state === "ended" ? "Today's training has ended, so attendance is closed. Please speak to your training coordinator."
+  : w.state === "after" ? "Attendance for this training has closed." : "The training date isn't set yet. Please speak to your training coordinator.";
 
 export type AttendMe = { th: string; name: string; presentToday: boolean };
 export type AttendInfo = { training: string; customer: string; coordinator: string; dates: ProposalDate[]; window: DayWindow; shut: string; me: AttendMe | null };
@@ -444,6 +457,147 @@ export async function tick(email: string, id: unknown, th: unknown, dayRaw: unkn
   if (on === true) { if (!(await col.findOne({ _id }))) await col.insertOne({ _id, trainingId: t._id, th: p._id, day, at: new Date().toISOString(), how: "coordinator", by: email }); }
   else await col.deleteOne({ _id });
   return peopleResult(t);
+}
+
+/* ---------------- Start training / End training, and the quiz (owner, 13 Nov) ---------------- */
+
+/** Start training: only on a training day (owner: "only on the training date"); attendance and the quiz open. */
+export async function startTraining(email: string, id: unknown): Promise<{ window: DayWindow } | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  if (!t.confirmed?.zohoAt) return { error: "The training can be started once Think Health confirms it.", status: 409 };
+  const today = indiaToday();
+  const days = daysOf(await datesOf(t));
+  if (attendanceWindow(days, today).state !== "open") return { error: "The training can be started on its training date.", status: 409 };
+  const sessions = [...(t.sessions ?? [])];
+  const had = sessions.findIndex((s) => s.day === today);
+  // Ended by mistake: Start again reopens today's session.
+  if (had >= 0) sessions[had] = { ...sessions[had], endedAt: undefined, endedBy: undefined };
+  else sessions.push({ day: today, startedAt: new Date().toISOString(), startedBy: email });
+  await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { sessions: sessions.map((s) => JSON.parse(JSON.stringify(s)) as Session) } });
+  return { window: sessionWindow(days, today, sessions) };
+}
+
+/** End training: attendance and the quiz close for today; on the last day the quiz's right answers show. */
+export async function endTraining(email: string, id: unknown): Promise<{ window: DayWindow } | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  const today = indiaToday();
+  const sessions = [...(t.sessions ?? [])];
+  const i = sessions.findIndex((s) => s.day === today && !s.endedAt);
+  if (i < 0) return { error: "Today's training isn't running.", status: 409 };
+  sessions[i] = { ...sessions[i], endedAt: new Date().toISOString(), endedBy: email };
+  await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { sessions } });
+  return { window: sessionWindow(daysOf(await datesOf(t)), today, sessions) };
+}
+
+type AttemptDoc = { _id: string; trainingId: string; th: string; name: string; quizId: string; answers?: number[]; startedAt: string; finishedAt?: string; points?: number; correct?: number };
+const attemptsCol = async () => (await db()).collection<AttemptDoc>("portalQuizAttempts");
+async function attemptsOf(trainingId: string): Promise<AttemptDoc[]> {
+  return (await (await attemptsCol()).find({ trainingId }).toArray()).filter((a) => a.trainingId === trainingId);
+}
+const finished = (list: AttemptDoc[]): Attempt[] =>
+  list.filter((a) => a.finishedAt && a.answers).map((a) => ({ th: a.th, name: a.name, answers: a.answers!, startedAt: a.startedAt, finishedAt: a.finishedAt!, points: a.points ?? 0, correct: a.correct ?? 0 }));
+
+/** A training's quiz and where it stands (none when the training's items have no quiz). */
+async function quizOf(t: TrainingDoc): Promise<{ quiz: Quiz; state: ReturnType<typeof quizState> } | null> {
+  const q = (await quotes(new Set([t._id]))).get(t._id);
+  const quiz = q ? quizFor(q.lines.map((l) => l.name)) : null;
+  return quiz ? { quiz, state: quizState(daysOf(await datesOf(t)), indiaToday(), t.sessions) } : null;
+}
+
+/** The participant behind a private page link, with their training. */
+async function participantOf(number: unknown, th: unknown, token: unknown): Promise<{ p: ParticipantDoc; t: TrainingDoc } | null> {
+  const id = String(th ?? "").toUpperCase();
+  if (!TH_ID.test(id)) return null;
+  const p = await (await peopleCol()).findOne({ _id: id });
+  const k = String(token ?? "");
+  if (!p || !k || !same(p.token, k)) return null;
+  const t = await (await trainingsCol()).findOne({ _id: p.trainingId });
+  if (!t) return null;
+  const q = (await quotes(new Set([t._id]))).get(t._id);
+  return q && (!number || String(number) === q.number) ? { p, t } : null;
+}
+
+export type ParticipantQuiz = {
+  quiz: PublicQuiz; state: "none" | "open" | "closed" | "revealed";
+  /** Marked present on any day (only they can take it, owner); started (the clock runs from opening it); their result. */
+  present: boolean; startedAt: string | null;
+  result: (Score & { rank: number; of: number; answers: number[] }) | null;
+  leaderboard: Ranked[];
+};
+
+export async function participantQuiz(number: unknown, th: unknown, token: unknown): Promise<ParticipantQuiz | null> {
+  const r = await participantOf(number, th, token);
+  if (!r) return null;
+  const qz = await quizOf(r.t);
+  if (!qz) return null;
+  const all = await attemptsOf(r.t._id);
+  const board = leaderboard(qz.quiz, finished(all));
+  const mine = all.find((a) => a.th === r.p._id);
+  const present = (await marksOf(r.t._id)).some((m) => m.th === r.p._id);
+  const ranked = board.find((b) => b.th === r.p._id);
+  return {
+    quiz: publicQuiz(qz.quiz, qz.state === "revealed"), state: qz.state, present, startedAt: mine?.startedAt ?? null,
+    result: mine?.finishedAt && mine.answers && ranked ? { ...scoreOf(qz.quiz, mine.answers), rank: ranked.rank, of: board.length, answers: mine.answers } : null,
+    leaderboard: board,
+  };
+}
+
+/** Opening the quiz starts their clock (the leaderboard's tie-break is the faster finish). */
+export async function quizStart(number: unknown, th: unknown, token: unknown): Promise<{ startedAt: string } | Fail> {
+  const r = await participantOf(number, th, token);
+  if (!r) return { error: "We couldn't find your page. Use the link from when you joined.", status: 404 };
+  const qz = await quizOf(r.t);
+  if (!qz || qz.state !== "open") return { error: "The quiz isn't open right now.", status: 409 };
+  if (!(await marksOf(r.t._id)).some((m) => m.th === r.p._id)) return { error: "Mark your attendance first, then take the quiz.", status: 403 };
+  const col = await attemptsCol();
+  const _id = `${r.t._id}:${r.p._id}`;
+  const had = await col.findOne({ _id });
+  if (had) return { startedAt: had.startedAt };
+  const startedAt = new Date().toISOString();
+  await col.insertOne({ _id, trainingId: r.t._id, th: r.p._id, name: r.p.name, quizId: qz.quiz.id, startedAt });
+  return { startedAt };
+}
+
+/** Their answers: scored once (one attempt each); the result and the rank come back. */
+export async function quizSubmit(number: unknown, th: unknown, token: unknown, raw: unknown): Promise<ParticipantQuiz | Fail> {
+  const r = await participantOf(number, th, token);
+  if (!r) return { error: "We couldn't find your page. Use the link from when you joined.", status: 404 };
+  const qz = await quizOf(r.t);
+  if (!qz || qz.state !== "open") return { error: "The quiz has closed.", status: 409 };
+  const col = await attemptsCol();
+  const _id = `${r.t._id}:${r.p._id}`;
+  const had = await col.findOne({ _id });
+  if (!had) return { error: "Open the quiz first.", status: 409 };
+  if (had.finishedAt) return { error: "You've already taken this quiz.", status: 409 };
+  const answers = readAnswers(raw, qz.quiz);
+  if ("error" in answers) return { error: answers.error, status: 400 };
+  const s = scoreOf(qz.quiz, answers);
+  await col.updateOne({ _id }, { $set: { answers, finishedAt: new Date().toISOString(), points: s.points, correct: s.correct } });
+  return (await participantQuiz(number, th, token))!;
+}
+
+export type QuizResults = { title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; leaderboard: Ranked[]; questions: QuestionStats[] };
+/** The coordinator's (and our) live results: the leaderboard and, per question, how many picked each option. */
+export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null> {
+  const qz = await quizOf(t);
+  if (!qz) return null;
+  const done = finished(await attemptsOf(t._id));
+  const board = leaderboard(qz.quiz, done);
+  return {
+    title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
+    avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, leaderboard: board, questions: analytics(qz.quiz, done),
+  };
+}
+export async function quizResults(email: string, id: unknown): Promise<QuizResults | { none: true } | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  return (await quizResultsFor(t)) ?? { none: true };
+}
+export async function staffQuizResults(id: string): Promise<QuizResults | null> {
+  const t = await trainingDoc(id);
+  return t ? quizResultsFor(t) : null;
 }
 
 /** A new attendance QR; the old one stops working (a forwarded copy, a lost printout). */

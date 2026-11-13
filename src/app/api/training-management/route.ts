@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { canQuote } from "@/lib/roles";
 import { itemSets, type ZItem } from "@/lib/zoho";
 import { byNewest, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
-import { markLoginSent, newerQuotes, quoteOf, setCoordinator, staffParticipants, staffPortal, trainingDoc } from "@/lib/portalTrainings";
+import { markLoginSent, newerQuotes, quoteOf, setCoordinator, staffParticipants, staffPortal, staffQuizResults, trainingDoc } from "@/lib/portalTrainings";
 import { passwordForEmail } from "@/lib/portalAuth";
 import { portalTemplates } from "@/lib/templateStore";
 import { declineLink, loginEmail, trainingLink } from "@/lib/portalEmail";
@@ -72,6 +72,9 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams;
     const people = params.get("people");
     if (people) return Response.json({ list: await staffParticipants(people) });
+    // The quiz's results, read only (owner, 13 Nov: "everyone else can see the same results too").
+    const quiz = params.get("quiz");
+    if (quiz) return Response.json({ results: await staffQuizResults(quiz) });
     const pi = params.get("pi");
     if (pi) {
       const t = await trainingDoc(pi);

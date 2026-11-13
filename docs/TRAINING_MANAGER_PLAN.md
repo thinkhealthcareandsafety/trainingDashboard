@@ -90,7 +90,13 @@
    - Programme photos and videos (optional).
 2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board. Later on 13 Nov: trainers are required at Mark confirmed (on the board, Zoho Trainer Name = the first); Training completed needs trainers; a confirmed Performa shows green in the story.
 3. **To decide, then build:** item-level PI templates beyond training ("training only for now", owner).
-4. **Attendance (Step A): live** (`07f7748`). **Quiz (Step B):** waits for the owner's Google Form. See the plan below.
+4. **Attendance (Step A): live** (`07f7748`). **Start training + Quiz (Step B): built 13 Nov.**
+   - The coordinator presses **Start training** on the training date. That opens attendance and the quiz; **End training** closes them.
+   - The quiz is the owner's Google Form "CPR-AED Quiz - by Think Health": 30 questions, 10 points each, 70% to pass, 100% earns a First Aid Badge. It applies to CPR / AED trainings and uses the answer key the owner confirmed.
+   - Only people marked present can take it, once each. They see their score and rank at once, and the right answers only after End on the last day.
+   - The leaderboard (full names, then the faster finish) and per-question analytics show live on the coordinator's panel, on participants' pages and on our Trainings page.
+   - Design: the AED Readiness Campaign's (DESIGN.md "The quiz: its own world").
+   - Stored in `portalTrainings.sessions` and `portalQuizAttempts`.
 5. **Live refresh** across work.thinkhealth.in (`07f7748`): every tab checks for changes every 5 s; Zoho changes made from the dashboard are written straight into our copies.
 6. **Out of scope for now:** certificates from the attendance list, WhatsApp to participants.
 

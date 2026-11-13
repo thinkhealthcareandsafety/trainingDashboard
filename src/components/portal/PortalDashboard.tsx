@@ -5,7 +5,8 @@ import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
 import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
 import type { DayWindow } from "@/lib/attendanceRules";
-import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, primaryBtn, secondaryBtn } from "./TrainingTools";
+import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
+import type { QuizResults } from "@/lib/portalTrainings";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -14,7 +15,8 @@ import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectFor
  */
 type Me = { email: string; name: string };
 type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
-  dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number };
+  dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number;
+  quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -223,7 +225,14 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const [attendKey, setAttendKey] = useState(t.attendKey);
   const [live, setLive] = useState<Live>({ present: 0, total: t.registered });
   const title = t.lines.map((l) => l.name).join(" + ") || "Training";
-  const onTheDay = Boolean(t.confirmedAt) && !t.completedAt && t.window.state === "open";
+  // A training day (owner, 13 Nov: the coordinator starts it): before Start, while it runs, and after End.
+  const onTheDay = Boolean(t.confirmedAt) && !t.completedAt && ["waiting", "open", "ended"].includes(t.window.state);
+  // Start / End change the day's state: read this training again from the server.
+  const reload = async () => {
+    const j = await fetch("/api/portal/home", { cache: "no-store" }).then((r) => r.json()).catch(() => null) as { trainings?: Training[] } | null;
+    const fresh = j?.trainings?.find((x) => x.id === t.id);
+    if (fresh) setT((x) => ({ ...x, ...fresh }));
+  };
   const sign = signFor(title);
   const tool = { id: t.id, number: t.number, title, expected: t.expected, proposal: t.proposal, history: t.history, joinKey: t.joinKey, registered: t.registered };
   const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
@@ -259,7 +268,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             <RejectForm id={t.id} onCancel={() => setDeclining(false)} onDone={(reason) => { setT({ ...t, stamp: "Rejected", rejected: { at: new Date().toISOString(), reason } }); setDeclining(false); setPeople(false); }} />
           </>
         ) : t.proposal && t.confirmedAt ? (
-          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} />
+          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} onChanged={reload} />
         ) : t.proposal ? (
           <>
             <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
@@ -388,7 +397,7 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
   );
 }
 
-function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean }) {
+function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void }) {
   const qr = attendKey ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big={onTheDay} /> : null;
   if (t.completedAt) {
     return (
@@ -396,20 +405,18 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay }: { t
         <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Training completed</h4>
         <ConfirmedDetails t={t} p={p} title={title} />
         <p className="mt-5 text-[14.5px] text-ink-2"><b className="num text-ink">{t.attended} of {t.registered}</b> attended. Thank you for organising it with us.</p>
+        {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
       </>
     );
   }
-  if (onTheDay && t.window.state === "open") {
+  if (onTheDay && (t.window.state === "open" || t.window.state === "waiting" || t.window.state === "ended")) {
     const w = t.window;
     const time = clock(t.dates.find((d) => d.date === w.day)?.time ?? "");
     const meta = [w.of > 1 ? `Day ${w.dayNo} of ${w.of}` : "", time, p.location, t.trainers.length ? `With ${t.trainers.join(", ")}` : ""].filter(Boolean);
     return (
       <>
-        {/* Training today (owner, 13 Nov): the strip, then the QR large with the live count; the details move below. */}
-        <div className="rounded-xl bg-ground px-5 py-4">
-          <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training today</h4>
-          <p className="num mt-1 text-[15px] text-ink-2">{meta.join(" · ")}</p>
-        </div>
+        {/* Training today (owner, 13 Nov): the strip with Start / End, then the QR large with the live count; the details below. */}
+        <TodayStrip t={t} meta={meta} onChanged={onChanged} />
         <div className="mt-6 grid items-center gap-6 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
           {qr}
           <div className="text-center sm:text-left" aria-live="polite">
@@ -418,6 +425,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay }: { t
             <p className="mt-1.5 max-w-[34ch] text-[14px] leading-relaxed text-muted sm:max-w-none">Show this code in the room. Each person scans it and taps Present; the ticks below fill in by themselves.</p>
           </div>
         </div>
+        {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
         <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
         <p className="mt-5 text-[14.5px] text-ink-2">To change anything now, {contact}.</p>
       </>
@@ -436,8 +444,120 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay }: { t
           </div>
         )}
       </div>
+      {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
       <p className="mt-6 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, {contact}.</p>
     </>
+  );
+}
+
+/** Today's strip (owner, 13 Nov): Start training opens attendance and the quiz; End training closes them. */
+function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const state = t.window.state;
+  const run = async (action: "start" | "end") => {
+    if (action === "end" && !window.confirm("End today's training? Attendance and the quiz close for today. On the last day, everyone's right answers show.")) return;
+    setBusy(true); setError("");
+    const r = await act<{ window?: DayWindow }>({ action, id: t.id });
+    setBusy(false);
+    if (!r.window) return setError(r.error ?? "Couldn't do that");
+    onChanged();
+  };
+  const at = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "");
+  const heading = state === "open" ? "Training in progress" : state === "ended" ? "Today's training has ended" : "Training today";
+  const note = state === "open" ? `Started at ${at(t.session?.startedAt)}. Attendance${t.quiz ? " and the quiz are" : " is"} open.`
+    : state === "ended" ? `Ended at ${at(t.session?.endedAt)}. Attendance${t.quiz ? " and the quiz are" : " is"} closed for today.`
+    : `Attendance${t.quiz ? " and the quiz open" : " opens"} when you start.`;
+  return (
+    <div className={`rounded-xl px-5 py-4 ${state === "open" ? "bg-navy text-white" : "bg-ground"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
+          <h4 className={`text-[21px] font-extrabold leading-tight tracking-[-0.015em] ${state === "open" ? "text-white" : "text-ink"}`}>{heading}</h4>
+          <p className={`num mt-1 text-[15px] ${state === "open" ? "text-white/80" : "text-ink-2"}`}>{meta.join(" · ")}</p>
+          <p className={`mt-1 text-[14px] ${state === "open" ? "text-white/80" : "text-muted"}`}>{note}</p>
+        </div>
+        {state === "waiting" && <button type="button" className={`${primaryBtn} h-12 px-6 text-[16px]`} onClick={() => run("start")} disabled={busy}>{busy ? "Starting…" : "Start training"}</button>}
+        {state === "open" && <button type="button" className="inline-flex h-11 items-center justify-center rounded-xl px-5 text-[15px] font-bold text-white ring-1 ring-inset ring-white/40 transition hover:bg-white/10 disabled:opacity-50" onClick={() => run("end")} disabled={busy}>{busy ? "Ending…" : "End training"}</button>}
+        {state === "ended" && <button type="button" className={secondaryBtn} onClick={() => run("start")} disabled={busy}>{busy ? "Starting…" : "Start again"}</button>}
+      </div>
+      {error && <p className="mt-3 rounded-lg bg-danger-bg px-3 py-2 text-[14px] text-danger" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+/** The quiz's live results (owner, 13 Nov: "it will start displaying on the coordinator's board"): leaderboard and, per question, the picks. */
+function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]> }) {
+  const [r, setR] = useState<QuizResults | null>(null);
+  const [byQuestion, setByQuestion] = useState(false);
+  useEffect(() => {
+    let on = true;
+    const load = () => act<QuizResults & { none?: boolean }>({ action: "results", id }).then((j) => { if (on && j.leaderboard) setR(j); });
+    load();
+    if (quiz.state !== "open") return () => { on = false; };
+    const t = setInterval(() => { if (!document.hidden) load(); }, 5000);
+    return () => { on = false; clearInterval(t); };
+  }, [id, quiz.state]);
+  const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
+  return (
+    <section className="mt-7 border-t border-line pt-6" aria-label="Quiz results">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h4 className="text-[18px] font-extrabold tracking-[-0.01em] text-ink">{quiz.title} results</h4>
+        <span className="text-[13.5px] text-muted">{quiz.state === "open" ? "Live: updates as people finish" : quiz.state === "revealed" ? "Closed: right answers shown" : quiz.state === "closed" ? "Closed until the training restarts" : "Opens when you start the training"}</span>
+      </div>
+      {!r ? <p className="mt-3 text-[14px] text-muted">Loading the results…</p> : (
+        <>
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            {[[`${r.taken} of ${r.present}`, "present have taken it"], [String(r.passed), `passed (70%+)`], [`${r.avgPct}%`, "average score"]].map(([v, l]) => (
+              <div key={l} className="rounded-xl bg-ground px-3 py-3 text-center">
+                <p className="num text-[22px] font-extrabold leading-none text-ink">{v}</p>
+                <p className="mt-1.5 text-[12.5px] leading-snug text-muted">{l}</p>
+              </div>
+            ))}
+          </div>
+          {r.leaderboard.length === 0 ? <p className="mt-4 text-[14.5px] text-muted">No one has finished yet.</p> : (
+            <ol className="mt-4 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
+              {r.leaderboard.map((b) => (
+                <li key={b.th} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 bg-surface px-3.5 py-2.5">
+                  <span className={`num text-center text-[15px] font-extrabold ${b.rank === 1 ? "text-navy" : "text-muted"}`}>{b.rank}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[15px] font-semibold text-ink">{b.name}</span>
+                    <span className="num block text-[12.5px] text-muted">{b.th} · {Math.floor(b.seconds / 60)}m {b.seconds % 60}s{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}</span>
+                  </span>
+                  <span className="num text-right text-[15px] font-bold text-ink">{b.points}<span className="ml-1.5 text-[12.5px] font-semibold text-muted">{b.pct}%</span></span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {r.taken > 0 && (
+            <div className="mt-4">
+              <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide the answers by question" : "See the answers by question"}</button>
+              {byQuestion && (
+                <ol className="mt-3 space-y-4">
+                  {r.questions.map((q, i) => {
+                    const most = Math.max(1, ...q.options.map((o) => o.picked));
+                    return (
+                      <li key={q.id}>
+                        <p className="text-[14.5px] font-semibold text-ink"><span className="num text-muted">{i + 1}. </span>{q.text} <span className="num font-normal text-muted">· {q.correctPct}% right</span></p>
+                        <ul className="mt-1.5 space-y-1">
+                          {q.options.map((o, k) => (
+                            <li key={k} className="grid grid-cols-[minmax(0,1fr)_minmax(60px,34%)_32px] items-center gap-2 text-[13.5px]">
+                              <span className={`truncate ${k === q.answer ? "font-bold text-ink" : "text-ink-2"}`}>{k === q.answer ? "Right: " : ""}{o.text}</span>
+                              <span className="h-2 overflow-hidden rounded-full bg-ground"><span className={`block h-full rounded-full ${k === q.answer ? "bg-navy" : "bg-line-strong"}`} style={{ width: `${(o.picked / most) * 100}%` }} /></span>
+                              <span className="num text-right text-muted">{o.picked}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      <p className={`${sub} sr-only`}>Quiz results</p>
+    </section>
   );
 }
 

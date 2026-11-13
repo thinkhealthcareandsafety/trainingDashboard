@@ -25,7 +25,7 @@ const linkBtn = "text-[14px] font-semibold text-action hover:underline disabled:
 const label = "mb-1.5 block text-[13.5px] font-semibold text-ink-2";
 const sectionTitle = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
 
-async function act<T>(body: object): Promise<T & { error?: string }> {
+export async function act<T>(body: object): Promise<T & { error?: string }> {
   const r = await fetch("/api/portal/training", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
   if (!r) return { error: "Couldn't reach Think Health. Check your connection and try again." } as T & { error?: string };
   if (r.status === 401) { location.reload(); return { error: "Please sign in again" } as T & { error?: string }; }

@@ -185,6 +185,7 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
         </section>
       </div>
       <ParticipantList x={x} />
+      {x.portal?.confirmed?.zohoAt && <QuizSummary id={x.id} />}
       {!story ? <p className="text-[14px] text-muted">Getting the story of this quotation…</p>
         : story.error ? <p className="text-[14px] text-high">{story.error}</p>
         : <QuoteStory quote={story} training actions={piAction(x, onChanged)} piHint={x.portal?.confirmed ? { number: x.portal.confirmed.number, status: x.portal.confirmed.zohoAt ? "open" : "draft", date: x.portal.confirmed.at.slice(0, 10) } : undefined} />}
@@ -396,6 +397,41 @@ function ParticipantList({ x }: { x: Quote }) {
                   <td className="hidden px-2 py-1.5 text-muted sm:table-cell">{p.email}</td>
                   {days.length > 0 && <td className="px-2 py-1.5 text-ink-2">{p.present.length ? `Present ${p.present.map(short).join(", ")}` : <span className="text-faint">Not marked</span>}</td>}
                   <td className="px-3 py-1.5 text-right text-muted">{SOURCE[p.source]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The quiz's results, read only (owner, 13 Nov: "everyone else can see the same results too"): the coordinator runs it. */
+function QuizSummary({ id }: { id: string }) {
+  type R = { title: string; state: string; taken: number; present: number; passed: number; avgPct: number; leaderboard: { rank: number; th: string; name: string; points: number; pct: number; passed: boolean; badge: boolean }[] };
+  const [r, setR] = useState<R | null>(null);
+  const load = () => fetch(`/api/training-management?quiz=${id}`).then((x) => x.json()).then((j) => setR(j.results ?? null)).catch(() => {});
+  useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLive(load, ["work"]);
+  if (!r) return null;
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className={label}>{r.title} · {r.taken} of {r.present} present took it · {r.passed} passed · average {r.avgPct}%</p>
+        <span className="text-[12.5px] text-muted">{r.state === "open" ? "Running now" : r.state === "revealed" ? "Closed" : r.state === "closed" ? "Paused until the next day" : "Opens when the coordinator starts the training"}</span>
+      </div>
+      {r.leaderboard.length > 0 && (
+        <div className="mt-2 max-h-72 overflow-y-auto rounded-xl border border-line bg-surface [scrollbar-width:thin]">
+          <table className="w-full text-[13.5px]">
+            <tbody>
+              {r.leaderboard.map((b) => (
+                <tr key={b.th} className="border-b border-line last:border-b-0">
+                  <td className="w-10 px-3 py-1.5 text-center font-semibold text-muted">{b.rank}</td>
+                  <td className="px-2 py-1.5 font-medium">{b.name}</td>
+                  <td className="px-2 py-1.5 text-muted">{b.th}</td>
+                  <td className="px-2 py-1.5 text-right">{b.points} · {b.pct}%</td>
+                  <td className={`px-3 py-1.5 text-right ${b.passed ? "text-low" : "text-medium"}`}>{b.badge ? "Badge" : b.passed ? "Passed" : "Not passed"}</td>
                 </tr>
               ))}
             </tbody>

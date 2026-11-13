@@ -4,7 +4,7 @@ import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { attendCookieName, attendanceWindow, currentDates, datesFromBoard, presentByDay, readAttendCookie, registrationOpen, tickableDay } from "@/lib/attendanceRules";
 import { indiaToday } from "@/lib/portalRules";
-import { attendIdentify, attendInfo, attendPresent, attendRegister, join, joinInfo, markConfirmed, markZohoConfirmed, newAttendKey, participantPage, participants, removePerson, staffParticipants, staffPortal, tick, trainingsFor, addPeople } from "@/lib/portalTrainings";
+import { attendIdentify, attendInfo, attendPresent, attendRegister, join, joinInfo, markConfirmed, markZohoConfirmed, newAttendKey, participantPage, participants, removePerson, staffParticipants, staffPortal, startTraining, endTraining, tick, trainingsFor, addPeople } from "@/lib/portalTrainings";
 import { GET as attendGet, POST as attendPost } from "@/app/api/portal/attend/route";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -87,14 +87,22 @@ test("no attendance QR until Mark confirmed; then a fixed key, and the panel kno
   t = await confirm();
   assert.match(t.attendKey, /^[\w-]{10,}$/);
   assert.equal((await trainingsFor(RIYA))[0].attendKey, t.attendKey); // fixed: the same key every time
-  assert.deepEqual(t.window, { state: "open", day: today, dayNo: 1, of: 1 });
+  // The coordinator starts the training (owner, 13 Nov): waiting until Start, open after, ended after End.
+  assert.deepEqual(t.window, { state: "waiting", day: today, dayNo: 1, of: 1 });
   assert.equal(t.stamp, "Confirmed");
+  assert.match((await attendInfo("QT-1", t.attendKey, null))!.shut, /hasn.t started yet/);
+  assert.deepEqual(((await startTraining(RIYA, "1")) as { window: object }).window, { state: "open", day: today, dayNo: 1, of: 1 });
+  assert.equal((await attendInfo("QT-1", t.attendKey, null))!.shut, "");
+  assert.equal(((await endTraining(RIYA, "1")) as { window: { state: string } }).window.state, "ended");
+  assert.match((await attendInfo("QT-1", t.attendKey, null))!.shut, /ended/);
+  assert.equal(((await startTraining(RIYA, "1")) as { window: { state: string } }).window.state, "open"); // ended by mistake: start again
 });
 
 test("on the day: mobile number → them; walk-in → registered and tagged; Present ticks once; the coordinator sees it", async () => {
   const today = indiaToday();
   await seed([today]);
   const { attendKey: k } = await confirm();
+  await startTraining(RIYA, "1");
   assert.equal(await attendInfo("QT-1", "wrong", null), null);
   const info = await attendInfo("QT-1", k, null);
   assert.equal(info?.shut, "");
@@ -168,6 +176,7 @@ test("the route remembers the phone with a cookie, and Present works from it", a
   const today = indiaToday();
   await seed([today]);
   const { attendKey: k } = await confirm();
+  await startTraining(RIYA, "1");
   const post = (body: object, cookie = "") => attendPost(new Request("http://x/api/portal/attend", { method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify({ n: "QT-1", k, ...body }) }));
   const r = await post({ action: "identify", phone: "9811111111" });
   const set = r.headers.get("set-cookie") ?? "";

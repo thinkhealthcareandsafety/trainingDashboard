@@ -1,6 +1,6 @@
 import { portalToken, portalUser } from "@/lib/portalAuth";
 import { withBump } from "@/lib/changes";
-import { addPeople, newAttendKey, newJoinKey, participants, propose, reject, removePerson, tick } from "@/lib/portalTrainings";
+import { addPeople, endTraining, newAttendKey, newJoinKey, participants, propose, quizResults, reject, removePerson, startTraining, tick } from "@/lib/portalTrainings";
 import { setQuoteStatus } from "@/lib/quotations";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,8 @@ export const dynamic = "force-dynamic";
  *  "newlink"  — a new QR / join link; the old one stops working
  *  "tick"     { th, day, on } — mark someone present (on: true) or not, on a training day that has come (owner, 13 Nov)
  *  "newattend" — a new attendance QR; the old one stops working
+ *  "start" / "end" — Start training / End training today (owner, 13 Nov): attendance and the quiz run only in between
+ *  "results" — the quiz's live leaderboard and per-question analytics
  * Only on their own trainings.
  */
 async function handlePOST(request: Request) {
@@ -30,6 +32,9 @@ async function handlePOST(request: Request) {
       : b?.action === "newlink" ? await newJoinKey(me.email, b.id)
       : b?.action === "tick" ? await tick(me.email, b.id, b.th, b.day, b.on)
       : b?.action === "newattend" ? await newAttendKey(me.email, b.id)
+      : b?.action === "start" ? await startTraining(me.email, b.id)
+      : b?.action === "end" ? await endTraining(me.email, b.id)
+      : b?.action === "results" ? await quizResults(me.email, b.id)
       : { error: "Unknown action", status: 400 };
     return "error" in r ? Response.json({ error: r.error }, { status: r.status }) : Response.json(r);
   } catch (e) {
