@@ -26,6 +26,7 @@ import { declineLink, loginBoxHtml, trainingLink } from "@/lib/portalEmail";
 import { portalBase } from "@/lib/portalHost";
 import { declineKeyFor, markLoginSent } from "@/lib/portalTrainings";
 import { renderTemplate } from "@/lib/templateText";
+import { syncWindowStart, ymd } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -73,13 +74,14 @@ let history: { key: string; map: Map<string, History> } | null = null;
 async function histories(): Promise<Map<string, History>> {
   const t = await copyTables();
   const deleted = await deletedIds("estimates");
-  const key = `${t.quotes?.length ?? 0}|${t.invoices?.length ?? 0}|${t.quotes?.[0]?.["Quote ID"] ?? ""}|${deleted.size}`;
+  const inZoho = await stillInZoho();
+  const key = `${t.quotes?.length ?? 0}|${t.invoices?.length ?? 0}|${t.quotes?.[0]?.["Quote ID"] ?? ""}|${deleted.size}|${quoteStatus?.v ?? ""}`;
   if (history?.key === key) return history.map;
   const map = new Map<string, History>();
   const get = (id: string) => map.get(id) ?? map.set(id, {}).get(id)!;
   for (const q of t.quotes ?? []) {
     const date = day(q["Quote Date"]);
-    if (!date || /draft/i.test(q["Status"] ?? "") || deleted.has(String(q["Quote ID"] ?? ""))) continue;
+    if (!date || /draft/i.test(q["Status"] ?? "") || deleted.has(String(q["Quote ID"] ?? "")) || !inZoho(q["Quote Number"] ?? "", date)) continue;
     const h = get(q["Customer ID"]);
     if (!h.quote || date > h.quote.date) h.quote = { id: q["Quote ID"] || undefined, date, number: q["Quote Number"] ?? "", amount: money(q["Sub Total (BCY)"]) ?? 0, status: q["Status"] ?? "" };
   }
@@ -98,8 +100,10 @@ async function recentSent(gone?: Span): Promise<Map<string, Last>> {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const out = new Map<string, Last>();
   const deleted = await deletedIds("estimates");
+  const inZoho = await stillInZoho();
   for (const s of await (await sentCol()).find({ at: { $gte: since } }).sort({ at: 1 }).toArray()) {
-    if (goneFrom(gone, s._id, s.at) || deleted.has(s._id)) continue; // deleted in Zoho since
+    // Deleted in Zoho since; one sent in the last 15 minutes may simply not be in the Sales copy yet.
+    if (goneFrom(gone, s._id, s.at) || deleted.has(s._id) || (Date.now() - Date.parse(s.at) > 15 * 60_000 && !inZoho(s.number, s.at.slice(0, 10)))) continue;
     out.set(s.customerId, { id: s._id, date: new Date(Date.parse(s.at) + 5.5 * 3600_000).toISOString().slice(0, 10), number: s.number, amount: s.total, status: s.sent ? "sent" : "draft" });
   }
   return out;
@@ -143,6 +147,18 @@ async function freshQuoteStatus(): Promise<Map<string, string>> {
   const rows = await d.collection<{ _id: string; kind: string; row: Record<string, unknown> }>("salesDocs").find({ kind: "estimates" }, { projection: { "row.estimate_number": 1, "row.status": 1 } }).toArray();
   quoteStatus = { v, map: new Map(rows.map((r) => [String(r.row?.estimate_number ?? ""), String(r.row?.status ?? "")])) };
   return quoteStatus.map;
+}
+
+/**
+ * Whether a quotation still exists in Zoho, by the Sales copy (owner, 13 Nov: "something that is deleted should be deleted
+ * from here too"). That copy holds every quotation in the sync window and the live sync drops deleted ones within minutes,
+ * so a quote in its window it doesn't hold was deleted — the Reports copy behind "Last quotation" refreshes only every few
+ * hours. Older quotes (before the window), or an empty copy, can't be judged: they count as still there.
+ */
+async function stillInZoho(): Promise<(number: string, date: string) => boolean> {
+  const status = await freshQuoteStatus();
+  const from = ymd(syncWindowStart(new Date()));
+  return (number, date) => !status.size || !number || date < from || status.has(number);
 }
 
 const lastQuote = (h: History | undefined, mine: Last | undefined) => (mine && (!h?.quote || mine.date >= h.quote.date) ? mine : h?.quote);
