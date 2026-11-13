@@ -101,7 +101,7 @@ export function SalesModal({ card, cards, member, options, onClose, onReviewMerg
         {/* Owner, 3 Nov: "customer details | IDs and dates, then the quote / PI / invoice … in a table" — the document gets
             the whole width, the customer folds away until clicked. */}
         {/* Two columns of the same height: each column's last box stretches, so the bottoms line up (owner, 3 Nov). */}
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="flex flex-col gap-3 [&>*:last-child]:flex-1">
             <CustomerFold card={card} open={Boolean(draft)}>
               {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}

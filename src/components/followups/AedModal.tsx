@@ -291,14 +291,14 @@ export function ItemDescriptionSection({ card, cards, member, noResale, folded }
                 {l.name} <span className="num text-[13px] font-medium text-muted">× {l.qty}</span>
               </div>
               {l.model && <div className="text-[12.5px] text-muted">{l.model}</div>}
-              {/* Year and expiries side by side, so the modal fits without scrolling. */}
-              <div className="mt-2 grid grid-cols-3 gap-3 border-b border-line pb-2">
+              {/* Year and expiries side by side, so the modal fits without scrolling; on a phone one under another (13 Nov: they printed over each other). */}
+              <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-1.5 border-b border-line pb-2 sm:grid-cols-[repeat(3,minmax(0,1fr))] sm:gap-3">
                 {([
                   ["Year of manufacturing", l.year ? [l.year] : []],
                   ["Battery expiry", l.batteryExpiry.map(dateLong)],
                   ["Pads expiry", l.padsExpiry.map(dateLong)],
                 ] as [string, string[]][]).map(([label, values]) => (
-                  <div key={label} className="min-w-0">
+                  <div key={label} className="flex min-w-0 items-baseline justify-between gap-3 sm:block">
                     <div className="text-[12px] font-medium text-muted">{label}</div>
                     <div className="text-[14px] text-ink-2">{values.length ? values.map((v) => <div key={v}>{v}</div>) : missing}</div>
                   </div>
@@ -417,7 +417,7 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
   return (
     <Shell label={`${card.name} details`} onClose={onClose} footer={footer} side={<ChangeLog cardIds={[card.id, aedCustomerId(card.customerId)]} cards={cards} member={member} />}>
       <Header kind="invoice" sub={`${inv.number} · ${dateLong(inv.date)} · AedSmartx`} title={card.name} aside={<StepTracker steps={aedSteps(card)} label="AED training progress" />} ask={<AskLink cardId={card.id} title={`${card.name} · ${inv.number} · AED`} search={card.name} />} onClose={onClose} />
-      <div className="grid gap-3 p-4 xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={withoutRemoved(card)} /></>}
           <AedNotesSection card={card} member={member} options={options} />

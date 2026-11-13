@@ -78,7 +78,7 @@ export function Section({ title, aside, children }: { title: string; aside?: Rea
   return (
     <section className={compact ? "border-t border-line px-1 pt-2.5 first:border-t-0 first:pt-0" : "rounded-2xl border border-line bg-surface px-4 py-3.5"}>
       <div className={`flex items-center justify-between gap-2 ${children ? (compact ? "mb-1.5" : "mb-2") : ""}`}>
-        <h3 className={`font-bold tracking-tight text-ink ${compact ? "text-[14px]" : "text-[16px]"}`}>{title}</h3>
+        <h3 className={`shrink-0 font-bold tracking-tight text-ink ${compact ? "text-[14px]" : "text-[16px]"}`}>{title}</h3>
         {aside}
       </div>
       {children}
@@ -91,7 +91,8 @@ export function Row({ label, required, locked, children }: { label: string; requ
   const stacked = useContext(Stacked);
   return (
     // Merge panels: label beside the value with one or two panels; above it once three or more share the width.
-    <div className={`grid border-b border-line first:pt-0 last:border-b-0 last:pb-0 ${!compact ? "grid-cols-[150px_1fr] gap-4 py-2" : stacked ? "gap-0.5 py-1.5" : "grid-cols-[118px_1fr] gap-2 py-1.5"}`}>
+    // A card on a phone: the label above the value too (13 Nov: the value was squeezed into a sliver beside a 150 px label).
+    <div className={`grid border-b border-line first:pt-0 last:border-b-0 last:pb-0 ${!compact ? "grid-cols-[minmax(0,1fr)] gap-0.5 py-2 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-4" : stacked ? "gap-0.5 py-1.5" : "grid-cols-[118px_1fr] gap-2 py-1.5"}`}>
       <dt className={`flex items-start gap-1 pt-0.5 font-medium text-muted ${compact ? "text-[12px]" : "text-[13px]"}`}>
         {label}
         {required && <span className="text-high">*</span>}
@@ -1462,8 +1463,8 @@ export function NotesPanel({ card, member, heading, oneLine, children }: { card:
       {children}
       {latest && oneLine ? (
         // Training board: the latest note on one line (the left column is the tight one); the full text is in All notes.
-        <div className={`${children ? "mt-2" : ""} flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-1.5 text-[13.5px] text-ink-2`}>
-          <span className="min-w-0 flex-1 truncate" title={latest.text}>{latest.text}</span>
+        <div className={`${children ? "mt-2" : ""} flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg bg-surface-2 px-3 py-1.5 text-[13.5px] text-ink-2`}>
+          <span className="min-w-0 basis-full truncate sm:basis-0 sm:flex-1" title={latest.text}>{latest.text}</span>
           <span className="shrink-0 text-[11.5px] text-muted">{latest.by.split(" ")[0]} · {noteWhen(latest.at)}</span>
           <button className="shrink-0 text-[11.5px] font-semibold text-brand hover:underline" onClick={() => setOpen(true)}>{notes.length > 1 ? `All notes (${notes.length})` : "Open"}</button>
         </div>
@@ -1659,7 +1660,10 @@ export function Shell({ label, onClose, side, footer, overlay, children }: { lab
     root.style.overflow = "hidden";
     return () => { root.style.overflow = prev; };
   }, []);
-  return (
+  if (typeof document === "undefined") return null;
+  // Over the whole page (13 Nov): rendered inside the page, the phone header (and the ticker) were drawn over its top —
+  // the title and the close button hidden.
+  return createPortal(
     <div className="fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-2 backdrop-blur-md sm:p-4" onMouseDown={onClose}>
       <div
         role="dialog"
@@ -1675,7 +1679,8 @@ export function Shell({ label, onClose, side, footer, overlay, children }: { lab
         </div>
         <aside className="no-scrollbar max-h-[30vh] shrink-0 overflow-y-auto border-t border-line bg-surface md:max-h-none md:w-[360px] md:border-l md:border-t-0">{side}</aside>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1701,7 +1706,7 @@ export function Header({ kind, sub, title, flagged, aside, ask, onClose }: { kin
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           {kind && <span className={`shrink-0 rounded-md px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide ${STAGE_TONE[kind].chip}`}>{KIND_LABEL[kind]}</span>}
-          <span className="truncate text-[13px] font-medium text-muted" title={sub}>{sub}</span>
+          <span className="hidden truncate text-[13px] font-medium text-muted sm:inline" title={sub}>{sub}</span>
         </div>
         <div className="-my-1.5 flex shrink-0 items-center gap-4">
           {aside}
@@ -1711,6 +1716,8 @@ export function Header({ kind, sub, title, flagged, aside, ask, onClose }: { kin
           </span>
         </div>
       </div>
+      {/* On a phone the document line gets its own row (13 Nov: squeezed to one letter beside the chip and the buttons). */}
+      <p className="mt-1 text-[13px] font-medium text-muted sm:hidden">{sub}</p>
       <h2 className="mt-1 flex items-center gap-2 pr-10 text-[22px] font-bold leading-tight tracking-tight text-ink">
         <span className="[overflow-wrap:anywhere]">{title}</span>
         {flagged && <FlagBadge />}
@@ -1966,7 +1973,7 @@ export function CardModal({ card, cards, member, options, onClose, onReviewMerge
             <button className="font-semibold text-brand hover:underline" onClick={onReviewMerge}>Review &amp; merge</button>
           </div>
         )}
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="space-y-3">
             {draft ? <Editor card={card} draft={draft} setDraft={setDraft} options={options} /> : <><CustomerSection card={card} /><ContactSection card={card} /></>}
             <NotesSection card={card} member={member} options={options} />

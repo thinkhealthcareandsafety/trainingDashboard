@@ -111,7 +111,7 @@ export function LogiAedModal({ card, cards, member, options, onClose }: { card: 
   return (
     <Shell label={`${card.name} delivery`} onClose={onClose} side={<ChangeLog cardIds={[card.id]} cards={cards} member={member} kinds={["set_delivered", "logi_hide", "add_note"]} />}>
       <Header kind="invoice" sub={`${inv.number} · ${dateLong(inv.date)} · AED Delivered Status`} title={card.name} onClose={onClose} />
-      <div className="grid gap-3 p-4 xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           <CustomerSection card={card} />
           <ContactSection card={card} />
@@ -303,7 +303,7 @@ export function LogisticsModal({ card, cards, trainingCards, member, options, on
     <Shell label={`${card.name} logistics`} onClose={onClose} side={<ChangeLog cardIds={card.historyIds} cards={allCards} member={member} />}>
       <Header sub={sub} title={card.name} flagged={card.flaggedWith.length > 0} aside={logiSteps && <StepTracker steps={logiSteps} label="Shipping progress" />}
         ask={<AskLink cardId={card.id} title={`${card.name}${card.docNumber ? ` · ${card.docNumber}` : ""} · shipping`} search={card.name} />} onClose={onClose} />
-      <div className="grid items-start gap-3 p-4 xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           <CustomerSection card={card} />
           <ContactSection card={card} />

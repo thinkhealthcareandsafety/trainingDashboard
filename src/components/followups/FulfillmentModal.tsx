@@ -54,7 +54,7 @@ export function FulfillmentModal({ card, cards, trainingCards, member, options, 
   return (
     <Shell label={`${card.name} fulfillment`} onClose={onClose} side={<ChangeLog cardIds={card.historyIds} cards={allCards} member={member} />}>
       <Header sub={sub} title={card.name} aside={<FulfilSteps f={f} />} ask={<AskLink cardId={card.id} title={`${card.name}${card.docNumber ? ` · ${card.docNumber}` : ""} · certificates`} search={card.name} />} onClose={onClose} />
-      <div className="grid items-start gap-3 p-4 xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-3 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div ref={leftRef} className="min-w-0 space-y-3">
           <CustomerSection card={card} />
           <ContactSection card={card} />
