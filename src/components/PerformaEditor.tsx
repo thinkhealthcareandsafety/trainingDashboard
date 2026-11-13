@@ -6,6 +6,7 @@ import { zohoUrl } from "@/lib/zohoLinks";
 import { fmtDate } from "@/lib/dates";
 import { btn, inputCls, selectCls } from "./ui";
 import { useLive } from "@/lib/live";
+import { TRAINERS } from "@/lib/pipeline";
 
 /*
  * The Performa from an accepted training date (owner, 12 Nov: "when I convert it, it converts to draft, then I update it
@@ -27,12 +28,21 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   const [email, setEmail] = useState<Email | null>(null);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
+  // Trainers before Mark confirmed (owner, 13 Nov): required; they go on the Training board (reminders go to them) and the
+  // first becomes Zoho's Trainer Name. Starts from Zoho's Trainer Name when it names one of ours.
+  const [trainers, setTrainers] = useState<string[] | null>(null);
+  const [other, setOther] = useState("");
 
   const load = async () => {
     const r = await fetch(`/api/training-management?pi=${id}`).catch(() => null);
     const j = r ? ((await r.json().catch(() => ({}))) as Loaded) : ({ error: "Couldn't reach the server" } as Loaded);
     setData(j);
-    if (j.draft) { setDraft(j.draft); setEmail(j.email); }
+    if (j.draft) {
+      setDraft(j.draft); setEmail(j.email);
+      const first = (x: string) => x.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+      const named = TRAINERS.find((t) => first(t) === first(j.draft.fields.trainer ?? ""));
+      setTrainers((had) => had ?? (named ? [named] : []));
+    }
   };
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Live refresh (owner, 13 Nov): a change made elsewhere (Zoho, a teammate) shows here — but never over unsaved edits or
@@ -49,6 +59,9 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   const setField = (k: PiFieldKey, v: string) => setDraft({ ...draft, fields: { ...draft.fields, [k]: v } });
   const setLine = (i: number, patch: Partial<PiDraft["lines"][number]>) => setDraft({ ...draft, lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
   const estimate = draft.lines.reduce((n, l) => n + l.qty * l.rate, 0);
+  const picked = trainers ?? [];
+  const toggle = (t: string) => setTrainers(picked.includes(t) ? picked.filter((x) => x !== t) : [...picked, t]);
+  const addOther = () => { const t = other.replace(/\s+/g, " ").trim(); if (t && !picked.some((x) => x.toLowerCase() === t.toLowerCase())) setTrainers([...picked, t]); setOther(""); };
 
   const save = async () => {
     setBusy("save"); setMsg("");
@@ -63,12 +76,13 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   // Mark confirmed (owner, 13 Nov): unsaved edits go with it; Zoho marks it Confirmed, the portal stamps Confirmed and the
   // training goes on the Training board; "& send email" then emails it.
   const markConfirmed = async (withEmail: boolean) => {
+    if (!picked.length) return setMsg("Pick the trainers first.");
     if (!window.confirm(withEmail
       ? `Mark ${draft.number} Confirmed in Zoho and email it to ${email.to.join(", ") || "—"}? The coordinator's portal shows Confirmed and the training goes on the Training board.`
       : `Mark ${draft.number} Confirmed in Zoho? The coordinator's portal shows Confirmed and the training goes on the Training board. Nothing is emailed.`)) return;
     setBusy(withEmail ? "confirm-send" : "confirm"); setMsg("");
     const edit = dirty ? { fields: draft.fields, notes: draft.notes, shipmentDate: draft.shipmentDate, date: draft.date, lines: draft.lines.map((l) => ({ lineItemId: l.lineItemId, description: l.description, qty: l.qty, rate: l.rate })) } : undefined;
-    const body = { action: "piconfirm", id, edit, ...(withEmail ? { send: true, to: email.to.join(","), cc: email.cc.join(","), subject: email.subject, text: email.text } : {}) };
+    const body = { action: "piconfirm", id, edit, trainers: picked, ...(withEmail ? { send: true, to: email.to.join(","), cc: email.cc.join(","), subject: email.subject, text: email.text } : {}) };
     const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; emailError?: string; emailed?: boolean; board?: { state: string; note: string } | null }) : { error: "Couldn't reach the server" };
     setBusy("");
@@ -167,11 +181,30 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
         <label className="mt-2 block"><span className={label}>Message</span>
           <textarea className={`${inputCls} mt-1 !h-auto min-h-[200px] py-2 leading-relaxed`} rows={10} value={email.text} onChange={(e) => setEmail({ ...email, text: e.target.value })} spellCheck />
         </label>
+        {editable && (
+          <div className="mt-3 rounded-xl border border-line bg-surface-2/40 p-3">
+            <p className={label}>Trainers <span className="text-high">*</span> <span className="font-normal text-faint">· they go on the Training board and get the reminder emails; the first is Zoho&apos;s Trainer Name</span></p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {[...TRAINERS, ...picked.filter((t) => !TRAINERS.includes(t))].map((t) => {
+                const on = picked.includes(t);
+                return (
+                  <button key={t} type="button" aria-pressed={on} onClick={() => toggle(t)}
+                    className={`h-8 rounded-full px-3 text-[13px] font-semibold transition-none ${on ? "bg-brand text-white" : "border border-line text-ink-2 hover:border-brand/60"}`}>{on ? "✓ " : ""}{t}</button>
+                );
+              })}
+              <span className="inline-flex items-center gap-1">
+                <input className={`${inputCls} !h-8 w-40 text-[13px]`} placeholder="Someone else" value={other} onChange={(e) => setOther(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOther(); } }} />
+                {other.trim() && <button type="button" className="text-[13px] font-semibold text-brand hover:underline" onClick={addOther}>Add</button>}
+              </span>
+            </div>
+            {!picked.length && <p className="mt-1.5 text-[12.5px] text-medium">Pick at least one trainer to mark it confirmed.</p>}
+          </div>
+        )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {editable ? (
             <>
-              <button type="button" className={btn.ghost} disabled={Boolean(busy)} onClick={() => markConfirmed(false)}>{busy === "confirm" ? "Marking confirmed…" : "Mark confirmed"}</button>
-              <button type="button" className={btn.primary} disabled={!data.live || Boolean(busy)} onClick={() => markConfirmed(true)}>{busy === "confirm-send" ? "Confirming and sending…" : "Mark confirmed & send email"}</button>
+              <button type="button" className={btn.ghost} disabled={Boolean(busy) || !picked.length} onClick={() => markConfirmed(false)}>{busy === "confirm" ? "Marking confirmed…" : "Mark confirmed"}</button>
+              <button type="button" className={btn.primary} disabled={!data.live || Boolean(busy) || !picked.length} onClick={() => markConfirmed(true)}>{busy === "confirm-send" ? "Confirming and sending…" : "Mark confirmed & send email"}</button>
             </>
           ) : (
             <button type="button" className={btn.primary} disabled={!data.live || busy === "email"} onClick={send}>{busy === "email" ? "Sending…" : data.emailedAt ? "Email again" : "Email the Performa"}</button>

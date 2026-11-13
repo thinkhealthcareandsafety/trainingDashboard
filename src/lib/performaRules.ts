@@ -60,6 +60,32 @@ export function acceptDefaults(p: Proposal | null, today: string): { fields: PiF
   };
 }
 
+/**
+ * Trainers before Mark confirmed (owner, 13 Nov: "how can I even make a training PI confirm when the trainers aren't
+ * selected"): at least one, as picked or typed (our trainers, external names), no repeats.
+ */
+export function readTrainers(raw: unknown): string[] | { error: string } {
+  const names = (Array.isArray(raw) ? raw : []).map((t) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean);
+  const list = names.filter((t, i) => names.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i); // the first spelling stays
+  if (!list.length) return { error: "Pick the trainers first" };
+  if (list.length > 6) return { error: "At most 6 trainers" };
+  return list;
+}
+
+/** Zoho's Trainer Name for these trainers: the first one as Zoho spells them (by first name), else "Other". */
+export function zohoTrainer(trainers: string[]): string {
+  const opts = PI_FIELDS.trainer.options;
+  const first = (s: string) => s.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  const want = first(trainers[0] ?? "");
+  return opts.find((o) => want && first(o) === want && first(o) !== "none" && first(o) !== "other") ?? opts.find((o) => sameOption(o, "Other"))!;
+}
+
+/** A full edit of the draft as Zoho has it (Save to Zoho's shape), to change one field before confirming. */
+export const editOf = (d: PiDraft, fields: Partial<PiFields> = {}) => ({
+  fields: { ...d.fields, ...fields }, notes: d.notes, shipmentDate: d.shipmentDate, date: d.date,
+  lines: d.lines.map((l) => ({ lineItemId: l.lineItemId, description: l.description, qty: l.qty, rate: l.rate })),
+});
+
 /** Zoho's sales order status as the team sees it in Zoho: "open" is shown there as Confirmed. */
 export const piStatusLabel = (s: string) => (s === "draft" ? "Draft" : s === "open" ? "Confirmed" : s ? s[0].toUpperCase() + s.slice(1).replace(/_/g, " ") : "");
 

@@ -187,7 +187,7 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
       <ParticipantList x={x} />
       {!story ? <p className="text-[14px] text-muted">Getting the story of this quotation…</p>
         : story.error ? <p className="text-[14px] text-high">{story.error}</p>
-        : <QuoteStory quote={story} training actions={piAction(x, onChanged)} />}
+        : <QuoteStory quote={story} training actions={piAction(x, onChanged)} piHint={x.portal?.confirmed ? { number: x.portal.confirmed.number, status: x.portal.confirmed.zohoAt ? "open" : "draft", date: x.portal.confirmed.at.slice(0, 10) } : undefined} />}
     </div>
   );
 }
@@ -198,8 +198,7 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
  */
 function piAction(x: Quote, onChanged: () => void): Record<string, React.ReactNode> | undefined {
   const p = x.portal;
-  if (!p?.proposal || p.rejected) return undefined;
-  if (p.confirmed) return { pi: <p className="truncate text-[13px] font-semibold text-ink">{p.confirmed.number} · {p.confirmed.zohoAt ? "Confirmed" : "Draft"}</p> };
+  if (!p?.proposal || p.rejected || p.confirmed) return undefined; // once made, the box shows the Performa itself (piHint)
   return { pi: <ConvertToPi id={x.id} p={p.proposal} onChanged={onChanged} /> };
 }
 

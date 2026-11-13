@@ -43,7 +43,7 @@ function Box({ p, n, action }: { p: Phase; n: number; action?: React.ReactNode }
 type Quote = { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[]; rejection?: { at: string; reason: string } | null };
 
 /** `actions`: what can be done from a phase that's next, by phase key (Trainings: "pi" → Convert to PI). */
-export function QuoteStory({ quote, training, actions }: { quote: Quote; training: boolean; actions?: Partial<Record<string, React.ReactNode>> }) {
+export function QuoteStory({ quote, training, actions, piHint }: { quote: Quote; training: boolean; actions?: Partial<Record<string, React.ReactNode>>; piHint?: { number: string; status: string; date: string } }) {
   const sales = useSalesData(true);
   const pipeline = usePipeline(training);
   const { cardEvents } = useStore();
@@ -75,7 +75,7 @@ export function QuoteStory({ quote, training, actions }: { quote: Quote; trainin
     };
   }, [sales.data, pipeline.data, training]);
   const phases = storyPhases({
-    quote, training, today,
+    quote, training, today, piHint,
     docs,
     schedule: boards?.schedule, fulfil: boards?.fulfil, logiStep: boards?.logiStep, board: boards?.board,
   });

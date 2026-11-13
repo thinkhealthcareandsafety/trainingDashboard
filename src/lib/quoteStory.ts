@@ -36,6 +36,8 @@ export type StoryInput = {
   logiStep?: string;
   /** The training board's card for the deal: the invoices and payments it holds (a skipped Performa leaves no reference to follow). */
   board?: { invoices: ZohoInvoice[]; payments: ZohoPayment[]; piSkipped: boolean };
+  /** The Performa our Trainings page made (Convert to PI / Mark confirmed), shown even before a Zoho copy has it (13 Nov). */
+  piHint?: { number: string; status: string; date: string };
   today: string;
 };
 
@@ -82,9 +84,12 @@ export function storyPhases(input: StoryInput): Phase[] {
   const phases: Phase[] = [{ key: "quote", title: "Quotation", state: lost ? "stopped" : "done", status: cap(qs), tone: lost ? "bad" : qs === "accepted" || qs === "invoiced" ? "good" : "info", lines: [quote.number, ...qLines] }];
   if (lost) return phases;
 
-  // 2. Performa invoice. Zoho's "open" is what Zoho shows as Confirmed.
+  // 2. Performa invoice. Zoho's "open" is what Zoho shows as Confirmed; confirmed (or further) is green (owner, 13 Nov).
+  const piTone = (status: string): Phase["tone"] => (status === "draft" ? "info" : "good");
+  const hint = !pi && input.piHint ? input.piHint : null;
   phases.push(pi
-    ? { key: "pi", title: "Performa invoice", state: "done", status: pi.status === "open" ? "Confirmed" : cap(pi.status), tone: "info", lines: [pi.number, pi.total ? inr(pi.total) : "", day(pi.date)].filter(Boolean) }
+    ? { key: "pi", title: "Performa invoice", state: "done", status: pi.status === "open" ? "Confirmed" : cap(pi.status), tone: piTone(pi.status), lines: [pi.number, pi.total ? inr(pi.total) : "", day(pi.date)].filter(Boolean) }
+    : hint ? { key: "pi", title: "Performa invoice", state: "done", status: hint.status === "open" ? "Confirmed" : cap(hint.status), tone: piTone(hint.status), lines: [hint.number, day(hint.date)].filter(Boolean) }
     : input.board?.piSkipped ? { key: "pi", title: "Performa invoice", state: "done", status: "Skipped", tone: "info", lines: ["Went straight from the quotation"] }
     : { key: "pi", title: "Performa invoice", state: "ahead", lines: [] });
 

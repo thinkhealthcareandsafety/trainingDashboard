@@ -16,7 +16,8 @@ import { declineKeyFor, markBoard, markConfirmed, markPerformaEmailed, markRejec
 import { scheduleOnBoard } from "@/lib/boardScheduleServer";
 import { forgetBoardDates } from "@/lib/boardDates";
 import { setQuoteStatus } from "@/lib/quotations";
-import { piEmail, readPiEmailFields, textToHtml } from "@/lib/performaRules";
+import { editOf, piEmail, readPiEmailFields, readTrainers, textToHtml, zohoTrainer } from "@/lib/performaRules";
+import { after } from "next/server";
 import { fmtProposalDate, indiaToday } from "@/lib/portalRules";
 import { piTemplate, templateOverrides } from "@/lib/templateStore";
 import { signature } from "@/lib/quoteEmails";
@@ -34,8 +35,9 @@ export const dynamic = "force-dynamic";
  *  POST { action: "accept", id }      — Convert to PI: the quote becomes a Draft Performa in Zoho; the date is fixed
  *  GET ?pi=<id>                       — that draft, as Zoho has it now, plus the email ready to send
  *  POST { action: "pisave", id, edit } — our edit saved straight to the Zoho draft
- *  POST { action: "piconfirm", id, edit?, send?, to, cc, subject, text } — Mark confirmed (owner, 13 Nov): Confirmed in
- *    Zoho, the portal stamps Confirmed, the training goes on the Training board; with send, then emailed (live site only)
+ *  POST { action: "piconfirm", id, trainers, edit?, send?, to, cc, subject, text } — Mark confirmed (owner, 13 Nov): the
+ *    trainers are required (Zoho's Trainer Name = the first; all of them on the board, so reminders go to them); Confirmed
+ *    in Zoho, the portal stamps Confirmed, the training goes on the Training board; with send, then emailed (live site only)
  *  POST { action: "piemail", id, to, cc, subject, text } — the Performa emailed (again) from Zoho with its PDF (live site only)
  *  POST { action: "reopen", id }     — a rejected quotation open again (Zoho back to Sent)
  *  POST { action: "decline", id }    — retry marking a rejected quotation Declined in Zoho
@@ -94,7 +96,7 @@ async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!canQuote(me)) return Response.json({ error: "Only those who send quotations use Training Management" }, { status: 403 });
-  const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; name?: unknown; email?: unknown; phone?: unknown; edit?: unknown; send?: unknown; to?: unknown; cc?: unknown; subject?: unknown; text?: unknown } | null;
+  const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; name?: unknown; email?: unknown; phone?: unknown; edit?: unknown; send?: unknown; trainers?: unknown; to?: unknown; cc?: unknown; subject?: unknown; text?: unknown } | null;
   const id = String(b?.id ?? "").slice(0, 30);
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown training" }, { status: 400 });
   try {
@@ -167,9 +169,14 @@ async function handlePOST(request: Request) {
       const m = send ? readPiEmailFields(b) : null;
       if (send && process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site sends email. Use Mark confirmed." }, { status: 409 });
       if (m && "error" in m) return Response.json({ error: m.error }, { status: 400 });
+      const trainers = readTrainers(b.trainers);
+      if ("error" in trainers) return Response.json({ error: trainers.error }, { status: 400 });
       const items = await trainingSet();
-      if (b.edit) {
-        const r = await savePerforma(t.confirmed.salesorderId, b.edit, items);
+      // Zoho changes only a draft: the edits and the Trainer Name go in first, then it's marked Confirmed.
+      const now = await readPerforma(t.confirmed.salesorderId, items);
+      if (now.status === "draft") {
+        const base = b.edit && typeof b.edit === "object" ? (b.edit as { fields?: Record<string, unknown> }) : editOf(now);
+        const r = await savePerforma(t.confirmed.salesorderId, { ...base, fields: { ...(base.fields ?? {}), trainer: zohoTrainer(trainers) } }, items);
         if ("error" in r) return Response.json({ error: r.error }, { status: 400 });
       }
       const draft = await confirmPerformaInZoho(t.confirmed.salesorderId, items);
@@ -179,8 +186,10 @@ async function handlePOST(request: Request) {
       if (board?.state !== "scheduled" && board?.state !== "skipped" && t.proposal) {
         board = await scheduleOnBoard({
           estimateId: id, salesorderId: t.confirmed.salesorderId, quoteNumber: q.number, piNumber: t.confirmed.number,
-          customerId: q.customerId, proposal: t.proposal, coordinator: t.coordinator, by: me.name,
+          customerId: q.customerId, proposal: t.proposal, coordinator: t.coordinator, by: me.name, trainers,
         });
+        // A date with trainers can start reminder emails (to the trainers only): checked now, not at the next hourly run.
+        if (board.state === "scheduled") after(() => import("@/lib/trainingReminders").then((r) => r.runTrainingReminders()).then(() => undefined, (e) => console.error(`[reminders] failed: ${e instanceof Error ? e.message : e}`)));
         await markBoard(id, board);
         forgetBoardDates(); // the portal's dates follow the board from now on
         console.log(`[training-management] ${q.number} on the Training board: ${board.state} — ${board.note}`);

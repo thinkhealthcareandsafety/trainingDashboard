@@ -1,7 +1,7 @@
 // Accept date → Performa (owner, 12 Nov): the rules, the confirmed state, and the routes — Zoho is never reached in tests.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { acceptDefaults, fieldsFromZoho, piEmail, piStatusLabel, readPiEdit, readPiEmailFields, trainingNote, zohoCustomFields } from "@/lib/performaRules";
+import { acceptDefaults, editOf, fieldsFromZoho, piEmail, piStatusLabel, readPiEdit, readPiEmailFields, readTrainers, trainingNote, zohoCustomFields, zohoTrainer } from "@/lib/performaRules";
 import { markConfirmed, markZohoConfirmed, propose, staffPortal, trainingsFor } from "@/lib/portalTrainings";
 import { POST as tmPost, GET as tmGet } from "@/app/api/training-management/route";
 import { db } from "@/lib/db";
@@ -100,8 +100,10 @@ test("Mark confirmed: needs a Performa; '& send email' only from the live site; 
   assert.equal((await post({ action: "piconfirm", id: "1" })).status, 404);
   await markConfirmed("1", { at: "2026-11-12T10:00:00Z", by: "Ashish", salesorderId: "999", number: "Performa-25-1" });
   assert.equal((await post({ action: "piconfirm", id: "1", send: true, to: RIYA, subject: "s", text: "t" })).status, 409);
+  // No trainers: refused before anything reaches Zoho (owner, 13 Nov).
+  assert.match(await (await post({ action: "piconfirm", id: "1" })).text(), /Pick the trainers first/);
   // Tests never reach Zoho: the status change fails, so the portal isn't stamped and no board entry is written.
-  assert.equal((await post({ action: "piconfirm", id: "1" })).status, 502);
+  assert.equal((await post({ action: "piconfirm", id: "1", trainers: ["Sumit A Shah"] })).status, 502);
   assert.equal((await staffPortal(["1"])).get("1")?.status, "Performa draft");
   assert.equal(await (await db()).collection("cardEvents").countDocuments({}), 0);
 });
@@ -114,4 +116,19 @@ test("the email fields are checked before anything is sent", () => {
   assert.equal(piStatusLabel("open"), "Confirmed");
   assert.equal(piStatusLabel("draft"), "Draft");
   assert.equal(piStatusLabel("partially_invoiced"), "Partially invoiced");
+});
+
+test("trainers before Mark confirmed: at least one, no repeats; Zoho's Trainer Name is the first as Zoho spells them, else Other", () => {
+  assert.deepEqual(readTrainers([" Sumit A Shah ", "sumit a shah", "Ravi (external)"]), ["Sumit A Shah", "Ravi (external)"]);
+  assert.match((readTrainers([]) as { error: string }).error, /Pick the trainers/);
+  assert.match((readTrainers("x") as { error: string }).error, /Pick the trainers/);
+  assert.equal(zohoTrainer(["Sumit A Shah", "Shikha Dixit"]), "Sumit Shah ");
+  assert.equal(zohoTrainer(["Shikha Dixit"]), "Shikha Dixit");
+  assert.equal(zohoTrainer(["Ravi Kumar"]), "Other ");
+  const d = { salesorderId: "1", number: "P", status: "draft", reference: "", date: "2026-11-13", shipmentDate: "", paymentTerms: "", salesperson: "", customer: "", notes: "n", total: 0,
+    fields: { poDate: "2026-11-13", trainer: " None", poNumber: "Verbal", trainingDate: "", leadSource: "Direct ", businessType: "Services", productType: "Training " },
+    lines: [{ lineItemId: "9", itemId: "cpr", name: "CPR", description: "d", qty: 15, rate: 0, training: true }] };
+  const e = editOf(d, { trainer: zohoTrainer(["Ashish Dalal"]) });
+  assert.equal(e.fields.trainer, "Ashish Dalal");
+  assert.ok(!("error" in readPiEdit(e))); // a full, valid save of the draft as Zoho has it
 });

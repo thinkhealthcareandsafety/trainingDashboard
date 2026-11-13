@@ -39,3 +39,13 @@ test("a declined quote stops at the quotation", () => {
   const p = storyPhases({ quote: { ...quote, status: "declined" }, training: true, docs, today: "2026-11-11" });
   assert.deepEqual(p.map((x) => [x.key, x.state]), [["quote", "stopped"]]);
 });
+
+test("a Performa our Trainings page made shows before any Zoho copy has it; Confirmed is green, a draft isn't (owner, 13 Nov)", () => {
+  const sent = { ...quote, status: "accepted", history: [] };
+  const empty = { pis: [], invoices: [], payments: [] };
+  const box = (status: string) => storyPhases({ quote: sent, training: true, docs: empty, today: "2026-11-13", piHint: { number: "Performa-25-1204", status, date: "2026-11-13" } }).find((x) => x.key === "pi")!;
+  assert.deepEqual([box("open").state, box("open").status, box("open").tone, box("open").lines[0]], ["done", "Confirmed", "good", "Performa-25-1204"]);
+  assert.deepEqual([box("draft").status, box("draft").tone], ["Draft", "info"]);
+  const found = storyPhases({ quote: sent, training: true, docs: { ...empty, pis: [{ ...pi, status: "open", reference: "Quotation-24-002776" }] }, today: "2026-11-13" }).find((x) => x.key === "pi")!;
+  assert.deepEqual([found.status, found.tone], ["Confirmed", "good"]);
+});

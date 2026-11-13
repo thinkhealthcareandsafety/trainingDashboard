@@ -25,7 +25,7 @@ export async function scheduleOnBoard(x: Omit<BoardScheduleInput, "quoteCard" | 
     const plan = boardScheduleEvents({ ...x, quoteCard, at });
     if ("skip" in plan) return { state: "skipped", note: plan.skip, at };
     for (const e of plan.events) await recordServerEvent(e);
-    return { state: "scheduled", note: "On the Training board; trainers to add there.", at, value: plan.value };
+    return { state: "scheduled", note: x.trainers?.length ? "On the Training board, with its trainers." : "On the Training board; trainers to add there.", at, value: plan.value };
   } catch (e) {
     return { state: "failed", note: `Couldn't put it on the Training board: ${e instanceof Error ? e.message : e}. Schedule it there by hand.`, at };
   }

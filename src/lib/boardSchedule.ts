@@ -1,14 +1,14 @@
 import type { CardEvent } from "./types";
 import type { Proposal } from "./portalRules";
-import { piCardId, quoteCardId } from "./pipeline";
+import { orderTrainers, piCardId, quoteCardId } from "./pipeline";
 
 /*
  * Mark confirmed → the Training board (owner, 13 Nov): when we mark the Performa Confirmed, the training goes on the
  * board by itself, the way Shikha would do it by hand:
  *  - the quotation merged into the new Performa (its card shows after the next sync; a merge waits until both cards exist);
  *  - the coordinator's day(s) and times as the training date, "Course conducted at" as the certificate location, the
- *    coordinator's email and mobile as the concerned person's, their headcount as No. of People, no trainers (reminder
- *    emails go only to trainers, so none go out until Shikha adds them);
+ *    coordinator's email and mobile as the concerned person's, their headcount as No. of People, and the trainers picked
+ *    at Mark confirmed (owner, 13 Nov: required — reminder emails then go to them, never to the client);
  *  - a tentative date with a note saying so;
  *  - the concerned person's name = the coordinator's, only when the customer has none yet (it's customer-wide).
  * Left alone when the quotation's card already has a date (scheduled by hand). Pure: the server writes what this returns.
@@ -25,6 +25,8 @@ export type BoardScheduleInput = {
   customerId: string;
   proposal: Pick<Proposal, "dates" | "tentative" | "location" | "headcount">;
   coordinator?: { name: string; email: string; phone: string };
+  /** Picked at Mark confirmed; our trainers first, then external names as typed. */
+  trainers?: string[];
   quoteCard: QuoteCardNow;
   by: string;
   at: string;
@@ -59,7 +61,7 @@ export function boardScheduleEvents(i: BoardScheduleInput): BoardPlan {
     events: [
       ...(merge ? [{ ...base, cardIds: [quote, pi], kind: "merge" as const, before: i.quoteNumber, value: i.piNumber }] : []),
       {
-        ...base, cardIds: [pi], kind: "set_training_date" as const, value, trainers: [],
+        ...base, cardIds: [pi], kind: "set_training_date" as const, value, trainers: orderTrainers(i.trainers ?? []),
         location: tidy(i.proposal.location), email, ...(phone ? { phone } : {}), ...(i.proposal.headcount > 0 ? { people: i.proposal.headcount } : {}),
       },
       ...(i.proposal.tentative ? [{ ...base, cardIds: [pi], kind: "add_note" as const, value: TENTATIVE_NOTE }] : []),

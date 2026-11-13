@@ -15,7 +15,7 @@
 | 8 | Login box in the quote email + Send login + Decline link | **Live**. A fresh password each email unless they chose their own |
 | 9 | Design finish review + DESIGN.md | **Done** (2 review rounds) |
 | 10 | Confirm → Draft Performa in Zoho, edited on the dashboard, emailed from a template | **Live** |
-| — | Schedule the training on the Training board at Mark confirmed | **Live** (`35933fd`). No trainers are set, and reminders go to trainers only, so nothing is emailed until Shikha adds them |
+| — | Schedule the training on the Training board at Mark confirmed | **Live** (`35933fd`). Since 13 Nov the trainers are picked at Mark confirmed (required) and go on the board with the date; reminders go to them only, never the client |
 
 **First real test: passed** (owner, 13 Nov; the test Performa-25-1204 is still to be deleted in Zoho). The steps were (on the test customer "dashboard testing", with their own email as coordinator):
 1. Decline, then Reopen.
@@ -88,7 +88,7 @@
    - The Cloudflare CNAME, then `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel and a redeploy.
    - The first real test above.
    - Programme photos and videos (optional).
-2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board (no trainers, so no reminders until they're added).
+2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board. Later on 13 Nov: trainers are required at Mark confirmed (on the board, Zoho Trainer Name = the first); Training completed needs trainers; a confirmed Performa shows green in the story.
 3. **To decide, then build:** item-level PI templates beyond training ("training only for now", owner).
 4. **Next: Attendance (Step A), then the Quiz (Step B).** See the plan below. Not built.
 5. **Out of scope for now:** certificates from the attendance list, WhatsApp to participants.

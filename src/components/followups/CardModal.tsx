@@ -488,6 +488,8 @@ export function completeBlockers(card: CardView): string[] {
     ...(card.certLocation === undefined && !card.certLocked ? ["choose the certificate location"] : []),
     ...(!EMAIL_RE.test(card.concernedEmail?.trim() ?? "") ? ["set the concerned person's email"] : []),
     ...(!phoneOk(card.concernedPhone ?? "") ? ["set the concerned person's contact number"] : []),
+    // Who gave it (owner, 13 Nov: "why can I mark training completed when I haven't even selected the trainers").
+    ...(card.schedule?.date && !card.schedule.trainers.length ? ["add the trainers (Change date)"] : []),
   ];
 }
 
