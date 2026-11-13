@@ -3,7 +3,7 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { bump, localVersion, versions, withBump } from "@/lib/changes";
-import { putZohoDoc } from "@/lib/zohoSync";
+import { goneFromList, putZohoDoc } from "@/lib/zohoSync";
 import { putSalesDoc } from "@/lib/salesSync";
 import { POST as storePost } from "@/app/api/store/route";
 import { GET as changesGet } from "@/app/api/changes/route";
@@ -55,4 +55,14 @@ test("write-through: a training document goes into the Training copy as the sync
   await putSalesDoc("salesorders", so);
   const row = await d.collection<{ _id: string; row: { salesorder_number?: string; status?: string } }>("salesDocs").findOne({ _id: "salesorders:555" });
   assert.deepEqual([row?.row.salesorder_number, row?.row.status], ["Performa-25-9", "open"]);
+});
+
+test("deletions on the live sync: only what Zoho no longer lists, and only inside the span its one page covers", () => {
+  const stored = [{ id: "1", date: "2026-11-13" }, { id: "2", date: "2026-11-12" }, { id: "3", date: "2026-11-10" }, { id: "4", date: "2026-10-01" }];
+  const so = (id: string, date: string, status = "open") => ({ salesorder_id: id, date, status });
+  // All of the window fit on the page: anything stored but not listed is gone (void counts as gone).
+  assert.deepEqual(goneFromList(stored, [so("1", "2026-11-13"), so("3", "2026-11-10", "void"), so("4", "2026-10-01")], false, "2025-04-01", "salesorders"), ["2", "3"]);
+  // More pages: only dates newer than the oldest listed row are judged (4 might be on page 2; so might another on 11-10).
+  assert.deepEqual(goneFromList(stored, [so("1", "2026-11-13"), so("9", "2026-11-10")], true, "2025-04-01", "salesorders"), ["2"]);
+  assert.deepEqual(goneFromList(stored, [], false, "2025-04-01", "salesorders"), ["1", "2", "3", "4"]);
 });

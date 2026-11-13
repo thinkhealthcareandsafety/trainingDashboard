@@ -4,6 +4,7 @@ import { booksApi } from "./quotations";
 import { putZohoDoc } from "./zohoSync";
 import { putSalesDoc } from "./salesSync";
 import { bump } from "./changes";
+import { db } from "./db";
 import type { Kind, ZDoc } from "./zoho";
 
 /*
@@ -30,6 +31,17 @@ export async function writeThrough(docs: { kind: Kind; id: string; doc?: ZDoc }[
   }
   if (wrote) await bump("local", "work");
 }
+
+/** A document deleted in Zoho: out of our copies now (the sync's full check would take up to 6 hours to notice). */
+export async function forgetZohoDoc(kind: Kind, id: string): Promise<void> {
+  const d = await db();
+  await d.collection<{ _id: string }>("zohoDocs").deleteOne({ _id: `${kind}:${id}` });
+  await d.collection<{ _id: string }>("salesDocs").deleteOne({ _id: `${kind}:${id}` });
+  await bump("local", "work");
+}
+
+/** Zoho said the document isn't there any more (deleted): "Zoho Books: Sales Order does not exist." */
+export const goneInZoho = (e: unknown) => /does not exist|has been deleted/i.test(e instanceof Error ? e.message : String(e));
 
 /** The same, after the response has gone (the person waits for nothing). Outside a request (scripts, tests) it just runs. */
 export function writeThroughLater(docs: { kind: Kind; id: string; doc?: ZDoc }[]): void {

@@ -35,8 +35,9 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
 
   const load = async () => {
     const r = await fetch(`/api/training-management?pi=${id}`).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as Loaded) : ({ error: "Couldn't reach the server" } as Loaded);
+    const j = r ? ((await r.json().catch(() => ({}))) as Loaded & { gone?: boolean }) : ({ error: "Couldn't reach the server" } as Loaded & { gone?: boolean });
     setData(j);
+    if (j.gone) onChanged?.(); // deleted in Zoho: the row goes back to Accepted
     if (j.draft) {
       setDraft(j.draft); setEmail(j.email);
       const first = (x: string) => x.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
@@ -67,7 +68,8 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     setBusy("save"); setMsg("");
     const edit = { fields: draft.fields, notes: draft.notes, shipmentDate: draft.shipmentDate, date: draft.date, lines: draft.lines.map((l) => ({ lineItemId: l.lineItemId, description: l.description, qty: l.qty, rate: l.rate })) };
     const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "pisave", id, edit }) }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { draft?: PiDraft; error?: string }) : { error: "Couldn't reach the server" };
+    const j = r ? ((await r.json().catch(() => ({}))) as { draft?: PiDraft; error?: string; gone?: boolean }) : { error: "Couldn't reach the server" };
+    if (j.gone) onChanged?.();
     setBusy("");
     if (!j.draft) return setMsg(j.error ?? "Couldn't save to Zoho");
     setData({ ...data, draft: j.draft }); setDraft(j.draft);
@@ -84,7 +86,8 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     const edit = dirty ? { fields: draft.fields, notes: draft.notes, shipmentDate: draft.shipmentDate, date: draft.date, lines: draft.lines.map((l) => ({ lineItemId: l.lineItemId, description: l.description, qty: l.qty, rate: l.rate })) } : undefined;
     const body = { action: "piconfirm", id, edit, trainers: picked, ...(withEmail ? { send: true, to: email.to.join(","), cc: email.cc.join(","), subject: email.subject, text: email.text } : {}) };
     const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; emailError?: string; emailed?: boolean; board?: { state: string; note: string } | null }) : { error: "Couldn't reach the server" };
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; emailError?: string; emailed?: boolean; board?: { state: string; note: string } | null; gone?: boolean }) : { error: "Couldn't reach the server" };
+    if (j.gone) onChanged?.();
     setBusy("");
     if (!j.ok) return setMsg(j.error ?? "Couldn't mark it confirmed");
     setMsg([j.emailError || (j.emailed ? "Confirmed in Zoho and emailed, with its PDF." : "Confirmed in Zoho."), j.board?.note].filter(Boolean).join(" "));
@@ -95,8 +98,9 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     if (dirty && !window.confirm("Your changes above aren't saved to Zoho yet. Email the Performa as Zoho has it now?")) return;
     setBusy("email"); setMsg("");
     const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "piemail", id, to: email.to.join(","), cc: email.cc.join(","), subject: email.subject, text: email.text }) }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; gone?: boolean }) : { error: "Couldn't reach the server" };
     setBusy("");
+    if (j.gone) onChanged?.();
     if (!j.ok) return setMsg(j.error ?? "Couldn't send it");
     setMsg("Performa emailed, with its PDF.");
     load();

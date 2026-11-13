@@ -518,6 +518,20 @@ export async function markConfirmed(id: string, c: Confirmed): Promise<void> {
   await (await trainingsCol()).updateOne({ _id: id }, { $set: { confirmed: c, updatedAt: c.at } });
 }
 
+/**
+ * The Performa was deleted in Zoho (owner, 13 Nov: "since I deleted the PI, everything from here should revert"): the
+ * training goes back to Accepted — the coordinator can change the date again, Trainings shows Convert to PI, the portal's
+ * Confirmed stamp and attendance go. What it was is kept in `confirmedHistory`.
+ */
+export async function unconfirm(id: string, why: string): Promise<Confirmed | null> {
+  const t = await trainingDoc(id);
+  if (!t?.confirmed) return null;
+  const at = new Date().toISOString();
+  const history = [...(((t as { confirmedHistory?: unknown[] }).confirmedHistory as unknown[]) ?? []), { ...t.confirmed, removedAt: at, why }].slice(-10);
+  await (await trainingsCol()).updateOne({ _id: t._id }, { $unset: { confirmed: "" }, $set: { confirmedHistory: history, updatedAt: at } });
+  return t.confirmed;
+}
+
 /** Mark confirmed (owner, 13 Nov): Confirmed in Zoho — the portal stamps Confirmed. Kept from the first time. */
 export async function markZohoConfirmed(id: string, by: string): Promise<string> {
   const t = await trainingDoc(id);

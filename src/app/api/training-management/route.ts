@@ -15,6 +15,8 @@ import { confirmPerformaInZoho, convertToPerforma, emailPerforma, readPerforma, 
 import { declineKeyFor, markBoard, markConfirmed, markPerformaEmailed, markRejectedInZoho, markZohoConfirmed, reopen } from "@/lib/portalTrainings";
 import { scheduleOnBoard } from "@/lib/boardScheduleServer";
 import { forgetBoardDates } from "@/lib/boardDates";
+import { forgetZohoDoc, goneInZoho, writeThroughLater } from "@/lib/writeThrough";
+import { unconfirm } from "@/lib/portalTrainings";
 import { setQuoteStatus } from "@/lib/quotations";
 import { editOf, piEmail, readPiEmailFields, readTrainers, textToHtml, zohoTrainer } from "@/lib/performaRules";
 import { after } from "next/server";
@@ -46,6 +48,21 @@ const trainingSet = async () => itemSets(((await (await db()).collection<{ _id: 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const FROM = "learn@thinkhealth.in";
 
+/**
+ * The Performa was deleted in Zoho (owner, 13 Nov: "since I deleted the PI, everything from here should revert"): the
+ * training is back to Accepted (Convert to PI again; the coordinator can change the date; no Confirmed stamp or attendance),
+ * the Performa leaves our Zoho copies now (the board's card goes, so the quote stands on its own again), and the quote is
+ * read again for its status. Noticed when Zoho answers "does not exist" — opening the row, or any Performa button.
+ */
+async function performaGone(id: string, salesorderId: string): Promise<Response> {
+  const was = await unconfirm(id, "deleted in Zoho");
+  await forgetZohoDoc("salesorders", salesorderId);
+  writeThroughLater([{ kind: "estimates", id }]);
+  forgetBoardDates();
+  console.log(`[training-management] ${was?.number ?? salesorderId} was deleted in Zoho: the training is back to Accepted`);
+  return Response.json({ gone: true, error: `${was?.number ?? "This Performa"} was deleted in Zoho, so the training is back to Accepted. Convert to PI again when it's ready.` }, { status: 410 });
+}
+
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
@@ -59,7 +76,8 @@ export async function GET(request: Request) {
       const t = await trainingDoc(pi);
       const q = await quoteOf(pi);
       if (!t?.confirmed || !q) return Response.json({ error: "This training has no Performa yet" }, { status: 404 });
-      const draft = await readPerforma(t.confirmed.salesorderId, await trainingSet());
+      const draft = await readPerforma(t.confirmed.salesorderId, await trainingSet()).catch((e) => { if (goneInZoho(e)) return null; throw e; });
+      if (!draft) return performaGone(pi, t.confirmed.salesorderId);
       const p = t.proposal;
       const m = piEmail(await piTemplate("training"), {
         name: t.coordinator?.name ?? "", number: draft.number, quote: q.number, training: q.lines.map((l) => l.name).join(" + "),
@@ -222,6 +240,11 @@ async function handlePOST(request: Request) {
     }
     return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
+    // A Performa button on one that was deleted in Zoho: revert instead of an error.
+    if (goneInZoho(e) && ["pisave", "piemail", "piconfirm"].includes(String(b?.action))) {
+      const t = await trainingDoc(id).catch(() => null);
+      if (t?.confirmed) return performaGone(id, t.confirmed.salesorderId);
+    }
     console.error("[training-management]", e);
     return Response.json({ error: e instanceof Error ? e.message : "Something went wrong" }, { status: 502 });
   }

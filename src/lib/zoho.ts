@@ -353,6 +353,15 @@ export async function listChangedSince(kind: Kind, since: string, cursor?: strin
   return out;
 }
 
+/**
+ * A kind's newest documents by date (one call, up to 200) — the live sync's deletion check (owner, 13 Nov). `more`: Zoho
+ * has older ones in the window too, so only the span these rows cover can be judged.
+ */
+export async function listNewest(kind: Kind, since: string): Promise<{ rows: ZRecord[]; more: boolean }> {
+  const json = await zget<Record<string, unknown>>(`/${kind}`, { sort_column: "date", sort_order: "D", date_start: since, page: 1, per_page: 200 });
+  return { rows: (json[kind] as ZRecord[]) ?? [], more: Boolean((json.page_context as { has_more_page?: boolean } | undefined)?.has_more_page) };
+}
+
 /** The latest last-modified time of a kind's documents (one call) — where incremental syncing starts. */
 export async function newestChange(kind: Kind, since: string): Promise<string | undefined> {
   const json = await zget<Record<string, unknown>>(`/${kind}`, { sort_column: "last_modified_time", sort_order: "D", date_start: since, per_page: 1 });

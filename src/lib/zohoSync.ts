@@ -4,12 +4,12 @@ import type { AedInvoice, PipelineDoc, Training, ZohoInvoice, ZohoLead, ZohoPaym
 import { fiscalYearStart, syncWindowStart, ymd } from "./dates";
 import { db, mongoConfigured } from "./db";
 import { readAll } from "./cachedRead";
-import { localVersion } from "./changes";
+import { bump, localVersion } from "./changes";
 import { checkGratitudeReplies } from "./gratitudeReplies";
 import { checkAedReplies } from "./aedReplies";
 import {
   type ItemSets, type Kind, type ZDoc, type ZItem, KINDS, OPEN_ORDER, OPEN_QUOTE, docIdOf, fetchAllLeads, fetchDetail, fetchInvoicePaymentRows,
-  fetchItems, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
+  fetchItems, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, listNewest, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
   toInvoice, toPI, toPayments, toPipeline, toQuote, toTrainings, zohoConfigured,
 } from "./zoho";
 
@@ -126,6 +126,7 @@ type SyncState = {
   quietLogHour?: string; // live sync: the hour whose quiet sync is already in the log
   mailAt?: number; // the reply checks and training reminders, hourly even with the live sync
   attemptAt?: number; // last sync attempt (successful or not)
+  sweepTurn?: number; // live sync: whose deletions the next quick sync checks (estimates / salesorders / invoices in turn)
 };
 
 const col = async <T extends { _id: string }>(name: string) => (await db()).collection<T>(name);
@@ -323,6 +324,52 @@ async function incremental(state: SyncState, sets: ItemSets, out: DocChange[]): 
 }
 
 /**
+ * Which stored documents Zoho no longer lists (deleted), judged only inside the span the listing covers: everything since
+ * the window start when Zoho had no more pages, else only dates newer than the oldest row listed (a document on the
+ * cut-off date may sit on the next page). Pure.
+ */
+export function goneFromList(stored: { id: string; date: string }[], rows: ZDoc[], more: boolean, since: string, kind: Kind): string[] {
+  const listed = new Set(rows.filter((r) => String(r.status) !== "void").map((r) => docIdOf(kind, r)));
+  const floor = more ? rows.map((r) => String(r.date ?? "")).filter(Boolean).reduce((a, b) => (b < a ? b : a), "9999-12-31") : since;
+  return stored.filter((d) => (more ? d.date > floor : d.date >= floor) && !listed.has(d.id)).map((d) => d.id);
+}
+
+/**
+ * Deletions between full checks (owner, 13 Nov: "deletion should be the same as any update"): Zoho's change list never
+ * shows a deleted document, so each quick sync lists one kind's newest documents (one call) and removes what our copies
+ * (the Training board's and the Sales board's) hold in that span but Zoho no longer lists. The kinds take turns, so each
+ * is checked every third sync; older deletions are left to the 9 am / 2 pm full checks. Never fails the sync.
+ */
+async function sweepDeleted(state: SyncState, out: DocChange[]): Promise<number> {
+  const kind = KINDS[(state.sweepTurn ?? 0) % KINDS.length];
+  state.sweepTurn = ((state.sweepTurn ?? 0) + 1) % KINDS.length;
+  const since = trainingSince();
+  const { rows, more } = await listNewest(kind, since);
+  // Safety: an empty answer is never taken as "everything was deleted", and a sweep that would remove more than a few
+  // leaves it to the full check (a glitch in Zoho's list must not empty the boards).
+  if (!rows.length) return 0;
+  const MAX = 5;
+  const docs = await col<StoredDoc>("zohoDocs");
+  const stored = (await docs.find({ kind }, { projection: { id: 1, kind: 1, date: 1, [`doc.${NUMBER_KEY[kind]}`]: 1, "doc.customer_name": 1 } }).toArray()).filter((d) => d.kind === kind);
+  const gone = new Set(goneFromList(stored, rows, more, since, kind));
+  if (gone.size > MAX) { console.warn(`[zoho sync] ${gone.size} ${kind} look deleted: left to the full check`); return 0; }
+  const removed = stored.filter((d) => gone.has(d.id));
+  if (removed.length) {
+    await docs.deleteMany({ _id: { $in: removed.map((d) => d._id) } });
+    for (const d of removed) out.push({ kind, number: String(d.doc?.[NUMBER_KEY[kind]] ?? d.id), customer: String(d.doc?.customer_name ?? ""), action: "removed" });
+  }
+  // The Sales board's copy keeps every document; the same check, the same span.
+  const sales = await col<{ _id: string; kind: Kind; id: string; date: string }>("salesDocs");
+  const salesStored = (await sales.find({ kind }, { projection: { id: 1, kind: 1, date: 1 } }).toArray()).filter((d) => d.kind === kind);
+  const salesGone = new Set(goneFromList(salesStored, rows, more, since, kind));
+  if (salesGone.size && salesGone.size <= MAX) {
+    await sales.deleteMany({ _id: { $in: salesStored.filter((d) => salesGone.has(d.id)).map((d) => d._id) } });
+    await bump("local"); // the Sales copy's cache keys on it
+  }
+  return removed.length;
+}
+
+/**
  * Payments, for every training invoice that has received money and changed since its payments were read. Not just
  * "paid" / "partially_paid": a part-paid invoice past its due date is "overdue" in Zoho (e.g. 2026-01-428, payment #1923).
  */
@@ -411,6 +458,14 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     }
     // Documents and payments.
     changed += fullDue ? await reconcile(state, sets, log.docs!) : await incremental(state, sets, log.docs!);
+    // Deletions as fast as changes (owner, 13 Nov): one kind's newest documents each quick sync (the full check covers all).
+    if (!fullDue) {
+      try {
+        changed += await sweepDeleted(state, log.docs!);
+      } catch (e) {
+        console.error(`[zoho sync] deletion check failed: ${e instanceof Error ? e.message : e}`);
+      }
+    }
     changed += await syncPayments(sets, log.payments!);
     // The Sales board's own copy (owner, 30 Oct) — on its own, so a problem there never fails the Training board's sync.
     try {

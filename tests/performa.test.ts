@@ -132,3 +132,22 @@ test("trainers before Mark confirmed: at least one, no repeats; Zoho's Trainer N
   assert.equal(e.fields.trainer, "Ashish Dalal");
   assert.ok(!("error" in readPiEdit(e))); // a full, valid save of the draft as Zoho has it
 });
+
+test("a Performa deleted in Zoho: the training goes back to Accepted (portal unlocked, no Confirmed stamp), kept in history", async () => {
+  const { unconfirm } = await import("@/lib/portalTrainings");
+  const { goneInZoho } = await import("@/lib/writeThrough");
+  assert.equal(goneInZoho(new Error("Zoho Books: Sales Order does not exist.")), true);
+  assert.equal(goneInZoho(new Error("Zoho Books: Invalid value passed for Trainer Name")), false);
+  await seed();
+  await propose(RIYA, "1", proposal);
+  await markConfirmed("1", { at: "2026-11-12T10:00:00Z", by: "Ashish", salesorderId: "999", number: "Performa-25-1" });
+  await markZohoConfirmed("1", "Ashish");
+  assert.equal((await unconfirm("1", "deleted in Zoho"))?.number, "Performa-25-1");
+  const [t] = await trainingsFor(RIYA);
+  assert.deepEqual([t.stamp, t.locked, t.confirmedAt], ["Accepted", false, null]);
+  assert.equal((await staffPortal(["1"])).get("1")?.status, "Accepted");
+  assert.ok("proposal" in (await propose(RIYA, "1", { ...proposal, headcount: 30 }))); // the date can change again
+  const doc = await (await db()).collection<{ _id: string; confirmedHistory?: { number: string; why: string }[] }>("portalTrainings").findOne({ _id: "1" });
+  assert.deepEqual(doc?.confirmedHistory?.map((h) => [h.number, h.why]), [["Performa-25-1", "deleted in Zoho"]]);
+  assert.equal(await unconfirm("1", "again"), null);
+});
