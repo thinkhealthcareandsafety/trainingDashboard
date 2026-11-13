@@ -1121,8 +1121,10 @@ export function TrainingSection({ card, compact, onSchedule, onComplete, busyOn,
                         ? <span className="ml-2 text-[13px] font-medium text-muted">{card.training.length === 1 ? `(PI: ${t.qty})` : `· ${checked} in total, checked`}</span>
                         : expected !== undefined && expected !== t.qty && <span className="ml-2 text-[13px] font-medium text-muted">({expected} expected at quotation)</span>}
                     </div>
+                    {/* No "Change" while Change date is there: its popup edits the same details (owner, 13 Nov). It stays
+                        where Change date doesn't show (completed, before certificates), so they can still be fixed. */}
                     {i === 0 && showCert && (
-                      <CertLines card={card} needEmail={needEmail} onChange={onCert ? () => setCertEditing(true) : undefined} />
+                      <CertLines card={card} needEmail={needEmail} onChange={onCert && !(onSchedule && card.canSchedule && card.schedule && card.schedule.status !== "tbd" && !card.schedule.completed) ? () => setCertEditing(true) : undefined} />
                     )}
                   </div>
                   {showSchedule && i === 0 && <ScheduleBlock card={card} onSchedule={onSchedule} onComplete={onComplete} busyOn={busyOn} compact={compact} />}
