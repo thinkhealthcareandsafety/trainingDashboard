@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
+import { bump } from "./changes";
 import { readAll } from "./cachedRead";
 import { signedInMember, unauthorized } from "./auth";
 import { boardsFor } from "./roles";
@@ -20,6 +21,7 @@ export const eventsCol = async () => (await db()).collection<CardEvent & { _id: 
 export async function recordServerEvent(e: Omit<CardEvent, "id">): Promise<CardEvent> {
   const event = { ...e, id: newEventId() } as CardEvent;
   await (await eventsCol()).insertOne({ ...event, _id: event.id });
+  await bump("team"); // live refresh: open tabs show it within seconds
   return event;
 }
 

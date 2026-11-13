@@ -4,6 +4,7 @@ import type { AedInvoice, PipelineDoc, Training, ZohoInvoice, ZohoLead, ZohoPaym
 import { fiscalYearStart, syncWindowStart, ymd } from "./dates";
 import { db, mongoConfigured } from "./db";
 import { readAll } from "./cachedRead";
+import { localVersion } from "./changes";
 import { checkGratitudeReplies } from "./gratitudeReplies";
 import { checkAedReplies } from "./aedReplies";
 import {
@@ -265,6 +266,22 @@ async function storeDocs(kind: Kind, rows: ZDoc[], sets: ItemSets, out: DocChang
   return changed;
 }
 
+/**
+ * Live refresh (owner, 13 Nov): a document the dashboard itself just changed in Zoho (a Performa made or confirmed, a
+ * quote sent or marked), stored exactly as the sync stores it, so every page shows it now rather than after the next
+ * sync. The sync then finds the same last-modified time and leaves it. The caller bumps the "local" count (changes.ts).
+ */
+export async function putZohoDoc(kind: Kind, d: ZDoc): Promise<void> {
+  const docs = await col<StoredDoc>("zohoDocs");
+  const id = docIdOf(kind, d);
+  const key = `${kind}:${id}`;
+  if (String(d.status) === "void") { await docs.deleteOne({ _id: key }); return; }
+  const sets = itemSets((((await (await kv()).findOne({ _id: "zoho_items" }))?.items) as ZItem[]) ?? []);
+  const { training, aed } = classify(kind, d, sets);
+  if (!training && !aed) return; // not a document this copy keeps
+  await docs.replaceOne({ _id: key }, { kind, id, lmt: lmtOf(d), date: String(d.date), status: String(d.status), training, aed, doc: d }, { upsert: true });
+}
+
 /** Full check (first sync, then every 6 h): every tracked document, by item; removes what Zoho no longer has. */
 async function reconcile(state: SyncState, sets: ItemSets, out: DocChange[]): Promise<number> {
   const docs = await col<StoredDoc>("zohoDocs");
@@ -475,10 +492,13 @@ const G = globalThis as unknown as { __thSnap?: Snapshot | null; __thSnapLoading
 G.__thSnap = null; // a code reload (dev) rebuilds the in-memory copy
 
 async function readSnapshot(): Promise<Snapshot | null> {
-  const state = await loadState();
+  const [state, local] = await Promise.all([loadState(), localVersion().catch(() => 0)]);
   if (!state.syncedAt && !state.version) return null;
+  // The copy changes with a sync (its version) or when the dashboard writes a document it just changed in Zoho
+  // (writeThrough.ts, the "local" count: live refresh, 13 Nov). Kept apart so a sync saving its state can't undo it.
+  const version = (state.version ?? 0) * 1_000_000 + local;
   const mem = G.__thSnap;
-  if (mem && mem.version === state.version) {
+  if (mem && mem.version === version) {
     mem.syncedAt = state.syncedAt ?? mem.syncedAt;
     mem.attemptAt = state.attemptAt;
     mem.error = state.error;
@@ -495,7 +515,7 @@ async function readSnapshot(): Promise<Snapshot | null> {
       (await kv()).findOne({ _id: "zoho_users" }),
     ]);
     const snap: Snapshot = {
-      version: state.version,
+      version,
       syncedAt: state.syncedAt ?? new Date().toISOString(),
       attemptAt: state.attemptAt,
       error: state.error,

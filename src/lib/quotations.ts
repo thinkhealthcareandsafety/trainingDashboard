@@ -2,6 +2,7 @@ import "server-only";
 import { parseZoho, zohoGet } from "./zoho";
 import { type ItemChanges, type ItemFields, gstKnown, itemBody, itemPictures, itemChanges, itemFieldsOf } from "./itemEdit";
 import { db } from "./db";
+import { writeThroughLater } from "./writeThrough";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { fromGstin, gstTreatment } from "./gstin";
 import { COORDINATOR_DESIGNATION, type Coordinator } from "./trainingManager";
@@ -332,11 +333,14 @@ export async function booksApi(method: "GET" | "POST" | "PUT", path: string, par
 /** A quote's status in Zoho (owner, 12 Nov): Accepted / Declined when the coordinator accepts or rejects it on the portal; Sent again when we reopen it. */
 export async function setQuoteStatus(estimateId: string, status: "declined" | "sent" | "accepted"): Promise<void> {
   await books(await connection(), "POST", `/estimates/${estimateId}/status/${status}`);
+  writeThroughLater([{ kind: "estimates", id: estimateId }]); // live refresh: every page shows the new status now
 }
 
 /** Creates the quotation in Zoho Books; `send` = Zoho emails it (standard email + PDF) to the contact persons on it. */
 export async function createQuote(q: QuoteInput & { send: boolean }): Promise<MadeQuote> {
-  return made(await books(await connection(), "POST", "/estimates", { send: String(q.send) }, quoteBody(q)));
+  const m = made(await books(await connection(), "POST", "/estimates", { send: String(q.send) }, quoteBody(q)));
+  writeThroughLater([{ kind: "estimates", id: m.estimateId }]);
+  return m;
 }
 
 /**
@@ -344,7 +348,9 @@ export async function createQuote(q: QuoteInput & { send: boolean }): Promise<Ma
  * PUT /estimates/{id} — same number, same draft, new lines and fields (ZohoBooks.estimates.UPDATE, in QUOTE_SCOPES).
  */
 export async function updateQuote(estimateId: string, q: QuoteInput): Promise<MadeQuote> {
-  return made(await books(await connection(), "PUT", `/estimates/${estimateId}`, {}, quoteBody(q)));
+  const m = made(await books(await connection(), "PUT", `/estimates/${estimateId}`, {}, quoteBody(q)));
+  writeThroughLater([{ kind: "estimates", id: estimateId }]);
+  return m;
 }
 
 /*
@@ -376,9 +382,12 @@ export async function emailQuote(estimateId: string, m: QuoteEmail): Promise<voi
   // Sent from the organisation's email, quotations@ since 4 Nov (owner). Without this Zoho uses the connected user's Gmail.
   const fields = { send_from_org_email_id: true, to_mail_ids: m.to, cc_mail_ids: m.cc, subject: m.subject, body: m.body };
   const params: Record<string, string> = m.fileName ? { file_name: m.fileName } : {};
-  if (!m.files.length) { await books(c, "POST", `/estimates/${estimateId}/email`, params, fields); return; }
-  const form = new FormData();
-  form.set("JSONString", JSON.stringify(fields));
-  for (const f of m.files) form.append("attachments", f, f.name);
-  await books(c, "POST", `/estimates/${estimateId}/email`, params, form);
+  if (!m.files.length) await books(c, "POST", `/estimates/${estimateId}/email`, params, fields);
+  else {
+    const form = new FormData();
+    form.set("JSONString", JSON.stringify(fields));
+    for (const f of m.files) form.append("attachments", f, f.name);
+    await books(c, "POST", `/estimates/${estimateId}/email`, params, form);
+  }
+  writeThroughLater([{ kind: "estimates", id: estimateId }]); // a draft just became Sent
 }

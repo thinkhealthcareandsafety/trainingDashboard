@@ -14,9 +14,9 @@ import { primaryBtn } from "./TrainingTools";
  * videos and Stay connected. No login: their link carries a private token, and the page always shows the latest date.
  */
 
-const field = "h-12 w-full rounded-xl border border-line bg-surface px-4 text-[16px] text-ink placeholder:text-muted/70 transition focus:border-action focus:outline-none focus:ring-4 focus:ring-action/15";
+export const field = "h-12 w-full rounded-xl border border-line bg-surface px-4 text-[16px] text-ink placeholder:text-muted/70 transition focus:border-action focus:outline-none focus:ring-4 focus:ring-action/15";
 
-function Band({ children }: { children?: React.ReactNode }) {
+export function Band({ children }: { children?: React.ReactNode }) {
   return (
     <>
       <header className="bg-surface">
@@ -37,7 +37,7 @@ function Band({ children }: { children?: React.ReactNode }) {
   );
 }
 
-const Problem = ({ text }: { text: string }) => (
+export const Problem = ({ text }: { text: string }) => (
   <main className="min-h-screen bg-ground">
     <Band><h1 className="mt-6 text-[30px] font-extrabold leading-tight tracking-[-0.02em]">We couldn&apos;t open this page.</h1></Band>
     <p className="mx-auto max-w-3xl px-5 py-8 text-[16px] leading-relaxed text-ink-2">{text}</p>
@@ -46,7 +46,7 @@ const Problem = ({ text }: { text: string }) => (
 
 /* ---------------- The join page ---------------- */
 
-type Invite = { training: string; customer: string; coordinator: string };
+type Invite = { training: string; customer: string; coordinator: string; closed?: boolean };
 
 export function JoinPage({ number, k }: { number: string; k: string }) {
   const [invite, setInvite] = useState<Invite | null | undefined>(undefined);
@@ -79,6 +79,8 @@ export function JoinPage({ number, k }: { number: string; k: string }) {
 
   if (invite === undefined) return <div className="min-h-screen bg-ground" aria-busy />;
   if (!invite) return <Problem text={error} />;
+  // Registration closes once the training is over (owner, 13 Nov).
+  if (invite.closed && !thanks) return <Problem text={`Registration for ${invite.training} has closed. For anything about it, speak to your training coordinator.`} />;
   if (thanks) {
     return (
       <main className="grid min-h-screen place-items-center bg-navy px-6 text-white">
@@ -119,7 +121,7 @@ export function JoinPage({ number, k }: { number: string; k: string }) {
 
 /* ---------------- The participant's own page ---------------- */
 
-type Page = { th: string; name: string; number: string; training: string; customer: string; dates: ProposalDate[]; tentative: boolean; location: string };
+type Page = { th: string; name: string; number: string; training: string; customer: string; dates: ProposalDate[]; tentative: boolean; location: string; tbd?: boolean; present?: string[]; confirmed?: boolean };
 
 export function ParticipantPage({ number, th, p }: { number: string; th: string; p: string }) {
   const [data, setData] = useState<{ page: Page; content: PortalContent } | null | undefined>(undefined);
@@ -147,7 +149,7 @@ export function ParticipantPage({ number, th, p }: { number: string; th: string;
           <div className={row}>
             <p className="pt-0.5 text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">On</p>
             <div>
-              {page.dates.length ? page.dates.map((d) => <p key={d.date} className="text-[17px] font-bold text-ink">{fmtProposalDate(d)}</p>) : <p className="text-[17px] font-bold text-ink">To be confirmed</p>}
+              {page.dates.length ? page.dates.map((d) => <p key={d.date} className="num text-[17px] font-bold text-ink">{fmtProposalDate(d)}</p>) : <p className="text-[17px] font-bold text-ink">To be confirmed</p>}
               {page.dates.length > 0 && page.tentative && <p className="mt-0.5 text-[14px] text-muted">Tentative: this may still change. This page always shows the latest.</p>}
             </div>
           </div>
@@ -163,11 +165,35 @@ export function ParticipantPage({ number, th, p }: { number: string; th: string;
             </div>
           </div>
         </section>
+        {page.confirmed && page.dates.length > 0 && <Attendance dates={page.dates} present={page.present ?? []} />}
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen. Show your number, {page.th}, on the day.</p>
         {withVideo.length > 0 && <div className="pb-4"><Programmes list={withVideo} title="Watch before you come" /></div>}
         <div className="h-12" />
       </main>
       <StayConnected social={content.social} />
     </div>
+  );
+}
+
+/** Their attendance, a row per training day (owner, 13 Nov): a PRESENT stamp on the days they marked, nothing on the others. */
+function Attendance({ dates, present }: { dates: ProposalDate[]; present: string[] }) {
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  return (
+    <section className="mt-4 rounded-2xl bg-surface px-5 ring-1 ring-line sm:px-7" aria-label="Your attendance">
+      <p className="border-b border-line py-4 text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">Attendance</p>
+      {dates.map((d) => {
+        const here = present.includes(d.date);
+        return (
+          <div key={d.date} className="flex min-h-16 items-center justify-between gap-4 border-b border-line py-3 last:border-b-0">
+            <p className="num text-[16px] font-bold text-ink">{fmtProposalDate({ date: d.date, time: "" })}</p>
+            {here ? (
+              <span className="inline-flex rotate-[-4deg] rounded-md border-2 border-navy px-2.5 pb-1 pt-1.5 text-navy shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--navy)]">
+                <span className="text-[11.5px] font-extrabold uppercase leading-none tracking-[0.14em]">Present</span>
+              </span>
+            ) : <span className="text-[14px] text-muted">{d.date > today ? "Mark it on the day" : d.date === today ? "Not marked yet" : "Not marked"}</span>}
+          </div>
+        );
+      })}
+    </section>
   );
 }

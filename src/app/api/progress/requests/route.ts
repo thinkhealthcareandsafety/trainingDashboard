@@ -1,4 +1,5 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
+import { withBump } from "@/lib/changes";
 import { type Action, CATEGORIES, type Category, LIMITS, type LogLine, type Priority, type PtRequest, canDo, fmtSpan, waitingMs } from "@/lib/progress/model";
 import { fromDoc, newId, nextRef, notify, requestsCol, team, touch } from "@/lib/progress/server";
 
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 const clip = (s: unknown, n: number) => (typeof s === "string" ? s.trim().replace(/\s+/g, " ").slice(0, n) : "");
 const CARD_ID = /^(lead|quote|pi|invoice|payment|potential|aed|aedcustomer|fulfil|logi|logipay)(:[\w.-]+)+$/;
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const body = (await request.json().catch(() => ({}))) as { category?: Category; priority?: Priority; waitingOnId?: string; title?: string; note?: string; cardId?: string; search?: string };
@@ -116,3 +117,6 @@ export async function PATCH(request: Request) {
   await touch(me);
   return Response.json({ ok: true });
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

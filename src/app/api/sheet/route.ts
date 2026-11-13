@@ -1,4 +1,5 @@
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
+import { withBump } from "@/lib/changes";
 import { boardsFor, isAdmin } from "@/lib/roles";
 import { SHEET_SCOPES, connectSheet, readRegister, sheetInfo } from "@/lib/zohoSheet";
 
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!isAdmin(me)) return Response.json({ error: "Only Admin connects the sheet" }, { status: 403 });
@@ -37,3 +38,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't connect" }, { status: 400 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

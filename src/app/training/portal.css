@@ -75,4 +75,7 @@ input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px var(--surface) inset; -w
 /* A state stamp lands on its panel. */
 @keyframes stamp { from { opacity: 0; transform: rotate(-4deg) scale(1.5); } 60% { opacity: 1; } to { opacity: 1; transform: rotate(-4deg) scale(1); } }
 .stamp { animation: stamp 0.45s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both; }
-@media (prefers-reduced-motion: reduce) { .welcome-line, .portal-reveal, .stamp { animation: none; } }
+/* Attendance marked (owner, 13 Nov): the PRESENT stamp lands harder than a panel stamp — the same press, from further away. */
+@keyframes stamp-present { from { opacity: 0; transform: rotate(-6deg) scale(2.4); } 55% { opacity: 1; } 75% { transform: rotate(-6deg) scale(0.96); } to { opacity: 1; transform: rotate(-6deg) scale(1); } }
+.stamp-present { animation: stamp-present 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both; }
+@media (prefers-reduced-motion: reduce) { .welcome-line, .portal-reveal, .stamp, .stamp-present { animation: none; } }

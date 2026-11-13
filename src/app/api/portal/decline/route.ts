@@ -1,4 +1,5 @@
 import { declineByLink, declineInfo } from "@/lib/portalTrainings";
+import { withBump } from "@/lib/changes";
 import { setQuoteStatus } from "@/lib/quotations";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const b = (await request.json().catch(() => null)) as { n?: unknown; k?: unknown; reason?: unknown } | null;
     const r = await declineByLink(b?.n, b?.k, b?.reason, (id) => setQuoteStatus(id, "declined"));
@@ -29,3 +30,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "Something went wrong on our side. Try again in a minute." }, { status: 500 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["work"], handlePOST);

@@ -1,4 +1,5 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
+import { withBump } from "@/lib/changes";
 import { db } from "@/lib/db";
 import { canQuote, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
@@ -403,7 +404,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const refused = () => Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita, Anuj and Pranjal send quotations" }, { status: 403 });
@@ -855,3 +856,6 @@ async function quotationView(id: string) {
     training: (est.estimate?.line_items ?? []).some((l) => trainingIds.has(String(l.item_id))),
   };
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["work"], handlePOST);

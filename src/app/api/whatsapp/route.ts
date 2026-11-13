@@ -1,4 +1,5 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
+import { withBump } from "@/lib/changes";
 import { isAdmin } from "@/lib/roles";
 import { type Kind, nextTraining, whatsappValues } from "@/lib/trainingReminders";
 import { WA_PEOPLE, WA_VARS, type WaKind, type WaPicked, type WaTemplate, fits, saveWa, sendWaTemplate, waNumber, waPublic, waStored, waTemplates } from "@/lib/whatsapp";
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
   return Response.json({ config: waPublic(stored), people: WA_PEOPLE, vars: WA_VARS, ...(stored?.apiKey ? await listTemplates() : {}) });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const { me, error } = await admin(request);
   if (error) return error;
   const body = (await request.json().catch(() => ({}))) as { apiKey?: string; numbers?: Record<string, string>; templates?: Partial<Record<WaKind, { id: number; name: string } | null>> };
@@ -93,3 +94,6 @@ export async function PUT(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

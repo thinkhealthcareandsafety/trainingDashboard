@@ -1,4 +1,5 @@
 import { Binary } from "mongodb";
+import { withBump } from "@/lib/changes";
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { boardsFor, isAdmin } from "@/lib/roles";
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!isAdmin(me)) return Response.json({ error: "Only Admin uploads the designs" }, { status: 403 });
@@ -60,3 +61,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't save it" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

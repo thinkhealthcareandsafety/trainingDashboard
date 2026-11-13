@@ -1,4 +1,5 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
+import { withBump } from "@/lib/changes";
 import { db } from "@/lib/db";
 import { canQuote } from "@/lib/roles";
 import { itemSets, type ZItem } from "@/lib/zoho";
@@ -13,6 +14,7 @@ import { sendMail } from "@/lib/zohoMail";
 import { confirmPerformaInZoho, convertToPerforma, emailPerforma, readPerforma, salespersonFor, savePerforma } from "@/lib/performa";
 import { declineKeyFor, markBoard, markConfirmed, markPerformaEmailed, markRejectedInZoho, markZohoConfirmed, reopen } from "@/lib/portalTrainings";
 import { scheduleOnBoard } from "@/lib/boardScheduleServer";
+import { forgetBoardDates } from "@/lib/boardDates";
 import { setQuoteStatus } from "@/lib/quotations";
 import { piEmail, readPiEmailFields, textToHtml } from "@/lib/performaRules";
 import { fmtProposalDate, indiaToday } from "@/lib/portalRules";
@@ -88,7 +90,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!canQuote(me)) return Response.json({ error: "Only those who send quotations use Training Management" }, { status: 403 });
@@ -180,6 +182,7 @@ export async function POST(request: Request) {
           customerId: q.customerId, proposal: t.proposal, coordinator: t.coordinator, by: me.name,
         });
         await markBoard(id, board);
+        forgetBoardDates(); // the portal's dates follow the board from now on
         console.log(`[training-management] ${q.number} on the Training board: ${board.state} — ${board.note}`);
       }
       let emailError = "";
@@ -214,3 +217,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Something went wrong" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["work"], handlePOST);

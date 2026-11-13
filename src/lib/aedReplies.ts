@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
+import { bump } from "./changes";
 import { baseSubject } from "./gratitudeReplies";
 import { latestMail, mailboxInfo } from "./zohoMail";
 import type { CardEvent } from "./types";
@@ -49,6 +50,6 @@ export async function checkAedReplies(): Promise<number> {
     });
     known.add(m.messageId);
   }
-  if (fresh.length) await col.insertMany(fresh);
+  if (fresh.length) { await col.insertMany(fresh); await bump("team"); } // live refresh
   return fresh.length;
 }

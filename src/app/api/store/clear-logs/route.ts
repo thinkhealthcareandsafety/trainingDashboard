@@ -1,4 +1,5 @@
 import { db, mongoConfigured } from "@/lib/db";
+import { withBump } from "@/lib/changes";
 import { memberIdOf, signedInMember } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 // popup) — it was cleared by mistake twice (3 and 10 Oct 2026). Admin only: the button shows for Admin, and the PIN is checked here.
 // The PIN lives in CLEAR_LOGS_PIN (or, if unset, ADMIN_PIN) on the server; cleared events are copied to cardEventsArchive first.
 // Cards added by hand to Potential training (add_potential) are kept — they aren't in Zoho to come back from.
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   // Admin only: signed in as Admin, and the PIN again.
   if (memberIdOf(request) !== "admin") return Response.json({ error: "Only Admin can clear logs" }, { status: 403 });
   if (!mongoConfigured()) return Response.json({ error: "Shared storage isn't configured" }, { status: 400 });
@@ -39,3 +40,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Database error" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

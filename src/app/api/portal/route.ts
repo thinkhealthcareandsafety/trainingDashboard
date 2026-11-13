@@ -1,4 +1,5 @@
 import { PORTAL_COOKIE, portalToken, portalUser, requestCode, resetPassword, signIn, signOut } from "@/lib/portalAuth";
+import { withBump } from "@/lib/changes";
 import { sendMail } from "@/lib/zohoMail";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ const codeEmail = (code: string, name: string) => `<div style="font-family:Segoe
 <p>It works for 10 minutes. If you didn't ask for it, you can ignore this email; your password stays as it is.</p>
 <p>Think Health Training Team</p></div>`;
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const b = (await request.json().catch(() => null)) as { action?: string; email?: unknown; password?: unknown; code?: unknown } | null;
   try {
     switch (b?.action) {
@@ -55,3 +56,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "Something went wrong on our side. Try again in a minute." }, { status: 500 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["work"], handlePOST);

@@ -1,4 +1,5 @@
 import { join, joinInfo, participantPage } from "@/lib/portalTrainings";
+import { withBump } from "@/lib/changes";
 import { readContent } from "@/lib/portalServer";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const b = (await request.json().catch(() => null)) as { n?: unknown; k?: unknown; name?: unknown; phone?: unknown; email?: unknown } | null;
     const r = await join(b?.n, b?.k, { name: b?.name, phone: b?.phone, email: b?.email });
@@ -37,3 +38,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "Something went wrong on our side. Try again in a minute." }, { status: 500 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["work"], handlePOST);

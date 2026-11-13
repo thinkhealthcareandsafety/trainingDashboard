@@ -9,16 +9,17 @@ import { QuoteStory } from "./QuoteStory";
 import { PerformaEditor } from "./PerformaEditor";
 import type { TrainingSort, TrainingSortKey } from "@/lib/uiPrefs";
 import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
+import { useLive } from "@/lib/live";
 
 // Training Management (docs/TRAINING_MANAGER_PLAN.md): the training-only quotes and their Training Manager — the
 // coordinator, the login (step 8), the date they proposed (step 5, the row glows green) and the attendee list (steps 6–7).
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const STATUS: Record<string, string> = { draft: "Draft", sent: "Sent", accepted: "Accepted", declined: "Declined", invoiced: "Invoiced", expired: "Expired" };
 
-type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string; zohoAt?: string; zohoBy?: string; board?: Board } | null; rejected: { at: string; by: string; reason: string; zoho: "declined" | "failed" } | null };
+type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string; zohoAt?: string; zohoBy?: string; board?: Board } | null; rejected: { at: string; by: string; reason: string; zoho: "declined" | "failed" } | null; attendance: { day: string; present: number }[] | null };
 type Board = { state: "scheduled" | "skipped" | "failed" | "notlive"; note: string; at: string; value?: string };
 type Quote = TrainingQuote & { portal: Portal | null };
-type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr"; addedAt: string; duplicate: boolean };
+type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr" | "walkin"; addedAt: string; duplicate: boolean; present: string[] };
 
 const portalStatus = (x: Quote) => x.portal?.status ?? (x.coordinator ? "Login not sent" : "No coordinator");
 const proposed = (x: Quote) => Boolean(x.portal?.proposal) && !x.portal?.confirmed && !x.portal?.rejected;
@@ -61,12 +62,14 @@ export function TrainingManagement() {
   };
   const resetSort = () => { setSort(null); savePref(null); };
 
-  const load = () => fetch("/api/training-management").then(async (r) => {
+  const load = (quiet = false) => fetch("/api/training-management").then(async (r) => {
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) return setError(j.error ?? "Couldn't load the training quotes");
-    setQuotes(j.quotes);
-  }).catch(() => setError("Couldn't load the training quotes"));
-  useEffect(() => { load(); }, []);
+    if (!r.ok) return quiet ? undefined : setError(j.error ?? "Couldn't load the training quotes");
+    setQuotes(j.quotes); setError("");
+  }).catch(() => { if (!quiet) setError("Couldn't load the training quotes"); });
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Live refresh (owner, 13 Nov): a coordinator accepting, a teammate confirming, a sync — the list updates by itself.
+  useLive(() => load(true), ["work", "zoho"]);
 
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -137,9 +140,9 @@ const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
 
 function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
   const [story, setStory] = useState<StoryQuote | null>(null);
-  useEffect(() => {
-    fetch(`/api/quotations?view=${x.id}`).then((r) => r.json()).then(setStory).catch(() => setStory({ error: "Couldn't reach the server" } as StoryQuote));
-  }, [x.id]);
+  const loadStory = () => fetch(`/api/quotations?view=${x.id}`).then((r) => r.json()).then((j: StoryQuote) => setStory((had) => (had && !had.error && j.error ? had : j))).catch(() => setStory((had) => had ?? ({ error: "Couldn't reach the server" } as StoryQuote)));
+  useEffect(() => { loadStory(); }, [x.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLive(loadStory, ["work", "zoho"]);
   const row = (k: string, v: React.ReactNode) => <div className="flex gap-3 py-1.5 text-[14px]"><span className="w-32 shrink-0 text-muted">{k}</span><span className="min-w-0 break-words text-ink">{v || "—"}</span></div>;
   return (
     <div className="space-y-5">
@@ -196,7 +199,7 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
 function piAction(x: Quote, onChanged: () => void): Record<string, React.ReactNode> | undefined {
   const p = x.portal;
   if (!p?.proposal || p.rejected) return undefined;
-  if (p.confirmed) return { pi: <p className="truncate text-[13px] font-semibold text-ink">{p.confirmed.number} · Draft made</p> };
+  if (p.confirmed) return { pi: <p className="truncate text-[13px] font-semibold text-ink">{p.confirmed.number} · {p.confirmed.zohoAt ? "Confirmed" : "Draft"}</p> };
   return { pi: <ConvertToPi id={x.id} p={p.proposal} onChanged={onChanged} /> };
 }
 
@@ -354,18 +357,21 @@ function TrainingManagerCard({ x, onChanged }: { x: Quote; onChanged: () => void
   );
 }
 
-const SOURCE: Record<Person["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR" };
+const SOURCE: Record<Person["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR", walkin: "Walk-in" };
 
 /** Steps 6–7, our side: the attendee list the coordinator built, downloadable. */
 function ParticipantList({ x }: { x: Quote }) {
   const [list, setList] = useState<Person[] | null>(null);
-  useEffect(() => {
-    fetch(`/api/training-management?people=${x.id}`).then((r) => r.json()).then((j) => setList(j.list ?? [])).catch(() => setList([]));
-  }, [x.id]);
+  const loadPeople = () => fetch(`/api/training-management?people=${x.id}`).then((r) => r.json()).then((j) => { if (j.list) setList(j.list); else setList((had) => had ?? []); }).catch(() => setList((had) => had ?? []));
+  useEffect(() => { loadPeople(); }, [x.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLive(loadPeople, ["work"]); // names and attendance from the coordinator's portal, as they come in
   const confirmed = x.portal?.proposal?.headcount ?? x.expected;
+  // Attendance (owner, 13 Nov): read only here; the coordinator runs it on the portal.
+  const days = x.portal?.attendance?.map((a) => a.day) ?? [];
+  const short = (d: string) => fmtDate(`${d}T00:00:00`, { day: "numeric", month: "short" });
   const download = () => {
     const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-    const csv = "﻿" + [["TH ID", "Name", "Phone", "Email", "Added by", "Added on"], ...(list ?? []).map((p) => [p.th, p.name, p.phone, p.email, SOURCE[p.source], p.addedAt.slice(0, 10)])].map((r) => r.map(esc).join(",")).join("\r\n");
+    const csv = "﻿" + [["TH ID", "Name", "Phone", "Email", "Added by", "Added on", ...days.map((d) => `Present ${d}`)], ...(list ?? []).map((p) => [p.th, p.name, p.phone, p.email, SOURCE[p.source], p.addedAt.slice(0, 10), ...days.map((d) => (p.present.includes(d) ? "Yes" : ""))])].map((r) => r.map(esc).join(",")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = `Participants ${x.number} ${x.customer}.csv`;
@@ -376,7 +382,7 @@ function ParticipantList({ x }: { x: Quote }) {
   return (
     <section className={card}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className={label}>Participants · {list.length} registered{confirmed ? ` of ${confirmed}` : ""}{dups ? ` · ${dups} with the same phone` : ""}</p>
+        <p className={label}>Participants · {list.length} registered{confirmed ? ` of ${confirmed}` : ""}{dups ? ` · ${dups} with the same phone` : ""}{x.portal?.attendance?.length ? ` · present ${x.portal.attendance.map((a) => `${short(a.day)}: ${a.present}`).join(", ")}` : ""}</p>
         {list.length > 0 && <button type="button" className={btn.quiet} onClick={download}>Download (Excel)</button>}
       </div>
       {list.length === 0 ? <p className="mt-1.5 text-[13.5px] text-muted">None yet. The coordinator adds them on the Training Manager: typed, from Excel, or by their QR code.</p> : (
@@ -389,6 +395,7 @@ function ParticipantList({ x }: { x: Quote }) {
                   <td className="px-2 py-1.5 font-medium">{p.name}</td>
                   <td className="px-2 py-1.5 text-ink-2">{p.phone}</td>
                   <td className="hidden px-2 py-1.5 text-muted sm:table-cell">{p.email}</td>
+                  {days.length > 0 && <td className="px-2 py-1.5 text-ink-2">{p.present.length ? `Present ${p.present.map(short).join(", ")}` : <span className="text-faint">Not marked</span>}</td>}
                   <td className="px-3 py-1.5 text-right text-muted">{SOURCE[p.source]}</td>
                 </tr>
               ))}

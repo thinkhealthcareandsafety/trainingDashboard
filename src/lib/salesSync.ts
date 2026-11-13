@@ -3,6 +3,7 @@ import { gunzipSync } from "node:zlib";
 import type { ZohoInvoice, ZohoPayment, ZohoPI, ZohoQuote } from "./types";
 import { syncWindowStart, ymd } from "./dates";
 import { db } from "./db";
+import { localVersion } from "./changes";
 import { type Kind, type ZDoc, type ZItem, KINDS, docIdOf, fetchDetail, fetchInvoicePaymentRows, itemSets, listAll, listChangedSince, lmtOf, pool, toInvoice, toPayments, toPI, toQuote } from "./zoho";
 
 /*
@@ -105,6 +106,16 @@ async function trainingOnly(): Promise<Set<string>> {
   return only;
 }
 
+/** Live refresh (owner, 13 Nov): a document the dashboard just changed in Zoho, written as the sync writes its rows. */
+export async function putSalesDoc(kind: Kind, d: ZDoc): Promise<void> {
+  const docs = await col<SalesRow>("salesDocs");
+  const id = docIdOf(kind, d);
+  const key = `${kind}:${id}`;
+  if (String(d.status) === "void") { await docs.deleteOne({ _id: key }); return; }
+  if (String(d.date ?? "") < since()) return; // older than the board's window
+  await docs.replaceOne({ _id: key }, { kind, id, lmt: lmtOf(d), date: String(d.date ?? ""), row: keep(d) }, { upsert: true });
+}
+
 /** One sync of the Sales copy. `full`: list everything again (the 9 am / 2 pm checks, "Sync now", or a first fill). */
 export async function syncSales(full: boolean): Promise<{ docs: number; payments: number }> {
   const state = await loadState();
@@ -177,9 +188,10 @@ const G = globalThis as unknown as { __thSales?: { key: string; data: SalesRespo
 
 /** The board's data, rebuilt only when the Sales copy (or the Training board's copy, for training-only) changed. */
 export async function salesData(): Promise<SalesResponse> {
-  const [state, zoho, za] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_state" }, { projection: { version: 1 } }), (await kv()).findOne({ _id: "za_state" }, { projection: { refreshedAt: 1 } })]);
-  // The Analytics copy's refresh counts too: it says which documents hold Fire Safety items.
-  const key = `${SHAPE}|${state.version}|${zoho?.version ?? 0}|${za?.refreshedAt ?? ""}`;
+  const [state, zoho, za, local] = await Promise.all([loadState(), (await kv()).findOne({ _id: "zoho_state" }, { projection: { version: 1 } }), (await kv()).findOne({ _id: "za_state" }, { projection: { refreshedAt: 1 } }), localVersion().catch(() => 0)]);
+  // The Analytics copy's refresh counts too: it says which documents hold Fire Safety items. `local`: a document the
+  // dashboard just changed in Zoho and wrote here (writeThrough.ts, live refresh 13 Nov).
+  const key = `${SHAPE}|${state.version}|${zoho?.version ?? 0}|${za?.refreshedAt ?? ""}|${local}`;
   if (G.__thSales?.key === key) return { ...G.__thSales.data, syncedAt: state.syncedAt ?? G.__thSales.data.syncedAt };
   const [rows, payRows, only, items, fireItems] = await Promise.all([
     (await col<SalesRow>("salesDocs")).find({}).toArray(),

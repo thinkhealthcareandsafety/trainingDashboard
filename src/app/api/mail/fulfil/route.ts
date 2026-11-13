@@ -1,4 +1,5 @@
 import { buildMail, getTemplate } from "@/lib/mailTemplates";
+import { withBump } from "@/lib/changes";
 import { fileSentMail, mailContent, mailboxInfo, sendMail } from "@/lib/zohoMail";
 import { GRATITUDE_FOLDER } from "@/lib/gratitudeReplies";
 import { eventsCol, fulfilContext, recordServerEvent } from "@/lib/fulfilServer";
@@ -54,7 +55,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { card?: string; to?: string; testTo?: string };
   try {
     const c = await fulfilContext(request, body.card);
@@ -82,3 +83,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't send the email" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

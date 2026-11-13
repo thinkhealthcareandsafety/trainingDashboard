@@ -15,9 +15,9 @@
 | 8 | Login box in the quote email + Send login + Decline link | **Live**. A fresh password each email unless they chose their own |
 | 9 | Design finish review + DESIGN.md | **Done** (2 review rounds) |
 | 10 | Confirm → Draft Performa in Zoho, edited on the dashboard, emailed from a template | **Live** |
-| — | Schedule the training on the Training board at Confirm | **Not built on purpose**: a board date can start reminder emails to the client. Ask the owner first. |
+| — | Schedule the training on the Training board at Mark confirmed | **Live** (`35933fd`). No trainers are set, and reminders go to trainers only, so nothing is emailed until Shikha adds them |
 
-**First real test: still to do** (the owner, on the test customer "dashboard testing", with their own email as coordinator):
+**First real test: passed** (owner, 13 Nov; the test Performa-25-1204 is still to be deleted in Zoho). The steps were (on the test customer "dashboard testing", with their own email as coordinator):
 1. Decline, then Reopen.
 2. Accept.
 3. Confirm, which makes the Performa (this was the first test to hit Zoho's "only accepted quotes" rule, now fixed).
@@ -88,10 +88,63 @@
    - The Cloudflare CNAME, then `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel and a redeploy.
    - The first real test above.
    - Programme photos and videos (optional).
-2. **To decide, then build:**
-   - Scheduling the training on the Training board at Confirm. It writes `set_training_date` on `pi:<salesorderId>`, which needs location, email and phone and can start reminders.
-   - Item-level PI templates beyond training ("training only for now", owner).
-3. **Out of scope for now:** attendance on the day, certificates from the portal, WhatsApp to participants.
+2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board (no trainers, so no reminders until they're added).
+3. **To decide, then build:** item-level PI templates beyond training ("training only for now", owner).
+4. **Next: Attendance (Step A), then the Quiz (Step B).** See the plan below. Not built.
+5. **Out of scope for now:** certificates from the attendance list, WhatsApp to participants.
+
+## Next: Attendance and Quiz (plan, 13 Nov 2026; not built)
+
+The owner's brief (13 Nov): after Mark confirmed, the coordinator's view becomes "Training confirmed": On / At / For with an
+attendance QR beside it, and the participant list in a box with a live tick by each name. Attendees scan the QR, open their
+own page (registering first if they're new), are greeted ("Welcome back, {name}" / "Welcome, please mark your attendance"),
+press a round **Present** button, see a short "attendance marked, thank you" moment, then their own dashboard. On the
+training day the coordinator's panel changes: a "Training today" strip, the QR large with a live count. Later: a quiz,
+results, a leaderboard (full names) and quiz analytics for the coordinator. Attendees identify by mobile number only.
+
+### Gaps found, and the answer this plan takes
+
+| # | Gap or inconsistency | Plan |
+|---|---|---|
+| 1 | After Mark confirmed the **Training board** holds the dates (Shikha postpones or changes them there), but the portal shows the coordinator's proposal. Attendance would open on the wrong day. | **Owner: follow the board.** After Mark confirmed, every portal date (coordinator, participants, attendance window, Today strip) comes from the board's schedule for the Performa's card. A changed date shows with the old one struck through ("nothing vanishes"). The board says "to be decided" → the portal says "To be confirmed" and attendance stays shut. |
+| 2 | The QR can be forwarded on WhatsApp, so absent people could mark themselves present from home. | **Owner: a fixed QR** (printable, shown in advance). It works only on the training day(s). The coordinator can make a new one (the old one stops working, like the registration link) and sees every tick live. |
+| 3 | Who shows the QR in the room? Our trainer has no portal login. | **Owner: the coordinator only.** Our Trainings page shows attendance (present X of Y, who), read only: no QR, no ticking. |
+| 4 | Mobile number only: anyone who knows a colleague's number can mark them present. | Accepted (owner's choice). The greeting shows the name with "Not you?"; the coordinator sees every tick and can untick; each tick records how it was made (self / coordinator / staff). |
+| 5 | "The phone remembers them": participants have no login today, only a private `?p=` link. | A participant cookie (per training, 180 days) holds their TH number and token. Scanning again goes straight to the greeting. A new phone asks for the mobile number again. |
+| 6 | Walk-ins: people not on the list turn up. | **Owner: yes.** They register on the spot, are added tagged "walk-in" and marked present. |
+| 7 | A two- or three-day training. | One tick per day. The box shows a column per day; "X of Y present" counts today. |
+| 8 | When does attendance open? | The whole training day, India time (00:00–23:59). It's closed outside the day(s): before, "Attendance opens on Fri, 4 Dec"; after, "Attendance closed". |
+| 9 | Two QRs could confuse the coordinator. | Named everywhere: **Registration QR** (the existing join link, under Add participants) and **Attendance QR**. Registration closes after the last training day. |
+| 10 | Removing someone who has already been marked present. | Not allowed: untick first. |
+| 11 | "Live" ticks on Vercel (no websockets). | The box polls: every 5 s on a training day while the panel is open, otherwise every 60 s; it pauses when the tab is hidden. |
+| 12 | Before the day, the confirmed view shows a QR that doesn't work yet. | The QR shows with "Works on the training day only", plus Download / Print and New QR. |
+| 13 | What does the participant's "dashboard / statistics" hold before the quiz exists? | Their training (On / At / For, following the board), attendance per day (stamped PRESENT), their TH number. Quiz score, rank and leaderboard join in Step B. |
+| 14 | The end of the story for the coordinator. | When the board marks the training completed, the portal adds a **Completed** stamp and shows "32 of 36 attended". |
+| 15 | Many people scanning at once on the day. | Reading the board per scan is heavy, so each server keeps the board's schedule for a training for 60 s. Attendance writes are one small document each. |
+| 16 | Trainers' names in the Today strip. | From the board's schedule; the part is left out until Shikha adds them. |
+| 17 | Attendance and certificates. | Not now. Kept per person and day, so certificates can later come straight from it. |
+
+### Step A: Attendance (one commit)
+
+- **Coordinator, confirmed** (stamp Confirmed): heading "Training confirmed". Left: On / At / For. Right: the fixed Attendance QR ("Works on the training day only", Download / Print, New QR). Below: the participant box: name, TH number, a tick per day, with a manual tick / untick for each.
+- **Coordinator, on a training day:** a "Training today" strip (Day 2 of 3 · time · place · trainers), then the QR large with a live "X of Y present". The rest moves below.
+- **Attendance page** `/training/<number>/attend?k=<key>`: remembered phone → greeting; else mobile number → on the list: "Welcome back, Riya" (Not you?) → **Present**; not on the list: register (if walk-ins are allowed), then **Present**. Then a PRESENT ink stamp lands ("Attendance marked. Thank you for being here."; reduced motion: no animation), then their own page.
+- **Participant page:** gains attendance per day.
+- **Our Trainings page:** present X of Y per day and who, read only (owner: the coordinator alone runs attendance).
+- **Kept:** `portalAttendance` (_id `TH001:2026-12-04`): trainingId, th, date, at, how (self / coordinator / staff), by. `portalTrainings.attendKey`. The participant cookie.
+- **Tests:** window open/closed per day (India time), a replaced QR stops working, one tick per person per day, untick, walk-in rule, no removal after a tick, dates following the board.
+- Portal screens through Impeccable; DESIGN.md in step.
+
+### Step B: the Quiz (waits for the owner's Google Form)
+
+The questions are copied from the Google Form into the portal's own quiz, so answers tie to each attendee for the score, the leaderboard and the coordinator's analytics. To settle when the form arrives:
+- one quiz per programme, or per training;
+- one attempt or retries; a time limit;
+- when it opens (after marking present?) and closes (e.g. 7 days after);
+- the leaderboard: live, or only when the quiz closes; full names (decided);
+- ties: the faster finish ranks higher;
+- the coordinator's analytics: per question, how many picked each option, with the right one marked; the average score; how many took it;
+- the participant's view of results: score only, or each answer with the right one.
 
 Also built along the way: on Quotations, clicking a quotation opens only that quotation, with its sent details, the new-quotation choice (same items, revised or from scratch) and the story from quotation to payment, or for training quotes to the certificates received.
 

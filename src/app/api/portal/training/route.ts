@@ -1,5 +1,6 @@
 import { portalToken, portalUser } from "@/lib/portalAuth";
-import { addPeople, newJoinKey, participants, propose, reject, removePerson } from "@/lib/portalTrainings";
+import { withBump } from "@/lib/changes";
+import { addPeople, newAttendKey, newJoinKey, participants, propose, reject, removePerson, tick } from "@/lib/portalTrainings";
 import { setQuoteStatus } from "@/lib/quotations";
 
 export const dynamic = "force-dynamic";
@@ -12,19 +13,23 @@ export const dynamic = "force-dynamic";
  *  "add"      { people: [{ name, phone, email? }], source: "typed" | "excel" }
  *  "remove"   { th }
  *  "newlink"  — a new QR / join link; the old one stops working
+ *  "tick"     { th, day, on } — mark someone present (on: true) or not, on a training day that has come (owner, 13 Nov)
+ *  "newattend" — a new attendance QR; the old one stops working
  * Only on their own trainings.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const me = await portalUser(portalToken(request));
     if (!me) return Response.json({ error: "Please sign in again" }, { status: 401 });
-    const b = (await request.json().catch(() => null)) as { id?: unknown; action?: string; people?: unknown; source?: unknown; th?: unknown; reason?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { id?: unknown; action?: string; people?: unknown; source?: unknown; th?: unknown; reason?: unknown; day?: unknown; on?: unknown } | null;
     const r = b?.action === "propose" ? await propose(me.email, b.id, b, (id) => setQuoteStatus(id, "accepted"))
       : b?.action === "reject" ? await reject(me.email, b.id, b.reason, (id) => setQuoteStatus(id, "declined"))
       : b?.action === "people" ? await participants(me.email, b.id)
       : b?.action === "add" ? await addPeople(me.email, b.id, b.people, b.source)
       : b?.action === "remove" ? await removePerson(me.email, b.id, b.th)
       : b?.action === "newlink" ? await newJoinKey(me.email, b.id)
+      : b?.action === "tick" ? await tick(me.email, b.id, b.th, b.day, b.on)
+      : b?.action === "newattend" ? await newAttendKey(me.email, b.id)
       : { error: "Unknown action", status: 400 };
     return "error" in r ? Response.json({ error: r.error }, { status: r.status }) : Response.json(r);
   } catch (e) {
@@ -32,3 +37,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "Something went wrong on our side. Try again in a minute." }, { status: 500 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["work"], handlePOST);

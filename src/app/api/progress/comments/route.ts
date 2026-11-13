@@ -1,4 +1,5 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
+import { withBump } from "@/lib/changes";
 import { type Comment, LIMITS, isAdminId, mentionsIn } from "@/lib/progress/model";
 import { commentsCol, fromDoc, newId, notify, requestsCol, team, touch } from "@/lib/progress/server";
 
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
   return Response.json({ comments: list.map((c) => fromDoc<Comment>(c)).map((c) => (c.deletedAt ? { ...c, text: "" } : c)) });
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const body = (await request.json().catch(() => ({}))) as { parent?: string; text?: string };
@@ -63,3 +64,6 @@ export async function DELETE(request: Request) {
   await c.updateOne({ _id: id }, { $set: { deletedAt: new Date().toISOString(), text: "" } }); // the words go; "removed" stays in its place
   return Response.json({ ok: true });
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

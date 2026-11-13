@@ -8,6 +8,7 @@ import { buildTickerItems } from "./ticker";
 import { cascadeOf } from "./cascade";
 import { useSession } from "./session";
 import { boardsFor, ownsEntry } from "./roles";
+import { TEAM_CHANGED, watchChanges } from "./live";
 
 // Calendar entries, follow-ups and announcements are cached in the browser and, when the server has
 // MONGODB_URI configured, shared with the whole team through /api/store (only changed documents are sent).
@@ -44,8 +45,9 @@ export type PendingRevert = { targets: CardEvent[]; later: CardEvent[]; by: stri
 type SharedName = "entries" | "followUps" | "removedTriggers" | "announcements" | "members" | "cardEvents";
 type SharedDoc = { id: string } & Record<string, unknown>;
 const SHARED: SharedName[] = ["entries", "followUps", "removedTriggers", "announcements", "members", "cardEvents"];
-// The team's changes show up on everyone's screen within 15 s — and at once when a tab is brought back to the front.
-const PULL_MS = 15_000;
+// The team's changes show up on everyone's screen within seconds: the live watcher (live.ts) says when something changed,
+// and the store pulls then (owner, 13 Nov). This slower pull is only the safety net — and a tab brought back pulls at once.
+const PULL_MS = 60_000;
 
 function seedEntries(today: Date): CalendarEntry[] {
   const c = new Date().toISOString();
@@ -227,13 +229,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // A hidden tab waits: it pulls again the moment it's shown (below).
     const t = setInterval(() => { if (document.visibilityState === "visible") pull(false); }, PULL_MS);
     const onShow = () => { if (document.visibilityState === "visible") pull(false); };
+    // Someone changed the team's data: pull now, and once more a moment later in case this tab was mid-save (a pull waits
+    // 5 s after a local change so it doesn't undo it).
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const onTeam = () => { pull(false); clearTimeout(again); again = setTimeout(() => pull(false), 5500); };
     document.addEventListener("visibilitychange", onShow);
     window.addEventListener("focus", onShow);
+    window.addEventListener(TEAM_CHANGED, onTeam);
+    const unwatch = watchChanges();
     return () => {
       stop = true;
       clearInterval(t);
+      clearTimeout(again);
+      unwatch();
       document.removeEventListener("visibilitychange", onShow);
       window.removeEventListener("focus", onShow);
+      window.removeEventListener(TEAM_CHANGED, onTeam);
     };
   }, [hydrated, verified, applyServer]);
 

@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { withBump } from "@/lib/changes";
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { readAll } from "@/lib/cachedRead";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
@@ -114,7 +115,7 @@ async function guardEntries(upserts: Doc[], deletes: string[], me: { id: string;
 }
 
 // POST: { collection, upserts: Doc[], deletes: string[] } — only what changed.
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (!mongoConfigured()) return Response.json({ enabled: false }, { status: 400 });
   const me = await signedInMember(request);
   if (!me) return unauthorized();
@@ -146,3 +147,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Database error" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

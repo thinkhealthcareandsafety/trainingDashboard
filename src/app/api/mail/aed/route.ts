@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { withBump } from "@/lib/changes";
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { boardsFor } from "@/lib/roles";
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   // template = the chosen template (1-based); count = emails already sent, as the preview showed. (A tab from before
   // 14 Oct sends only step = count + 1, which was also the template.)
   const body = (await request.json().catch(() => ({}))) as { card?: string; to?: string; template?: number; count?: number; step?: number; testTo?: string };
@@ -94,3 +95,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't send the email" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

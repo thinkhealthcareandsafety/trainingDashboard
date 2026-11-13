@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
-import type { Proposal } from "@/lib/portalRules";
-import { Participants, ProposalView, ProposeForm, RejectForm, primaryBtn, secondaryBtn } from "./TrainingTools";
+import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
+import type { DayWindow } from "@/lib/attendanceRules";
+import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, primaryBtn, secondaryBtn } from "./TrainingTools";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -12,7 +13,8 @@ import { Participants, ProposalView, ProposeForm, RejectForm, primaryBtn, second
  * trainings as sign panels with a state stamp, and Stay connected. Prices are never shown here.
  */
 type Me = { email: string; name: string };
-type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null };
+type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
+  dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -218,12 +220,15 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const [editing, setEditing] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [people, setPeople] = useState(false);
+  const [attendKey, setAttendKey] = useState(t.attendKey);
+  const [live, setLive] = useState<Live>({ present: 0, total: t.registered });
   const title = t.lines.map((l) => l.name).join(" + ") || "Training";
+  const onTheDay = Boolean(t.confirmedAt) && !t.completedAt && t.window.state === "open";
   const sign = signFor(title);
   const tool = { id: t.id, number: t.number, title, expected: t.expected, proposal: t.proposal, history: t.history, joinKey: t.joinKey, registered: t.registered };
   const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
   return (
-    <article id={`training-${t.number}`} className={`scroll-mt-6 overflow-hidden rounded-2xl bg-surface ring-1 ${focused ? "ring-2 ring-navy" : "ring-line"}`}>
+    <article id={`training-${t.number}`} className={`scroll-mt-6 overflow-hidden rounded-2xl bg-surface ring-1 ${focused || onTheDay ? "ring-2 ring-navy" : "ring-line"}`}>
       <div className="flex items-start gap-4 border-b border-line p-5 sm:gap-5 sm:p-7">
         <SignTile sign={sign} size={52} />
         <div className="min-w-0 flex-1">
@@ -253,6 +258,8 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Decline the quotation</h4>
             <RejectForm id={t.id} onCancel={() => setDeclining(false)} onDone={(reason) => { setT({ ...t, stamp: "Rejected", rejected: { at: new Date().toISOString(), reason } }); setDeclining(false); setPeople(false); }} />
           </>
+        ) : t.proposal && t.confirmedAt ? (
+          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} />
         ) : t.proposal ? (
           <>
             <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
@@ -288,7 +295,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           </div>
           <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>
         </div>
-        <div className="mt-5"><Participants t={tool} adding={people} onCount={(registered) => setT((x) => ({ ...x, registered }))} /></div>
+        <div className="mt-5"><Participants t={tool} adding={people} onCount={(registered) => setT((x) => ({ ...x, registered }))} onLive={setLive} /></div>
       </div>}
 
       <div className="p-5 sm:p-7">
@@ -329,6 +336,7 @@ function Stamps({ t }: { t: Training }) {
     ...(t.rejected ? [{ label: "Rejected", date: t.rejected.at ? shortDate(t.rejected.at) : "" }] : []),
     ...(!t.rejected && t.proposal ? [{ label: "Accepted", date: shortDate(t.proposal.at) }] : []),
     ...(!t.rejected && t.confirmedAt ? [{ label: "Confirmed", date: shortDate(t.confirmedAt) }] : []),
+    ...(!t.rejected && t.confirmedAt && t.completedAt ? [{ label: "Completed", date: shortDate(t.completedAt) }] : []),
   ];
   return (
     <div className="flex flex-wrap items-center gap-2.5 sm:flex-col sm:items-end">
@@ -344,6 +352,92 @@ function Stamp({ label, date, past }: { label: string; date: string; past: boole
       <span className="text-[11.5px] font-extrabold uppercase leading-none tracking-[0.14em]">{label}</span>
       {date && <span className="num mt-1 text-[10px] font-bold uppercase leading-none tracking-[0.1em]">{date}</span>}
     </span>
+  );
+}
+
+/* ---------------- Confirmed: the training, the attendance QR, and on the day the live count (owner, 13 Nov) ---------------- */
+
+const valueLabel = "pt-0.5 text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
+const clock = (time: string) => { if (!time) return ""; const [h, m] = time.split(":").map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`; };
+const contact = <>write to <a className="font-semibold text-action hover:underline" href="mailto:learn@thinkhealth.in">learn@thinkhealth.in</a></>;
+
+/** On / At / For, stacked: the days follow the Training board (a moved date shows the old one struck through). */
+function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: string }) {
+  const row = "grid grid-cols-[56px_minmax(0,1fr)] gap-4 py-3 first:pt-0 last:pb-0";
+  return (
+    <div className="divide-y divide-line">
+      <div className={row}>
+        <p className={valueLabel}>On</p>
+        <div>
+          {t.tbd || !t.dates.length ? <p className="text-[16px] font-bold text-ink">To be confirmed</p> : t.dates.map((d) => <p key={d.date} className="num text-[16px] font-bold text-ink">{fmtProposalDate(d)}</p>)}
+          {t.datesWas && t.datesWas.map((d) => <p key={d.date} className="num text-[13.5px] text-muted line-through">{fmtProposalDate(d)}</p>)}
+        </div>
+      </div>
+      <div className={row}>
+        <p className={valueLabel}>At</p>
+        <p className="text-[16px] font-bold text-ink">{p.location}</p>
+      </div>
+      <div className={row}>
+        <p className={valueLabel}>For</p>
+        <div>
+          <p className="text-[16px] font-bold text-ink">{title}</p>
+          <p className="num mt-0.5 text-[14px] text-muted">{p.headcount} attending</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean }) {
+  const qr = attendKey ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big={onTheDay} /> : null;
+  if (t.completedAt) {
+    return (
+      <>
+        <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Training completed</h4>
+        <ConfirmedDetails t={t} p={p} title={title} />
+        <p className="mt-5 text-[14.5px] text-ink-2"><b className="num text-ink">{t.attended} of {t.registered}</b> attended. Thank you for organising it with us.</p>
+      </>
+    );
+  }
+  if (onTheDay && t.window.state === "open") {
+    const w = t.window;
+    const time = clock(t.dates.find((d) => d.date === w.day)?.time ?? "");
+    const meta = [w.of > 1 ? `Day ${w.dayNo} of ${w.of}` : "", time, p.location, t.trainers.length ? `With ${t.trainers.join(", ")}` : ""].filter(Boolean);
+    return (
+      <>
+        {/* Training today (owner, 13 Nov): the strip, then the QR large with the live count; the details move below. */}
+        <div className="rounded-xl bg-ground px-5 py-4">
+          <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training today</h4>
+          <p className="num mt-1 text-[15px] text-ink-2">{meta.join(" · ")}</p>
+        </div>
+        <div className="mt-6 grid items-center gap-6 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
+          {qr}
+          <div className="text-center sm:text-left" aria-live="polite">
+            <p className="num text-[64px] font-extrabold leading-none tracking-[-0.03em] text-ink">{live.present}<span className="text-[28px] font-bold tracking-normal text-muted"> of {live.total}</span></p>
+            <p className="mt-2 text-[17px] font-bold text-ink">present today</p>
+            <p className="mt-1.5 max-w-[34ch] text-[14px] leading-relaxed text-muted sm:max-w-none">Show this code in the room. Each person scans it and taps Present; the ticks below fill in by themselves.</p>
+          </div>
+        </div>
+        <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
+        <p className="mt-5 text-[14.5px] text-ink-2">To change anything now, {contact}.</p>
+      </>
+    );
+  }
+  return (
+    <>
+      <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Training confirmed</h4>
+      <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-10">
+        <ConfirmedDetails t={t} p={p} title={title} />
+        {qr && (
+          <div className="sm:w-[184px]">
+            <p className={`${valueLabel} mb-2 text-center sm:text-left`}>Attendance QR</p>
+            {qr}
+            <p className="mt-2 text-center text-[13px] leading-snug text-muted sm:text-left">{t.window.state === "after" ? "Attendance has closed." : "Works on the training day only. Print it, or show it on a screen."}</p>
+          </div>
+        )}
+      </div>
+      <p className="mt-6 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, {contact}.</p>
+    </>
   );
 }
 

@@ -1,4 +1,5 @@
 import { db, mongoConfigured } from "@/lib/db";
+import { withBump } from "@/lib/changes";
 import { signedInMember, unauthorized } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
 }
 
 // POST { ids }: these reminders were shown to the signed-in member today.
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   const { ids } = (await request.json().catch(() => ({}))) as { ids?: unknown };
@@ -49,3 +50,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Database error" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

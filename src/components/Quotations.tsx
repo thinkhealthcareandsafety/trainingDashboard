@@ -10,6 +10,7 @@ import { docStatus } from "@/lib/docStatus";
 import { canQuote as mayQuote, isAdmin } from "@/lib/roles";
 import { BROCHURE_MAX_BYTES, GST_OPTIONS, type ItemFields, PICTURE_MAX_BYTES, STOCK_OPTIONS } from "@/lib/itemEdit";
 import { useSession } from "@/lib/session";
+import { useLive } from "@/lib/live";
 import type { AddedPerson } from "@/lib/quotations";
 import { onItemsPage } from "@/lib/itemsPage";
 import { type QuoteEmailInput, TEMPLATES, type TemplateOverrides, type TopicId, ZIA_MAILBOX, buildQuoteEmail, isTeamEmail, mergeCc, suggestTemplate, topicsOf, ziaEmailHtml, ziaSubject } from "@/lib/quoteEmails";
@@ -128,16 +129,23 @@ export function Quotations() {
   const [starting, setStarting] = useState(false);
   const [tick, setTick] = useState(0);
 
+  // Live refresh (owner, 13 Nov): a quote sent or changed anywhere shows here without reloading — quietly, no loading state.
+  const [liveTick, setLiveTick] = useState(0);
+  const quiet = useRef(false);
+  useLive(() => { quiet.current = true; setLiveTick((n) => n + 1); }, ["work", "zoho"]);
+
   useEffect(() => { setPage(0); }, [q, sector, type, sort]);
   useEffect(() => {
     let live = true;
-    setLoading(true);
+    const silent = quiet.current;
+    quiet.current = false;
+    if (!silent) setLoading(true);
     const t = setTimeout(() => {
       const p = new URLSearchParams({ q, sector, type, sort, page: String(page) });
-      fetch(`/api/quotations?${p}`).then((r) => r.json()).then((j: ListRes) => { if (live) { setRes(j); setLoading(false); } }).catch(() => live && setLoading(false));
-    }, q ? 250 : 0);
+      fetch(`/api/quotations?${p}`).then((r) => r.json()).then((j: ListRes) => { if (live && !(silent && j.error)) { setRes(j); setLoading(false); } }).catch(() => live && setLoading(false));
+    }, q && !silent ? 250 : 0);
     return () => { live = false; clearTimeout(t); };
-  }, [q, sector, type, sort, page, tick]);
+  }, [q, sector, type, sort, page, tick, liveTick]);
 
   if (res?.error && !res.customers) return <p className="text-[15px] text-high">{res.error}</p>;
   const pages = res ? Math.max(1, Math.ceil(res.total / res.pageSize)) : 1;
@@ -1717,9 +1725,9 @@ type QuoteViewData = {
 function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: string; onClose: () => void; onNew: (mode: "copy" | "revise" | "fresh") => void }) {
   const [q, setQ] = useState<QuoteViewData | null>(null);
   const [choosing, setChoosing] = useState(false);
-  useEffect(() => {
-    fetch(`/api/quotations?view=${id}`).then((r) => r.json()).then(setQ).catch(() => setQ({ error: "Couldn't reach the server" } as QuoteViewData));
-  }, [id]);
+  const loadView = () => fetch(`/api/quotations?view=${id}`).then((r) => r.json()).then((j: QuoteViewData) => setQ((had) => (had && !had.error && j.error ? had : j))).catch(() => setQ((had) => had ?? ({ error: "Couldn't reach the server" } as QuoteViewData)));
+  useEffect(() => { loadView(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLive(loadView, ["work", "zoho"]); // live refresh (owner, 13 Nov): sent / accepted / converted shows as it happens
   const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";
   const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
   const draft = q?.status === "draft";

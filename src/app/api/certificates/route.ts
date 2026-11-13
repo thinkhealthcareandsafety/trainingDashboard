@@ -1,4 +1,5 @@
 import { fulfilContext, recordServerEvent } from "@/lib/fulfilServer";
+import { withBump } from "@/lib/changes";
 import { DESIGNS, type DayNames, certRows, isDesignId, namesOnSeveralDays, printedDate } from "@/lib/certificates";
 import { certDays } from "@/lib/pipeline";
 import { appendBatch, firstFree, readRegister, sheetRows } from "@/lib/zohoSheet";
@@ -15,7 +16,7 @@ const MAX_NAMES = 500;
 
 const cleanNames = (v: unknown) => (Array.isArray(v) ? v : []).map((n) => String(n).replace(/\s+/g, " ").trim()).filter(Boolean);
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { card?: string; design?: string; days?: unknown; names?: unknown; preview?: boolean };
   try {
     const c = await fulfilContext(request, body.card);
@@ -69,3 +70,6 @@ export async function POST(request: Request) {
     return Response.json({ error: e instanceof Error ? e.message : "Couldn't add them to the sheet" }, { status: 502 });
   }
 }
+
+// Live refresh (owner, 13 Nov): a change here shows in every open tab within seconds.
+export const POST = withBump(["team"], handlePOST);

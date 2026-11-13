@@ -61,9 +61,22 @@ export function QuoteStory({ quote, training, actions }: { quote: Quote; trainin
     return { schedule: card?.schedule, fulfil, logiStep, board: card ? { invoices, payments, piSkipped: card.piSkipped } : undefined };
   }, [training, pipeline.data, cardEvents, quote.id]);
   const today = new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
+  // The Sales copy leaves out training-only documents (they live in the Training board's copy), so a training quote's
+  // Performa and invoices come from both (13 Nov: a converted training quote's Performa showed "Not yet").
+  const docs = useMemo(() => {
+    const s = sales.data;
+    if (!s?.pis) return null;
+    const p = training ? pipeline.data : null;
+    const uniq = <T,>(list: T[], key: (x: T) => string) => [...new Map(list.map((x) => [key(x), x])).values()];
+    return {
+      pis: uniq([...s.pis, ...(p?.pis ?? [])], (x) => x.salesorderId),
+      invoices: uniq([...s.invoices, ...(p?.invoices ?? [])], (x) => x.invoiceId),
+      payments: uniq([...s.payments, ...(p?.payments ?? [])], (x) => `${x.paymentId}:${x.invoiceId}`),
+    };
+  }, [sales.data, pipeline.data, training]);
   const phases = storyPhases({
     quote, training, today,
-    docs: sales.data?.pis ? { pis: sales.data.pis, invoices: sales.data.invoices, payments: sales.data.payments } : null,
+    docs,
     schedule: boards?.schedule, fulfil: boards?.fulfil, logiStep: boards?.logiStep, board: boards?.board,
   });
   const loading = !sales.data || (training && !pipeline.data);

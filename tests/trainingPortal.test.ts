@@ -141,7 +141,7 @@ test("the list: TH numbers in order; one person per mobile number (repeats skipp
 test("QR join: the right key lets people in; the same phone gets their page back; a new link shuts the old one", async () => {
   await seed();
   const [t] = await trainingsFor(RIYA);
-  assert.deepEqual(await joinInfo("QT-1", t.joinKey), { training: "CPR & AED Training", customer: "The Grand", coordinator: "Riya Mehta" });
+  assert.deepEqual(await joinInfo("QT-1", t.joinKey), { training: "CPR & AED Training", customer: "The Grand", coordinator: "Riya Mehta", closed: false });
   assert.equal(await joinInfo("QT-1", "wrong-key-123"), null);
   const a = await join("QT-1", t.joinKey, { name: "Aman Shah", phone: "9876543210" });
   assert.ok("th" in a && !a.existed);

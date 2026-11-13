@@ -5,6 +5,7 @@ import { PI_FIELDS, type PiDraft, type PiFieldKey, piStatusLabel } from "@/lib/p
 import { zohoUrl } from "@/lib/zohoLinks";
 import { fmtDate } from "@/lib/dates";
 import { btn, inputCls, selectCls } from "./ui";
+import { useLive } from "@/lib/live";
 
 /*
  * The Performa from an accepted training date (owner, 12 Nov: "when I convert it, it converts to draft, then I update it
@@ -34,6 +35,12 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     if (j.draft) { setDraft(j.draft); setEmail(j.email); }
   };
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Live refresh (owner, 13 Nov): a change made elsewhere (Zoho, a teammate) shows here — but never over unsaved edits or
+  // while a button is working.
+  useLive(() => {
+    const untouched = !data?.draft || (JSON.stringify(draft) === JSON.stringify(data.draft) && JSON.stringify(email) === JSON.stringify(data.email));
+    if (!busy && untouched) load();
+  }, ["work", "zoho"]);
 
   if (!data) return <p className="text-[13.5px] text-muted">Opening the Performa from Zoho…</p>;
   if (data.error || !draft || !email) return <p className="text-[13.5px] text-high">{data.error ?? "Couldn't open the Performa"}</p>;

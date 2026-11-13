@@ -1,5 +1,6 @@
 import "server-only";
 import { booksApi } from "./quotations";
+import { writeThroughLater } from "./writeThrough";
 import { db } from "./db";
 import { type PiDraft, type PiFields, type PiLine, acceptDefaults, fieldsFromZoho, readPiEdit, zohoCustomFields } from "./performaRules";
 import type { Proposal } from "./portalRules";
@@ -79,6 +80,8 @@ export async function convertToPerforma(estimateId: string, proposal: Proposal |
   };
   const so = (await booksApi("POST", "/salesorders", {}, body)).salesorder as Z | undefined;
   if (!so?.salesorder_id) throw new Error("Zoho Books took the Performa but didn't say which it is. Check Sales Orders in Zoho.");
+  // Live refresh: the new Performa, and the quote it came from, show everywhere now (not after the next sync).
+  writeThroughLater([{ kind: "salesorders", id: str(so.salesorder_id), doc: so }, { kind: "estimates", id: estimateId }]);
   return toDraft(so, trainingIds);
 }
 
@@ -115,6 +118,7 @@ export async function savePerforma(salesorderId: string, raw: unknown, trainingI
   const so = (await booksApi("PUT", `/salesorders/${salesorderId}`, {}, {
     date: edit.date, shipment_date: edit.shipmentDate, notes: edit.notes, line_items, custom_fields: zohoCustomFields(edit.fields as PiFields),
   })).salesorder as Z | undefined;
+  writeThroughLater([{ kind: "salesorders", id: salesorderId, ...(so ? { doc: so } : {}) }]);
   return so ? toDraft(so, trainingIds) : readPerforma(salesorderId, trainingIds);
 }
 
@@ -123,10 +127,12 @@ export async function confirmPerformaInZoho(salesorderId: string, trainingIds: S
   const now = await readPerforma(salesorderId, trainingIds);
   if (now.status !== "draft") return now; // already Confirmed (or further) in Zoho
   await booksApi("POST", `/salesorders/${salesorderId}/status/open`);
+  writeThroughLater([{ kind: "salesorders", id: salesorderId }]);
   return readPerforma(salesorderId, trainingIds);
 }
 
 /** The Performa emailed from Zoho (its PDF attached), from the organisation's address. Production only — the route checks. */
 export async function emailPerforma(salesorderId: string, m: { to: string[]; cc: string[]; subject: string; body: string }): Promise<void> {
   await booksApi("POST", `/salesorders/${salesorderId}/email`, {}, { send_from_org_email_id: true, to_mail_ids: m.to, cc_mail_ids: m.cc, subject: m.subject, body: m.body });
+  writeThroughLater([{ kind: "salesorders", id: salesorderId }]);
 }

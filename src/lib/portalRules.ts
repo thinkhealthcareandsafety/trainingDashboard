@@ -9,7 +9,7 @@ import { cleanPhone } from "./trainingManager";
 export type ProposalDate = { date: string; time: string }; // "2026-12-04", "10:00" ("" = no time yet)
 export type Proposal = { dates: ProposalDate[]; tentative: boolean; location: string; headcount: number; at: string; by: string };
 /** The coordinator accepts (with the date, "course conducted at" and headcount) or rejects; we then confirm. Owner, 12 Nov. */
-export type Stamp = "Awaiting decision" | "Accepted" | "Confirmed" | "Rejected";
+export type Stamp = "Awaiting decision" | "Accepted" | "Confirmed" | "Completed" | "Rejected";
 
 export const MAX_DATES = 10;
 export const MAX_PEOPLE = 2000;
