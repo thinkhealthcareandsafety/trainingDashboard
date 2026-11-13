@@ -66,3 +66,14 @@ test("deletions on the live sync: only what Zoho no longer lists, and only insid
   assert.deepEqual(goneFromList(stored, [so("1", "2026-11-13"), so("9", "2026-11-10")], true, "2025-04-01", "salesorders"), ["2"]);
   assert.deepEqual(goneFromList(stored, [], false, "2025-04-01", "salesorders"), ["1", "2", "3", "4"]);
 });
+
+test("deleted in Zoho is remembered per kind, so slow copies (Reports, quotes sent from here) skip it", async () => {
+  const { deletedIds, forgetZohoDoc, noteDeleted } = await import("@/lib/writeThrough");
+  assert.equal((await deletedIds("estimates")).size, 0);
+  await noteDeleted("estimates", ["11", "12"]);
+  await forgetZohoDoc("estimates", "13"); // opening a deleted quote does this
+  await noteDeleted("salesorders", ["900"]);
+  assert.deepEqual([...(await deletedIds("estimates"))].sort(), ["11", "12", "13"]);
+  assert.deepEqual([...(await deletedIds("salesorders"))], ["900"]);
+  assert.ok((await versions()).work >= 1); // the open tabs reload
+});

@@ -363,10 +363,13 @@ async function sweepDeleted(state: SyncState, out: DocChange[]): Promise<number>
     const { docsGone } = await import("./portalCleanup");
     await docsGone(kind, removed.map((d) => d.id));
   }
+  const { noteDeleted } = await import("./writeThrough");
   // The Sales board's copy keeps every document; the same check, the same span.
   const sales = await col<{ _id: string; kind: Kind; id: string; date: string }>("salesDocs");
   const salesStored = (await sales.find({ kind }, { projection: { id: 1, kind: 1, date: 1 } }).toArray()).filter((d) => d.kind === kind);
   const salesGone = new Set(goneFromList(salesStored, rows, more, since, kind));
+  // Remembered, so the slower copies (Reports, quotes sent from here) skip them too.
+  await noteDeleted(kind, [...new Set([...removed.map((d) => d.id), ...(salesGone.size <= MAX ? salesGone : [])])]);
   if (salesGone.size && salesGone.size <= MAX) {
     await sales.deleteMany({ _id: { $in: salesStored.filter((d) => salesGone.has(d.id)).map((d) => d._id) } });
     await bump("local"); // the Sales copy's cache keys on it

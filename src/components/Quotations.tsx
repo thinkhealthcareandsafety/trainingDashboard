@@ -1725,7 +1725,7 @@ type QuoteViewData = {
 function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: string; onClose: () => void; onNew: (mode: "copy" | "revise" | "fresh") => void }) {
   const [q, setQ] = useState<QuoteViewData | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const loadView = () => fetch(`/api/quotations?view=${id}`).then((r) => r.json()).then((j: QuoteViewData) => setQ((had) => (had && !had.error && j.error ? had : j))).catch(() => setQ((had) => had ?? ({ error: "Couldn't reach the server" } as QuoteViewData)));
+  const loadView = () => fetch(`/api/quotations?view=${id}`).then((r) => r.json()).then((j: QuoteViewData & { gone?: boolean }) => setQ((had) => (j.gone ? j : had && !had.error && j.error ? had : j))).catch(() => setQ((had) => had ?? ({ error: "Couldn't reach the server" } as QuoteViewData)));
   useEffect(() => { loadView(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useLive(loadView, ["work", "zoho"]); // live refresh (owner, 13 Nov): sent / accepted / converted shows as it happens
   const label = "text-[12.5px] font-bold uppercase tracking-wide text-muted";

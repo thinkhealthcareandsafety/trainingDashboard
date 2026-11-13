@@ -1,5 +1,7 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { withBump } from "@/lib/changes";
+import { deletedIds, forgetZohoDoc, goneInZoho } from "@/lib/writeThrough";
+import { docsGone } from "@/lib/portalCleanup";
 import { db } from "@/lib/db";
 import { canQuote, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
@@ -64,16 +66,20 @@ type Last = { id?: string; date: string; number: string; amount: number; status:
 type History = { quote?: Last; invoice?: string };
 let history: { key: string; map: Map<string, History> } | null = null;
 
-/** Each customer's last quote and last invoice, from the Reports copy (rebuilt when the copy changes). */
+/**
+ * Each customer's last quote and last invoice, from the Reports copy (rebuilt when the copy changes). Quotes Zoho has
+ * deleted since are skipped (owner, 13 Nov), so the customer shows their previous one, or none.
+ */
 async function histories(): Promise<Map<string, History>> {
   const t = await copyTables();
-  const key = `${t.quotes?.length ?? 0}|${t.invoices?.length ?? 0}|${t.quotes?.[0]?.["Quote ID"] ?? ""}`;
+  const deleted = await deletedIds("estimates");
+  const key = `${t.quotes?.length ?? 0}|${t.invoices?.length ?? 0}|${t.quotes?.[0]?.["Quote ID"] ?? ""}|${deleted.size}`;
   if (history?.key === key) return history.map;
   const map = new Map<string, History>();
   const get = (id: string) => map.get(id) ?? map.set(id, {}).get(id)!;
   for (const q of t.quotes ?? []) {
     const date = day(q["Quote Date"]);
-    if (!date || /draft/i.test(q["Status"] ?? "")) continue;
+    if (!date || /draft/i.test(q["Status"] ?? "") || deleted.has(String(q["Quote ID"] ?? ""))) continue;
     const h = get(q["Customer ID"]);
     if (!h.quote || date > h.quote.date) h.quote = { id: q["Quote ID"] || undefined, date, number: q["Quote Number"] ?? "", amount: money(q["Sub Total (BCY)"]) ?? 0, status: q["Status"] ?? "" };
   }
@@ -91,8 +97,9 @@ async function histories(): Promise<Map<string, History>> {
 async function recentSent(gone?: Span): Promise<Map<string, Last>> {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const out = new Map<string, Last>();
+  const deleted = await deletedIds("estimates");
   for (const s of await (await sentCol()).find({ at: { $gte: since } }).sort({ at: 1 }).toArray()) {
-    if (goneFrom(gone, s._id, s.at)) continue; // deleted in Zoho since
+    if (goneFrom(gone, s._id, s.at) || deleted.has(s._id)) continue; // deleted in Zoho since
     out.set(s.customerId, { id: s._id, date: new Date(Date.parse(s.at) + 5.5 * 3600_000).toISOString().slice(0, 10), number: s.number, amount: s.total, status: s.sent ? "sent" : "draft" });
   }
   return out;
@@ -306,7 +313,15 @@ export async function GET(request: Request) {
     const viewId = q.get("view");
     if (viewId) {
       if (!/^\d+$/.test(viewId)) return Response.json({ error: "Unknown quotation" }, { status: 400 });
-      return Response.json(await quotationView(viewId));
+      try {
+        return Response.json(await quotationView(viewId));
+      } catch (e) {
+        if (!goneInZoho(e)) throw e;
+        // Deleted in Zoho (owner, 13 Nov): out of our copies and the coordinator's portal now, and off this list.
+        await forgetZohoDoc("estimates", viewId);
+        await docsGone("estimates", [viewId], true);
+        return Response.json({ gone: true, error: "This quotation was deleted in Zoho, so it's gone from here too." }, { status: 410 });
+      }
     }
 
     const customerId = q.get("customer");
