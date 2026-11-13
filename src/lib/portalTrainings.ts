@@ -30,7 +30,13 @@ export type TrainingDoc = {
   quoteDoc?: Record<string, unknown>;
 };
 export type Rejected = { at: string; by: string; reason: string; zoho: "declined" | "failed" };
-export type Confirmed = { at: string; by: string; salesorderId: string; number: string; emailedAt?: string };
+/**
+ * `at`/`by`: Convert to PI made the Draft Performa (the coordinator's date is fixed from then). `zohoAt`/`zohoBy`: Mark
+ * confirmed (owner, 13 Nov) — Confirmed in Zoho; only then the portal stamps Confirmed. `board`: what Mark confirmed did on
+ * the Training board.
+ */
+export type Confirmed = { at: string; by: string; salesorderId: string; number: string; emailedAt?: string; zohoAt?: string; zohoBy?: string; board?: BoardResult };
+export type BoardResult = { state: "scheduled" | "skipped" | "failed" | "notlive"; note: string; at: string; value?: string };
 export type Source = "typed" | "excel" | "qr";
 type ParticipantDoc = { _id: string; trainingId: string; name: string; phone: string; email?: string; source: Source; token: string; addedAt: string };
 
@@ -101,7 +107,7 @@ async function idOfNumber(number: string): Promise<string | null> {
   return snap ? snap._id : null;
 }
 
-const stampOf = (t: TrainingDoc, quoteStatus = ""): Stamp => (t.rejected || (quoteStatus === "declined" && !t.confirmed) ? "Rejected" : t.confirmed ? "Confirmed" : t.proposal ? "Accepted" : "Awaiting decision");
+const stampOf = (t: TrainingDoc, quoteStatus = ""): Stamp => (t.rejected || (quoteStatus === "declined" && !t.confirmed) ? "Rejected" : t.confirmed?.zohoAt ? "Confirmed" : t.proposal ? "Accepted" : "Awaiting decision");
 const titleOf = (q: TrainingQuote) => q.lines.map((l) => l.name).join(" + ") || "Training";
 
 async function peopleOf(trainingId: string): Promise<ParticipantDoc[]> {
@@ -114,7 +120,9 @@ async function peopleOf(trainingId: string): Promise<ParticipantDoc[]> {
 export type PortalTraining = {
   id: string; number: string; customer: string; date: string;
   lines: { name: string; description: string; qty: number }[];
-  expected: number; stamp: Stamp; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null;
+  expected: number; stamp: Stamp; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number;
+  /** When we marked it Confirmed (in Zoho). `locked`: the Performa is made, so the date can't change from the portal. */
+  confirmedAt: string | null; locked: boolean;
   rejected: { at: string; reason: string } | null;
 };
 
@@ -132,7 +140,7 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
     out.push({
       id: x.id, number: x.number, customer: x.customer, date: x.date,
       lines: x.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })),
-      expected: x.expected, stamp: stampOf(t, x.status), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.at ?? null,
+      expected: x.expected, stamp: stampOf(t, x.status), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.zohoAt ?? null, locked: Boolean(t.confirmed),
       rejected: t.rejected ? { at: t.rejected.at, reason: t.rejected.reason } : x.status === "declined" && !t.confirmed ? { at: "", reason: "" } : null,
     });
   }
@@ -280,7 +288,7 @@ export async function participantPage(number: unknown, th: unknown, token: unkno
 
 /* ---------------- Our side: the Trainings page ---------------- */
 
-export type PortalStatus = "No coordinator" | "Login not sent" | "Login sent" | "Logged in" | "Accepted" | "Confirmed" | "Rejected";
+export type PortalStatus = "No coordinator" | "Login not sent" | "Login sent" | "Logged in" | "Accepted" | "Performa draft" | "Confirmed" | "Rejected";
 export type StaffPortal = { status: PortalStatus; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: Confirmed | null; rejected: Rejected | null };
 
 /** Each training's portal state, for the Trainings page list. */
@@ -295,7 +303,7 @@ export async function staffPortal(ids: string[]): Promise<Map<string, StaffPorta
   const out = new Map<string, StaffPortal>();
   for (const t of docs) {
     const lastLogin = logins.get((t.coordinator?.email ?? "").toLowerCase()) ?? null;
-    const status: PortalStatus = t.rejected ? "Rejected" : !t.coordinator ? "No coordinator" : t.confirmed ? "Confirmed" : t.proposal ? "Accepted" : lastLogin ? "Logged in" : t.loginSentAt ? "Login sent" : "Login not sent";
+    const status: PortalStatus = t.rejected ? "Rejected" : !t.coordinator ? "No coordinator" : t.confirmed?.zohoAt ? "Confirmed" : t.confirmed ? "Performa draft" : t.proposal ? "Accepted" : lastLogin ? "Logged in" : t.loginSentAt ? "Login sent" : "Login not sent";
     out.set(t._id, { status, proposal: t.proposal ?? null, history: t.history ?? [], registered: counts.get(t._id) ?? 0, loginSentAt: t.loginSentAt ?? null, lastLogin, confirmed: t.confirmed ?? null, rejected: t.rejected ?? null });
   }
   return out;
@@ -330,9 +338,23 @@ export async function setCoordinator(id: string, customerId: string, co: Coordin
   await col.replaceOne({ _id: id }, { ...rest, customerId, coordinator: co, updatedAt: at, createdAt: had?.createdAt ?? at }, { upsert: true });
 }
 
-/** Accept date → Performa: the proposal accepted and its Draft Performa noted (the portal stamps Confirmed). */
+/** Convert to PI: the proposal accepted and its Draft Performa noted (the coordinator's date is fixed from now). */
 export async function markConfirmed(id: string, c: Confirmed): Promise<void> {
   await (await trainingsCol()).updateOne({ _id: id }, { $set: { confirmed: c, updatedAt: c.at } });
+}
+
+/** Mark confirmed (owner, 13 Nov): Confirmed in Zoho — the portal stamps Confirmed. Kept from the first time. */
+export async function markZohoConfirmed(id: string, by: string): Promise<string> {
+  const t = await trainingDoc(id);
+  if (t?.confirmed?.zohoAt) return t.confirmed.zohoAt;
+  const at = new Date().toISOString();
+  await (await trainingsCol()).updateOne({ _id: id }, { $set: { "confirmed.zohoAt": at, "confirmed.zohoBy": by, updatedAt: at } });
+  return at;
+}
+
+/** What Mark confirmed did on the Training board. */
+export async function markBoard(id: string, board: BoardResult): Promise<void> {
+  await (await trainingsCol()).updateOne({ _id: id }, { $set: { "confirmed.board": board } });
 }
 
 /** The Performa went out by email from the Trainings page. */

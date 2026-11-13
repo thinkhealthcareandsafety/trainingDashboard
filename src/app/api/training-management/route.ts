@@ -10,10 +10,11 @@ import { declineLink, loginEmail, trainingLink } from "@/lib/portalEmail";
 import { portalBase } from "@/lib/portalHost";
 import { upsertCoordinator } from "@/lib/quotations";
 import { sendMail } from "@/lib/zohoMail";
-import { convertToPerforma, emailPerforma, readPerforma, salespersonFor, savePerforma } from "@/lib/performa";
-import { declineKeyFor, markConfirmed, markPerformaEmailed, markRejectedInZoho, reopen } from "@/lib/portalTrainings";
+import { confirmPerformaInZoho, convertToPerforma, emailPerforma, readPerforma, salespersonFor, savePerforma } from "@/lib/performa";
+import { declineKeyFor, markBoard, markConfirmed, markPerformaEmailed, markRejectedInZoho, markZohoConfirmed, reopen } from "@/lib/portalTrainings";
+import { scheduleOnBoard } from "@/lib/boardScheduleServer";
 import { setQuoteStatus } from "@/lib/quotations";
-import { piEmail, textToHtml } from "@/lib/performaRules";
+import { piEmail, readPiEmailFields, textToHtml } from "@/lib/performaRules";
 import { fmtProposalDate, indiaToday } from "@/lib/portalRules";
 import { piTemplate, templateOverrides } from "@/lib/templateStore";
 import { signature } from "@/lib/quoteEmails";
@@ -28,10 +29,12 @@ export const dynamic = "force-dynamic";
  *  POST { action: "coordinator", id, name, email, phone } — set the coordinator (saved on the customer in Zoho)
  *  POST { action: "sendlogin", id } — the login from learn@ (step 8): a fresh password, unless they chose their own
  * Accept date → Performa (owner, 12 Nov):
- *  POST { action: "accept", id }      — the quote becomes a Draft Performa in Zoho; the portal stamps Confirmed
+ *  POST { action: "accept", id }      — Convert to PI: the quote becomes a Draft Performa in Zoho; the date is fixed
  *  GET ?pi=<id>                       — that draft, as Zoho has it now, plus the email ready to send
  *  POST { action: "pisave", id, edit } — our edit saved straight to the Zoho draft
- *  POST { action: "piemail", id, to, cc, subject, text } — the Performa emailed from Zoho with its PDF (live site only)
+ *  POST { action: "piconfirm", id, edit?, send?, to, cc, subject, text } — Mark confirmed (owner, 13 Nov): Confirmed in
+ *    Zoho, the portal stamps Confirmed, the training goes on the Training board; with send, then emailed (live site only)
+ *  POST { action: "piemail", id, to, cc, subject, text } — the Performa emailed (again) from Zoho with its PDF (live site only)
  *  POST { action: "reopen", id }     — a rejected quotation open again (Zoho back to Sent)
  *  POST { action: "decline", id }    — retry marking a rejected quotation Declined in Zoho
  */
@@ -89,7 +92,7 @@ export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!canQuote(me)) return Response.json({ error: "Only those who send quotations use Training Management" }, { status: 403 });
-  const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; name?: unknown; email?: unknown; phone?: unknown; edit?: unknown; to?: unknown; cc?: unknown; subject?: unknown; text?: unknown } | null;
+  const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; name?: unknown; email?: unknown; phone?: unknown; edit?: unknown; send?: unknown; to?: unknown; cc?: unknown; subject?: unknown; text?: unknown } | null;
   const id = String(b?.id ?? "").slice(0, 30);
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown training" }, { status: 400 });
   try {
@@ -145,17 +148,51 @@ export async function POST(request: Request) {
       const t = await trainingDoc(id);
       if (!t?.confirmed) return Response.json({ error: "This training has no Performa yet" }, { status: 404 });
       if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site sends email" }, { status: 409 });
-      const mails = (v: unknown) => String(v ?? "").split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
-      const to = mails(b.to), cc = mails(b.cc).filter((m) => !to.includes(m));
-      const subject = String(b.subject ?? "").trim().slice(0, 300), text = String(b.text ?? "").slice(0, 20000);
-      const bad = [...to, ...cc].find((m) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
-      if (!to.length) return Response.json({ error: "Add who it goes to" }, { status: 400 });
-      if (bad) return Response.json({ error: `${bad} doesn't look like an email` }, { status: 400 });
-      if (!subject || !text.trim()) return Response.json({ error: "Type the subject and the message" }, { status: 400 });
-      await emailPerforma(t.confirmed.salesorderId, { to, cc, subject, body: textToHtml(text) });
+      const m = readPiEmailFields(b);
+      if ("error" in m) return Response.json({ error: m.error }, { status: 400 });
+      await emailPerforma(t.confirmed.salesorderId, { to: m.to, cc: m.cc, subject: m.subject, body: textToHtml(m.text) });
       await markPerformaEmailed(id);
       console.log(`[training-management] ${me.name} emailed ${t.confirmed.number}`);
       return Response.json({ ok: true });
+    }
+
+    // Mark confirmed (owner, 13 Nov): unsaved edits saved first, the Draft marked Confirmed in Zoho, the portal stamps
+    // Confirmed, the training goes on the Training board; with `send`, the Performa is then emailed.
+    if (b?.action === "piconfirm") {
+      const t = await trainingDoc(id);
+      if (!t?.confirmed) return Response.json({ error: "This training has no Performa yet" }, { status: 404 });
+      const send = b.send === true;
+      const m = send ? readPiEmailFields(b) : null;
+      if (send && process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site sends email. Use Mark confirmed." }, { status: 409 });
+      if (m && "error" in m) return Response.json({ error: m.error }, { status: 400 });
+      const items = await trainingSet();
+      if (b.edit) {
+        const r = await savePerforma(t.confirmed.salesorderId, b.edit, items);
+        if ("error" in r) return Response.json({ error: r.error }, { status: 400 });
+      }
+      const draft = await confirmPerformaInZoho(t.confirmed.salesorderId, items);
+      await markZohoConfirmed(id, me.name);
+      console.log(`[training-management] ${me.name} marked ${t.confirmed.number} Confirmed`);
+      let board = t.confirmed.board;
+      if (board?.state !== "scheduled" && board?.state !== "skipped" && t.proposal) {
+        board = await scheduleOnBoard({
+          estimateId: id, salesorderId: t.confirmed.salesorderId, quoteNumber: q.number, piNumber: t.confirmed.number,
+          customerId: q.customerId, proposal: t.proposal, coordinator: t.coordinator, by: me.name,
+        });
+        await markBoard(id, board);
+        console.log(`[training-management] ${q.number} on the Training board: ${board.state} — ${board.note}`);
+      }
+      let emailError = "";
+      if (m && !("error" in m)) {
+        try {
+          await emailPerforma(t.confirmed.salesorderId, { to: m.to, cc: m.cc, subject: m.subject, body: textToHtml(m.text) });
+          await markPerformaEmailed(id);
+          console.log(`[training-management] ${me.name} emailed ${t.confirmed.number}`);
+        } catch (e) {
+          emailError = `Confirmed, but the email didn't go: ${e instanceof Error ? e.message : e}`;
+        }
+      }
+      return Response.json({ ok: true, draft, board: board ?? null, emailed: send && !emailError, emailError });
     }
 
     if (b?.action === "sendlogin") {

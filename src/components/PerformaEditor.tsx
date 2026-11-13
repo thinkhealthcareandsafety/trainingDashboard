@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PI_FIELDS, type PiDraft, type PiFieldKey } from "@/lib/performaRules";
+import { PI_FIELDS, type PiDraft, type PiFieldKey, piStatusLabel } from "@/lib/performaRules";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { fmtDate } from "@/lib/dates";
 import { btn, inputCls, selectCls } from "./ui";
@@ -20,7 +20,7 @@ const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN", { maximum
 const label = "text-[12px] font-medium text-muted";
 const FIELD_ORDER: PiFieldKey[] = ["poDate", "poNumber", "trainingDate", "trainer", "productType", "businessType", "leadSource"];
 
-export function PerformaEditor({ id }: { id: string }) {
+export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () => void }) {
   const [data, setData] = useState<Loaded | null>(null);
   const [draft, setDraft] = useState<PiDraft | null>(null);
   const [email, setEmail] = useState<Email | null>(null);
@@ -53,6 +53,23 @@ export function PerformaEditor({ id }: { id: string }) {
     setData({ ...data, draft: j.draft }); setDraft(j.draft);
     setMsg("Saved to the Zoho draft.");
   };
+  // Mark confirmed (owner, 13 Nov): unsaved edits go with it; Zoho marks it Confirmed, the portal stamps Confirmed and the
+  // training goes on the Training board; "& send email" then emails it.
+  const markConfirmed = async (withEmail: boolean) => {
+    if (!window.confirm(withEmail
+      ? `Mark ${draft.number} Confirmed in Zoho and email it to ${email.to.join(", ") || "—"}? The coordinator's portal shows Confirmed and the training goes on the Training board.`
+      : `Mark ${draft.number} Confirmed in Zoho? The coordinator's portal shows Confirmed and the training goes on the Training board. Nothing is emailed.`)) return;
+    setBusy(withEmail ? "confirm-send" : "confirm"); setMsg("");
+    const edit = dirty ? { fields: draft.fields, notes: draft.notes, shipmentDate: draft.shipmentDate, date: draft.date, lines: draft.lines.map((l) => ({ lineItemId: l.lineItemId, description: l.description, qty: l.qty, rate: l.rate })) } : undefined;
+    const body = { action: "piconfirm", id, edit, ...(withEmail ? { send: true, to: email.to.join(","), cc: email.cc.join(","), subject: email.subject, text: email.text } : {}) };
+    const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; emailError?: string; emailed?: boolean; board?: { state: string; note: string } | null }) : { error: "Couldn't reach the server" };
+    setBusy("");
+    if (!j.ok) return setMsg(j.error ?? "Couldn't mark it confirmed");
+    setMsg([j.emailError || (j.emailed ? "Confirmed in Zoho and emailed, with its PDF." : "Confirmed in Zoho."), j.board?.note].filter(Boolean).join(" "));
+    load();
+    onChanged?.();
+  };
   const send = async () => {
     if (dirty && !window.confirm("Your changes above aren't saved to Zoho yet. Email the Performa as Zoho has it now?")) return;
     setBusy("email"); setMsg("");
@@ -68,12 +85,12 @@ export function PerformaEditor({ id }: { id: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-[15px] font-semibold">
-          {draft.number} <span className={`ml-1 rounded-full px-2 py-0.5 text-[12px] font-medium ${editable ? "bg-medium-bg text-medium" : "bg-surface-2 text-ink-2"}`}>{draft.status === "draft" ? "Draft" : draft.status}</span>
+          {draft.number} <span className={`ml-1 rounded-full px-2 py-0.5 text-[12px] font-medium ${editable ? "bg-medium-bg text-medium" : "bg-surface-2 text-ink-2"}`}>{piStatusLabel(draft.status)}</span>
         </p>
         <a className="text-[13px] text-brand hover:underline" href={zohoUrl("salesorder", draft.salesorderId)} target="_blank" rel="noopener noreferrer">Open in Zoho</a>
       </div>
       <p className="-mt-2 text-[13px] text-muted">{draft.customer} · reference {draft.reference}{draft.salesperson ? ` · ${draft.salesperson}` : ""}{draft.paymentTerms ? ` · ${draft.paymentTerms}` : ""}</p>
-      {!editable && <p className="rounded-xl bg-surface-2 px-3 py-2 text-[13px] text-ink-2">It isn&apos;t a draft any more, so it&apos;s changed in Zoho now.</p>}
+      {!editable && <p className="rounded-xl bg-surface-2 px-3 py-2 text-[13px] text-ink-2">{draft.status === "open" ? "Confirmed in Zoho" : "It isn't a draft any more"}, so it&apos;s changed in Zoho now.</p>}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <label className="block"><span className={label}>Sales order date *</span><input type="date" className={`${inputCls} mt-1`} value={draft.date} disabled={!editable} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></label>
@@ -132,7 +149,7 @@ export function PerformaEditor({ id }: { id: string }) {
 
       <section className="rounded-2xl border border-line bg-surface p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h4 className="text-[15px] font-semibold">Email the Performa</h4>
+          <h4 className="text-[15px] font-semibold">{editable ? "Confirm the Performa" : "Email the Performa"}</h4>
           <span className="text-[12.5px] text-muted">{data.emailedAt ? `Emailed ${fmtDate(data.emailedAt, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Not emailed yet"} · its PDF goes with it</span>
         </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -144,12 +161,19 @@ export function PerformaEditor({ id }: { id: string }) {
           <textarea className={`${inputCls} mt-1 !h-auto min-h-[200px] py-2 leading-relaxed`} rows={10} value={email.text} onChange={(e) => setEmail({ ...email, text: e.target.value })} spellCheck />
         </label>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button type="button" className={btn.primary} disabled={!data.live || busy === "email"} onClick={send}>{busy === "email" ? "Sending…" : data.emailedAt ? "Email again" : "Email the Performa"}</button>
+          {editable ? (
+            <>
+              <button type="button" className={btn.ghost} disabled={Boolean(busy)} onClick={() => markConfirmed(false)}>{busy === "confirm" ? "Marking confirmed…" : "Mark confirmed"}</button>
+              <button type="button" className={btn.primary} disabled={!data.live || Boolean(busy)} onClick={() => markConfirmed(true)}>{busy === "confirm-send" ? "Confirming and sending…" : "Mark confirmed & send email"}</button>
+            </>
+          ) : (
+            <button type="button" className={btn.primary} disabled={!data.live || busy === "email"} onClick={send}>{busy === "email" ? "Sending…" : data.emailedAt ? "Email again" : "Email the Performa"}</button>
+          )}
           {!data.live && <span className="text-[12.5px] text-muted">Only the live site sends email.</span>}
           <span className="text-[12px] text-faint">The wording comes from Templates → Performa emails.</span>
         </div>
       </section>
-      {msg && <p className={`text-[13px] ${/^Saved|emailed/.test(msg) ? "text-low" : "text-high"}`} role="status">{msg}</p>}
+      {msg && <p className={`text-[13px] ${/^(Saved|Confirmed in Zoho|Performa emailed)/.test(msg) && !/didn't go|Couldn't/.test(msg) ? "text-low" : "text-high"}`} role="status">{msg}</p>}
     </div>
   );
 }

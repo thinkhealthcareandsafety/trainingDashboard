@@ -82,9 +82,9 @@ export function storyPhases(input: StoryInput): Phase[] {
   const phases: Phase[] = [{ key: "quote", title: "Quotation", state: lost ? "stopped" : "done", status: cap(qs), tone: lost ? "bad" : qs === "accepted" || qs === "invoiced" ? "good" : "info", lines: [quote.number, ...qLines] }];
   if (lost) return phases;
 
-  // 2. Performa invoice.
+  // 2. Performa invoice. Zoho's "open" is what Zoho shows as Confirmed.
   phases.push(pi
-    ? { key: "pi", title: "Performa invoice", state: "done", status: cap(pi.status), tone: "info", lines: [pi.number, pi.total ? inr(pi.total) : "", day(pi.date)].filter(Boolean) }
+    ? { key: "pi", title: "Performa invoice", state: "done", status: pi.status === "open" ? "Confirmed" : cap(pi.status), tone: "info", lines: [pi.number, pi.total ? inr(pi.total) : "", day(pi.date)].filter(Boolean) }
     : input.board?.piSkipped ? { key: "pi", title: "Performa invoice", state: "done", status: "Skipped", tone: "info", lines: ["Went straight from the quotation"] }
     : { key: "pi", title: "Performa invoice", state: "ahead", lines: [] });
 

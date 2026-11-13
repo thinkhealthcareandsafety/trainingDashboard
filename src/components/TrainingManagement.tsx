@@ -15,7 +15,8 @@ import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const STATUS: Record<string, string> = { draft: "Draft", sent: "Sent", accepted: "Accepted", declined: "Declined", invoiced: "Invoiced", expired: "Expired" };
 
-type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string } | null; rejected: { at: string; by: string; reason: string; zoho: "declined" | "failed" } | null };
+type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string; zohoAt?: string; zohoBy?: string; board?: Board } | null; rejected: { at: string; by: string; reason: string; zoho: "declined" | "failed" } | null };
+type Board = { state: "scheduled" | "skipped" | "failed" | "notlive"; note: string; at: string; value?: string };
 type Quote = TrainingQuote & { portal: Portal | null };
 type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr"; addedAt: string; duplicate: boolean };
 
@@ -25,7 +26,7 @@ const rejected = (x: Quote) => Boolean(x.portal?.rejected);
 const glow = (x: Quote) => (proposed(x) ? 2 : rejected(x) ? 1 : 0);
 
 /* Column sort (owner, 12 Nov): click a header for ascending / descending; each person's choice is kept as their default. */
-const STATUS_ORDER = ["Accepted", "Rejected", "Confirmed", "Logged in", "Login sent", "Login not sent", "No coordinator"];
+const STATUS_ORDER = ["Accepted", "Rejected", "Performa draft", "Confirmed", "Logged in", "Login sent", "Login not sent", "No coordinator"];
 const SORTS: Record<TrainingSortKey, { label: string; first: "asc" | "desc"; value: (x: Quote) => string | number; right?: boolean }> = {
   customer: { label: "Customer", first: "asc", value: (x) => x.customer.toLowerCase() },
   quote: { label: "Quote", first: "desc", value: (x) => `${x.date} ${x.number}` },
@@ -42,7 +43,7 @@ function sortQuotes(list: Quote[], sort: TrainingSort): Quote[] {
 }
 const savePref = (value: TrainingSort) => fetch("/api/ui-prefs", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "trainingsSort", value }) }).catch(() => undefined);
 const STATUS_TONE: Record<string, string> = {
-  "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Accepted": "font-semibold text-low", "Confirmed": "text-ink-2", "Rejected": "font-semibold text-high",
+  "No coordinator": "text-faint", "Login not sent": "text-medium", "Login sent": "text-ink-2", "Logged in": "text-ink-2", "Accepted": "font-semibold text-low", "Performa draft": "text-medium", "Confirmed": "text-ink-2", "Rejected": "font-semibold text-high",
 };
 
 export function TrainingManagement() {
@@ -143,11 +144,14 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
   return (
     <div className="space-y-5">
       {x.portal?.rejected && <RejectedCard id={x.id} r={x.portal.rejected} onChanged={onChanged} />}
-      {x.portal?.proposal && !x.portal?.rejected && <ProposalCard id={x.id} p={x.portal.proposal} history={x.portal.history} expected={x.expected} confirmed={x.portal.confirmed} onChanged={onChanged} />}
+      {x.portal?.proposal && !x.portal?.rejected && <ProposalCard p={x.portal.proposal} history={x.portal.history} expected={x.expected} confirmed={x.portal.confirmed} />}
       {x.portal?.confirmed && (
         <section className={card}>
-          <p className={label}>Performa</p>
-          <div className="mt-2"><PerformaEditor id={x.id} /></div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className={label}>Performa</p>
+            {x.portal.confirmed.board && <BoardLine b={x.portal.confirmed.board} />}
+          </div>
+          <div className="mt-2"><PerformaEditor id={x.id} onChanged={onChanged} /></div>
         </section>
       )}
       <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
@@ -180,9 +184,47 @@ function Detail({ x, onChanged }: { x: Quote; onChanged: () => void }) {
       <ParticipantList x={x} />
       {!story ? <p className="text-[14px] text-muted">Getting the story of this quotation…</p>
         : story.error ? <p className="text-[14px] text-high">{story.error}</p>
-        : <QuoteStory quote={story} training />}
+        : <QuoteStory quote={story} training actions={piAction(x, onChanged)} />}
     </div>
   );
+}
+
+/**
+ * The story's Performa box (owner, 13 Nov: "in the story I should only see the option to convert to PI"): Convert to PI
+ * once the coordinator accepted with a date; right after, until the sync brings the Performa in, its number.
+ */
+function piAction(x: Quote, onChanged: () => void): Record<string, React.ReactNode> | undefined {
+  const p = x.portal;
+  if (!p?.proposal || p.rejected) return undefined;
+  if (p.confirmed) return { pi: <p className="truncate text-[13px] font-semibold text-ink">{p.confirmed.number} · Draft made</p> };
+  return { pi: <ConvertToPi id={x.id} p={p.proposal} onChanged={onChanged} /> };
+}
+
+function ConvertToPi({ id, p, onChanged }: { id: string; p: Proposal; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const convert = async () => {
+    if (!window.confirm(`Convert to PI? The quotation becomes a Draft Performa in Zoho (training at ${p.headcount} people, Training Date ${fmtProposalDate(p.dates[0])}), and the coordinator can't change the date any more. You check it, then Mark confirmed.`)) return;
+    setBusy(true); setMsg("");
+    const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "accept", id }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!j.ok) return setMsg(j.error ?? "Couldn't convert it");
+    onChanged();
+  };
+  return (
+    <div className="space-y-1.5">
+      <button type="button" className={btn.primary} disabled={busy} onClick={convert}>{busy ? "Making it in Zoho…" : "Convert to PI"}</button>
+      {msg ? <p className="line-clamp-2 text-[12.5px] text-high" role="alert" title={msg}>{msg}</p> : <p className="text-[12.5px] text-muted">Confirm with the client first.</p>}
+    </div>
+  );
+}
+
+/** What Mark confirmed did on the Training board. */
+function BoardLine({ b }: { b: Board }) {
+  const days = (b.value ?? "").split(",").filter(Boolean).map((d) => fmtDate(`${d.slice(0, 10)}T00:00:00`, { day: "numeric", month: "short" }));
+  if (b.state === "scheduled") return <span className="text-[13px] text-low">On the Training board: {days.join(", ")} · trainers to add</span>;
+  return <span className={`text-[13px] ${b.state === "failed" ? "text-high" : "text-muted"}`}>{b.note}</span>;
 }
 
 /** The coordinator rejected the quotation (owner, 12 Nov): why, when; Zoho marked it Declined (or retry); Reopen if they change their mind. */
@@ -216,21 +258,10 @@ function RejectedCard({ id, r, onChanged }: { id: string; r: NonNullable<Portal[
 }
 
 /** Step 5, our side: what the coordinator proposed, with the earlier values struck through. */
-function ProposalCard({ id, p, history, expected, confirmed, onChanged }: { id: string; p: Proposal; history: Proposal[]; expected: number; confirmed: Portal["confirmed"]; onChanged: () => void }) {
+function ProposalCard({ p, history, expected, confirmed }: { p: Proposal; history: Proposal[]; expected: number; confirmed: Portal["confirmed"] }) {
   const prev = history.at(-1);
   const differs = expected > 0 && p.headcount !== expected;
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  // Accept date → Performa (owner, 12 Nov): confirmed on our side first, then Accept makes the Draft Performa in Zoho.
-  const accept = async () => {
-    if (!window.confirm(`Confirm this training? The quotation becomes a Draft Performa in Zoho (training at ${p.headcount} people, Training Date ${fmtProposalDate(p.dates[0])}), and the coordinator's portal shows Confirmed.`)) return;
-    setBusy(true); setMsg("");
-    const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "accept", id }) }).catch(() => null);
-    const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
-    setBusy(false);
-    if (!j.ok) return setMsg(j.error ?? "Couldn't accept it");
-    onChanged();
-  };
+  // Convert to PI lives in the story's Performa box now (owner, 13 Nov); this card only shows what the coordinator gave.
   return (
     <section className={confirmed ? "rounded-2xl border border-line bg-surface-2/40 p-4" : "rounded-2xl border-2 border-low bg-low-bg/50 p-4 shadow-[0_0_0_4px_color-mix(in_srgb,var(--low)_12%,transparent)]"}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -254,13 +285,7 @@ function ProposalCard({ id, p, history, expected, confirmed, onChanged }: { id: 
           {prev && prev.headcount !== p.headcount && <p className="text-[13px] text-muted line-through">{prev.headcount} people</p>}
         </div>
       </div>
-      {!confirmed && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" className={btn.primary} disabled={busy} onClick={accept}>{busy ? "Making the Performa in Zoho…" : "Confirm → make Performa"}</button>
-          <span className="text-[12.5px] text-muted">Confirm with the client first. You edit the draft Performa here after.</span>
-        </div>
-      )}
-      {msg && <p className="mt-2 text-[13px] text-high" role="alert">{msg}</p>}
+      {!confirmed && <p className="mt-3 text-[12.5px] text-muted">Convert to PI from the Performa box in the story below.</p>}
     </section>
   );
 }

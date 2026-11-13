@@ -23,14 +23,17 @@ const ROW_GAP = 36;
 const SIDE = 26; // room for the curve at each end
 const GAP = 20; // between boxes in a row (the joining line)
 
-function Box({ p, n }: { p: Phase; n: number }) {
+function Box({ p, n, action }: { p: Phase; n: number; action?: React.ReactNode }) {
   const ahead = p.state === "ahead";
+  // A phase that's next and can be done from here (Trainings: Convert to PI) isn't greyed: its action shows instead of "Not yet".
+  const act = ahead && action;
   return (
-    <div className={`flex min-w-0 flex-1 flex-col rounded-2xl border px-3.5 py-3 ${ahead ? "border-dashed border-line bg-transparent opacity-55" : TONE[p.tone ?? "info"]}`} style={{ height: BOX_H }}>
+    <div className={`flex min-w-0 flex-1 flex-col rounded-2xl border px-3.5 py-3 ${act ? "border-dashed border-brand/60 bg-transparent" : ahead ? "border-dashed border-line bg-transparent opacity-55" : TONE[p.tone ?? "info"]}`} style={{ height: BOX_H }}>
       <p className="truncate text-[11.5px] font-bold uppercase tracking-wide text-muted" title={p.title}>{n}. {p.title}</p>
       {p.status && <p className={`mt-0.5 truncate text-[13px] font-semibold ${CHIP[p.tone ?? "info"]}`}>{p.status}</p>}
       <div className="mt-1.5 min-h-0 space-y-0.5 overflow-hidden">
-        {ahead && !p.lines.length ? <p className="text-[13px] text-faint">Not yet</p>
+        {act ? action
+          : ahead && !p.lines.length ? <p className="text-[13px] text-faint">Not yet</p>
           : p.lines.map((l, i) => <p key={i} className={`truncate text-[13px] leading-snug ${i === 0 ? "font-semibold text-ink" : "text-ink-2"}`} title={l}>{l}</p>)}
       </div>
     </div>
@@ -39,7 +42,8 @@ function Box({ p, n }: { p: Phase; n: number }) {
 
 type Quote = { id: string; number: string; date: string; status: string; total: number; history: HistoryLine[]; emails: SentEmail[]; rejection?: { at: string; reason: string } | null };
 
-export function QuoteStory({ quote, training }: { quote: Quote; training: boolean }) {
+/** `actions`: what can be done from a phase that's next, by phase key (Trainings: "pi" → Convert to PI). */
+export function QuoteStory({ quote, training, actions }: { quote: Quote; training: boolean; actions?: Partial<Record<string, React.ReactNode>> }) {
   const sales = useSalesData(true);
   const pipeline = usePipeline(training);
   const { cardEvents } = useStore();
@@ -90,7 +94,7 @@ export function QuoteStory({ quote, training }: { quote: Quote; training: boolea
             {phases.map((p, i) => (
               <div key={p.key} className="flex flex-col items-stretch">
                 {i > 0 && <div className={`${line} mx-auto h-4 w-0.5`} />}
-                <Box p={p} n={i + 1} />
+                <Box p={p} n={i + 1} action={actions?.[p.key]} />
               </div>
             ))}
           </div>
@@ -102,7 +106,7 @@ export function QuoteStory({ quote, training }: { quote: Quote; training: boolea
                 {row.map((p, i) => (
                   <div key={p.key} className="relative flex" style={{ direction: "ltr" }}>
                     {i > 0 && <div className={`${line} absolute top-1/2 h-0.5`} style={{ width: GAP, [r % 2 ? "right" : "left"]: -GAP }} />}
-                    <Box p={p} n={r * per + i + 1} />
+                    <Box p={p} n={r * per + i + 1} action={actions?.[p.key]} />
                   </div>
                 ))}
               </div>

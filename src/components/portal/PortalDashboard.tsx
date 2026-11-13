@@ -12,7 +12,7 @@ import { Participants, ProposalView, ProposeForm, RejectForm, primaryBtn, second
  * trainings as sign panels with a state stamp, and Stay connected. Prices are never shown here.
  */
 type Me = { email: string; name: string };
-type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; rejected: { at: string; reason: string } | null };
+type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -258,6 +258,9 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
             {t.confirmedAt ? (
               <p className="mt-5 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, write to <a className="font-semibold text-action hover:underline" href="mailto:learn@thinkhealth.in">learn@thinkhealth.in</a>.</p>
+            ) : t.locked ? (
+              // The Performa is made from this date (owner, 13 Nov): fixed, but not stamped Confirmed until we mark it so.
+              <p className="mt-5 text-[14.5px] text-ink-2"><b className="text-ink">Think Health is preparing your Performa Invoice.</b> To change anything now, write to <a className="font-semibold text-action hover:underline" href="mailto:learn@thinkhealth.in">learn@thinkhealth.in</a>.</p>
             ) : (
               <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <button type="button" className={secondaryBtn} onClick={() => setEditing(true)}>Change</button>

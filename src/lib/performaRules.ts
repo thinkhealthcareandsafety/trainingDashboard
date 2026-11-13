@@ -47,16 +47,32 @@ export const trainingNote = (p: Pick<Proposal, "dates" | "location" | "headcount
   `Training: ${p.dates.map(fmtProposalDate).join(" + ")}${p.tentative ? " (tentative)" : ""} · ${p.location} · ${p.headcount} people`;
 
 /**
- * The draft's starting values on Accept: today's dates, PO "Verbal" (the team's usual), Product Type Training, the
- * proposal's first day as Training Date, and the training lines at the coordinator's headcount (owner: "it should take
- * whatever value they put; if they didn't, keep ours").
+ * The draft's starting values on Accept: today's dates, PO "Verbal" (the team's usual), Product Type Training, Business
+ * Type Services ("training is a service") and Lead Source Direct (owner, 13 Nov), the proposal's first day as Training
+ * Date, and the training lines at the coordinator's headcount (owner: "it should take whatever value they put; if they
+ * didn't, keep ours").
  */
 export function acceptDefaults(p: Proposal | null, today: string): { fields: PiFields; trainingQty: number | null; note: string } {
   return {
-    fields: { poDate: today, trainer: "None", poNumber: "Verbal", trainingDate: p?.dates[0]?.date ?? "", leadSource: "", businessType: "Autofill", productType: "Training" },
+    fields: { poDate: today, trainer: "None", poNumber: "Verbal", trainingDate: p?.dates[0]?.date ?? "", leadSource: "Direct", businessType: "Services", productType: "Training" },
     trainingQty: p?.headcount && p.headcount > 0 ? p.headcount : null,
     note: p ? trainingNote(p) : "",
   };
+}
+
+/** Zoho's sales order status as the team sees it in Zoho: "open" is shown there as Confirmed. */
+export const piStatusLabel = (s: string) => (s === "draft" ? "Draft" : s === "open" ? "Confirmed" : s ? s[0].toUpperCase() + s.slice(1).replace(/_/g, " ") : "");
+
+/** The email fields from the Performa box, checked: who it goes to, the subject, the message. */
+export function readPiEmailFields(b: { to?: unknown; cc?: unknown; subject?: unknown; text?: unknown }): { to: string[]; cc: string[]; subject: string; text: string } | { error: string } {
+  const mails = (v: unknown) => String(v ?? "").split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const to = mails(b.to), cc = mails(b.cc).filter((m) => !to.includes(m));
+  const subject = String(b.subject ?? "").trim().slice(0, 300), text = String(b.text ?? "").slice(0, 20000);
+  const bad = [...to, ...cc].find((m) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
+  if (!to.length) return { error: "Add who it goes to" };
+  if (bad) return { error: `${bad} doesn't look like an email` };
+  if (!subject || !text.trim()) return { error: "Type the subject and the message" };
+  return { to, cc, subject, text };
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;

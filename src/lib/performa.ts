@@ -118,6 +118,14 @@ export async function savePerforma(salesorderId: string, raw: unknown, trainingI
   return so ? toDraft(so, trainingIds) : readPerforma(salesorderId, trainingIds);
 }
 
+/** Mark confirmed (owner, 13 Nov): the Draft becomes Confirmed in Zoho, like Zoho's own "Mark as Confirmed" (status open). */
+export async function confirmPerformaInZoho(salesorderId: string, trainingIds: Set<string>): Promise<PiDraft> {
+  const now = await readPerforma(salesorderId, trainingIds);
+  if (now.status !== "draft") return now; // already Confirmed (or further) in Zoho
+  await booksApi("POST", `/salesorders/${salesorderId}/status/open`);
+  return readPerforma(salesorderId, trainingIds);
+}
+
 /** The Performa emailed from Zoho (its PDF attached), from the organisation's address. Production only — the route checks. */
 export async function emailPerforma(salesorderId: string, m: { to: string[]; cc: string[]; subject: string; body: string }): Promise<void> {
   await booksApi("POST", `/salesorders/${salesorderId}/email`, {}, { send_from_org_email_id: true, to_mail_ids: m.to, cc_mail_ids: m.cc, subject: m.subject, body: m.body });

@@ -1,8 +1,8 @@
 // Accept date → Performa (owner, 12 Nov): the rules, the confirmed state, and the routes — Zoho is never reached in tests.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { acceptDefaults, fieldsFromZoho, piEmail, readPiEdit, trainingNote, zohoCustomFields } from "@/lib/performaRules";
-import { markConfirmed, propose, staffPortal, trainingsFor } from "@/lib/portalTrainings";
+import { acceptDefaults, fieldsFromZoho, piEmail, piStatusLabel, readPiEdit, readPiEmailFields, trainingNote, zohoCustomFields } from "@/lib/performaRules";
+import { markConfirmed, markZohoConfirmed, propose, staffPortal, trainingsFor } from "@/lib/portalTrainings";
 import { POST as tmPost, GET as tmGet } from "@/app/api/training-management/route";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -11,9 +11,9 @@ beforeEach(() => resetFakeDb());
 const RIYA = "riya@grand.com";
 const proposal = { dates: [{ date: "2099-12-04", time: "10:00" }, { date: "2099-12-05", time: "" }], tentative: true, location: "The Grand · Ballroom 2", headcount: 36, at: "2026-11-12T08:00:00Z", by: RIYA };
 
-test("defaults on Accept: today's PO date, Verbal, Training, the first day as Training Date, the coordinator's headcount", () => {
+test("defaults on Convert to PI: today's PO date, Verbal, Training, Services, Direct, the first day as Training Date, the coordinator's headcount", () => {
   const d = acceptDefaults(proposal, "2026-11-12");
-  assert.deepEqual(d.fields, { poDate: "2026-11-12", trainer: "None", poNumber: "Verbal", trainingDate: "2099-12-04", leadSource: "", businessType: "Autofill", productType: "Training" });
+  assert.deepEqual(d.fields, { poDate: "2026-11-12", trainer: "None", poNumber: "Verbal", trainingDate: "2099-12-04", leadSource: "Direct", businessType: "Services", productType: "Training" });
   assert.equal(d.trainingQty, 36);
   assert.match(d.note, /^Training: Fri, 4 Dec 2099, 10:00 am \+ Sat, 5 Dec 2099 \(tentative\) · The Grand · Ballroom 2 · 36 people$/);
   assert.equal(acceptDefaults(null, "2026-11-12").trainingQty, null);
@@ -61,15 +61,23 @@ const seed = async () => {
 const ashish = { "x-test-member": JSON.stringify({ id: "ashish", name: "Ashish" }), "content-type": "application/json" };
 const post = (body: object) => tmPost(new Request("http://x/api/training-management", { method: "POST", headers: ashish, body: JSON.stringify(body) }));
 
-test("confirmed: the portal stamps it, the coordinator can't change the date any more, Trainings says Confirmed", async () => {
+test("Convert to PI fixes the date (portal still Accepted, Trainings: Performa draft); Mark confirmed stamps Confirmed", async () => {
   await seed();
   assert.ok("proposal" in (await propose(RIYA, "1", proposal)));
   await markConfirmed("1", { at: "2026-11-12T10:00:00Z", by: "Ashish", salesorderId: "999", number: "Performa-25-1" });
-  const [t] = await trainingsFor(RIYA);
-  assert.equal(t.stamp, "Confirmed");
-  assert.equal(t.confirmedAt, "2026-11-12T10:00:00Z");
+  let [t] = await trainingsFor(RIYA);
+  assert.equal(t.stamp, "Accepted");
+  assert.equal(t.confirmedAt, null);
+  assert.equal(t.locked, true);
   assert.equal(((await propose(RIYA, "1", { ...proposal, headcount: 30 })) as { status: number }).status, 409);
+  assert.equal((await staffPortal(["1"])).get("1")?.status, "Performa draft");
+  const at = await markZohoConfirmed("1", "Ashish");
+  assert.equal(await markZohoConfirmed("1", "Shikha"), at); // kept from the first time
+  [t] = await trainingsFor(RIYA);
+  assert.equal(t.stamp, "Confirmed");
+  assert.equal(t.confirmedAt, at);
   assert.equal((await staffPortal(["1"])).get("1")?.status, "Confirmed");
+  assert.equal((await staffPortal(["1"])).get("1")?.confirmed?.zohoBy, "Ashish");
 });
 
 test("routes: Accept needs a proposal and makes nothing when Zoho can't be reached; no Performa yet → 404; email only from the live site", async () => {
@@ -84,4 +92,26 @@ test("routes: Accept needs a proposal and makes nothing when Zoho can't be reach
   await markConfirmed("1", { at: "2026-11-12T10:00:00Z", by: "Ashish", salesorderId: "999", number: "Performa-25-1" });
   assert.equal((await post({ action: "piemail", id: "1", to: RIYA, subject: "s", text: "t" })).status, 409);
   assert.equal((await post({ action: "accept", id: "1" })).status, 409);
+});
+
+test("Mark confirmed: needs a Performa; '& send email' only from the live site; Zoho unreachable → not marked, nothing on the board", async () => {
+  await seed();
+  await propose(RIYA, "1", proposal);
+  assert.equal((await post({ action: "piconfirm", id: "1" })).status, 404);
+  await markConfirmed("1", { at: "2026-11-12T10:00:00Z", by: "Ashish", salesorderId: "999", number: "Performa-25-1" });
+  assert.equal((await post({ action: "piconfirm", id: "1", send: true, to: RIYA, subject: "s", text: "t" })).status, 409);
+  // Tests never reach Zoho: the status change fails, so the portal isn't stamped and no board entry is written.
+  assert.equal((await post({ action: "piconfirm", id: "1" })).status, 502);
+  assert.equal((await staffPortal(["1"])).get("1")?.status, "Performa draft");
+  assert.equal(await (await db()).collection("cardEvents").countDocuments({}), 0);
+});
+
+test("the email fields are checked before anything is sent", () => {
+  assert.deepEqual(readPiEmailFields({ to: "A@x.com; b@y.com", cc: "b@y.com, c@z.com", subject: " Hi ", text: "Body" }), { to: ["a@x.com", "b@y.com"], cc: ["c@z.com"], subject: "Hi", text: "Body" });
+  assert.match((readPiEmailFields({ to: "", subject: "s", text: "t" }) as { error: string }).error, /who it goes to/);
+  assert.match((readPiEmailFields({ to: "nope", subject: "s", text: "t" }) as { error: string }).error, /doesn't look like an email/);
+  assert.match((readPiEmailFields({ to: "a@x.com", subject: "", text: "t" }) as { error: string }).error, /subject/);
+  assert.equal(piStatusLabel("open"), "Confirmed");
+  assert.equal(piStatusLabel("draft"), "Draft");
+  assert.equal(piStatusLabel("partially_invoiced"), "Partially invoiced");
 });
