@@ -16,7 +16,7 @@ import { declineKeyFor, markBoard, markConfirmed, markPerformaEmailed, markRejec
 import { scheduleOnBoard } from "@/lib/boardScheduleServer";
 import { forgetBoardDates } from "@/lib/boardDates";
 import { forgetZohoDoc, goneInZoho, writeThroughLater } from "@/lib/writeThrough";
-import { unconfirm } from "@/lib/portalTrainings";
+import { performaDeleted } from "@/lib/portalCleanup";
 import { setQuoteStatus } from "@/lib/quotations";
 import { editOf, piEmail, readPiEmailFields, readTrainers, textToHtml, zohoTrainer } from "@/lib/performaRules";
 import { after } from "next/server";
@@ -55,7 +55,8 @@ const FROM = "learn@thinkhealth.in";
  * read again for its status. Noticed when Zoho answers "does not exist" — opening the row, or any Performa button.
  */
 async function performaGone(id: string, salesorderId: string): Promise<Response> {
-  const was = await unconfirm(id, "deleted in Zoho");
+  const was = (await trainingDoc(id))?.confirmed;
+  await performaDeleted(salesorderId); // back to Accepted, attendance cleared (portalCleanup.ts)
   await forgetZohoDoc("salesorders", salesorderId);
   writeThroughLater([{ kind: "estimates", id }]);
   forgetBoardDates();

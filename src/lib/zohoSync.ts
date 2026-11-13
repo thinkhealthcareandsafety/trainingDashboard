@@ -304,6 +304,8 @@ async function reconcile(state: SyncState, sets: ItemSets, out: DocChange[]): Pr
       await docs.deleteMany({ _id: { $in: gone.map((d) => d._id) } });
       changed += gone.length;
       for (const d of gone) out.push({ kind, number: String(d.doc?.[NUMBER_KEY[kind]] ?? d.id), customer: String(d.doc?.customer_name ?? ""), action: "removed" });
+      // Not listed by item can also mean an item left Training Services: docsGone asks Zoho before clearing anything.
+      try { const { docsGone } = await import("./portalCleanup"); await docsGone(kind, gone.map((d) => d.id)); } catch (e) { console.error(`[zoho sync] portal cleanup failed: ${e instanceof Error ? e.message : e}`); }
     }
     if (cursor) state.cursors[kind] = cursor;
   }
@@ -357,6 +359,9 @@ async function sweepDeleted(state: SyncState, out: DocChange[]): Promise<number>
   if (removed.length) {
     await docs.deleteMany({ _id: { $in: removed.map((d) => d._id) } });
     for (const d of removed) out.push({ kind, number: String(d.doc?.[NUMBER_KEY[kind]] ?? d.id), customer: String(d.doc?.customer_name ?? ""), action: "removed" });
+    // What the coordinators' portal built on them goes too (owner, 13 Nov) — once Zoho confirms each is really deleted.
+    const { docsGone } = await import("./portalCleanup");
+    await docsGone(kind, removed.map((d) => d.id));
   }
   // The Sales board's copy keeps every document; the same check, the same span.
   const sales = await col<{ _id: string; kind: Kind; id: string; date: string }>("salesDocs");
