@@ -1,6 +1,6 @@
 # Training Manager: full plan
 
-## Status (13 Nov 2026): everything is live at `4b8e7d6`
+## Status (13 Nov 2026, end of session 28): everything is live at `ee239fb`
 
 | Step | What | State |
 |---|---|---|
@@ -90,10 +90,11 @@
    - Programme photos and videos (optional).
 2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board. Later on 13 Nov: trainers are required at Mark confirmed (on the board, Zoho Trainer Name = the first); Training completed needs trainers; a confirmed Performa shows green in the story.
 3. **To decide, then build:** item-level PI templates beyond training ("training only for now", owner).
-4. **Next: Attendance (Step A), then the Quiz (Step B).** See the plan below. Not built.
-5. **Out of scope for now:** certificates from the attendance list, WhatsApp to participants.
+4. **Attendance (Step A): live** (`07f7748`). **Quiz (Step B):** waits for the owner's Google Form. See the plan below.
+5. **Live refresh** across work.thinkhealth.in (`07f7748`): every tab checks for changes every 5 s; Zoho changes made from the dashboard are written straight into our copies.
+6. **Out of scope for now:** certificates from the attendance list, WhatsApp to participants.
 
-## Next: Attendance and Quiz (plan, 13 Nov 2026; not built)
+## Next: Attendance and Quiz (plan, 13 Nov 2026; Step A built and live at `07f7748`, Step B waits for the Google Form)
 
 The owner's brief (13 Nov): after Mark confirmed, the coordinator's view becomes "Training confirmed": On / At / For with an
 attendance QR beside it, and the participant list in a box with a live tick by each name. Attendees scan the QR, open their

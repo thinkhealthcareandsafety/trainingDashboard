@@ -1,23 +1,80 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Fri 13 Nov 2026 (end of session 27). **Live = `4b8e7d6`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app
+_Last updated: Fri 13 Nov 2026 (end of session 28). **Live = `ee239fb`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app
 (Vercel status success). This handoff is its own commit on top. Written for the next Claude Code session, and for the owner (Sumit)._
 
-**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "Where it's kept", "What's left". The portal's look is in `DESIGN.md`
-(+ `.impeccable/design.json`); its direction contract is in `.impeccable/surfaces/src-app-training.md`.
+**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left", and **"Next: Attendance and Quiz"** (the 17 gaps
+and their answers). The portal's look is in `DESIGN.md` (+ `.impeccable/design.json`, now older than DESIGN.md: refresh it only if asked).
 
-**Start of the next session (28). Do these first:**
+**Start of the next session (29). Do these first:**
 1. `git fetch`, then `git status` and `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
-2. `npm test` (**254** should pass) and `npx tsc --noEmit -p tsconfig.json`.
-3. `nslookup training.thinkhealth.in 1.1.1.1`.
-   - If it resolves, the owner sets **`PORTAL_BASE_URL=https://training.thinkhealth.in`** on Vercel (Production) and redeploys. The email and QR links then point there; there's no code change.
-   - Check: `curl https://training.thinkhealth.in/` should give the title "Think Health Training Manager".
+2. `npm test` (**277** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. `nslookup training.thinkhealth.in 1.1.1.1`. If it resolves: check `curl https://training.thinkhealth.in/` gives "Think Health
+   Training Manager", then the owner sets `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel (Production) and redeploys.
+   - DNS for thinkhealth.in is on **Cloudflare** (nameservers bristol/piotr.ns.cloudflare.com), in the boss's account. GoDaddy is only
+     the registrar: its DNS tab does nothing. Never suggest switching nameservers (Zoho Mail would break). The owner has a WhatsApp
+     message for the account holder. The record is **optional** (cosmetic); the portal works at work.thinkhealth.in/training.
 4. Ask the owner, in **one** AskUserQuestion round:
-   - How did the live test on "dashboard testing" go? Steps: decline → Reopen → accept → Confirm → Save to Zoho → Email the Performa → names → QR on a phone. Did they delete the test Performa in Zoho?
-   - Should Confirm also schedule the training on the Training board? (Not built on purpose; see "Open decisions".)
-   - Is the Cloudflare record added?
-5. If something failed in the live test, the error text shows on screen next to the button. Ask for a screenshot. Zoho errors come back as
-   "Zoho Books: <message>".
+   - How did the Trainers picker and Mark confirmed look on a real training? (I couldn't open the Trainings page: it reads the live DB.)
+   - Is the Google Form for the quiz ready? (Step B waits for it; see the plan's open questions.)
+   - Did they remove the "dashboard testing" card from the live Training board, and delete/void the test Performa-25-1204 in Zoho?
+   - Cloudflare record added?
+5. GoDaddy shows **auto-renew Off** for thinkhealth.in: remind the owner once (their call; it bills their card).
+
+**Session 28 in short (13 Nov): all live at `ee239fb`.** In order:
+- `35933fd` **Performa confirm flow** (owner): Convert to PI sits in the story's Performa box (box 2) only; the draft has **Mark confirmed**
+  and **Mark confirmed & send email** (Zoho `POST /salesorders/{id}/status/open`; unsaved edits saved first). The portal stamps Confirmed
+  only then (`confirmed.zohoAt`); the date locks at Convert (`locked`, "Think Health is preparing your Performa Invoice."). Trainings
+  status: Accepted → **Performa draft** → Confirmed. Mark confirmed **schedules on the Training board** (`lib/boardSchedule.ts` pure,
+  `lib/boardScheduleServer.ts`, live site only, result in `confirmed.board`): merge quote → PI, `set_training_date` with the
+  coordinator's days/times, location, email, phone, headcount; a tentative note; the concerned name only if the customer has none; left
+  alone if the quote card already has a date. Drafts default to Business Type **Services**, Lead Source **Direct**.
+- `07f7748` **Attendance (Step A)** + **live refresh**:
+  - Attendance: `lib/attendanceRules.ts` (pure: day window in India time, dates follow the board after Mark confirmed, cookie),
+    `lib/boardDates.ts` (the board's schedule per Performa, 60 s cache), attendance functions in `portalTrainings.ts`,
+    `/api/portal/attend`, `/training/[number]/attend`, `components/portal/Attend.tsx`. Fixed printable QR (`attendKey`, New QR replaces
+    it); mobile number only, the phone remembers (cookie `th_att_<id>`); walk-ins (source `walkin`); Present → PRESENT stamp
+    (`.stamp-present`); coordinator ticks/unticks a day that has come (`tick`), no removal once ticked; registration closes after the last
+    day; a **Completed** stamp when the board completes it. Collection `portalAttendance` (_id `TH001:YYYY-MM-DD`). Our Trainings page:
+    present per day, read only (owner: the coordinator alone runs attendance).
+  - Live refresh: `lib/changes.ts` (kv "changes": team / work / local; `bump`, `withBump`), `/api/changes`, `lib/live.ts` (one watcher
+    per tab, every 5 s while visible; `useLive(load, topics)`). POST routes are wrapped with `withBump` (team: store, certificates,
+    mail, reminders, whatsapp, sheet, progress; work: training-management, quotations, portal routes, portal-content);
+    `recordServerEvent` and the reply checks bump team. The store's own pull is now 60 s (a safety net).
+  - **Zoho write-through** (`lib/writeThrough.ts`): after the dashboard changes a quote or Performa in Zoho it reads it back once and
+    writes it into zohoDocs (`putZohoDoc`) and salesDocs (`putSalesDoc`), then bumps "local". The snapshot version is now
+    `zoho_state.version × 1e6 + local` (kept apart because runSync rewrites its whole state doc); salesData's key includes local too.
+  - The story also reads training PIs/invoices from the pipeline: **the Sales copy leaves out training-only documents**, which is why a
+    training quote's Performa always showed "Not yet" (the old "FLAME" open point).
+- `5d35d66` **Trainers required at Mark confirmed** (picker in the Performa box; `readTrainers`, `zohoTrainer` → Zoho's Trainer Name =
+  the first, else "Other"; all of them on the board, so reminders start at once, to our trainers only). The board's **Training completed**
+  waits for trainers. The story's Performa box is **green** when confirmed (`piHint` from `portalTrainings.confirmed`, so it shows
+  before any Zoho copy has it).
+- `ee239fb` The training card's separate **Change** link is hidden while Change date is there (same details); kept on completed trainings.
+
+**Key files added in session 28:** `src/lib/{boardSchedule,boardScheduleServer,attendanceRules,boardDates,changes,live,writeThrough}.ts`,
+`src/app/api/{changes,portal/attend}/route.ts`, `src/app/training/[number]/attend/page.tsx`, `src/components/portal/Attend.tsx`,
+`tests/{boardSchedule,attendance,liveRefresh}.test.ts`.
+
+**Open decisions (ask; don't build unasked):**
+1. **Quiz (Step B)**: waits for the owner's Google Form; the questions get copied into the portal's own quiz (leaderboard: full names,
+   decided). Open: per programme or per training, attempts, time limit, open/close, live or final leaderboard, what results people see.
+2. Attendance → the certificate list (natural next step; not asked yet).
+3. PI email templates for non-training items; a third quotation company.
+
+**Owner's side (waiting):** the Cloudflare CNAME (optional); the Gmail App Password for saletotalsupply@gmail.com; the Zia steps in Zoho
+Flow; GoDaddy auto-renew.
+
+**Traps learned in session 28:**
+- The Bash heredoc broke on a long node script with quotes and backticks: write edit scripts to the scratchpad with Write, run with node.
+- Some files have a literal BOM char inside a CSV string; a node replace that includes it misses. Use the Edit tool for those lines.
+- `next build` passes with `export const POST = withBump(...)`; route handlers may be consts.
+- Never write to the live board's cardEvents from tests; `scheduleOnBoard` refuses outside production.
+- Screenshots: a temporary `src/app/training/zz-preview/page.tsx` that mocks `window.fetch`, dev server on a new port (3045 was last),
+  headless Chrome; delete the page before committing.
+
+**(Done) Start of session 28 — old checklist:** git/tests/DNS; asked the owner about the live test (passed), board scheduling (yes, at
+Mark confirmed), Cloudflare (not yet).
 
 **Session 27 in short (10–13 Nov): all live at `4b8e7d6`.** The Training Manager is complete end to end, plus the Performa, accept/reject,
 live sync and many owner fixes. In order:
