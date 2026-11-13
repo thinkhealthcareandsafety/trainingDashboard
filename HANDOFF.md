@@ -1,53 +1,121 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Thu 12 Nov 2026 (end of session 27). **Live = `9509c51`** (portal dashboard + the owner's social links). Steps 5–9 of the
-Training Manager are committed on top and wait for the owner's "push". Written for the next Claude Code session (and the owner)._
+_Last updated: Fri 13 Nov 2026 (end of session 27). **Live = `4b8e7d6`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app
+(Vercel status success). This handoff is its own commit on top. Written for the next Claude Code session, and for the owner (Sumit)._
+
+**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "Where it's kept", "What's left". The portal's look is in `DESIGN.md`
+(+ `.impeccable/design.json`); its direction contract is in `.impeccable/surfaces/src-app-training.md`.
 
 **Start of the next session (28). Do these first:**
-1. `git fetch`; `git status`; `git log --oneline origin/master..HEAD`. Unless the owner pushed, expect c7bd832 (steps 5–8) and the step 9
-   design commit to be waiting. Push only on "push", with `git push origin master` in the foreground.
-2. `npm test` (**237** should pass) and `npx tsc --noEmit -p tsconfig.json`.
-3. `nslookup training.thinkhealth.in 1.1.1.1`. When it resolves, the owner sets **`PORTAL_BASE_URL=https://training.thinkhealth.in`** on
-   Vercel (Production) and redeploys. The login emails and QR links then point there; nothing in the code changes.
-4. The first real test, once pushed: a training-only quote to the test customer **"dashboard testing"**, with the **owner's own email** as
-   coordinator. That checks the login box in the email, signing in, proposing a date, adding names, and the QR join on a phone.
-5. **Accept date → Performa is built (not pushed).** Trainings → a proposed date → "Accept date → make Performa": POST /salesorders with estimate_id (Zoho's Convert) as a Draft, the quote's lines, training lines at the coordinator's headcount, custom fields Training Date / PO Date (today) / PO Number "Verbal" / Product Type Training (field ids in `lib/performaRules.ts`, read 12 Nov), the training in Notes. Then the Performa editor on Trainings saves straight to the draft (PUT), and "Email the Performa" sends it from Zoho with its PDF (template: Templates → Performa emails). The portal stamps Confirmed; the coordinator can't change the date after. **Not done on purpose:** scheduling on the Training board (it can start reminder emails; ask the owner). First test: on "dashboard testing", then delete the test Performa in Zoho. Also: Stress Management Training (Customised) counts on the Training board (`0651130`).
-6. **Accept or reject (owner, 12 Nov), built, not pushed:** on the portal, each training has Accept quotation (date, "Course conducted at" for the certificates, headcount; all required) or Decline (optional reason). Decline marks the quote Declined in Zoho (POST /estimates/{id}/status/declined; a failure is noted and Trainings offers a retry) and is final for the coordinator; Trainings has Reopen (Zoho back to Sent). Stamps: Awaiting decision → Accepted → Confirmed, or Rejected (red ink). Trainings rows glow green (accepted, waiting for us) or red (rejected); our button is now "Confirm → make Performa". The story of a rejected quote is just Quotation (Sent) → Rejected with the reason.
+1. `git fetch`, then `git status` and `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
+2. `npm test` (**254** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. `nslookup training.thinkhealth.in 1.1.1.1`.
+   - If it resolves, the owner sets **`PORTAL_BASE_URL=https://training.thinkhealth.in`** on Vercel (Production) and redeploys. The email and QR links then point there; there's no code change.
+   - Check: `curl https://training.thinkhealth.in/` should give the title "Think Health Training Manager".
+4. Ask the owner, in **one** AskUserQuestion round:
+   - How did the live test on "dashboard testing" go? Steps: decline → Reopen → accept → Confirm → Save to Zoho → Email the Performa → names → QR on a phone. Did they delete the test Performa in Zoho?
+   - Should Confirm also schedule the training on the Training board? (Not built on purpose; see "Open decisions".)
+   - Is the Cloudflare record added?
+5. If something failed in the live test, the error text shows on screen next to the button. Ask for a screenshot. Zoho errors come back as
+   "Zoho Books: <message>".
 
-**Session 27 in short (12 Nov):**
-- **Step 4, live at `6e17c82`:**
-  - The portal dashboard: welcome, Our programmes, Your trainings, Stay connected.
-  - Templates → **Portal content**: programmes, YouTube videos, photos and links (kv `portal_content`, `portalPhotos`).
-  - `9509c51`: the owner's links (WhatsApp card new; YouTube playlist).
-  - The programme photos and videos are left empty on purpose (owner).
-- **Steps 5–8, `c7bd832` (not pushed):**
-  - Files: `lib/portalRules.ts` (pure), `lib/portalTrainings.ts`, `lib/portalEmail.ts`, `lib/xlsxRead.ts` (no package), `components/portal/{TrainingTools,Participant,Qr}.tsx`.
-  - Routes: `/api/portal/{training,join}` and `/training/[number]/{join,[th]}`. The only new package is qrcode-generator@2.0.4.
-  - Proposals keep the earlier ones (struck through).
-  - TH numbers come from `counters` "th" and are never reused.
-  - Participant pages need their private `?p=` token.
-  - The login box goes on training-only quote emails (re-checked in Zoho; a password only the first time; a login made for an email that
-    failed is taken back).
-  - **Send login** on Trainings sends only from production.
-  - Trainings shows the portal state and glows green on a proposed date.
-- **Step 9 (finish review + DESIGN.md):**
-  - A fresh reviewer ran 2 rounds. Fixes: trainings first; the band holds the logo on a white plate plus the 4-sign strip.
-  - ISO sign grammar: CPR is a blue circle in `--sign-blue`, never the action blue; Fire is an extinguisher. Signs on navy have a white rim.
-  - Stamps stack with their dates.
-  - Real headings, no kickers; no hero metric.
-  - Content mounts after the welcome.
-  - DESIGN.md + `.impeccable/design.json` written from the build.
-- **Owner's side:**
-  - The Cloudflare CNAME (waiting on the account holder).
-  - The Gmail App Password for saletotalsupply@ (waiting).
-  - The Zia steps in Zoho Flow: open the flow, map Generate customized response to the webhook's Prompt, Save, switch On; a History
-    screenshot if it fails.
-- **Traps:**
-  - Headless Chrome can't go narrower than ~500px.
-  - A colour `transition` swapping primary/secondary classes can be captured mid-flight as a blank button. Use `transition-none` on
-    toggles; keying the button breaks keyboard focus.
-  - `TaskStop` on `next dev` can leave the server running; kill its PID.
-  - Preview pages under `src/app/training/zz-*` were temporary and are deleted. Never commit such pages.
+**Session 27 in short (10–13 Nov): all live at `4b8e7d6`.** The Training Manager is complete end to end, plus the Performa, accept/reject,
+live sync and many owner fixes. In order:
+- `6e17c82` **Step 4, portal dashboard:**
+  - the welcome (once after sign-in, tap/Esc to skip, none with reduced motion);
+  - Your trainings, Our programmes and Stay connected;
+  - **Templates → Portal content** to edit programmes, YouTube links, photos and social links (kv `portal_content`, `portalPhotos`; photos are made small in the browser).
+- `9509c51` The owner's social links: website, WhatsApp +91 93560 80806, LinkedIn, Instagram, Facebook, YouTube playlist. Programme photos and videos are left empty on purpose.
+- `c7bd832` **Steps 5–8:**
+  - proposals (now "Accept");
+  - participants: typed, Excel/CSV through `lib/xlsxRead.ts` (no package), and QR through `qrcode-generator@2.0.4`, the only new dependency;
+  - TH numbers (`counters` "th", never reused);
+  - participant pages behind a private `?p=` token;
+  - the login box in training-only quote emails;
+  - Send login on Trainings;
+  - `PORTAL_BASE_URL`.
+- `3fb9729` **Step 9:** the design finish review (2 rounds, by a fresh reviewer agent) and DESIGN.md.
+  - Trainings come before programmes. One navy band holds the logo on a white plate and the 4-sign strip.
+  - ISO sign grammar: CPR is a blue circle in `--sign-blue` #005387, never the action blue; Fire is an extinguisher; signs on navy have a white rim.
+  - Stamps stack with dates. Real headings, no kickers. The warning colour is a token (`--warn`).
+  - Welcome line: "Your trainings, managed in one place." (owner).
+- `0651130` **Stress Management Training (Customised)** counts on the Training board. Item names are compared without "(I)", case, or the Customised/Customized spelling (`isQuoteTrainingItem`, `lib/zoho.ts`).
+- `1e6fa2c` **Confirm → Performa** (`lib/performa.ts`, `lib/performaRules.ts`, `components/PerformaEditor.tsx`):
+  - Draft sales order from the quote (`estimate_id`);
+  - custom field ids, read 12 Nov through the Zoho Books connector:
+    - `cf_purchase_order_date` 982417000008510351 (required)
+    - `cf_trainer_name` …20925027
+    - `cf_purchase_order_number` …03206201
+    - `cf_training_date` …20925037
+    - `cf_lead_source1` …20925014
+    - `cf_business_type` …20925044
+    - `cf_productt_type` …20925143
+  - Dropdown options are kept exactly as Zoho spells them, stray spaces included.
+  - The editor PUTs the draft. "Email the Performa" sends through POST /salesorders/{id}/email, from template `pi:training` (Templates → Performa emails).
+- `23219b5` **Accept or reject:**
+  - Accept needs date + "Course conducted at" + headcount.
+  - Decline has an optional reason; Zoho marks the quote Declined; Reopen is on Trainings.
+  - Stamps: Awaiting decision → Accepted → Confirmed / Rejected.
+  - Rows glow green or red.
+  - The story of a rejected quote is just Quotation (Sent) → Rejected.
+- `6a537ed` **Trainings column sort** (click a header; asc/desc), kept per person in the new `uiPrefs` collection via `/api/ui-prefs` (key `trainingsSort`). Red now means only a coordinator's rejection, not an old quote declined in Zoho.
+- `345e169` **New quotes show straight away.** A coordinator's quote not yet in the hourly copy is read from Zoho once and kept as `portalTrainings.quoteDoc` (portal, Trainings, join links).
+- `4ff7867` **Live sync** (owner: "every minute, keep 2500"):
+  - each minute 9 am–8 pm IST Mon–Sat while the dashboard is open;
+  - paced by `paceAllowance` (400 at 9 am, rising to 95% of `ZOHO_DAILY_LIMIT`=2500 by 8 pm);
+  - the mail-reply checks and training reminders stay hourly (`state.mailAt`);
+  - quiet syncs are logged once an hour;
+  - the GitHub Actions hourly cron stays as the fallback.
+- `3684317` **Passwords:** every login email (quote or Send login) carries a fresh password, unless the coordinator chose their own (`portalLogins.own`, set by reset); then it gives only the link. `passwordForEmail` returns an `undo` used if the email fails.
+- `4b8e7d6` **Coordinator fixes:**
+  - "Decline the quotation" link in the login box goes to `/training/<number>/decline?k=` (`declineKey`); opening it changes nothing.
+  - Accepting marks the quote **Accepted** in Zoho, and Confirm also checks it: Zoho refused to convert a Sent quote ("Only accepted quotes can be converted to sales orders").
+  - Performa salesperson = whoever confirms, matched by first name to the salespeople on zohoDocs (Admin → Sumit A Shah).
+  - The participant list always shows, with a current count.
+  - **One person per mobile number** per training: repeats are skipped and counted.
+
+**Key files (Training Manager):**
+- Pure rules: `lib/portalRules.ts`, `lib/portalContent.ts`, `lib/portalEmail.ts`, `lib/performaRules.ts`, `lib/uiPrefs.ts`, `lib/xlsxRead.ts`.
+- Server: `lib/portalAuth.ts`, `lib/portalTrainings.ts`, `lib/portalServer.ts` (content/photos), `lib/performa.ts`, `lib/portalHost.ts` (host rewrite, `portalBase()`, `portalPrefix()`).
+- Portal routes:
+  - `/api/portal` (sign-in), `/api/portal/home`, `/api/portal/training` (propose/reject/people/add/remove/newlink), `/api/portal/join`, `/api/portal/decline`, `/api/portal/photo`.
+  - Pages: `/training`, `/training/[number]`, `/training/[number]/join`, `/training/[number]/[th]`, `/training/[number]/decline`.
+- Staff:
+  - `/api/training-management`: list; `?people=`, `?pi=`; actions coordinator / sendlogin / accept / pisave / piemail / reopen / decline.
+  - `/api/portal-content`, `/api/ui-prefs`, `components/TrainingManagement.tsx`, `components/PerformaEditor.tsx`, `components/PortalContentEditor.tsx`.
+  - The quote email in `/api/quotations` (`portalBox`).
+- Portal UI: `components/portal/{PortalLogin,PortalDashboard,TrainingTools,Participant,DeclinePage,SignTiles,Qr}.tsx`, `app/training/portal.css`.
+- Tests: `tests/{portalAuth,portalHost,portalContent,trainingPortal,performa,liveSync,uiPrefs,templates,trainingManager}.test.ts`.
+
+**Open decisions (ask the owner; don't build unasked):**
+1. **Schedule on the Training board at Confirm.**
+   - It needs a `set_training_date` event on card `pi:<salesorderId>`, with `location` (certificate location: we have "Course conducted at"), `email` and `phone` (the coordinator's), `people`, and `trainers` (empty).
+   - Risks: the new Performa's card only exists after the next sync (now about a minute), and a board date can start **reminder emails** (`lib/trainingReminders.ts`). Shikha uses the board live: never write test cardEvents.
+2. PI email templates for non-training items ("training only for now").
+3. A third quotation company (owner to decide).
+
+**Owner's side (waiting):**
+- Cloudflare CNAME `training` → `4145140deaae64f5.vercel-dns-017.com`, DNS only (grey cloud), added by whoever holds that Cloudflare account. Then `PORTAL_BASE_URL` on Vercel.
+- The Gmail App Password for saletotalsupply@gmail.com (Total Supply emails can't send until then).
+- The Zia steps in Zoho Flow: open the flow → **Generate customized response** → map the prompt to the webhook's **Prompt** → Save → switch On. If it fails, a History screenshot.
+
+**How the owner works (keep doing this):**
+- One item at a time. Restate structural items with defaults and wait for "yeah"/"yes".
+- All questions go in ONE AskUserQuestion round.
+- Push only on "push", with `git push origin master` in the foreground. Then check the GitHub status API for the commit and curl the live routes.
+- Status updates for Zoho Sprints are one plain-text paste block: DONE / WAITING ON US / NEXT TO BUILD / SUGGESTIONS, each line with an owner in brackets.
+- The portal must look premium for hotel clients. Use the Impeccable skill for portal UI, and keep DESIGN.md in step.
+
+**Traps learned this session:**
+- **Production DB reads from scripts are blocked** by the auto-mode classifier. Ask the owner, or read through the app's own pages. Zoho config can be read with the Zoho Books connector (`mcp__claude_ai_Zoho_Books__*`), org id `60016330017`.
+- Zoho converts only **Accepted** quotes to sales orders. Use `setQuoteStatus(id, "accepted" | "declined" | "sent")` (`lib/quotations.ts`, quotations connection = full access).
+- Mongo `$set` with a dotted key nests: `uiPrefs` keys have no dots.
+- The hourly copy (`zohoDocs`) lags. Anything portal-facing that keys on a quote must fall back to `quoteDoc` (`snapshot()` in `portalTrainings.ts`).
+- Edit scripts: write them with the Write tool. Bash heredocs break on `'` and backticks inside JS, and the `$1` in a replace string. Some files are CRLF, so a node `split/join` on multi-line text can miss; use the Edit tool for those (`lib/zoho.ts`).
+- Headless Chrome can't go narrower than ~500px. Pass the screenshot path through `cygpath -w` on the full path.
+- `TaskStop` on `next dev` can leave the server holding its port. Find the PID with `netstat -ano | grep :<port>` and `taskkill //PID … //F //T`. Each new dev server needs a new port; the last used was 3044.
+- Preview pages with mocked data (`src/app/training/zz-*`) are for screenshots only. Delete them before any commit. `.impeccable/review/` is git-excluded locally.
+- A colour `transition` on a toggle that swaps button classes can be captured mid-flight as a blank button: use `transition-none` on toggles. Re-keying the button breaks keyboard focus.
 
 **(Done) Start of session 27 — old checklist:**
 1. `git fetch`; `git status`; `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.

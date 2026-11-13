@@ -1,20 +1,97 @@
 # Training Manager: full plan
 
-## Status (12 Nov 2026, live at `a101b19`)
+## Status (13 Nov 2026): everything is live at `4b8e7d6`
 
 | Step | What | State |
 |---|---|---|
-| 1 | Training Management page (Trainings) | **Live**, with the quotation's story and the coordinator |
-| 2 | Coordinator fields in the quote email + Zoho contact person | **Live** (first name enough; Same as original per field; existing email renamed) |
-| 3 | Portal sign-in + OTP reset | **Live** at work.thinkhealth.in/training/<number>; no logins exist until step 8 |
-| — | training.thinkhealth.in | **Code live**; Vercel domain added; **waiting on the Cloudflare CNAME** `training` → `4145140deaae64f5.vercel-dns-017.com` (DNS only) |
-| 4 | Welcome + Our Programmes + Your trainings + Stay connected + Portal content editor | **Live** 12 Nov; social links (incl. WhatsApp) from the owner built in |
-| 5 | Propose date / location / confirm headcount | **Built 12 Nov** (several days, tentative, old values struck through; row glows green on Trainings) |
-| 6 | Participants: type, Excel import, duplicates, remove | **Built 12 Nov** (.xlsx read in the browser, no package; CSV) |
-| 7 | QR join page + TH IDs + participant page | **Built 12 Nov** (participant page needs its private link token) |
-| 8 | Login block in the quote email + Send login on Trainings | **Built 12 Nov**; links use `PORTAL_BASE_URL` (default work.thinkhealth.in/training; set it to https://training.thinkhealth.in on Vercel once DNS works) |
-| 9 | Design finish review + DESIGN.md + handoff | **Done 12 Nov** (2 review rounds; DESIGN.md written from the build) |
-| later | Green glowing row on a proposed date; Accept → Performa in Zoho + training scheduled | Idea (§5) |
+| 1 | Training Management page (Trainings) | **Live**. The quotation's story, coordinator, portal state; rows glow green (accepted) or red (rejected); columns sort, kept per person |
+| 2 | Coordinator fields in the quote email + Zoho contact person | **Live** (a first name is enough; Same as original per field; an existing email is renamed) |
+| 3 | Portal sign-in + OTP reset | **Live** at work.thinkhealth.in/training/<number> |
+| — | training.thinkhealth.in | **Code live**, Vercel domain added; **waiting on the Cloudflare CNAME** `training` → `4145140deaae64f5.vercel-dns-017.com` (DNS only) |
+| 4 | Welcome + Your trainings + Our programmes + Stay connected + Portal content editor | **Live** |
+| 5 | Accept (date, "course conducted at", headcount) or Decline | **Live** (replaced "propose a date"; see "As built") |
+| 6 | Participants: type, Excel/CSV, QR; one person per mobile number | **Live** |
+| 7 | QR join page + TH IDs + participant page | **Live** |
+| 8 | Login box in the quote email + Send login + Decline link | **Live**. A fresh password each email unless they chose their own |
+| 9 | Design finish review + DESIGN.md | **Done** (2 review rounds) |
+| 10 | Confirm → Draft Performa in Zoho, edited on the dashboard, emailed from a template | **Live** |
+| — | Schedule the training on the Training board at Confirm | **Not built on purpose**: a board date can start reminder emails to the client. Ask the owner first. |
+
+**First real test: still to do** (the owner, on the test customer "dashboard testing", with their own email as coordinator):
+1. Decline, then Reopen.
+2. Accept.
+3. Confirm, which makes the Performa (this was the first test to hit Zoho's "only accepted quotes" rule, now fixed).
+4. Save to Zoho, then Email the Performa.
+5. Add names; join by QR on a phone.
+6. Delete the test Performa in Zoho afterwards.
+
+## As built (12–13 Nov): the whole flow
+
+**1. Quotation.**
+- On Quotations, a quote with a training item asks for the **Training Coordinator** (name, mobile, email). The coordinator is saved on the Zoho customer as a contact person with designation "Training Coordinator", and gets the email first.
+- When **every** line is a training item (re-checked live in Zoho at send time), a **login box** goes under the message:
+  - the link `<PORTAL_BASE_URL>/<quote number>`;
+  - their email;
+  - a password: **a fresh random one each time**, unless they set their own by reset code (`portalLogins.own`), in which case it says "the password you chose";
+  - a **Sign in** button;
+  - "Not going ahead? **Decline the quotation**".
+- If the email fails, the login is put back as it was.
+- `portalTrainings` keeps the coordinator. A quote not yet in the hourly copy is read from Zoho once and kept as `quoteDoc`.
+
+**2. The coordinator signs in** (30-day session).
+- The **welcome** plays once after sign-in: four signs set in, then three lines.
+- Then **Your trainings**, each as a sign panel with stacked ink stamps: **Awaiting decision → Accepted → Confirmed**, or a red **Rejected**. Earlier stamps stay faded, with their dates.
+
+**3. Accept or Decline.**
+- **Accept** needs the date(s) (one or more days, a time, a Tentative switch), **"Course conducted at"** (printed on the certificates) and **people attending**. Zoho then marks the quote **Accepted**. They can change it until we confirm; the old values show struck through.
+- **Decline** (in the portal, or from the email's link) takes an optional reason. Zoho marks the quote **Declined**. It's final for them; the Trainings page has **Reopen**, which puts Zoho back to Sent.
+
+**4. Participants.**
+- The list always shows. "Add participants" opens three ways in: **Type names**, **Excel / CSV** (read in the browser, no package; header and phoneless rows skipped, with reasons), and **QR code** (copy, download, share on WhatsApp, new link).
+- One person per mobile number on a training.
+- TH001, TH002… are counted across everything and never reused.
+- Each participant has a private page, On / At / For, reached through their `?p=` link.
+
+**5. Our side (Trainings).**
+- A green row: accepted and waiting for us. Opening it shows the details and **Confirm → make Performa**. Confirm:
+  - marks the quote Accepted in Zoho if that didn't go through earlier;
+  - converts it into a **Draft sales order** (POST /salesorders with `estimate_id`), with the quote's lines;
+  - sets the training lines to the coordinator's headcount;
+  - fills Training Date (first day), PO Date (today), PO Number "Verbal" and Product Type "Training";
+  - sets the salesperson to whoever confirms (Admin = Sumit A Shah);
+  - writes the training into the Notes.
+- The **Performa editor** shows the draft as Zoho has it:
+  - the dates and the custom fields, using Zoho's own dropdowns;
+  - each line's description, quantity and rate;
+  - the Notes.
+
+  **Save to Zoho** PUTs the draft. **Email the Performa** sends it from Zoho with its PDF, using the template under Templates → Performa emails.
+- The portal then stamps **Confirmed**, and the coordinator can no longer change the date.
+- A red row: rejected, with the reason. **Reopen** and **Mark Declined in Zoho** (a retry) are there.
+
+## Where it's kept (as built)
+
+| Collection / key | What |
+|---|---|
+| `portalTrainings` (_id = Zoho estimate id) | `coordinator`, `proposal` + `history`, `confirmed` {salesorderId, number, by, at, emailedAt}, `rejected` {at, by, reason, zoho}, `joinKey`, `declineKey`, `loginSentAt`, `quoteDoc` |
+| `portalLogins` (_id = email) | scrypt salt/hash, `own` (they chose it), OTP, tries, lastLogin |
+| `portalSessions` | sha256 of the cookie token, expiry |
+| `portalParticipants` (_id = TH001…) | trainingId, name, phone, email, source (typed/excel/qr), token |
+| `counters` "th" | the running TH number |
+| kv `portal_content`, `portalPhotos` | programmes, social links, programme photos (Templates → Portal content) |
+| `mailTemplates` `portal:box`, `portal:login`, `pi:training` | saved wording (Templates) |
+| `uiPrefs` (_id = member id) | per-person page settings (`trainingsSort`) |
+
+## What's left
+
+1. **Owner:**
+   - The Cloudflare CNAME, then `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel and a redeploy.
+   - The first real test above.
+   - Programme photos and videos (optional).
+2. **To decide, then build:**
+   - Scheduling the training on the Training board at Confirm. It writes `set_training_date` on `pi:<salesorderId>`, which needs location, email and phone and can start reminders.
+   - Item-level PI templates beyond training ("training only for now", owner).
+3. **Out of scope for now:** attendance on the day, certificates from the portal, WhatsApp to participants.
 
 Also built along the way: on Quotations, clicking a quotation opens only that quotation, with its sent details, the new-quotation choice (same items, revised or from scratch) and the story from quotation to payment, or for training quotes to the certificates received.
 
@@ -27,7 +104,7 @@ Owner's brief, 10 Nov 2026. Decisions already made:
 - **Look:** taken from thinkhealth.in, following the **Safety-sign** design direction.
 - **Participants:** English, phone-first.
 
-Nothing is built until you say "yeah". Each step is one commit, and nothing goes live until you say "push".
+Nothing is built until you say "yeah". Nothing goes live until you say "push". (The sections below are the original 10 Nov plan; "As built" above wins where they differ.)
 
 ---
 
