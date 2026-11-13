@@ -108,39 +108,6 @@ export interface CalendarEntry {
   doneBy?: string; // member name
 }
 
-export type FollowUpStatus = "pending" | "in_progress" | "snoozed" | "overdue" | "completed" | "cancelled";
-export type FollowUpType = "call" | "email" | "whatsapp" | "meeting" | "site_visit";
-export type FollowUpSource = "manual" | "invoice_overdue" | "training_delivered" | "cert_expiry" | "estimate_sent" | "booking_unscheduled" | "dormant_client";
-
-export interface FollowUpActivity {
-  id: string;
-  kind: "note" | "created" | "completed" | "snoozed" | "rescheduled" | "status";
-  body: string;
-  at: string;
-}
-
-export interface FollowUp {
-  id: string;
-  customerName: string;
-  subject: string;
-  type: FollowUpType;
-  dueAt: string; // ISO
-  owner: string;
-  priority: Priority;
-  /** Stored status. "overdue" is never stored; it is derived from dueAt (see effectiveStatus). */
-  status: Exclude<FollowUpStatus, "overdue">;
-  snoozedUntil?: string;
-  source: FollowUpSource;
-  triggerKey?: string; // unique per auto-created follow-up, prevents duplicates
-  linkedDoc?: string;
-  outcome?: string;
-  notes?: string;
-  completedAt?: string;
-  createdAt: string;
-  activities: FollowUpActivity[];
-  demo?: boolean;
-}
-
 /* ---------------- Follow-ups pipeline ---------------- */
 
 /** An active Zoho Books customer — every customer is a lead. */

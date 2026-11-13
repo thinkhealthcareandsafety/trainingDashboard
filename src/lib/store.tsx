@@ -1,22 +1,20 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { Announcement, CalendarEntry, CardEvent, FollowUp, FollowUpActivity, Member, TickerItem, TrainingsResponse } from "./types";
+import type { Announcement, CalendarEntry, CardEvent, Member, TickerItem, TrainingsResponse } from "./types";
 import { addDays, ymd } from "./dates";
-import { followUpsFromPipeline, followUpsFromTrainings, seedManualFollowUps } from "./followups";
 import { buildTickerItems } from "./ticker";
 import { cascadeOf } from "./cascade";
 import { useSession } from "./session";
 import { boardsFor, ownsEntry } from "./roles";
 import { TEAM_CHANGED, watchChanges } from "./live";
 
-// Calendar entries, follow-ups and announcements are cached in the browser and, when the server has
-// MONGODB_URI configured, shared with the whole team through /api/store (only changed documents are sent).
+// Calendar entries, announcements, members and the boards' change log are cached in the browser and, when the server
+// has MONGODB_URI configured, shared with the whole team through /api/store (only changed documents are sent).
+// (The old follow-up tasks were removed on 13 Nov 2026: nothing showed them any more.)
 
 const KEYS = {
   entries: "th.entries.v2",
-  followUps: "th.followups.v2",
-  removedTriggers: "th.removedTriggers.v2",
   announcements: "th.announcements.v2",
   members: "th.members.v1",
   cardEvents: "th.cardEvents.v1",
@@ -42,9 +40,9 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 /** A revert waiting for "Revert all": the changes picked, and the later steps of their flow that go with them. */
 export type PendingRevert = { targets: CardEvent[]; later: CardEvent[]; by: string };
 
-type SharedName = "entries" | "followUps" | "removedTriggers" | "announcements" | "members" | "cardEvents";
+type SharedName = "entries" | "announcements" | "members" | "cardEvents";
 type SharedDoc = { id: string } & Record<string, unknown>;
-const SHARED: SharedName[] = ["entries", "followUps", "removedTriggers", "announcements", "members", "cardEvents"];
+const SHARED: SharedName[] = ["entries", "announcements", "members", "cardEvents"];
 // The team's changes show up on everyone's screen within seconds: the live watcher (live.ts) says when something changed,
 // and the store pulls then (owner, 13 Nov). This slower pull is only the safety net — and a tab brought back pulls at once.
 const PULL_MS = 60_000;
@@ -97,11 +95,6 @@ interface Store {
   saveEntry: (e: CalendarEntry) => void;
   deleteEntry: (id: string) => void;
 
-  followUps: FollowUp[];
-  saveFollowUp: (f: FollowUp, activity?: Omit<FollowUpActivity, "id" | "at">) => void;
-  deleteFollowUp: (id: string) => void;
-  patchFollowUps: (ids: string[], patch: Partial<FollowUp>, activity?: Omit<FollowUpActivity, "id" | "at">) => void;
-
   /** Follow-ups board: people using it, and every change they made to a card (revertable). */
   members: Member[];
   /** Adds a member (id given when the server already set their PIN under it). */
@@ -152,10 +145,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<TrainingsResponse | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [entries, setEntries] = useState<CalendarEntry[]>([]);
-  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [cardEvents, setCardEvents] = useState<CardEvent[]>([]);
-  const [removedTriggers, setRemovedTriggers] = useState<string[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [tickerSnooze, setTickerSnooze] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -168,11 +159,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const today = new Date();
     setEntries(load(KEYS.entries, () => seedEntries(today)));
-    setFollowUps(load(KEYS.followUps, () => seedManualFollowUps(today)));
     setMembers(load(KEYS.members, () => []));
     setCardEvents(load(KEYS.cardEvents, () => []));
-    try { localStorage.removeItem("th.leads.v1"); } catch {} // replaced by live Zoho customers
-    setRemovedTriggers(load(KEYS.removedTriggers, () => []));
+    // Gone from the app: live Zoho customers replaced th.leads; the old follow-up tasks were removed (13 Nov).
+    try { for (const k of ["th.leads.v1", "th.followups.v2", "th.removedTriggers.v2"]) localStorage.removeItem(k); } catch {}
     setAnnouncements(load(KEYS.announcements, () => seedAnnouncements(today)));
     setTickerSnooze(load(KEYS.tickerSnooze, () => ({})));
     setHydrated(true);
@@ -183,15 +173,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const inflight = useRef(0);
   const lastLocalChange = useRef(0);
   const synced = useRef<Record<SharedName, Map<string, string>>>({
-    entries: new Map(), followUps: new Map(), removedTriggers: new Map(), announcements: new Map(), members: new Map(), cardEvents: new Map(),
+    entries: new Map(), announcements: new Map(), members: new Map(), cardEvents: new Map(),
   });
   const applyServer = useCallback((json: Record<string, unknown>) => {
-    const docsOf = (c: SharedName): SharedDoc[] =>
-      c === "removedTriggers" ? ((json[c] as string[]) ?? []).map((id) => ({ id })) : ((json[c] as SharedDoc[]) ?? []);
+    const docsOf = (c: SharedName): SharedDoc[] => (json[c] as SharedDoc[]) ?? [];
     for (const c of SHARED) synced.current[c] = new Map(docsOf(c).map((d) => [d.id, JSON.stringify(d)]));
     setEntries((json.entries as CalendarEntry[]) ?? []);
-    setFollowUps((json.followUps as FollowUp[]) ?? []);
-    setRemovedTriggers((json.removedTriggers as string[]) ?? []);
     setAnnouncements((json.announcements as Announcement[]) ?? []);
     setMembers((json.members as Member[]) ?? []);
     setCardEvents((json.cardEvents as CardEvent[]) ?? []);
@@ -271,16 +258,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => { if (remote) push("entries", entries as unknown as SharedDoc[]); }, [remote, entries, push]);
-  useEffect(() => { if (remote) push("followUps", followUps as unknown as SharedDoc[]); }, [remote, followUps, push]);
-  useEffect(() => { if (remote) push("removedTriggers", removedTriggers.map((id) => ({ id }))); }, [remote, removedTriggers, push]);
   useEffect(() => { if (remote) push("announcements", announcements as unknown as SharedDoc[]); }, [remote, announcements, push]);
   useEffect(() => { if (remote) push("members", members as unknown as SharedDoc[]); }, [remote, members, push]);
   useEffect(() => { if (remote) push("cardEvents", cardEvents as unknown as SharedDoc[]); }, [remote, cardEvents, push]);
 
   // Browser cache (also the only storage when MongoDB isn't configured).
   useEffect(() => { if (hydrated) save(KEYS.entries, entries); }, [hydrated, entries]);
-  useEffect(() => { if (hydrated) save(KEYS.followUps, followUps); }, [hydrated, followUps]);
-  useEffect(() => { if (hydrated) save(KEYS.removedTriggers, removedTriggers); }, [hydrated, removedTriggers]);
   useEffect(() => { if (hydrated) save(KEYS.announcements, announcements); }, [hydrated, announcements]);
   useEffect(() => { if (hydrated) save(KEYS.members, members); }, [hydrated, members]);
   useEffect(() => { if (hydrated) save(KEYS.cardEvents, cardEvents); }, [hydrated, cardEvents]);
@@ -352,39 +335,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(t);
   }, [eventsKey, verified, refresh]);
 
-  // Reconcile with the current data source:
-  // - once Zoho is live, sample (demo) items disappear;
-  // - auto follow-ups are rebuilt from current Zoho data; stale ones are dropped unless someone worked on them;
-  // - follow-ups the user deleted are never re-created.
+  // Once Zoho is live, the sample (demo) calendar entries and announcements disappear.
   useEffect(() => {
     if (!data || !hydrated) return;
-    const live = data.source === "zoho" && !data.error;
-    const auto = [...followUpsFromTrainings(data.trainings, new Date()), ...followUpsFromPipeline(data.pipeline ?? [], new Date())];
-    const autoKeys = new Set(auto.map((f) => f.triggerKey));
-    const touched = (f: FollowUp) => f.status !== "pending" || f.activities.length > 1;
-    setFollowUps((cur) => {
-      const kept = cur.filter((f) => {
-        if (live && f.demo) return false;
-        if (f.triggerKey && !autoKeys.has(f.triggerKey) && !touched(f)) return false;
-        return true;
-      });
-      // Untouched auto follow-ups pick up the latest Zoho details (names, dates, priority).
-      const autoByKey = new Map(auto.map((f) => [f.triggerKey, f]));
-      for (let i = 0; i < kept.length; i++) {
-        const f = kept[i];
-        const fresh = f.triggerKey ? autoByKey.get(f.triggerKey) : undefined;
-        if (fresh && !touched(f)) kept[i] = { ...fresh, id: f.id, createdAt: f.createdAt, activities: f.activities };
-      }
-      const have = new Set(kept.map((f) => f.triggerKey).filter(Boolean));
-      const add = auto.filter((f) => !have.has(f.triggerKey) && !removedTriggers.includes(f.triggerKey!));
-      const next = [...kept, ...add];
-      return JSON.stringify(next) === JSON.stringify(cur) ? cur : next;
-    });
-    if (live) {
+    if (data.source === "zoho" && !data.error) {
       setEntries((cur) => (cur.some((e) => e.demo) ? cur.filter((e) => !e.demo) : cur));
       setAnnouncements((cur) => (cur.some((a) => a.demo) ? cur.filter((a) => !a.demo) : cur));
     }
-  }, [data, hydrated, removedTriggers]);
+  }, [data, hydrated]);
 
   const toast = useCallback((t: Omit<Toast, "id">) => {
     const id = uid();
@@ -405,40 +363,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toast({ text: `Deleted "${victim.title}"`, actionLabel: "Undo", onAction: () => setEntries((c) => [...c, victim]) });
     },
     [entries, toast],
-  );
-
-  const withActivity = (f: FollowUp, a?: Omit<FollowUpActivity, "id" | "at">): FollowUp => {
-    const { eff: _eff, ...clean } = f as FollowUp & { eff?: unknown }; // "eff" is a view-only field
-    return a ? { ...clean, activities: [...clean.activities, { ...a, id: uid(), at: new Date().toISOString() }] } : clean;
-  };
-
-  const saveFollowUp = useCallback((f: FollowUp, a?: Omit<FollowUpActivity, "id" | "at">) => {
-    setFollowUps((cur) => {
-      const next = withActivity(f, a);
-      return cur.some((x) => x.id === f.id) ? cur.map((x) => (x.id === f.id ? next : x)) : [...cur, next];
-    });
-  }, []);
-
-  const patchFollowUps = useCallback((ids: string[], patch: Partial<FollowUp>, a?: Omit<FollowUpActivity, "id" | "at">) => {
-    setFollowUps((cur) => cur.map((x) => (ids.includes(x.id) ? withActivity({ ...x, ...patch }, a) : x)));
-  }, []);
-
-  const deleteFollowUp = useCallback(
-    (id: string) => {
-      const victim = followUps.find((x) => x.id === id);
-      if (!victim) return;
-      setFollowUps((cur) => cur.filter((x) => x.id !== id));
-      if (victim.triggerKey) setRemovedTriggers((r) => [...r, victim.triggerKey!]);
-      toast({
-        text: `Deleted follow-up "${victim.subject}"`,
-        actionLabel: "Undo",
-        onAction: () => {
-          setFollowUps((c) => [...c, victim]);
-          if (victim.triggerKey) setRemovedTriggers((r) => r.filter((k) => k !== victim.triggerKey));
-        },
-      });
-    },
-    [followUps, toast],
   );
 
   const addMember = useCallback(
@@ -541,10 +465,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     entries,
     saveEntry,
     deleteEntry,
-    followUps,
-    saveFollowUp,
-    deleteFollowUp,
-    patchFollowUps,
     members,
     addMember,
     cardEvents,

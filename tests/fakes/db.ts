@@ -43,5 +43,5 @@ const coll = (name: string) => {
 };
 export const db = async () => ({ collection: coll });
 export const mongoConfigured = () => true;
-export const COLLECTIONS = ["entries", "followUps", "removedTriggers", "announcements", "members", "cardEvents"] as const;
+export const COLLECTIONS = ["entries", "announcements", "members", "cardEvents"] as const;
 export const resetFakeDb = () => { for (const k of Object.keys(store)) delete store[k]; };

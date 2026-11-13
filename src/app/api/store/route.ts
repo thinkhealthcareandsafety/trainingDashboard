@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     for (const c of COLLECTIONS) {
       const { docs, fp } = await readAll<Record<string, unknown>>(c);
       fps.push(fp);
-      out[c] = c === "removedTriggers" ? docs.map((x) => x.id) : c === "entries" ? docs.filter((e) => canSeeEntry(me, e as unknown as CalendarEntry)) : docs;
+      out[c] = c === "entries" ? docs.filter((e) => canSeeEntry(me, e as unknown as CalendarEntry)) : docs;
     }
     // Calendar entries differ per member, so the version carries who it's for.
     const v = fps.every(Boolean) ? `${me.id}|${fps.join("|")}` : "";
