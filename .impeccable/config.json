@@ -14,6 +14,12 @@
         "value": "arial",
         "createdAt": "2026-11-12T04:33:53.400Z",
         "reason": "Claude: outgoing email HTML (portal reset-code and login emails in src/app/api/portal/route.ts, src/lib/portalEmail.ts) needs a web-safe font stack that renders in every mail client; not portal UI typography"
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(.34, 1.56, .64, 1)",
+        "createdAt": "2026-11-14T04:52:32.840Z",
+        "reason": "Owner asked (13 Nov) to copy the AED Readiness Campaign design; this is its 'Answered' pill pulse, documented in DESIGN.md 'The quiz: its own world'; added in 1502f87, not this session"
       }
     ]
   }
