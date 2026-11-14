@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PI_FIELDS, type PiDraft, type PiFieldKey, piStatusLabel } from "@/lib/performaRules";
+import { PI_FIELDS, type PiDraft, type PiFieldKey, piStatusLabel, pickedForZohoTrainer, trainerFromZoho, zohoTrainerFor } from "@/lib/performaRules";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { fmtDate } from "@/lib/dates";
 import { btn, inputCls, selectCls } from "./ui";
@@ -29,7 +29,7 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   // Trainers before Mark confirmed (owner, 13 Nov): required; they go on the Training board (reminders go to them) and the
-  // first becomes Zoho's Trainer Name. Starts from Zoho's Trainer Name when it names one of ours.
+  // first becomes Zoho's Trainer Name. Starts from Zoho's Trainer Name, and the two follow each other (owner, 14 Nov).
   const [trainers, setTrainers] = useState<string[] | null>(null);
   const [other, setOther] = useState("");
 
@@ -40,8 +40,7 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     if (j.gone) onChanged?.(); // deleted in Zoho: the row goes back to Accepted
     if (j.draft) {
       setDraft(j.draft); setEmail(j.email);
-      const first = (x: string) => x.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
-      const named = TRAINERS.find((t) => first(t) === first(j.draft.fields.trainer ?? ""));
+      const named = trainerFromZoho(j.draft.fields.trainer ?? "", TRAINERS);
       setTrainers((had) => had ?? (named ? [named] : []));
     }
   };
@@ -57,12 +56,21 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   if (data.error || !draft || !email) return <p className="text-[13.5px] text-high">{data.error ?? "Couldn't open the Performa"}</p>;
   const editable = draft.status === "draft";
   const dirty = JSON.stringify(draft) !== JSON.stringify(data.draft);
-  const setField = (k: PiFieldKey, v: string) => setDraft({ ...draft, fields: { ...draft.fields, [k]: v } });
+  const picked = trainers ?? [];
+  // Trainer Name ↔ Trainers picker: choosing one in the PI ticks them first; the first ticked sets the PI's Trainer Name.
+  const setField = (k: PiFieldKey, v: string) => {
+    if (k === "trainer") setTrainers(pickedForZohoTrainer(picked, draft.fields.trainer ?? "", v, TRAINERS));
+    setDraft({ ...draft, fields: { ...draft.fields, [k]: v } });
+  };
+  const pick = (next: string[]) => {
+    setTrainers(next);
+    const zt = zohoTrainerFor(next);
+    if ((draft.fields.trainer ?? "").trim().toLowerCase() !== zt.trim().toLowerCase()) setDraft({ ...draft, fields: { ...draft.fields, trainer: zt } });
+  };
   const setLine = (i: number, patch: Partial<PiDraft["lines"][number]>) => setDraft({ ...draft, lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
   const estimate = draft.lines.reduce((n, l) => n + l.qty * l.rate, 0);
-  const picked = trainers ?? [];
-  const toggle = (t: string) => setTrainers(picked.includes(t) ? picked.filter((x) => x !== t) : [...picked, t]);
-  const addOther = () => { const t = other.replace(/\s+/g, " ").trim(); if (t && !picked.some((x) => x.toLowerCase() === t.toLowerCase())) setTrainers([...picked, t]); setOther(""); };
+  const toggle = (t: string) => pick(picked.includes(t) ? picked.filter((x) => x !== t) : [...picked, t]);
+  const addOther = () => { const t = other.replace(/\s+/g, " ").trim(); if (t && !picked.some((x) => x.toLowerCase() === t.toLowerCase())) pick([...picked, t]); setOther(""); };
 
   const save = async () => {
     setBusy("save"); setMsg("");
@@ -168,7 +176,7 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
       {editable && (
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className={btn.primary} disabled={!dirty || busy === "save"} onClick={save}>{busy === "save" ? "Saving to Zoho…" : "Save to Zoho"}</button>
-          {dirty && <button type="button" className={btn.ghost} onClick={() => { setDraft(data.draft); setMsg(""); }}>Undo changes</button>}
+          {dirty && <button type="button" className={btn.ghost} onClick={() => { setDraft(data.draft); const z = trainerFromZoho(data.draft.fields.trainer ?? "", TRAINERS); setTrainers(z ? [z] : []); setMsg(""); }}>Undo changes</button>}
         </div>
       )}
 

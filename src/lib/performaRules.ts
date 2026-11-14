@@ -80,6 +80,34 @@ export function zohoTrainer(trainers: string[]): string {
   return opts.find((o) => want && first(o) === want && first(o) !== "none" && first(o) !== "other") ?? opts.find((o) => sameOption(o, "Other"))!;
 }
 
+/*
+ * The Performa's Trainer Name and the Trainers picker follow each other (owner, 14 Nov: "it should automatically select the
+ * trainer … if I select the corresponding trainer in the PI").
+ */
+const firstName = (s: string) => s.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+
+/** The picker's name for a Trainer Name option: our trainer's spelling when the first name matches, else Zoho's; null for None / Other / empty. */
+export function trainerFromZoho(option: string, ours: string[]): string | null {
+  const f = firstName(option ?? "");
+  if (!f || f === "none" || f === "other") return null;
+  return ours.find((t) => firstName(t) === f) ?? option.replace(/\s+/g, " ").trim();
+}
+
+/** Dropdown → picker: the chosen trainer goes first, replacing the one the previous choice had put first; None / Other change nothing. */
+export function pickedForZohoTrainer(picked: string[], prevOption: string, nextOption: string, ours: string[]): string[] {
+  const next = trainerFromZoho(nextOption, ours);
+  if (!next) return picked;
+  const prev = trainerFromZoho(prevOption, ours);
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const rest = picked.filter((t, i) => !same(t, next) && !(i === 0 && prev && same(t, prev)));
+  return [next, ...rest];
+}
+
+/** Picker → dropdown: Zoho's Trainer Name for what's picked; nobody picked → None. */
+export function zohoTrainerFor(picked: string[]): string {
+  return picked.length ? zohoTrainer(picked) : PI_FIELDS.trainer.options.find((o) => sameOption(o, "None"))!;
+}
+
 /** A full edit of the draft as Zoho has it (Save to Zoho's shape), to change one field before confirming. */
 export const editOf = (d: PiDraft, fields: Partial<PiFields> = {}) => ({
   fields: { ...d.fields, ...fields }, notes: d.notes, shipmentDate: d.shipmentDate, date: d.date,

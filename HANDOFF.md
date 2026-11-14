@@ -21,6 +21,15 @@ _Last updated: Sat 14 Nov 2026 (end of session 28). **Live = `1502f87`** on work
    - Cloudflare record added?
 5. GoDaddy shows **auto-renew Off** for thinkhealth.in: remind the owner once (their call; it bills their card).
 
+**Session 29 (14 Nov), so far:**
+- Checklist clean (290 tests, tsc). training.thinkhealth.in **resolves and serves HTTPS** (Vercel: valid configuration) → the owner
+  sets `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel (Production) and redeploys. "dashboard testing" card: gone.
+  Start training / quiz: not used on a real training yet.
+- **Trainer Name ↔ Trainers picker follow each other** on the Performa (owner: "it should automatically select the trainer … if I
+  select the corresponding trainer in the PI"): `trainerFromZoho`, `pickedForZohoTrainer`, `zohoTrainerFor` in `lib/performaRules.ts`;
+  choosing in the PI ticks them first (replacing the one the dropdown had put first), the first ticked sets the dropdown ("Other" for
+  a name Zoho lacks, None for nobody); None / Other in the dropdown leave the picker; Undo changes resets both. 291 tests.
+
 **Session 28 in short (13–14 Nov): all live at `1502f87`.** In order:
 - `35933fd` **Performa confirm flow**: Convert to PI sits in the story's Performa box only; the draft has **Mark confirmed** and **Mark
   confirmed & send email** (Zoho `POST /salesorders/{id}/status/open`; unsaved edits saved first). The portal stamps Confirmed only then

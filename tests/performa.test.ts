@@ -1,7 +1,8 @@
 // Accept date → Performa (owner, 12 Nov): the rules, the confirmed state, and the routes — Zoho is never reached in tests.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { acceptDefaults, editOf, fieldsFromZoho, piEmail, piStatusLabel, readPiEdit, readPiEmailFields, readTrainers, trainingNote, zohoCustomFields, zohoTrainer } from "@/lib/performaRules";
+import { acceptDefaults, editOf, fieldsFromZoho, pickedForZohoTrainer, piEmail, piStatusLabel, readPiEdit, readPiEmailFields, readTrainers, trainerFromZoho, trainingNote, zohoCustomFields, zohoTrainer, zohoTrainerFor } from "@/lib/performaRules";
+import { TRAINERS } from "@/lib/pipeline";
 import { markConfirmed, markZohoConfirmed, propose, staffPortal, trainingsFor } from "@/lib/portalTrainings";
 import { POST as tmPost, GET as tmGet } from "@/app/api/training-management/route";
 import { db } from "@/lib/db";
@@ -150,4 +151,28 @@ test("a Performa deleted in Zoho: the training goes back to Accepted (portal unl
   const doc = await (await db()).collection<{ _id: string; confirmedHistory?: { number: string; why: string }[] }>("portalTrainings").findOne({ _id: "1" });
   assert.deepEqual(doc?.confirmedHistory?.map((h) => [h.number, h.why]), [["Performa-25-1", "deleted in Zoho"]]);
   assert.equal(await unconfirm("1", "again"), null);
+});
+
+test("the Performa's Trainer Name and the Trainers picker follow each other (owner, 14 Nov)", () => {
+  // Zoho's option → the picker's name: ours by first name, else Zoho's own (trimmed); None / Other / empty → nobody
+  assert.equal(trainerFromZoho("Sumit Shah ", TRAINERS), "Sumit A Shah");
+  assert.equal(trainerFromZoho("Ashish Dalal", TRAINERS), "Ashish Dalal");
+  assert.equal(trainerFromZoho(" Baiju Stephen", TRAINERS), "Baiju Stephen");
+  assert.equal(trainerFromZoho(" None", TRAINERS), null);
+  assert.equal(trainerFromZoho("Other ", TRAINERS), null);
+  assert.equal(trainerFromZoho("", TRAINERS), null);
+  // dropdown → picker: the chosen one goes first; switching replaces the one the dropdown had put first; others stay
+  assert.deepEqual(pickedForZohoTrainer([], " None", "Ashish Dalal", TRAINERS), ["Ashish Dalal"]);
+  assert.deepEqual(pickedForZohoTrainer(["Ashish Dalal", "Sumit A Shah"], "Ashish Dalal", "Shikha Dixit", TRAINERS), ["Shikha Dixit", "Sumit A Shah"]);
+  assert.deepEqual(pickedForZohoTrainer(["Sumit A Shah", "Shikha Dixit"], " None", "Shikha Dixit", TRAINERS), ["Shikha Dixit", "Sumit A Shah"]); // no repeat
+  assert.deepEqual(pickedForZohoTrainer(["Ravi Kumar"], "Other ", "Ashish Dalal", TRAINERS), ["Ashish Dalal", "Ravi Kumar"]); // a typed name isn't the dropdown's
+  assert.deepEqual(pickedForZohoTrainer(["Ashish Dalal"], "Ashish Dalal", " None", TRAINERS), ["Ashish Dalal"]); // None / Other leave the picker
+  assert.deepEqual(pickedForZohoTrainer(["Ashish Dalal"], "Ashish Dalal", "Other ", TRAINERS), ["Ashish Dalal"]);
+  // picker → dropdown: the first picked, "Other" for a name Zoho doesn't list, None for nobody
+  assert.equal(zohoTrainerFor(["Shikha Dixit", "Sumit A Shah"]), "Shikha Dixit");
+  assert.equal(zohoTrainerFor(["Baiju Stephen"]), " Baiju Stephen");
+  assert.equal(zohoTrainerFor(["Ravi Kumar"]), "Other ");
+  assert.equal(zohoTrainerFor([]), " None");
+  // round trip: what the dropdown puts in the picker gives the same dropdown back
+  for (const o of ["Sumit Shah ", "Ashish Dalal", " Baiju Stephen", "Shikha Dixit", "Priyanka "]) assert.equal(zohoTrainerFor(pickedForZohoTrainer([], " None", o, TRAINERS)), o);
 });
