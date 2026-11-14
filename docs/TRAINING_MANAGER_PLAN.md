@@ -97,8 +97,19 @@
    - The leaderboard (full names, then the faster finish) and per-question analytics show live on the coordinator's panel, on participants' pages and on our Trainings page.
    - Design: the AED Readiness Campaign's (DESIGN.md "The quiz: its own world").
    - Stored in `portalTrainings.sessions` and `portalQuizAttempts`.
+   - **Retakes and certificates (owner, 14 Nov; built in session 29):**
+     - Marking stays the form's: 10 points each, **70% passes** (21 of 30), 100% = First Aid Badge.
+     - A fail may **try again** while the training runs (between Start and End); a pass is final; after End no more tries. The right answers stay hidden until End on the last day.
+     - Leaderboard = each person's **best** try (tie: faster finish); per-question analytics = **first** tries; tries shown to the coordinator and on Trainings.
+     - The **passed list** shows at once on the coordinator's panel and on Trainings, with a CSV download (TH, name, email, score, badge, training day, certificate no., emailed).
+     - **Certificates only after End on the last day:** each person who passed is emailed their certificate (PDF attached, plus a link to their page) from learn@, once; a later Start again + End sends only to new passers. No email on file → the pass screen asks for one (sent at once if the training has ended). Downloadable on their page after End. If the coordinator never presses End, Trainings has **Send certificates** (from the last day on, never while it runs).
+     - The certificate: the uploaded Fulfillment design (BLS → Basic Life Support, else CPR, AED & First Aid), name, "Course conducted at", the last day they were present, number `FAT-OD/<dd-mm-yyyy>/<TH>` until the master-sheet step.
+     - Stored in `portalQuizAttempts` (_id `<training>:<TH>:<n>`, `n` = the try) and `portalCertificates` (_id `<training>:<TH>`). Email wording: Templates → Training Manager → "Certificate email". Code: `lib/quizRules.ts`, `lib/portalCertRules.ts` (pure), `lib/portalCertSend.ts`, `lib/portalCertLater.ts`, `/api/portal/certificate`.
+   - **Later (owner: "include it in the plan, no need to apply that right now"):**
+     - The passed list goes into the **master Zoho Sheet** as rows (next serial, real `FAT-OD/<date>/<n>` numbers via `appendBatch`), replacing the TH-based number.
+     - **Shreya's Fulfillment card**: how it treats certificates already sent from the portal (decide later).
 5. **Live refresh** across work.thinkhealth.in (`07f7748`): every tab checks for changes every 5 s; Zoho changes made from the dashboard are written straight into our copies.
-6. **Out of scope for now:** certificates from the attendance list, WhatsApp to participants.
+6. **Out of scope for now:** WhatsApp to participants. (Certificates now come from the quiz: see 4.)
 
 ## Next: Attendance and Quiz (plan, 13 Nov 2026; Step A built and live at `07f7748`, Step B waits for the Google Form)
 

@@ -7,6 +7,7 @@ import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalR
 import type { DayWindow } from "@/lib/attendanceRules";
 import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
 import type { QuizResults } from "@/lib/portalTrainings";
+import { passedCsv } from "@/lib/portalCertRules";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -456,7 +457,7 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
   const [error, setError] = useState("");
   const state = t.window.state;
   const run = async (action: "start" | "end") => {
-    if (action === "end" && !window.confirm("End today's training? Attendance and the quiz close for today. On the last day, everyone's right answers show.")) return;
+    if (action === "end" && !window.confirm(`End today's training? Attendance and the quiz close for today.${t.quiz && t.window.state === "open" && t.window.dayNo === t.window.of ? " This is the last day: the right answers show, and everyone who passed the quiz is emailed their certificate." : ""}`)) return;
     setBusy(true); setError("");
     const r = await act<{ window?: DayWindow }>({ action, id: t.id });
     setBusy(false);
@@ -485,18 +486,23 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
   );
 }
 
-/** The quiz's live results (owner, 13 Nov: "it will start displaying on the coordinator's board"): leaderboard and, per question, the picks. */
+/**
+ * The quiz's live results (owner, 13 Nov: "it will start displaying on the coordinator's board"): leaderboard (best tries)
+ * and, per question, the picks (first tries). Owner, 14 Nov: tries, each passed person's certificate, the passed list as CSV.
+ */
 function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]> }) {
   const [r, setR] = useState<QuizResults | null>(null);
   const [byQuestion, setByQuestion] = useState(false);
+  // Just after End on the last day the certificates are still going out: keep checking until each one with an email has gone.
+  const sending = Boolean(r?.certificates.ready && r.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
   useEffect(() => {
     let on = true;
     const load = () => act<QuizResults & { none?: boolean }>({ action: "results", id }).then((j) => { if (on && j.leaderboard) setR(j); });
     load();
-    if (quiz.state !== "open") return () => { on = false; };
+    if (quiz.state !== "open" && !sending) return () => { on = false; };
     const t = setInterval(() => { if (!document.hidden) load(); }, 5000);
     return () => { on = false; clearInterval(t); };
-  }, [id, quiz.state]);
+  }, [id, quiz.state, sending]);
   const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
   return (
     <section className="mt-7 border-t border-line pt-6" aria-label="Quiz results">
@@ -507,13 +513,23 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
       {!r ? <p className="mt-3 text-[14px] text-muted">Loading the results…</p> : (
         <>
           <div className="mt-4 grid grid-cols-3 gap-3">
-            {[[`${r.taken} of ${r.present}`, "present have taken it"], [String(r.passed), `passed (70%+)`], [`${r.avgPct}%`, "average score"]].map(([v, l]) => (
+            {[[`${r.taken} of ${r.present}`, "present have taken it"], [String(r.passed), `passed (${r.passPct}%+)`], [`${r.avgPct}%`, "average best score"]].map(([v, l]) => (
               <div key={l} className="rounded-xl bg-ground px-3 py-3 text-center">
                 <p className="num text-[22px] font-extrabold leading-none text-ink">{v}</p>
                 <p className="mt-1.5 text-[12.5px] leading-snug text-muted">{l}</p>
               </div>
             ))}
           </div>
+          {r.passed > 0 && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl bg-ground px-4 py-3">
+              <p className="min-w-0 text-[14px] leading-snug text-ink-2">
+                {r.certificates.ready
+                  ? <>Certificates: <b className="num text-ink">{r.certificates.list.filter((c) => c.emailedAt).length} of {r.certificates.list.length}</b> emailed{r.certificates.list.some((c) => !c.email) ? "; those without an email can add one on their page" : ""}.</>
+                  : <>Everyone who passes is emailed their certificate when you end the training on its last day.</>}
+              </p>
+              <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => downloadCsv(r)}>Download passed list</button>
+            </div>
+          )}
           {r.leaderboard.length === 0 ? <p className="mt-4 text-[14.5px] text-muted">No one has finished yet.</p> : (
             <ol className="mt-4 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
               {r.leaderboard.map((b) => (
@@ -521,7 +537,7 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
                   <span className={`num text-center text-[15px] font-extrabold ${b.rank === 1 ? "text-navy" : "text-muted"}`}>{b.rank}</span>
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] font-semibold text-ink">{b.name}</span>
-                    <span className="num block text-[12.5px] text-muted">{b.th} · {Math.floor(b.seconds / 60)}m {b.seconds % 60}s{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}</span>
+                    <span className="num block text-[12.5px] text-muted">{b.th} · {Math.floor(b.seconds / 60)}m {b.seconds % 60}s{b.tries > 1 ? ` · ${b.tries} tries` : ""}{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}{certNote(r, b.th)}</span>
                   </span>
                   <span className="num text-right text-[15px] font-bold text-ink">{b.points}<span className="ml-1.5 text-[12.5px] font-semibold text-muted">{b.pct}%</span></span>
                 </li>
@@ -530,7 +546,7 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
           )}
           {r.taken > 0 && (
             <div className="mt-4">
-              <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide the answers by question" : "See the answers by question"}</button>
+              <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide the answers by question" : "See the answers by question (first tries)"}</button>
               {byQuestion && (
                 <ol className="mt-3 space-y-4">
                   {r.questions.map((q, i) => {
@@ -559,6 +575,21 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
       <p className={`${sub} sr-only`}>Quiz results</p>
     </section>
   );
+}
+
+/** A passed person's certificate, in their row: emailed, or why not yet. */
+function certNote(r: QuizResults, th: string): string {
+  const c = r.certificates.list.find((x) => x.th === th);
+  if (!c || !r.certificates.ready) return "";
+  return c.emailedAt ? " · Certificate emailed" : !c.email ? " · Certificate: no email yet" : c.error ? " · Certificate not sent yet" : " · Certificate on its way";
+}
+
+/** The passed list as a CSV file (opens in Excel). */
+function downloadCsv(r: QuizResults) {
+  const url = URL.createObjectURL(new Blob([passedCsv(r.certificates.list)], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: `${r.title} - passed.csv` });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /* ---------------- Stay connected ---------------- */

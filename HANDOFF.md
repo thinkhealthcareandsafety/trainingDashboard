@@ -29,6 +29,15 @@ _Last updated: Sat 14 Nov 2026 (end of session 28). **Live = `1502f87`** on work
   select the corresponding trainer in the PI"): `trainerFromZoho`, `pickedForZohoTrainer`, `zohoTrainerFor` in `lib/performaRules.ts`;
   choosing in the PI ticks them first (replacing the one the dropdown had put first), the first ticked sets the dropdown ("Other" for
   a name Zoho lacks, None for nobody); None / Other in the dropdown leave the picker; Undo changes resets both. 291 tests.
+- **Quiz retakes + certificates by email** (owner, 14 Nov; full rules in TRAINING_MANAGER_PLAN.md "What's left" 4): form marking
+  (70%); a fail retries while the training runs, a pass is final; best try ranks, first try counts in analytics; passed list + CSV
+  on the coordinator panel and Trainings; certificates emailed from learn@ **only after End on the last day** (once each; PDF made
+  on the server by `singleCertificate` in `certPdf.ts` with the fonts traced via `outputFileTracingIncludes`; Zoho Mail attachment
+  upload in `sendMail`, with the page link as the fallback); email asked on the pass screen; Send certificates on Trainings as the
+  fallback; Templates → "Certificate email". Later: master Zoho Sheet rows, Shreya's card. 297 tests.
+  - **Unverified until a real run:** the Zoho Mail attachment upload (`POST …/messages/attachments?fileName=`) has never been called
+    for real; if it's refused the email still goes with the download link, and the server log says "attachment … not uploaded".
+    The certificate PDF needs the design in `certDesigns` (Admin uploads it on the Fulfillment board; Shreya's certificates use it since Oct).
 
 **Session 28 in short (13–14 Nov): all live at `1502f87`.** In order:
 - `35933fd` **Performa confirm flow**: Convert to PI sits in the story's Performa box only; the draft has **Mark confirmed** and **Mark

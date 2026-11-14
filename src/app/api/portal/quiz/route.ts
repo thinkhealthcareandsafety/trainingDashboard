@@ -1,4 +1,5 @@
-import { participantQuiz, quizStart, quizSubmit } from "@/lib/portalTrainings";
+import { participantQuiz, quizStart, quizSubmit, saveParticipantEmail } from "@/lib/portalTrainings";
+import { certificatesLater } from "@/lib/portalCertLater";
 import { withBump } from "@/lib/changes";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +8,8 @@ export const dynamic = "force-dynamic";
  * The participant's quiz (owner, 13 Nov), from their private page (TH number + token), no login:
  *  GET ?n=<Training Number>&th=<TH001>&p=<token>  — the quiz (answers only once revealed), its state, their result, the leaderboard
  *  POST { n, th, p, action: "start" }             — opening it starts their clock
- *  POST { n, th, p, action: "submit", answers }   — one attempt: scored, ranked
+ *  POST { n, th, p, action: "submit", answers }   — the try in progress: scored, ranked; a fail may try again (owner, 14 Nov)
+ *  POST { n, th, p, action: "email", email }      — where their certificate goes (passed people with no email on file)
  * Open only while the coordinator's session runs, and only to people marked present.
  */
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -25,10 +27,13 @@ export async function GET(request: Request) {
 
 async function handlePOST(request: Request) {
   try {
-    const b = (await request.json().catch(() => null)) as { n?: unknown; th?: unknown; p?: unknown; action?: string; answers?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { n?: unknown; th?: unknown; p?: unknown; action?: string; answers?: unknown; email?: unknown } | null;
     const r = b?.action === "start" ? await quizStart(b.n, b.th, b.p)
       : b?.action === "submit" ? await quizSubmit(b.n, b.th, b.p, b.answers)
+      : b?.action === "email" ? await saveParticipantEmail(b.n, b.th, b.p, b.email)
       : { error: "Unknown action", status: 400 };
+    // The training has ended: their certificate goes now.
+    if (b?.action === "email" && "sendNow" in r && r.sendNow) certificatesLater(r.trainingId, "participant", String(b.th ?? "").toUpperCase());
     return "error" in r ? json({ error: r.error }, r.status) : json(r);
   } catch (e) {
     console.error("[portal/quiz]", e);

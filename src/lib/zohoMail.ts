@@ -93,12 +93,30 @@ async function accessFor(m: Mailbox, force = false): Promise<string> {
  * Sends an HTML email from the mailbox. With `replyTo` (Zoho Mail's id of an email sent before) it goes as a reply in
  * that thread; if Zoho can't reply to it, it goes as a new email with the same subject. Returns the new email's id.
  */
-export async function sendMail(from: string, mail: { to: string; subject: string; html: string; replyTo?: string }): Promise<{ messageId?: string; threaded: boolean }> {
+export async function sendMail(from: string, mail: { to: string; subject: string; html: string; replyTo?: string; attachments?: { name: string; bytes: Uint8Array }[] }): Promise<{ messageId?: string; threaded: boolean; attached: number }> {
   const m = await (await kv()).findOne({ _id: keyOf(from) });
   if (!m) throw new Error(`Zoho Mail isn't connected for ${from} yet — Admin connects it once`);
   type Res = { status?: { code?: number; description?: string }; data?: { messageId?: string | number; moreInfo?: string } };
+  // Attachments are uploaded first (Zoho Mail: POST …/messages/attachments, the file as the body), then named in the email.
+  // One that won't upload is left out (logged); the caller's email says where else to get it.
+  const files: { storeName: string; attachmentPath: string; attachmentName: string }[] = [];
+  for (const a of mail.attachments ?? []) {
+    try {
+      const up = (token: string) => fetch(`${MAIL_API}/api/accounts/${m.accountId}/messages/attachments?fileName=${encodeURIComponent(a.name)}`, {
+        method: "POST", headers: { Authorization: `Zoho-oauthtoken ${token}`, "Content-Type": "application/octet-stream" }, body: Buffer.from(a.bytes), cache: "no-store",
+      });
+      let res = await up(await accessFor(m));
+      if (res.status === 401) res = await up(await accessFor(m, true));
+      const j = (await res.json().catch(() => ({}))) as { data?: { storeName?: string; attachmentPath?: string; attachmentName?: string } | { storeName?: string; attachmentPath?: string; attachmentName?: string }[] };
+      const d = Array.isArray(j.data) ? j.data[0] : j.data;
+      if (res.ok && d?.storeName && d.attachmentPath) files.push({ storeName: d.storeName, attachmentPath: d.attachmentPath, attachmentName: d.attachmentName ?? a.name });
+      else console.warn(`[zoho mail] attachment ${a.name} not uploaded (${res.status})`);
+    } catch (e) {
+      console.warn(`[zoho mail] attachment ${a.name} not uploaded:`, e instanceof Error ? e.message : e);
+    }
+  }
   const send = async (reply: boolean) => {
-    const body = JSON.stringify({ fromAddress: m.address, toAddress: mail.to, subject: mail.subject, content: mail.html, mailFormat: "html", ...(reply ? { action: "reply" } : {}) });
+    const body = JSON.stringify({ fromAddress: m.address, toAddress: mail.to, subject: mail.subject, content: mail.html, mailFormat: "html", ...(files.length ? { attachments: files } : {}), ...(reply ? { action: "reply" } : {}) });
     const path = `/accounts/${m.accountId}/messages${reply ? `/${mail.replyTo}` : ""}`;
     let r = await mailApi<Res>(await accessFor(m), path, { method: "POST", body });
     if (r.status === 401) r = await mailApi<Res>(await accessFor(m, true), path, { method: "POST", body }); // token revoked early
@@ -106,12 +124,12 @@ export async function sendMail(from: string, mail: { to: string; subject: string
   };
   if (mail.replyTo) {
     const r = await send(true);
-    if (r.status < 300) return { messageId: r.json.data?.messageId != null ? String(r.json.data.messageId) : undefined, threaded: true };
+    if (r.status < 300) return { messageId: r.json.data?.messageId != null ? String(r.json.data.messageId) : undefined, threaded: true, attached: files.length };
     console.warn(`[zoho mail] reply failed (${r.status} ${r.json.status?.description ?? ""}) — sending as a new email`);
   }
   const r = await send(false);
   if (r.status >= 300) throw new Error(`Zoho Mail didn't send it: ${r.json.data?.moreInfo ?? r.json.status?.description ?? r.status}`);
-  return { messageId: r.json.data?.messageId != null ? String(r.json.data.messageId) : undefined, threaded: false };
+  return { messageId: r.json.data?.messageId != null ? String(r.json.data.messageId) : undefined, threaded: false, attached: files.length };
 }
 
 /* ---------------- Reading replies and filing sent emails (learn@ — the gratitude emails) ---------------- */

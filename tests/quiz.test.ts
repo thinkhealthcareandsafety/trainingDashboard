@@ -94,7 +94,8 @@ test("Start only on the training date; the quiz opens with it, only for people m
   const r = await quizSubmit("QT-1", "TH001", asha, KEY);
   assert.ok("result" in r && r.result?.points === 300 && r.result.rank === 1 && r.result.badge);
   assert.equal(r.quiz.questions[0].answer, undefined); // the answers stay hidden while it's open
-  assert.equal(((await quizSubmit("QT-1", "TH001", asha, KEY)) as { status: number }).status, 409); // once each
+  assert.match(((await quizSubmit("QT-1", "TH001", asha, KEY)) as { error: string }).error, /passed the quiz already/); // passed: no more tries
+  assert.match(((await quizStart("QT-1", "TH001", asha)) as { error: string }).error, /passed the quiz already/);
   await quizStart("QT-1", "TH002", vikram);
   await quizSubmit("QT-1", "TH002", vikram, KEY.map((a, i) => (i < 12 ? (a + 1) % CPR_AED_QUIZ.questions[i].options.length : a)));
   const res = await quizResults(RIYA, "1");

@@ -4,12 +4,14 @@ import { db } from "./db";
 import { itemSets, type ZItem } from "./zoho";
 import { type TrainingQuote, isTrainingOnly, toTrainingQuote } from "./trainingManager";
 import { booksApi } from "./quotations";
-import { MAX_PEOPLE, type Person, type Proposal, type ProposalDate, type Stamp, TH_ID, duplicatePhones, fmtProposalDate, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
+import { MAX_PEOPLE, type Person, type Proposal, type ProposalDate, type Stamp, TH_ID, cleanEmail, duplicatePhones, fmtProposalDate, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 import { cleanPhone } from "./trainingManager";
 import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
 import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
-import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, leaderboard, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
+import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
+import { certDay, certificatesReady, indiaDayOf, portalCertNumber, staffMaySend } from "./portalCertRules";
+import { DESIGNS, type DesignId, designFor } from "./certificates";
 
 /*
  * The trainings on the Training Manager portal (docs/TRAINING_MANAGER_PLAN.md steps 4–7), for the signed-in coordinator,
@@ -478,8 +480,11 @@ export async function startTraining(email: string, id: unknown): Promise<{ windo
   return { window: sessionWindow(days, today, sessions) };
 }
 
-/** End training: attendance and the quiz close for today; on the last day the quiz's right answers show. */
-export async function endTraining(email: string, id: unknown): Promise<{ window: DayWindow } | Fail> {
+/**
+ * End training: attendance and the quiz close for today; on the last day the quiz's right answers show, and `certificates`
+ * says the passed people's certificates are due (owner, 14 Nov: "only after the training is ended by the coordinator").
+ */
+export async function endTraining(email: string, id: unknown): Promise<{ window: DayWindow; certificates: boolean; trainingId: string } | Fail> {
   const t = await own(email, id);
   if (!t) return notYours;
   const today = indiaToday();
@@ -488,22 +493,32 @@ export async function endTraining(email: string, id: unknown): Promise<{ window:
   if (i < 0) return { error: "Today's training isn't running.", status: 409 };
   sessions[i] = { ...sessions[i], endedAt: new Date().toISOString(), endedBy: email };
   await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { sessions } });
-  return { window: sessionWindow(daysOf(await datesOf(t)), today, sessions) };
+  const days = daysOf(await datesOf(t));
+  return { window: sessionWindow(days, today, sessions), certificates: certificatesReady(days, sessions) && Boolean(await quizOf(t)), trainingId: t._id };
 }
 
-type AttemptDoc = { _id: string; trainingId: string; th: string; name: string; quizId: string; answers?: number[]; startedAt: string; finishedAt?: string; points?: number; correct?: number };
+type AttemptDoc = { _id: string; trainingId: string; th: string; name: string; quizId: string; n?: number; answers?: number[]; startedAt: string; finishedAt?: string; points?: number; correct?: number };
 const attemptsCol = async () => (await db()).collection<AttemptDoc>("portalQuizAttempts");
 async function attemptsOf(trainingId: string): Promise<AttemptDoc[]> {
   return (await (await attemptsCol()).find({ trainingId }).toArray()).filter((a) => a.trainingId === trainingId);
 }
 const finished = (list: AttemptDoc[]): Attempt[] =>
-  list.filter((a) => a.finishedAt && a.answers).map((a) => ({ th: a.th, name: a.name, answers: a.answers!, startedAt: a.startedAt, finishedAt: a.finishedAt!, points: a.points ?? 0, correct: a.correct ?? 0 }));
+  list.filter((a) => a.finishedAt && a.answers).map((a) => ({ th: a.th, name: a.name, answers: a.answers!, startedAt: a.startedAt, finishedAt: a.finishedAt!, points: a.points ?? 0, correct: a.correct ?? 0, n: a.n ?? 1 }))
+    .sort((x, y) => x.finishedAt.localeCompare(y.finishedAt));
+/** One person's tries, oldest first; the open one (started, not sent) if any. Retakes after a fail (owner, 14 Nov). */
+const triesOf = (all: AttemptDoc[], th: string) => {
+  const mine = all.filter((a) => a.th === th).sort((x, y) => (x.n ?? 1) - (y.n ?? 1));
+  return { mine, open: mine.find((a) => !a.finishedAt) ?? null, done: finished(mine) };
+};
 
 /** A training's quiz and where it stands (none when the training's items have no quiz). */
-async function quizOf(t: TrainingDoc): Promise<{ quiz: Quiz; state: ReturnType<typeof quizState> } | null> {
+async function quizOf(t: TrainingDoc): Promise<{ quiz: Quiz; state: ReturnType<typeof quizState>; days: string[]; lines: string[] } | null> {
   const q = (await quotes(new Set([t._id]))).get(t._id);
-  const quiz = q ? quizFor(q.lines.map((l) => l.name)) : null;
-  return quiz ? { quiz, state: quizState(daysOf(await datesOf(t)), indiaToday(), t.sessions) } : null;
+  const lines = q ? q.lines.map((l) => l.name) : [];
+  const quiz = q ? quizFor(lines) : null;
+  if (!quiz) return null;
+  const days = daysOf(await datesOf(t));
+  return { quiz, state: quizState(days, indiaToday(), t.sessions), days, lines };
 }
 
 /** The participant behind a private page link, with their training. */
@@ -519,11 +534,17 @@ async function participantOf(number: unknown, th: unknown, token: unknown): Prom
   return q && (!number || String(number) === q.number) ? { p, t } : null;
 }
 
+/** Their certificate, as they see it: once passed. `ready` = it has gone out (or can be downloaded). */
+export type MyCertificate = { ready: boolean; email: string | null; emailedAt: string | null; certNo: string | null };
+
 export type ParticipantQuiz = {
   quiz: PublicQuiz; state: "none" | "open" | "closed" | "revealed";
-  /** Marked present on any day (only they can take it, owner); started (the clock runs from opening it); their result. */
+  /** Marked present on any day (only they can take it, owner); a try in progress (the clock runs from opening it). */
   present: boolean; startedAt: string | null;
-  result: (Score & { rank: number; of: number; answers: number[] }) | null;
+  /** Their latest try, their best rank, how many tries, and whether another try is allowed now (after a fail, while open). */
+  result: (Score & { rank: number; of: number; answers: number[]; tries: number; bestPct: number; passedEver: boolean }) | null;
+  canRetake: boolean;
+  certificate: MyCertificate | null;
   leaderboard: Ranked[];
 };
 
@@ -534,60 +555,159 @@ export async function participantQuiz(number: unknown, th: unknown, token: unkno
   if (!qz) return null;
   const all = await attemptsOf(r.t._id);
   const board = leaderboard(qz.quiz, finished(all));
-  const mine = all.find((a) => a.th === r.p._id);
+  const { open, done } = triesOf(all, r.p._id);
+  const latest = done.at(-1);
   const present = (await marksOf(r.t._id)).some((m) => m.th === r.p._id);
   const ranked = board.find((b) => b.th === r.p._id);
+  const passed = passedAny(qz.quiz, done);
+  const cert = passed ? await (await certsCol()).findOne({ _id: certId(r.t._id, r.p._id) }) : null;
   return {
-    quiz: publicQuiz(qz.quiz, qz.state === "revealed"), state: qz.state, present, startedAt: mine?.startedAt ?? null,
-    result: mine?.finishedAt && mine.answers && ranked ? { ...scoreOf(qz.quiz, mine.answers), rank: ranked.rank, of: board.length, answers: mine.answers } : null,
+    quiz: publicQuiz(qz.quiz, qz.state === "revealed"), state: qz.state, present, startedAt: open?.startedAt ?? null,
+    result: latest && ranked ? { ...scoreOf(qz.quiz, latest.answers), rank: ranked.rank, of: board.length, answers: latest.answers, tries: done.length, bestPct: ranked.pct, passedEver: passed } : null,
+    canRetake: qz.state === "open" && present && !open && canRetake(qz.quiz, done),
+    certificate: passed ? {
+      ready: certificatesReady(qz.days, r.t.sessions) || Boolean(cert?.issuedAt),
+      email: r.p.email ?? null, emailedAt: cert?.emailedAt ?? null, certNo: cert?.certNo ?? null,
+    } : null,
     leaderboard: board,
   };
 }
 
-/** Opening the quiz starts their clock (the leaderboard's tie-break is the faster finish). */
-export async function quizStart(number: unknown, th: unknown, token: unknown): Promise<{ startedAt: string } | Fail> {
+/** Opening the quiz starts their clock (the leaderboard's tie-break is the faster finish). A new try only after a fail. */
+export async function quizStart(number: unknown, th: unknown, token: unknown): Promise<{ startedAt: string; n: number } | Fail> {
   const r = await participantOf(number, th, token);
   if (!r) return { error: "We couldn't find your page. Use the link from when you joined.", status: 404 };
   const qz = await quizOf(r.t);
   if (!qz || qz.state !== "open") return { error: "The quiz isn't open right now.", status: 409 };
   if (!(await marksOf(r.t._id)).some((m) => m.th === r.p._id)) return { error: "Mark your attendance first, then take the quiz.", status: 403 };
-  const col = await attemptsCol();
-  const _id = `${r.t._id}:${r.p._id}`;
-  const had = await col.findOne({ _id });
-  if (had) return { startedAt: had.startedAt };
+  const { mine, open, done } = triesOf(await attemptsOf(r.t._id), r.p._id);
+  if (open) return { startedAt: open.startedAt, n: open.n ?? 1 };
+  if (passedAny(qz.quiz, done)) return { error: "You've passed the quiz already.", status: 409 };
+  const n = Math.max(0, ...mine.map((a) => a.n ?? 1)) + 1;
   const startedAt = new Date().toISOString();
-  await col.insertOne({ _id, trainingId: r.t._id, th: r.p._id, name: r.p.name, quizId: qz.quiz.id, startedAt });
-  return { startedAt };
+  await (await attemptsCol()).insertOne({ _id: `${r.t._id}:${r.p._id}:${n}`, trainingId: r.t._id, th: r.p._id, name: r.p.name, quizId: qz.quiz.id, n, startedAt });
+  return { startedAt, n };
 }
 
-/** Their answers: scored once (one attempt each); the result and the rank come back. */
+/** Their answers to the try in progress: scored; the result, the rank and whether they may try again come back. */
 export async function quizSubmit(number: unknown, th: unknown, token: unknown, raw: unknown): Promise<ParticipantQuiz | Fail> {
   const r = await participantOf(number, th, token);
   if (!r) return { error: "We couldn't find your page. Use the link from when you joined.", status: 404 };
   const qz = await quizOf(r.t);
   if (!qz || qz.state !== "open") return { error: "The quiz has closed.", status: 409 };
-  const col = await attemptsCol();
-  const _id = `${r.t._id}:${r.p._id}`;
-  const had = await col.findOne({ _id });
-  if (!had) return { error: "Open the quiz first.", status: 409 };
-  if (had.finishedAt) return { error: "You've already taken this quiz.", status: 409 };
+  const { open, done } = triesOf(await attemptsOf(r.t._id), r.p._id);
+  if (!open) return passedAny(qz.quiz, done) ? { error: "You've passed the quiz already.", status: 409 } : { error: "Open the quiz first.", status: 409 };
   const answers = readAnswers(raw, qz.quiz);
   if ("error" in answers) return { error: answers.error, status: 400 };
-  const s = scoreOf(qz.quiz, answers);
-  await col.updateOne({ _id }, { $set: { answers, finishedAt: new Date().toISOString(), points: s.points, correct: s.correct } });
+  const sc = scoreOf(qz.quiz, answers);
+  await (await attemptsCol()).updateOne({ _id: open._id }, { $set: { answers, finishedAt: new Date().toISOString(), points: sc.points, correct: sc.correct } });
   return (await participantQuiz(number, th, token))!;
 }
 
-export type QuizResults = { title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; leaderboard: Ranked[]; questions: QuestionStats[] };
-/** The coordinator's (and our) live results: the leaderboard and, per question, how many picked each option. */
+/* ---------------- Certificates from the quiz (owner, 14 Nov) ---------------- */
+
+/** portalCertificates (_id = "<training id>:TH001"): one per person who passed, made once; when and where it was emailed. */
+type CertDoc = {
+  _id: string; trainingId: string; th: string; name: string; certNo: string; day: string; location: string; design: DesignId; course: string;
+  pct: number; badge: boolean; issuedAt?: string; email?: string; emailedAt?: string; attached?: boolean; error?: string; by?: string;
+};
+const certsCol = async () => (await db()).collection<CertDoc>("portalCertificates");
+const certId = (trainingId: string, th: string) => `${trainingId}:${th}`;
+
+/** A passed person's certificate as it prints, and how it stands (emailed, waiting for an email address, failed). */
+export type CertLine = Omit<CertDoc, "_id"> & { email: string; token: string; number: string };
+
+/** Everyone who passed this training's quiz, with their certificate (made now if new; the FAT-OD number never changes). */
+export async function certificateLines(trainingId: string): Promise<CertLine[]> {
+  const t = await trainingDoc(trainingId);
+  if (!t) return [];
+  const qz = await quizOf(t);
+  const q = (await quotes(new Set([t._id]))).get(t._id);
+  if (!qz || !q) return [];
+  const all = finished(await attemptsOf(t._id));
+  const people = new Map((await peopleOf(t._id)).map((p) => [p._id, p]));
+  const marks = await marksOf(t._id);
+  const saved = new Map((await (await certsCol()).find({ trainingId: t._id }).toArray()).filter((c) => c.trainingId === t._id).map((c) => [c.th, c]));
+  const design = designFor(qz.lines);
+  const out: CertLine[] = [];
+  for (const best of leaderboard(qz.quiz, all).filter((b) => b.passed)) {
+    const p = people.get(best.th);
+    if (!p) continue; // removed from the list
+    const had = saved.get(best.th);
+    const passedAt = all.filter((a) => a.th === best.th && scoreOf(qz.quiz, a.answers).passed)[0]?.finishedAt ?? new Date().toISOString();
+    const day = had?.day ?? certDay(marks.filter((m) => m.th === best.th).map((m) => m.day), indiaDayOf(passedAt));
+    const doc: CertDoc = had ?? {
+      _id: certId(t._id, best.th), trainingId: t._id, th: best.th, name: p.name, certNo: portalCertNumber(day, best.th), day,
+      location: t.proposal?.location ?? "", design, course: DESIGNS.find((d) => d.id === design)!.course, pct: best.pct, badge: best.badge,
+    };
+    if (!had) await (await certsCol()).insertOne(doc);
+    const { _id: _drop, ...rest } = doc;
+    void _drop;
+    out.push({ ...rest, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number });
+  }
+  return out;
+}
+
+/** After a send: when it went (or why not), to which address, whether the PDF was attached. */
+export async function recordCertificate(trainingId: string, th: string, r: { emailedAt?: string; email?: string; attached?: boolean; error?: string; by: string }): Promise<void> {
+  const set: Record<string, unknown> = { issuedAt: new Date().toISOString(), by: r.by };
+  if (r.emailedAt) Object.assign(set, { emailedAt: r.emailedAt, email: r.email, attached: Boolean(r.attached), error: "" });
+  else if (r.error) set.error = r.error;
+  await (await certsCol()).updateOne({ _id: certId(trainingId, th) }, { $set: set });
+}
+
+/** Their certificate for the download (passed, and it has gone out or the training has ended). */
+export async function participantCertificate(number: unknown, th: unknown, token: unknown): Promise<CertLine | null> {
+  const r = await participantOf(number, th, token);
+  if (!r) return null;
+  const qz = await quizOf(r.t);
+  if (!qz) return null;
+  const line = (await certificateLines(r.t._id)).find((c) => c.th === r.p._id);
+  if (!line) return null;
+  return certificatesReady(qz.days, r.t.sessions) || line.issuedAt ? line : null;
+}
+
+/** A passed person gives the address for their certificate (most join with a mobile number only). */
+export async function saveParticipantEmail(number: unknown, th: unknown, token: unknown, raw: unknown): Promise<{ email: string; sendNow: boolean; trainingId: string } | Fail> {
+  const r = await participantOf(number, th, token);
+  if (!r) return { error: "We couldn't find your page. Use the link from when you joined.", status: 404 };
+  const email = cleanEmail(raw);
+  if (!email) return { error: "That email doesn't look right.", status: 400 };
+  const qz = await quizOf(r.t);
+  if (!qz || !passedAny(qz.quiz, triesOf(await attemptsOf(r.t._id), r.p._id).done)) return { error: "The certificate comes once you pass the quiz.", status: 409 };
+  await (await peopleCol()).updateOne({ _id: r.p._id }, { $set: { email } });
+  const cert = await (await certsCol()).findOne({ _id: certId(r.t._id, r.p._id) });
+  return { email, sendNow: certificatesReady(qz.days, r.t.sessions) && !cert?.emailedAt, trainingId: r.t._id };
+}
+
+/** Whether we (Trainings) may send them: from the last training day on, never while it runs (the coordinator didn't End). */
+export async function staffCertificatesAllowed(trainingId: string): Promise<boolean> {
+  const t = await trainingDoc(trainingId);
+  const qz = t ? await quizOf(t) : null;
+  return Boolean(t && qz && (certificatesReady(qz.days, t.sessions) || staffMaySend(qz.days, indiaToday(), t.sessions)));
+}
+
+export type CertStatus = { th: string; name: string; email: string; certNo: string; day: string; pct: number; badge: boolean; emailedAt: string | null; error: string | null };
+export type QuizResults = {
+  title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; passPct: number;
+  leaderboard: Ranked[]; questions: QuestionStats[];
+  /** The passed list with each certificate's state; `ready` = End was pressed on the last day; `staffMay` = we may send them. */
+  certificates: { ready: boolean; staffMay: boolean; list: CertStatus[] };
+};
+/** The coordinator's (and our) live results: the leaderboard (best tries), per question how many picked each option (first tries), the passed list. */
 export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null> {
   const qz = await quizOf(t);
   if (!qz) return null;
   const done = finished(await attemptsOf(t._id));
   const board = leaderboard(qz.quiz, done);
+  const certs = await certificateLines(t._id);
   return {
     title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
-    avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, leaderboard: board, questions: analytics(qz.quiz, done),
+    avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, leaderboard: board, questions: analytics(qz.quiz, done),
+    certificates: {
+      ready: certificatesReady(qz.days, t.sessions), staffMay: certificatesReady(qz.days, t.sessions) || staffMaySend(qz.days, indiaToday(), t.sessions),
+      list: certs.map((c) => ({ th: c.th, name: c.name, email: c.email, certNo: c.certNo, day: c.day, pct: c.pct, badge: c.badge, emailedAt: c.emailedAt ?? null, error: c.error || null })),
+    },
   };
 }
 export async function quizResults(email: string, id: unknown): Promise<QuizResults | { none: true } | Fail> {

@@ -224,3 +224,17 @@
   .qz-seal .ring, .qz-seal .tick { animation: none; stroke-dashoffset: 0; }
   .qz-seal-pulse { animation: none; opacity: 0; }
 }
+
+/* Certificate after a pass (owner, 14 Nov): the address it goes to, and the download. Same rule and radius as the option rows. */
+.qz-field { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.qz-input {
+  flex: 1 1 220px; min-height: 48px; box-sizing: border-box; padding: 12px 14px; font: inherit; font-size: 1rem; color: var(--ink);
+  background: var(--paper-raised); border: 1.5px solid var(--line-strong); border-radius: 12px; transition: border-color .2s ease, box-shadow .2s ease;
+}
+.qz-input::placeholder { color: var(--ink-soft); opacity: .75; }
+.qz-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.qz-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.qz-actions .qz-btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.qz-note { margin: 10px 0 0; font-size: .88rem; color: var(--ink-soft); line-height: 1.5; }
+.qz-note b { color: var(--ink); font-weight: 700; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .qz-input { transition: none; } }

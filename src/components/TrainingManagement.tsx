@@ -10,6 +10,8 @@ import { PerformaEditor } from "./PerformaEditor";
 import type { TrainingSort, TrainingSortKey } from "@/lib/uiPrefs";
 import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 import { useLive } from "@/lib/live";
+import { passedCsv } from "@/lib/portalCertRules";
+import type { QuizResults } from "@/lib/portalTrainings";
 
 // Training Management (docs/TRAINING_MANAGER_PLAN.md): the training-only quotes and their Training Manager — the
 // coordinator, the login (step 8), the date they proposed (step 5, the row glows green) and the attendee list (steps 6–7).
@@ -407,18 +409,47 @@ function ParticipantList({ x }: { x: Quote }) {
   );
 }
 
-/** The quiz's results, read only (owner, 13 Nov: "everyone else can see the same results too"): the coordinator runs it. */
+/**
+ * The quiz's results, read only (owner, 13 Nov: "everyone else can see the same results too"): the coordinator runs it.
+ * Owner, 14 Nov: tries, the passed list (CSV) with each certificate's state and PDF, and Send certificates for when the
+ * coordinator never pressed End on the last day.
+ */
 function QuizSummary({ id }: { id: string }) {
-  type R = { title: string; state: string; taken: number; present: number; passed: number; avgPct: number; leaderboard: { rank: number; th: string; name: string; points: number; pct: number; passed: boolean; badge: boolean }[] };
-  const [r, setR] = useState<R | null>(null);
+  const [r, setR] = useState<QuizResults | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
   const load = () => fetch(`/api/training-management?quiz=${id}`).then((x) => x.json()).then((j) => setR(j.results ?? null)).catch(() => {});
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   useLive(load, ["work"]);
   if (!r) return null;
+  const certs = new Map(r.certificates.list.map((c) => [c.th, c]));
+  const unsent = r.certificates.list.filter((c) => !c.emailedAt);
+  const send = async () => {
+    if (!window.confirm(`Email the certificates of ${unsent.filter((c) => c.email).length} people who passed and haven't had theirs yet?`)) return;
+    setBusy(true); setMsg("");
+    const res = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sendcerts", id }) }).catch(() => null);
+    const j = res ? ((await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; sent?: number; noEmail?: number; failed?: { name: string; error: string }[] }) : { error: "Couldn't reach the server" };
+    setBusy(false);
+    if (!j.ok) return setMsg(j.error ?? "Couldn't send them");
+    setMsg([`${j.sent} emailed.`, j.noEmail ? `${j.noEmail} without an email (they can add one on their page).` : "", j.failed?.length ? `Not sent: ${j.failed.map((x) => `${x.name} (${x.error})`).join("; ")}.` : ""].filter(Boolean).join(" "));
+    load();
+  };
+  const csv = () => {
+    const url = URL.createObjectURL(new Blob([passedCsv(r.certificates.list)], { type: "text/csv;charset=utf-8" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: `${r.title} - passed.csv` });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const certCell = (th: string) => {
+    const c = certs.get(th);
+    if (!c) return null;
+    const state = c.emailedAt ? "Emailed" : !r.certificates.ready ? "After End" : !c.email ? "No email" : c.error ? "Not sent" : "Sending";
+    return <span title={c.error ?? c.certNo}>{state} · <a className="text-brand hover:underline" href={`/api/training-management?cert=${id}&th=${th}`} target="_blank" rel="noopener noreferrer">PDF</a></span>;
+  };
   return (
     <section className={card}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className={label}>{r.title} · {r.taken} of {r.present} present took it · {r.passed} passed · average {r.avgPct}%</p>
+        <p className={label}>{r.title} · {r.taken} of {r.present} present took it · {r.passed} passed ({r.passPct}%+) · average best {r.avgPct}%</p>
         <span className="text-[12.5px] text-muted">{r.state === "open" ? "Running now" : r.state === "revealed" ? "Closed" : r.state === "closed" ? "Paused until the next day" : "Opens when the coordinator starts the training"}</span>
       </div>
       {r.leaderboard.length > 0 && (
@@ -431,13 +462,25 @@ function QuizSummary({ id }: { id: string }) {
                   <td className="px-2 py-1.5 font-medium">{b.name}</td>
                   <td className="px-2 py-1.5 text-muted">{b.th}</td>
                   <td className="px-2 py-1.5 text-right">{b.points} · {b.pct}%</td>
-                  <td className={`px-3 py-1.5 text-right ${b.passed ? "text-low" : "text-medium"}`}>{b.badge ? "Badge" : b.passed ? "Passed" : "Not passed"}</td>
+                  <td className="hidden px-2 py-1.5 text-right text-muted sm:table-cell">{b.tries === 1 ? "1 try" : `${b.tries} tries`}</td>
+                  <td className={`px-2 py-1.5 text-right ${b.passed ? "text-low" : "text-medium"}`}>{b.badge ? "Badge" : b.passed ? "Passed" : "Not passed"}</td>
+                  <td className="px-3 py-1.5 text-right text-[12.5px] text-muted">{certCell(b.th)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      {r.passed > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <button type="button" className="text-[13px] font-semibold text-brand hover:underline" onClick={csv}>Download passed list (CSV)</button>
+          {r.certificates.staffMay && unsent.some((c) => c.email) && (
+            <button type="button" className={btn.ghost} disabled={busy} onClick={send}>{busy ? "Sending…" : r.certificates.ready ? "Send the rest now" : "Send certificates"}</button>
+          )}
+          <span className="text-[12.5px] text-muted">{r.certificates.ready ? "The coordinator ended the training: certificates go out by themselves." : r.certificates.staffMay ? "The coordinator didn't end the training, so certificates haven't gone." : "Certificates go when the coordinator ends the training on its last day."}</span>
+        </div>
+      )}
+      {msg && <p className="mt-2 text-[13px] text-ink-2">{msg}</p>}
     </section>
   );
 }

@@ -5,6 +5,7 @@ import { SIGNATURE_DETAILS, SIGNATURE_VARS, SIGNERS, TEMPLATES, TEMPLATE_VARS, T
 import { TS_TEMPLATES } from "./totalSupply";
 import { PORTAL_TEMPLATES, PORTAL_VARS } from "./portalEmail";
 import { PI_TEMPLATES, PI_VARS } from "./performaRules";
+import { CERT_TEMPLATE, CERT_VARS } from "./portalCertRules";
 import { templateProblems } from "./templateText";
 import { canQuote, isAdmin } from "./roles";
 
@@ -18,6 +19,7 @@ import { canQuote, isAdmin } from "./roles";
  *  - "sign:<first name>": that person's signature on quotation emails (owner, 10 Nov), saved like "quote:" — the person
  *    themself or Admin; "sign:details", the company block every signature shows as {details} — Admin only.
  *  - "portal:box", "portal:login": the Training Manager login (step 8 of docs/TRAINING_MANAGER_PLAN.md), saved like "quote:".
+ *  - "portal:certificate": the certificate email after the quiz (owner, 14 Nov), saved like "quote:".
  *  - "pi:<id>": the Performa emails (Accept date → Performa, owner 12 Nov; training only for now), saved like "quote:".
  * Every save and reset is logged in `mailTemplateEdits` (key, by, at, before, after; after = null for a reset).
  */
@@ -68,6 +70,10 @@ function catalogue(): TemplateEntry[] {
     key: `portal:${t.id}`, group: "portal", label: t.label, subject: t.subject, body: t.body, builtin: { subject: t.subject, body: t.body },
     vars: PORTAL_VARS, choices: false, adminOnly: false, note: t.note,
   }));
+  portal.push({
+    key: `portal:${CERT_TEMPLATE.id}`, group: "portal", label: CERT_TEMPLATE.label, subject: CERT_TEMPLATE.subject, body: CERT_TEMPLATE.body,
+    builtin: { subject: CERT_TEMPLATE.subject, body: CERT_TEMPLATE.body }, vars: CERT_VARS, choices: false, adminOnly: false, note: CERT_TEMPLATE.note,
+  });
   const pi: TemplateEntry[] = PI_TEMPLATES.map((t) => ({
     key: `pi:${t.id}`, group: "pi", label: t.label, subject: t.subject, body: t.body, builtin: { subject: t.subject, body: t.body },
     vars: PI_VARS, choices: false, adminOnly: false, note: t.note,
@@ -109,6 +115,12 @@ export async function portalTemplates(): Promise<{ subject: string; body: string
   const saved = new Map((await (await col()).find({}).toArray()).filter((d) => d._id.startsWith("portal:")).map((d) => [d._id, d]));
   const login = PORTAL_TEMPLATES.find((t) => t.id === "login")!, box = PORTAL_TEMPLATES.find((t) => t.id === "box")!;
   return { subject: saved.get("portal:login")?.subject ?? login.subject!, body: saved.get("portal:login")?.body ?? login.body, box: saved.get("portal:box")?.body ?? box.body };
+}
+
+/** The certificate email's wording (saved, or built in). */
+export async function certTemplate(): Promise<{ subject: string; body: string }> {
+  const saved = await (await col()).findOne({ _id: `portal:${CERT_TEMPLATE.id}` });
+  return { subject: saved?.subject ?? CERT_TEMPLATE.subject, body: saved?.body ?? CERT_TEMPLATE.body };
 }
 
 /** A Performa email's wording (saved, or built in). */

@@ -8,10 +8,14 @@ import type { PublicQuiz, Ranked, Score } from "@/lib/quizRules";
  * one question per screen with segmented step dots and an "Answered" pill, option rows or picture cards, a review step,
  * then the stamped seal with their score, pass / badge and rank, and the live leaderboard. The right answers show only
  * once the coordinator ends the training (state "revealed"). Opens only while the training runs, for people marked present.
+ * Owner, 14 Nov: a fail may try again while the training runs (best score counts); a pass gets the certificate by email
+ * once the coordinator ends the training, and a download here.
  */
+type Certificate = { ready: boolean; email: string | null; emailedAt: string | null; certNo: string | null };
 type QuizData = {
   quiz: PublicQuiz; state: "none" | "open" | "closed" | "revealed"; present: boolean; startedAt: string | null;
-  result: (Score & { rank: number; of: number; answers: number[] }) | null; leaderboard: Ranked[];
+  result: (Score & { rank: number; of: number; answers: number[]; tries: number; bestPct: number; passedEver: boolean }) | null;
+  canRetake: boolean; certificate: Certificate | null; leaderboard: Ranked[];
 };
 
 const OFFLINE = "Couldn't reach Think Health. Check your connection and try again.";
@@ -63,8 +67,10 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
     const j = r ? await r.json().catch(() => ({})) : { error: OFFLINE };
     setBusy(false);
     if (!j.startedAt) return setError(j.error ?? "Couldn't open the quiz");
+    const fresh = data.result && !data.startedAt ? quiz.questions.map(() => null) : answers;
+    if (fresh !== answers) { setAnswers(fresh); try { localStorage.removeItem(draftKey); } catch {} }
     setData({ ...data, startedAt: j.startedAt });
-    setStep(Math.max(0, answers.findIndex((a) => a === null)));
+    setStep(Math.max(0, fresh.findIndex((a) => a === null)));
   };
   const pick = (i: number, o: number) => {
     setAnswers((a) => a.map((x, k) => (k === i ? o : x)));
@@ -84,8 +90,8 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
     setData(j);
   };
 
-  // Finished: the seal, the result, the live leaderboard (and, once revealed, each answer).
-  if (data.result) {
+  // Finished: the seal, the result, the certificate or another try, the live leaderboard (and, once revealed, each answer).
+  if (data.result && !(data.startedAt && data.state === "open")) {
     const r = data.result;
     if (review && data.state === "revealed") return <Frame onClose={onClose} title={quiz.title}><Review quiz={quiz} answers={r.answers} onBack={() => setReview(false)} /></Frame>;
     return (
@@ -96,7 +102,7 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
             <svg viewBox="0 0 80 80"><circle className="ring" cx="40" cy="40" r="34" fill="none" strokeWidth="3" /><path className="tick" d="M25 41.5 L35.5 52 L56 30" fill="none" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </div>
           <h2 className="qz-complete-title" ref={headingRef} tabIndex={-1}>Quiz complete</h2>
-          <p className="qz-complete-sub">{name.split(" ")[0]}, here&apos;s how you did.</p>
+          <p className="qz-complete-sub">{name.split(" ")[0]}, here&apos;s how you did{r.tries > 1 ? ` on try ${r.tries}` : ""}.</p>
           <div className="qz-stats">
             <div className="qz-stat"><span className="qz-stat-val tabular">{r.points}</span><span className="qz-stat-label">of {r.max} points</span></div>
             <div className="qz-stat"><span className="qz-stat-val tabular">{r.pct}%</span><span className="qz-stat-label">{r.correct} of {r.total} right</span></div>
@@ -104,10 +110,18 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
           </div>
           {r.badge ? <span className="qz-verdict badge">Perfect score: you&apos;ve earned a free {quiz.badge}</span>
             : r.passed ? <span className="qz-verdict pass">Passed: {quiz.passPct}% was needed</span>
-            : <span className="qz-verdict fail">Not passed this time: {quiz.passPct}% was needed</span>}
-          <p className="qz-lede">{data.state === "revealed" ? "The right answers are out." : "The right answers show once your coordinator ends the training."}</p>
+            : <span className="qz-verdict fail">Not passed this time: {quiz.passPct}% is needed</span>}
+          {data.canRetake ? (
+            <>
+              <p className="qz-lede">You can try again while the training runs. {r.tries > 1 ? <>Your best so far is <b className="tabular">{r.bestPct}%</b>. </> : null}Your best score counts.</p>
+              {error && <p className="qz-error" style={{ marginTop: 14, justifyContent: "center" }} role="alert"><Warn /><span>{error}</span></p>}
+              <div style={{ marginTop: 18 }}><button type="button" className="qz-btn qz-btn-primary qz-btn-big" onClick={start} disabled={busy}>{busy ? "Opening…" : "Try again"}</button></div>
+            </>
+          ) : !r.passed && data.state !== "open" ? <p className="qz-lede">The quiz has closed.</p> : null}
+          {(r.passed || !data.canRetake) && <p className="qz-lede">{data.state === "revealed" ? "The right answers are out." : "The right answers show once your coordinator ends the training."}</p>}
           {data.state === "revealed" && <div style={{ marginTop: 14 }}><button type="button" className="qz-btn qz-btn-ghost" onClick={() => setReview(true)}>See the right answers</button></div>}
         </div>
+        {data.certificate && <CertificateCard c={data.certificate} number={number} th={th} token={token} onSaved={load} />}
         <Board list={data.leaderboard} me={th} live={data.state === "open"} />
       </Frame>
     );
@@ -134,14 +148,14 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
     return (
       <Frame onClose={onClose} title={quiz.title}>
         <div className="qz-card">
-          <h2 className="qz-display" ref={headingRef} tabIndex={-1}>{quiz.title}</h2>
-          <p className="qz-lede">{quiz.intro[0]}. Answer every question, then send your answers once.</p>
+          <h2 className="qz-display" ref={headingRef} tabIndex={-1}>{data.result ? `Try ${data.result.tries + 1}` : quiz.title}</h2>
+          <p className="qz-lede">{data.result ? <>Your best so far is <b className="tabular">{data.result.bestPct}%</b>; {quiz.passPct}% passes. Answer every question, then send.</> : <>{quiz.intro[0]}. Answer every question, then send your answers.</>}</p>
           <div className="qz-facts">
             <div className="qz-fact"><span className="qz-fact-val tabular">{n}</span><span className="qz-fact-label">questions, {quiz.pointsEach} points each</span></div>
             <div className="qz-fact"><span className="qz-fact-val tabular">{quiz.passPct}%</span><span className="qz-fact-label">to pass</span></div>
             <div className="qz-fact"><span className="qz-fact-val tabular">{quiz.badgePct}%</span><span className="qz-fact-label">earns a free {quiz.badge}</span></div>
           </div>
-          <div className="qz-callout">One try each. Your time counts on the leaderboard if scores tie, so the clock starts when you begin.</div>
+          <div className="qz-callout">If you don&apos;t pass, you can try again while the training runs; your best score counts. The clock starts when you begin, and breaks ties on the leaderboard.</div>
           {error && <p className="qz-error" style={{ marginTop: 14 }} role="alert"><Warn /><span>{error}</span></p>}
           <div style={{ marginTop: 20 }}>
             <button type="button" className="qz-btn qz-btn-primary qz-btn-big" onClick={data.startedAt ? () => setStep(Math.max(0, answers.findIndex((a) => a === null))) : start} disabled={busy}>
@@ -211,7 +225,7 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
         <div className="qz-card">
           <div className="qz-eyebrow"><span className="qz-letter" style={{ width: 26, height: 26, display: "inline-flex" }}><Check /></span></div>
           <h2 className="qz-title" ref={headingRef} tabIndex={-1}>{done === n ? "Ready to send" : `${n - done} question${n - done === 1 ? "" : "s"} left`}</h2>
-          <p className="qz-lede" style={{ marginTop: 0 }}>{done === n ? "Check any answer by tapping its number, then send. You can send only once." : "Tap a number to go back to it."}</p>
+          <p className="qz-lede" style={{ marginTop: 0 }}>{done === n ? "Check any answer by tapping its number, then send." : "Tap a number to go back to it."}</p>
           <div className="qz-review">
             {answers.map((a, i) => <button key={i} type="button" className={a !== null ? "done" : "missing"} onClick={() => setStep(i)} aria-label={`Question ${i + 1}${a !== null ? ", answered" : ", not answered"}`}>{i + 1}</button>)}
           </div>
@@ -239,6 +253,50 @@ function Frame({ children, onClose, title = "Quiz", top, dots, footer }: { child
         <div className="qz-main">{children}</div>
         {footer && <div className="qz-footer"><div className="qz-footer-inner">{footer}</div></div>}
       </div>
+    </div>
+  );
+}
+
+/** After a pass: where the certificate goes, and the download once the training has ended. */
+function CertificateCard({ c, number, th, token, onSaved }: { c: Certificate; number: string; th: string; token: string; onSaved: () => void }) {
+  const [email, setEmail] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError("");
+    const r = await fetch("/api/portal/quiz", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ n: number, th, p: token, action: "email", email }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : { error: OFFLINE };
+    setBusy(false);
+    if (!j.email) return setError(j.error ?? "Couldn't save it");
+    setEditing(false); setEmail("");
+    onSaved();
+  };
+  const href = `/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(token)}`;
+  const askEmail = !c.emailedAt && (!c.email || editing);
+  const text = c.emailedAt ? <>We&apos;ve emailed it to <b>{c.email}</b>. You can also download it here.</>
+    : c.ready && c.email ? <>It&apos;s on its way to <b>{c.email}</b>. You can also download it here.</>
+    : c.ready ? <>Download it here, or tell us where to email it.</>
+    : c.email ? <>It comes by email to <b>{c.email}</b> once your coordinator ends the training.</>
+    : <>It comes by email once your coordinator ends the training. Where shall we send it?</>;
+  return (
+    <div className="qz-card">
+      <h3 className="qz-board-title">Your certificate</h3>
+      <p className="qz-note" style={{ fontSize: "1rem" }}>{text}</p>
+      {askEmail && (
+        <form className="qz-field" onSubmit={save}>
+          <label className="sr-only" htmlFor="qz-email">Your email</label>
+          <input id="qz-email" className="qz-input" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} required />
+          <button type="submit" className="qz-btn qz-btn-primary" disabled={busy || !email.trim()}>{busy ? "Saving…" : c.ready ? "Email it to me" : "Save"}</button>
+        </form>
+      )}
+      {error && <p className="qz-error" style={{ marginTop: 10 }} role="alert"><Warn /><span>{error}</span></p>}
+      <div className="qz-actions">
+        {c.ready && <a className="qz-btn qz-btn-primary" href={href} download>Download certificate</a>}
+        {!c.emailedAt && c.email && !editing && <button type="button" className="qz-btn qz-btn-ghost" onClick={() => setEditing(true)}>Use another email</button>}
+      </div>
+      {c.certNo && <p className="qz-note tabular">Certificate no. {c.certNo}</p>}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { renderTemplate, templateProblems } from "@/lib/templateText";
 import { fmtDate } from "@/lib/dates";
 import { PORTAL_TEMPLATES, loginBoxHtml, loginEmail } from "@/lib/portalEmail";
 import { piEmail } from "@/lib/performaRules";
+import { certEmail } from "@/lib/portalCertRules";
 import { btn, inputCls, selectCls } from "./ui";
 
 /*
@@ -28,7 +29,7 @@ const GROUPS: { id: Entry["group"]; label: string }[] = [
   { id: "ts", label: "Total Supply emails" },
   { id: "pi", label: "Performa emails" },
   { id: "sign", label: "Signatures" },
-  { id: "portal", label: "Training Manager login" },
+  { id: "portal", label: "Training Manager" },
   { id: "aed", label: "AED onboarding (hello@)" },
   { id: "fulfil", label: "Fulfillment thank-you (learn@)" },
 ];
@@ -44,6 +45,7 @@ const VAR_HELP: Record<string, string> = {
   course: "the training's name", dates: "the training dates", people: "how many people came",
   training: "the training's name, \"CPR & AED Training\"",
   quote: "the quotation number",
+  score: "their best quiz score, \"90%\"", link: "their own page, where the certificate can be downloaded", certno: "the certificate number, \"FAT-OD/04-12-2026/TH012\"",
 };
 
 // A made-up quote, so the preview shows every part (nothing here is a real customer).
@@ -80,6 +82,10 @@ function preview(e: Entry, subject: string, body: string, noExpiry: boolean, sav
   if (e.group === "pi") {
     const m = piEmail({ subject, body }, { name: "Riya Mehta", number: "Performa-25-1196", quote: SAMPLE.number, training: "CPR & AED Training", dates: "Fri, 4 Dec 2026, 10:00 am + Sat, 5 Dec 2026", location: "The Grand, Pune · Ballroom 2", people: "36", total: "₹45,000", sign: `Warm regards,\n${signature(SAMPLE.salesperson ?? "", saved)}` });
     return { subject: m.subject, html: textHtml(m.text) };
+  }
+  if (e.key === "portal:certificate") {
+    const m = certEmail({ subject, body }, { name: "Asha Rao", training: "CPR & AED Training", score: "90%", link: "https://training.thinkhealth.in/Quotation-24-002753/TH012?p=…", certno: "FAT-OD/04-12-2026/TH012" });
+    return { subject: m.subject, html: m.html };
   }
   if (e.group === "portal") {
     const v = { name: "Riya Mehta", training: "CPR & AED Training", number: SAMPLE.number };

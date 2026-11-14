@@ -45,9 +45,13 @@ function loadFonts() {
   return fontBytes;
 }
 
-async function embedFonts(pdf: PDFDocument): Promise<Fonts> {
+/** The font files' bytes, keyed as FONT_FILES (the server reads them from public/certificate-fonts itself). */
+export type FontBytes = Record<FontKey, ArrayBuffer | Uint8Array>;
+export const CERT_FONT_FILES = FONT_FILES;
+
+async function embedFonts(pdf: PDFDocument, given?: FontBytes): Promise<Fonts> {
   pdf.registerFontkit(fontkit);
-  const b = await loadFonts();
+  const b = given ?? (await loadFonts());
   return {
     name: await pdf.embedFont(b.name, { subset: true }),
     location: await pdf.embedFont(b.location, { subset: true }),
@@ -112,5 +116,22 @@ export async function generateCertificates(background: ArrayBuffer, rows: CertRo
     rows.slice(i, i + 2).forEach((r, j) => drawCertificate(page, design, fonts, printed(r), (j === 0 ? HALF : 0) + (HALF - h) / 2, A4.width));
     page.drawLine({ start: { x: 0, y: HALF }, end: { x: A4.width, y: HALF }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7), dashArray: [3, 3] });
   }
+  return pdf.save();
+}
+
+/**
+ * One certificate on its own page, the design's own size (A5 landscape) — the emailed certificate after the quiz (owner,
+ * 14 Nov). Made on the server, so the fonts come in as bytes.
+ */
+export async function singleCertificate(background: ArrayBuffer | Uint8Array, row: CertRow, fonts: FontBytes): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(`Certificate · ${row.name}`);
+  pdf.setCreator("Think Health");
+  const f = await embedFonts(pdf, fonts);
+  const problems = problemsOf(f, printed(row));
+  if (problems.length) throw new Error(`${row.name}: ${problems.join("; ")}`);
+  const [design] = await pdf.embedPdf(await backgroundFromTemplate(background), [0]);
+  const page = pdf.addPage([DESIGN.width, DESIGN.height]);
+  drawCertificate(page, design, f, printed(row), 0, DESIGN.width);
   return pdf.save();
 }

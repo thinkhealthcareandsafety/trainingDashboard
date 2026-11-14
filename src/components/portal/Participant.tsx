@@ -124,7 +124,11 @@ export function JoinPage({ number, k }: { number: string; k: string }) {
 
 type Page = { th: string; name: string; number: string; training: string; customer: string; dates: ProposalDate[]; tentative: boolean; location: string; tbd?: boolean; present?: string[]; confirmed?: boolean };
 
-type QuizInfo = { quiz: { title: string; questions: unknown[]; passPct: number }; state: "none" | "open" | "closed" | "revealed"; present: boolean; result: { points: number; max: number; pct: number; rank: number; of: number; passed: boolean } | null };
+type QuizInfo = {
+  quiz: { title: string; questions: unknown[]; passPct: number }; state: "none" | "open" | "closed" | "revealed"; present: boolean; startedAt: string | null;
+  result: { points: number; max: number; pct: number; rank: number; of: number; passed: boolean; bestPct: number; tries: number } | null;
+  canRetake: boolean; certificate: { ready: boolean; email: string | null; emailedAt: string | null } | null;
+};
 
 export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { number: string; th: string; p: string; quiz?: boolean }) {
   const [data, setData] = useState<{ page: Page; content: PortalContent } | null | undefined>(undefined);
@@ -186,7 +190,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
             </div>
           </div>
         </section>
-        {quiz && quiz.state !== "none" && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} />}
+        {quiz && quiz.state !== "none" && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
         {page.confirmed && page.dates.length > 0 && <Attendance dates={page.dates} present={page.present ?? []} />}
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen. Show your number, {page.th}, on the day.</p>
         {withVideo.length > 0 && <div className="pb-4"><Programmes list={withVideo} title="Watch before you come" /></div>}
@@ -220,20 +224,40 @@ function Attendance({ dates, present }: { dates: ProposalDate[]; present: string
   );
 }
 
-/** Their quiz on their page (owner, 13 Nov): open while the training runs, for those marked present; then their result. */
-function QuizPanel({ q, onOpen }: { q: QuizInfo; onOpen: () => void }) {
+/**
+ * Their quiz on their page (owner, 13 Nov): open while the training runs, for those marked present; then their result.
+ * Owner, 14 Nov: after a fail, Try again while it runs; after a pass, the certificate (emailed once the coordinator ends
+ * the training, and downloadable here).
+ */
+function QuizPanel({ q, onOpen, certHref }: { q: QuizInfo; onOpen: () => void; certHref: string }) {
   const r = q.result;
-  const [line, action] = r
-    ? [<>You scored <b className="num text-ink">{r.points} of {r.max}</b> ({r.pct}%), <b className="num text-ink">#{r.rank}</b> of {r.of}{r.passed ? ". Passed." : "."}</>, "See results"]
+  const c = q.certificate;
+  const going = q.startedAt && q.state === "open";
+  const [line, action] = going ? [<>Your try is in progress.</>, "Carry on"]
+    : r && q.canRetake ? [<>You scored <b className="num text-ink">{r.pct}%</b>{r.tries > 1 ? <> (best so far <b className="num text-ink">{r.bestPct}%</b>)</> : null}. {q.quiz.passPct}% passes, and you can try again while the training runs.</>, "Try again"]
+    : r ? [<>You scored <b className="num text-ink">{r.points} of {r.max}</b> ({r.pct}%), <b className="num text-ink">#{r.rank}</b> of {r.of}{r.passed ? ". Passed." : "."}</>, "See results"]
     : q.state === "open" && q.present ? [<>Your training has started. {q.quiz.questions.length} questions; {q.quiz.passPct}% to pass.</>, "Take the quiz"]
     : q.state === "open" ? [<>Mark your attendance first (scan your coordinator&apos;s attendance code and tap Present), then the quiz opens here.</>, null]
     : q.state === "revealed" ? [<>The quiz has closed.</>, "See the leaderboard"]
     : [<>The quiz opens when your coordinator starts the training.</>, null];
+  const strong = Boolean(going || (!r && q.state === "open" && q.present) || (r && q.canRetake));
   return (
-    <section className={`mt-4 rounded-2xl bg-surface px-5 py-5 sm:px-7 ${!r && q.state === "open" && q.present ? "ring-2 ring-navy" : "ring-1 ring-line"}`} aria-label="Quiz">
+    <section className={`mt-4 rounded-2xl bg-surface px-5 py-5 sm:px-7 ${strong ? "ring-2 ring-navy" : "ring-1 ring-line"}`} aria-label="Quiz">
       <p className="text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">{q.quiz.title}</p>
       <p className="mt-2 text-[16px] leading-relaxed text-ink-2">{line}</p>
-      {action && <button type="button" className={`${r || q.state === "revealed" ? secondaryBtn : primaryBtn} mt-4 ${!r && q.state === "open" ? "h-12 w-full text-[16px]" : ""}`} onClick={onOpen}>{action}</button>}
+      {c && (
+        <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
+          {c.emailedAt ? <>Your certificate was emailed to <b className="break-all text-ink">{c.email}</b>.</>
+            : c.ready ? <>Your certificate is ready.</>
+            : <>Your certificate comes by email once your coordinator ends the training.</>}
+        </p>
+      )}
+      {(action || c?.ready) && (
+        <div className="mt-4 flex flex-wrap gap-3">
+          {action && <button type="button" className={`${strong ? primaryBtn : secondaryBtn} ${strong ? "h-12 w-full text-[16px]" : ""}`} onClick={onOpen}>{action}</button>}
+          {c?.ready && <a className={primaryBtn} href={certHref} download>Download certificate</a>}
+        </div>
+      )}
     </section>
   );
 }
