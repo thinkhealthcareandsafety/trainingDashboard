@@ -1,80 +1,100 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Fri 13 Nov 2026 (end of session 28). **Live = `ee239fb`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app
+_Last updated: Sat 14 Nov 2026 (end of session 28). **Live = `1502f87`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app
 (Vercel status success). This handoff is its own commit on top. Written for the next Claude Code session, and for the owner (Sumit)._
 
-**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left", and **"Next: Attendance and Quiz"** (the 17 gaps
-and their answers). The portal's look is in `DESIGN.md` (+ `.impeccable/design.json`, now older than DESIGN.md: refresh it only if asked).
+**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left", "Next: Attendance and Quiz". The portal's look is in
+`DESIGN.md` (incl. "Attendance" and "The quiz: its own world"); `.impeccable/design.json` is older than DESIGN.md (refresh only if asked).
 
 **Start of the next session (29). Do these first:**
-1. `git fetch`, then `git status` and `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
-2. `npm test` (**277** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+1. `git fetch`, then `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
+2. `npm test` (**290** should pass) and `npx tsc --noEmit -p tsconfig.json`.
 3. `nslookup training.thinkhealth.in 1.1.1.1`. If it resolves: check `curl https://training.thinkhealth.in/` gives "Think Health
    Training Manager", then the owner sets `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel (Production) and redeploys.
-   - DNS for thinkhealth.in is on **Cloudflare** (nameservers bristol/piotr.ns.cloudflare.com), in the boss's account. GoDaddy is only
-     the registrar: its DNS tab does nothing. Never suggest switching nameservers (Zoho Mail would break). The owner has a WhatsApp
-     message for the account holder. The record is **optional** (cosmetic); the portal works at work.thinkhealth.in/training.
+   - DNS for thinkhealth.in is on **Cloudflare** (nameservers bristol/piotr.ns.cloudflare.com) in the boss's account; GoDaddy is only the
+     registrar (its DNS tab does nothing). **Never suggest switching nameservers** (Zoho Mail, the website and work. would break). The
+     owner has a WhatsApp message for the account holder. The record is **optional** (cosmetic): the portal works at work.thinkhealth.in/training.
 4. Ask the owner, in **one** AskUserQuestion round:
-   - How did the Trainers picker and Mark confirmed look on a real training? (I couldn't open the Trainings page: it reads the live DB.)
-   - Is the Google Form for the quiz ready? (Step B waits for it; see the plan's open questions.)
-   - Did they remove the "dashboard testing" card from the live Training board, and delete/void the test Performa-25-1204 in Zoho?
+   - How did the first real **Start training → attendance → quiz** go (or when is the next CPR/AED training)? Anything to change?
+   - Did the **Trainers picker / Mark confirmed** look right on a real training? (I couldn't open the Trainings page: it reads the live DB.)
+   - Was the "dashboard testing" card removed from the live Training board? (Its Performa-25-1204 and Quotation-24-002795 were deleted in Zoho.)
    - Cloudflare record added?
 5. GoDaddy shows **auto-renew Off** for thinkhealth.in: remind the owner once (their call; it bills their card).
 
-**Session 28 in short (13 Nov): all live at `ee239fb`.** In order:
-- `35933fd` **Performa confirm flow** (owner): Convert to PI sits in the story's Performa box (box 2) only; the draft has **Mark confirmed**
-  and **Mark confirmed & send email** (Zoho `POST /salesorders/{id}/status/open`; unsaved edits saved first). The portal stamps Confirmed
-  only then (`confirmed.zohoAt`); the date locks at Convert (`locked`, "Think Health is preparing your Performa Invoice."). Trainings
-  status: Accepted → **Performa draft** → Confirmed. Mark confirmed **schedules on the Training board** (`lib/boardSchedule.ts` pure,
-  `lib/boardScheduleServer.ts`, live site only, result in `confirmed.board`): merge quote → PI, `set_training_date` with the
-  coordinator's days/times, location, email, phone, headcount; a tentative note; the concerned name only if the customer has none; left
-  alone if the quote card already has a date. Drafts default to Business Type **Services**, Lead Source **Direct**.
+**Session 28 in short (13–14 Nov): all live at `1502f87`.** In order:
+- `35933fd` **Performa confirm flow**: Convert to PI sits in the story's Performa box only; the draft has **Mark confirmed** and **Mark
+  confirmed & send email** (Zoho `POST /salesorders/{id}/status/open`; unsaved edits saved first). The portal stamps Confirmed only then
+  (`confirmed.zohoAt`); the date locks at Convert (`locked`). Trainings status: Accepted → Performa draft → Confirmed. Mark confirmed
+  **schedules on the Training board** (`lib/boardSchedule.ts` pure, `lib/boardScheduleServer.ts`, live site only, `confirmed.board`).
+  Drafts default to Business Type Services, Lead Source Direct.
 - `07f7748` **Attendance (Step A)** + **live refresh**:
-  - Attendance: `lib/attendanceRules.ts` (pure: day window in India time, dates follow the board after Mark confirmed, cookie),
-    `lib/boardDates.ts` (the board's schedule per Performa, 60 s cache), attendance functions in `portalTrainings.ts`,
-    `/api/portal/attend`, `/training/[number]/attend`, `components/portal/Attend.tsx`. Fixed printable QR (`attendKey`, New QR replaces
-    it); mobile number only, the phone remembers (cookie `th_att_<id>`); walk-ins (source `walkin`); Present → PRESENT stamp
-    (`.stamp-present`); coordinator ticks/unticks a day that has come (`tick`), no removal once ticked; registration closes after the last
-    day; a **Completed** stamp when the board completes it. Collection `portalAttendance` (_id `TH001:YYYY-MM-DD`). Our Trainings page:
-    present per day, read only (owner: the coordinator alone runs attendance).
-  - Live refresh: `lib/changes.ts` (kv "changes": team / work / local; `bump`, `withBump`), `/api/changes`, `lib/live.ts` (one watcher
-    per tab, every 5 s while visible; `useLive(load, topics)`). POST routes are wrapped with `withBump` (team: store, certificates,
-    mail, reminders, whatsapp, sheet, progress; work: training-management, quotations, portal routes, portal-content);
-    `recordServerEvent` and the reply checks bump team. The store's own pull is now 60 s (a safety net).
-  - **Zoho write-through** (`lib/writeThrough.ts`): after the dashboard changes a quote or Performa in Zoho it reads it back once and
-    writes it into zohoDocs (`putZohoDoc`) and salesDocs (`putSalesDoc`), then bumps "local". The snapshot version is now
-    `zoho_state.version × 1e6 + local` (kept apart because runSync rewrites its whole state doc); salesData's key includes local too.
-  - The story also reads training PIs/invoices from the pipeline: **the Sales copy leaves out training-only documents**, which is why a
-    training quote's Performa always showed "Not yet" (the old "FLAME" open point).
-- `5d35d66` **Trainers required at Mark confirmed** (picker in the Performa box; `readTrainers`, `zohoTrainer` → Zoho's Trainer Name =
-  the first, else "Other"; all of them on the board, so reminders start at once, to our trainers only). The board's **Training completed**
-  waits for trainers. The story's Performa box is **green** when confirmed (`piHint` from `portalTrainings.confirmed`, so it shows
-  before any Zoho copy has it).
-- `ee239fb` The training card's separate **Change** link is hidden while Change date is there (same details); kept on completed trainings.
+  - Attendance: `lib/attendanceRules.ts`, `lib/boardDates.ts` (board schedule per Performa, 60 s cache), `/api/portal/attend`,
+    `/training/[number]/attend`, `components/portal/Attend.tsx`. Fixed printable QR (`attendKey`); mobile number only, phone remembered
+    (cookie `th_att_<id>`); walk-ins (`walkin`); coordinator ticks a day that has come; `portalAttendance` (_id `TH001:YYYY-MM-DD`).
+    After Mark confirmed the portal's dates follow the board.
+  - Live refresh: `lib/changes.ts` (kv "changes": team / work / local; `bump`, `withBump`), `/api/changes`, `lib/live.ts` (one watcher per
+    tab, every 5 s while visible; `useLive`). Most POST routes are wrapped in `withBump`. Store pull is 60 s (safety net).
+  - **Zoho write-through** (`lib/writeThrough.ts`): quotes / Performas the dashboard changes are read back once and written into zohoDocs
+    and salesDocs (`putZohoDoc`, `putSalesDoc`), then "local" is bumped. Snapshot version = `zoho_state.version × 1e6 + local`.
+  - The story also reads training PIs/invoices from the pipeline (**the Sales copy leaves out training-only documents**).
+- `5d35d66` **Trainers required at Mark confirmed** (picker; Zoho Trainer Name = the first, else "Other"; all on the board → reminders to
+  our trainers only). Board's Training completed needs trainers. Story's Performa box green when confirmed (`piHint`).
+- `ee239fb` Training card: no separate Change link while Change date is there.
+- `2fc25df` **Deletions sync like changes**: each quick sync lists one kind's newest documents (`listNewest`, 1 call, kinds take turns)
+  and removes what our copies hold in that span but Zoho no longer lists (`sweepDeleted`, `goneFromList`); never trusts an empty answer;
+  more than 5 at once → left to the 9 am / 2 pm full check. A **Performa deleted in Zoho** reverts its training to Accepted.
+- `ac722fd` **Deleted in Zoho clears the coordinator's side** (`lib/portalCleanup.ts`, after a Zoho GET confirms it's really gone): a
+  deleted PI → back to Accepted, attendance ticks and QR cleared; a deleted quote → the training leaves the portal and Trainings (archived
+  in `portalArchive`) and the login is deleted (signed out) only if it was their last training and `own` is false.
+- `e682b47` + `2b5e822` **Quotations hides deleted quotes**: deletions are remembered (`zohoDeleted`; `noteDeleted`, `deletedIds`), and a
+  quote missing from the Sales copy inside its window counts as deleted (`stillInZoho`; 15-minute grace for one just sent). Opening a deleted
+  quote clears it everywhere instead of erroring.
+- `c805f25` **Old follow-up task system removed** (`lib/followups.ts`, store followUps/removedTriggers, their types). The Mongo collections
+  `followUps` / `removedTriggers` still hold data (dropping them was offered; permanent, only on the owner's word).
+- `af8d9fa` **Phone pass on the board card popups**: `Shell` portals to `<body>` (the phone header had hidden the title and close button);
+  the body grids are `grid-cols-[minmax(0,1fr)]` (Training card ran off the screen; same fix for Sales, AedSmartx, Logistics, Fulfillment);
+  `Row` puts the label above the value below `sm`; document line, notes, section titles and AED dates fixed.
+- `1502f87` **Start training + the quiz**:
+  - The coordinator presses **Start training** on the training date (`startTraining`; `portalTrainings.sessions`); attendance and the quiz
+    open only then. **End training** closes them (`endTraining`; **Start again** reopens). `sessionWindow` adds window states `waiting` /
+    `ended`; `quizState` = none / open / closed / revealed (revealed after End on the last day, or once it has passed).
+  - The quiz is the owner's Google Form "CPR-AED Quiz - by Think Health" (`lib/quizCprAed.ts`: 30 questions, pictures in
+    `public/portal/quiz/`, 10 pts each, 70% pass, 100% = First Aid Badge, the answer key the owner confirmed). `quizFor` gives it to
+    CPR / AED / Basic Life Support trainings. Rules in `lib/quizRules.ts` (score from answers every time, leaderboard by points then faster
+    finish, per-question analytics). Attempts in `portalQuizAttempts` (_id `<trainingId>:<TH>`), one each, present people only.
+  - Participant: `components/portal/Quiz.tsx` (via `?quiz=1` on their page; "Take the quiz" appears within 15 s of Start), in the
+    **AED Readiness Campaign's design** (github.com/thinkhealthcareandsafety/aed-readiness-campaign) — `app/training/quiz.css` scoped
+    `.qz`, fonts loaded in `[number]/[th]/page.tsx` only. Coordinator: navy "Training in progress" strip + live results (`TodayStrip`,
+    `Results` in PortalDashboard). Staff: read-only results on Trainings (`?quiz=`). Routes: `/api/portal/quiz`, portal/training actions
+    `start` / `end` / `results`.
 
-**Key files added in session 28:** `src/lib/{boardSchedule,boardScheduleServer,attendanceRules,boardDates,changes,live,writeThrough}.ts`,
-`src/app/api/{changes,portal/attend}/route.ts`, `src/app/training/[number]/attend/page.tsx`, `src/components/portal/Attend.tsx`,
-`tests/{boardSchedule,attendance,liveRefresh}.test.ts`.
+**Owner said no to (don't re-offer):** staff sign-in expiry / change-my-PIN screen ("let staff keep the same PIN"). npm audit is
+0 vulnerabilities (the old "Next 16.3 critical" note in §10 is stale).
 
 **Open decisions (ask; don't build unasked):**
-1. **Quiz (Step B)**: waits for the owner's Google Form; the questions get copied into the portal's own quiz (leaderboard: full names,
-   decided). Open: per programme or per training, attempts, time limit, open/close, live or final leaderboard, what results people see.
-2. Attendance → the certificate list (natural next step; not asked yet).
-3. PI email templates for non-training items; a third quotation company.
+1. Attendance → the certificate list (people ticked present become the certificate names).
+2. A quiz for other programmes (First Aid, Fire Safety): needs the owner's questions.
+3. Drop the old Mongo `followUps` / `removedTriggers` collections (permanent).
+4. Still on the shelf: tidy leftover quotations (Completed on invoice date), patch updates (Next 16.4.6, mongodb, nodemailer, tailwind),
+   PI email templates for non-training items, a third quotation company.
 
 **Owner's side (waiting):** the Cloudflare CNAME (optional); the Gmail App Password for saletotalsupply@gmail.com; the Zia steps in Zoho
-Flow; GoDaddy auto-renew.
+Flow; GoDaddy auto-renew; a GitHub `CRON_SECRET` (the backup hourly sync); making the GitHub repo private (their call).
 
 **Traps learned in session 28:**
-- The Bash heredoc broke on a long node script with quotes and backticks: write edit scripts to the scratchpad with Write, run with node.
-- Some files have a literal BOM char inside a CSV string; a node replace that includes it misses. Use the Edit tool for those lines.
-- `next build` passes with `export const POST = withBump(...)`; route handlers may be consts.
-- Never write to the live board's cardEvents from tests; `scheduleOnBoard` refuses outside production.
-- Screenshots: a temporary `src/app/training/zz-preview/page.tsx` that mocks `window.fetch`, dev server on a new port (3045 was last),
-  headless Chrome; delete the page before committing.
-
-**(Done) Start of session 28 — old checklist:** git/tests/DNS; asked the owner about the live test (passed), board scheduling (yes, at
-Mark confirmed), Cloudflare (not yet).
+- Bash heredocs break on node scripts with quotes, backticks or `${…}`: write the script to the scratchpad with Write and run it with node.
+  Some files hold a literal BOM inside a CSV string; edit those lines with the Edit tool.
+- `next build` accepts `export const POST = withBump(...)`.
+- Never write to the live board's cardEvents from tests or local servers: `scheduleOnBoard` refuses outside production, and a local
+  staff tab can record Zoho notices. For staff screens use a preview under `src/app/(staff)/zz-*` that mocks `window.fetch` (store
+  answers `{ enabled: false }`, `/api/progress/presence` needs `notices: []`), render inside 390 px iframes (headless Chrome can't go
+  below ~500 px), and delete it before committing. Portal previews go under `src/app/training/zz-*`.
+- A dev server can outlive its task: before starting one, check for a running `next dev` (its log names the port and PID; 3045 was used
+  last and is now stopped). Headless screenshots can't click: give a component a starting state only for the preview, then remove it.
+- The board's Zoho copy only learns about deletions from `sweepDeleted` (newest 200 per kind) or the 9 am / 2 pm full check; **Sync now**
+  forces a full check.
+- `goneInZoho` matches "does not exist"; cleanup always confirms with a Zoho GET before clearing portal data (an item leaving Training
+  Services must never wipe anyone).
 
 **Session 27 in short (10–13 Nov): all live at `4b8e7d6`.** The Training Manager is complete end to end, plus the Performa, accept/reject,
 live sync and many owner fixes. In order:

@@ -1,6 +1,6 @@
 # Training Manager: full plan
 
-## Status (13 Nov 2026, end of session 28): everything is live at `ee239fb`
+## Status (14 Nov 2026, end of session 28): everything is live at `1502f87`
 
 | Step | What | State |
 |---|---|---|
