@@ -6,8 +6,8 @@
 |---|---|---|
 | 1 | Training Management page (Trainings) | **Live**. The quotation's story, coordinator, portal state; rows glow green (accepted) or red (rejected); columns sort, kept per person |
 | 2 | Coordinator fields in the quote email + Zoho contact person | **Live** (a first name is enough; Same as original per field; an existing email is renamed) |
-| 3 | Portal sign-in + OTP reset | **Live** at work.thinkhealth.in/training/<number> |
-| — | training.thinkhealth.in | **Code live**, Vercel domain added; **waiting on the Cloudflare CNAME** `training` → `4145140deaae64f5.vercel-dns-017.com` (DNS only) |
+| 3 | Portal sign-in + OTP reset | **Live** at training.thinkhealth.in/<number> (and work.thinkhealth.in/training/<number>) |
+| — | training.thinkhealth.in | **Live** since 14 Nov (CNAME on Cloudflare, HTTPS; `PORTAL_BASE_URL` set, the owner confirmed the login link on 16 Nov) |
 | 4 | Welcome + Your trainings + Our programmes + Stay connected + Portal content editor | **Live** |
 | 5 | Accept (date, "course conducted at", headcount) or Decline | **Live** (replaced "propose a date"; see "As built") |
 | 6 | Participants: type, Excel/CSV, QR; one person per mobile number | **Live** |
@@ -40,7 +40,7 @@
 
 **2. The coordinator signs in** (30-day session).
 - The **welcome** plays once after sign-in: four signs set in, then three lines.
-- Then **Your trainings**, each as a sign panel with stacked ink stamps: **Awaiting decision → Accepted → Confirmed**, or a red **Rejected**. Earlier stamps stay faded, with their dates.
+- Then **Your trainings**, each as a sign panel with a progress track (owner, 16 Nov, replacing the stamps): **Quotation → Accepted → Confirmed → Training / Completed**, done steps with their dates, the current one saying what it waits on; a declined quote ends in red **Declined**.
 
 **3. Accept or Decline.**
 - **The quotation first (owner, 16 Nov: "otherwise what do they know what they are accepting"):** each training panel shows the quotation as Zoho has it: every line (no "(I)"), quantity × rate, amount, GST, subtotal, taxes, total, valid until, and **Download PDF** (Zoho's PDF through `GET /api/portal/training?pdf=<id>`, the coordinator's session only). Open until they decide, folded after. This reverses the old "prices never leave here" rule; participants still never see prices.
@@ -67,7 +67,7 @@
   - the Notes.
 
   **Save to Zoho** PUTs the draft. **Email the Performa** sends it from Zoho with its PDF, using the template under Templates → Performa emails.
-- The portal then stamps **Confirmed**, and the coordinator can no longer change the date.
+- The portal's track then reaches **Confirmed**, and the coordinator can no longer change the date.
 - A red row: rejected, with the reason. **Reopen** and **Mark Declined in Zoho** (a retry) are there.
 
 ## Where it's kept (as built)
@@ -86,15 +86,14 @@
 ## What's left
 
 1. **Owner:**
-   - The Cloudflare CNAME, then `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel and a redeploy.
-   - The first real test above.
+   - The first live CPR / AED training (this week, owner 16 Nov): attendance, the quiz and the certificate email for real.
    - Programme photos and videos (optional).
 2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board. Later on 13 Nov: trainers are required at Mark confirmed (on the board; Zoho Trainer Name = the first picked who is one of ours, else Other, since 16 Nov); Training completed needs trainers; a confirmed Performa shows green in the story.
 3. **To decide, then build:** item-level PI templates beyond training ("training only for now", owner).
 4. **Attendance (Step A): live** (`07f7748`). **Start training + Quiz (Step B): built 13 Nov.**
    - The coordinator presses **Start training** on the training date. That opens the quiz; **End training** closes the quiz and attendance. Attendance (people on the list and walk-ins, by the attendance QR) opens from the morning of the training day, before Start too (owner, 16 Nov); the participant page shows the quiz card from then: "Wait for your coordinator to start the training", then **Take the quiz to get your certificate** at Start, without reloading.
    - The quiz is the owner's Google Form "CPR-AED Quiz - by Think Health": 30 questions, 10 points each, 70% to pass, 100% earns a First Aid Badge. It applies to CPR / AED trainings and uses the answer key the owner confirmed.
-   - Only people marked present can take it, once each. They see their score and rank at once, and the right answers only after End on the last day.
+   - Only people marked present can take it (a fail may try again while it runs, see below). They see their score and rank at once, and the right answers only after End on the last day.
    - The leaderboard (full names, then the faster finish) and per-question analytics show live on the coordinator's panel, on participants' pages and on our Trainings page.
    - Design: the AED Readiness Campaign's (DESIGN.md "The quiz: its own world").
    - Stored in `portalTrainings.sessions` and `portalQuizAttempts`.

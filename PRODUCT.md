@@ -8,7 +8,7 @@ web
 
 ## Users
 - **Think Health staff** (Ashish, Shikha, Sumit, Nikita, Anuj, Pranjal and others): run sales, quotations, trainings, AED and fulfilment from the internal dashboard at work.thinkhealth.in, daily, on laptops and phones.
-- **Training coordinators at client organisations**, mostly big hotels: the person a hotel names to organise a CPR / First Aid / safety training. They log in to the Training Manager portal (training.thinkhealth.in) to see their trainings, propose a date and location, confirm headcount and build the participant list.
+- **Training coordinators at client organisations**, mostly big hotels: the person a hotel names to organise a CPR / First Aid / safety training. They log in to the Training Manager portal (training.thinkhealth.in) to see their trainings and the quotation, accept it with the date, location and headcount (or decline), build the participant list, and on the day run attendance and the quiz.
 - **Participants**: hotel staff who scan a coordinator's QR code, mostly on Android phones, often on slow networks, in English. They register (name, phone, optional email) and then see when, where and what their training is.
 
 ## Product Purpose
@@ -25,10 +25,10 @@ The client side of a training is managed on a Think Health-branded portal tied d
 
 ## Capabilities and Constraints
 - Stack: the existing Next.js app (custom version; read node_modules/next/dist/docs), MongoDB, Vercel, Zoho Books API.
-- The portal runs inside the same app. training.thinkhealth.in needs a DNS record on Cloudflare plus the domain on Vercel; until then, it runs at work.thinkhealth.in/training/….
+- The portal runs inside the same app, at training.thinkhealth.in (live since 14 Nov 2026; also reachable at work.thinkhealth.in/training/…).
 - Only training-only quotes (every item a training item) get a portal.
 - The portal's first email keeps the quote PDF and adds the login.
-- Undecided: confirm/accept flow details, PI creation, programme videos.
+- Built: accept / decline, the Draft Performa and Mark confirmed, attendance by QR, the CPR-AED quiz and certificates by email. Still open: programme videos, quizzes for other programmes.
 
 ## Brand Commitments
 - Match thinkhealth.in: the "think health" wordmark with "health" in a speech bubble. Deep petrol navy (~#034f72) and cerulean (~#0088c8). Logo PNGs are on Wix static (think-Health-Logo-1.png, ThinkHealth TM Logo).

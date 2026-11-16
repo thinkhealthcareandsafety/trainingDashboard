@@ -47,6 +47,13 @@ const VAR_HELP: Record<string, string> = {
   quote: "the quotation number",
   score: "their best quiz score, \"90%\"", link: "their own page, where the certificate can be downloaded", certno: "the certificate number, \"FAT-OD/04-12-2026/TH012\"",
 };
+/** Where a variable means something else in one email (the certificate email goes to the participant, not the quote's contact). */
+const VAR_HELP_FOR: Record<string, Record<string, string>> = {
+  "portal:certificate": { name: "the participant's name, as on their certificate" },
+  "portal:login": { name: "the training coordinator's name" },
+  "portal:box": { name: "the training coordinator's name" },
+  "pi:training": { name: "the training coordinator's name" },
+};
 
 // A made-up quote, so the preview shows every part (nothing here is a real customer).
 const SAMPLE: QuoteEmailInput = {
@@ -220,7 +227,7 @@ export function Templates() {
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <span className="text-[12px] text-muted">Insert:</span>
             {entry.vars.map((v) => (
-              <button key={v} type="button" onClick={() => insert(v)} title={VAR_HELP[v] ?? v} className="rounded-full bg-surface-2 px-2.5 py-0.5 font-mono text-[12px] text-ink-2 hover:bg-line">{`{${v}}`}</button>
+              <button key={v} type="button" onClick={() => insert(v)} title={VAR_HELP_FOR[entry.key]?.[v] ?? VAR_HELP[v] ?? v} className="rounded-full bg-surface-2 px-2.5 py-0.5 font-mono text-[12px] text-ink-2 hover:bg-line">{`{${v}}`}</button>
             ))}
           </div>
         )}

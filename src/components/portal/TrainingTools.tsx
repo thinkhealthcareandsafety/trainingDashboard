@@ -168,7 +168,7 @@ export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; 
   }, [att.on, att.window.state, t.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const remove = async (th: string, name: string) => {
-    if (!window.confirm(`Take ${name} (${th}) off the list?`)) return;
+    if (!window.confirm(`Take ${name} (${th}) off the list? If they took the quiz, they won't get a certificate.`)) return;
     const r = await act<People>({ action: "remove", id: t.id, th });
     if (r.list) update(r); else setError(r.error ?? "Couldn't remove them");
   };
