@@ -79,12 +79,28 @@ export function leaderboard(quiz: Quiz, attempts: Attempt[]): Ranked[] {
   return scored.map(({ a, s, ms: t }, i) => ({ rank: i + 1, th: a.th, name: a.name, points: s.points, correct: s.correct, pct: s.pct, seconds: Math.round(t / 1000), passed: s.passed, badge: s.badge, tries: tries.get(a.th) ?? 1 }));
 }
 
-export type QuestionStats = { id: string; text: string; answer: number; options: { text: string; image?: string; picked: number }[]; correctPct: number };
+/**
+ * `discrimination` (owner, 16 Nov, the report's item analysis): the classic upper–lower index on first tries — the share
+ * right among the top 27% of scorers minus the share right among the bottom 27% (−1 … 1; null with fewer than 4 people).
+ * `topic`: the quiz part it belongs to.
+ */
+export type QuestionStats = { id: string; text: string; answer: number; options: { text: string; image?: string; picked: number }[]; correctPct: number; topic?: string; discrimination: number | null };
 /** For the coordinator: per question, how many picked each option, the right one, and how many got it (first tries only). */
 export function analytics(quiz: Quiz, all: Attempt[]): QuestionStats[] {
   const attempts = firstAttempts(all);
+  const ranked = [...attempts].sort((x, y) => scoreOf(quiz, y.answers).points - scoreOf(quiz, x.answers).points);
+  const k = Math.max(1, Math.round(ranked.length * 0.27));
+  const upper = ranked.slice(0, k), lower = ranked.slice(-k);
+  const topicOf: string[] = [];
+  for (const t of quiz.topics ?? []) for (let n = 0; n < t.count; n++) topicOf.push(t.name);
   return quiz.questions.map((q, i) => {
     const picked = q.options.map((_, o) => attempts.filter((a) => a.answers[i] === o).length);
-    return { id: q.id, text: q.text, answer: q.answer, options: q.options.map((o, k) => ({ ...o, picked: picked[k] })), correctPct: attempts.length ? Math.round((picked[q.answer] / attempts.length) * 100) : 0 };
+    const share = (list: Attempt[]) => list.filter((a) => a.answers[i] === q.answer).length / list.length;
+    return {
+      id: q.id, text: q.text, answer: q.answer, options: q.options.map((o, kk) => ({ ...o, picked: picked[kk] })),
+      correctPct: attempts.length ? Math.round((picked[q.answer] / attempts.length) * 100) : 0,
+      ...(topicOf[i] ? { topic: topicOf[i] } : {}),
+      discrimination: ranked.length >= 4 ? Math.round((share(upper) - share(lower)) * 100) / 100 : null,
+    };
   });
 }

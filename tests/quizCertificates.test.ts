@@ -225,7 +225,8 @@ test("Good Samaritan records into the sheet (owner, 16 Nov): a row per certifica
   const append = async (pending: () => Promise<Record<string, string>[]>, done: (n: number) => Promise<void>) => { const rows = await pending(); if (rows.length) { written.push(rows); await done(rows.length); } return rows.length; };
   assert.equal(await goodSamaritanRecords("1", append as never), 2);
   const [rows] = written;
-  assert.deepEqual(rows.map((r) => [r["Certificate No"], r.Name, r.Mobile, r.Company, r["TH Number"]]).sort(), [["IAGS-SN/001", "Asha Rao", "9811111111", "The Grand", "TH001"], ["IAGS-SN/002", "Vikram Shah", "9822222222", "The Grand", "TH002"]]);
+  assert.deepEqual(rows.map((r) => [r.Name, r.Mobile, r.Company, r["TH Number"]]).sort(), [["Asha Rao", "9811111111", "The Grand", "TH001"], ["Vikram Shah", "9822222222", "The Grand", "TH002"]]);
+  assert.deepEqual(rows.map((r) => r["Certificate No"]).sort(), ["IAGS-SN/001", "IAGS-SN/002"]); // equal scores: who gets 001 is who finished first
   assert.equal(rows[0].Training, "CPR & AED Training");
   assert.equal(await goodSamaritanRecords("1", append as never), 0); // already there
   await take("TH003", await token("TH003"), wrong(1)).catch(() => undefined); // Meera isn't marked present: no try, no row

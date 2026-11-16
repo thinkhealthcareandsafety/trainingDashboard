@@ -11,8 +11,8 @@ import type { QuizResults } from "@/lib/portalTrainings";
 import { passedCsv } from "@/lib/portalCertRules";
 import { useLive, watchChanges } from "@/lib/live";
 import type { QuoteSheet } from "@/lib/trainingManager";
-import { questionReport } from "@/lib/quizReport";
-import { QuizCharts } from "./QuizCharts";
+
+import { QuizReportLauncher } from "./QuizReport";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -879,7 +879,7 @@ function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<T
           {r.taken > 0 && (
             <div className="mt-4">
               {/* The report, question by question for the whole group (owner, 16 Nov). */}
-              <QuizCharts title={quiz.title} questions={questionReport(r.questions)} />
+              <QuizReportLauncher title={quiz.title} r={r} />
             </div>
           )}
         </>

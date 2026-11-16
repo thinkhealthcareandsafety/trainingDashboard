@@ -847,6 +847,8 @@ export type QuizResults = {
   title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; passPct: number;
   /** How long it ran, ended days only (ms; owner 16 Nov). */
   ranMs: number;
+  /** The report (owner, 16 Nov): people who opened the quiz, people who sent answers; the quiz's parts. */
+  started: number; finished: number; topics: { name: string; count: number }[];
   leaderboard: Ranked[]; questions: QuestionStats[];
   /** The passed list with each certificate's state (each is emailed the moment its person passes, owner 16 Nov). */
   certificates: { list: CertStatus[] };
@@ -855,10 +857,12 @@ export type QuizResults = {
 export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null> {
   const qz = await quizOf(t);
   if (!qz) return null;
-  const done = finished(await attemptsOf(t._id));
+  const tries = await attemptsOf(t._id);
+  const done = finished(tries);
   const board = leaderboard(qz.quiz, done);
   const certs = await certificateLines(t._id);
   return {
+    started: new Set(tries.map((a) => a.th)).size, finished: new Set(done.map((a) => a.th)).size, topics: qz.quiz.topics ?? [],
     title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
     avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, ranMs: ranMs(t.sessions ?? []), leaderboard: board, questions: analytics(qz.quiz, done),
     certificates: {
