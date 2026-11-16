@@ -462,8 +462,8 @@ function QuizSummary({ id }: { id: string }) {
                   <td className="w-10 px-3 py-1.5 text-center font-semibold text-muted">{b.rank}</td>
                   <td className="px-2 py-1.5 font-medium">{b.name}</td>
                   <td className="px-2 py-1.5 text-muted">{b.th}</td>
-                  <td className="px-2 py-1.5 text-right">{b.points} · {b.pct}%</td>
-                  <td className="hidden px-2 py-1.5 text-right text-muted sm:table-cell">{b.tries === 1 ? "1 try" : `${b.tries} tries`}</td>
+                  <td className="px-2 py-1.5 text-right">{b.pct}%</td>
+                  <td className="hidden px-2 py-1.5 text-right text-muted sm:table-cell">Re-takes: {b.tries - 1}</td>
                   <td className={`px-2 py-1.5 text-right ${b.passed ? "text-low" : "text-medium"}`}>{b.badge ? "Badge" : b.passed ? "Passed" : "Not passed"}</td>
                   <td className="px-3 py-1.5 text-right text-[12.5px] text-muted">{certCell(b.th)}</td>
                 </tr>

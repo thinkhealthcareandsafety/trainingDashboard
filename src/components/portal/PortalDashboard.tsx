@@ -11,6 +11,8 @@ import type { QuizResults } from "@/lib/portalTrainings";
 import { passedCsv } from "@/lib/portalCertRules";
 import { useLive, watchChanges } from "@/lib/live";
 import type { QuoteSheet } from "@/lib/trainingManager";
+import { quizReport } from "@/lib/quizReport";
+import { QuizCharts } from "./QuizCharts";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -785,8 +787,8 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
  */
 function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean }) {
   const [r, setR] = useState<QuizResults | null>(null);
-  // In the report (owner, 16 Nov) every question's picks show, open.
-  const [byQuestion, setByQuestion] = useState(report);
+  // Owner, 16 Nov: the charts are the report; every question's picks fold under "Every question".
+  const [byQuestion, setByQuestion] = useState(false);
   // A certificate goes the moment its person passes (owner, 16 Nov): keep checking until each one with an email has gone.
   const sending = Boolean(r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
   useEffect(() => {
@@ -829,18 +831,18 @@ function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<T
                   <span className={`num text-center text-[15px] font-extrabold ${b.rank === 1 ? "text-navy" : "text-muted"}`}>{b.rank}</span>
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] font-semibold text-ink">{b.name}</span>
-                    <span className="num block text-[12.5px] text-muted">{b.th} · {Math.floor(b.seconds / 60)}m {b.seconds % 60}s{b.tries > 1 ? ` · ${b.tries} tries` : ""}{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}{certNote(r, b.th)}</span>
+                    <span className="num block text-[12.5px] text-muted">{b.th} · {Math.floor(b.seconds / 60)}m {b.seconds % 60}s · Re-takes: {b.tries - 1}{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}{certNote(r, b.th)}</span>
                   </span>
-                  <span className="num text-right text-[15px] font-bold text-ink">{b.points}<span className="ml-1.5 text-[12.5px] font-semibold text-muted">{b.pct}%</span></span>
+                  <span className="num text-right text-[16px] font-extrabold text-ink">{b.pct}%</span>
                 </li>
               ))}
             </ol>
           )}
           {r.taken > 0 && (
             <div className="mt-4">
-              {report
-                ? <h5 className="mt-2 text-[16px] font-extrabold tracking-[-0.01em] text-ink">Answers by question <span className="text-[13.5px] font-semibold text-muted">· what people picked on their first try</span></h5>
-                : <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide the answers by question" : "See the answers by question (first tries)"}</button>}
+              {/* The report as charts (owner, 16 Nov: "reports … bar charts, pie charts"). */}
+              <QuizCharts report={quizReport(r)} passPct={r.passPct} />
+              <button type="button" className="mt-5 text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide every question" : "Every question: what people picked (first tries)"}</button>
               {byQuestion && (
                 <ol className="mt-3 space-y-4">
                   {r.questions.map((q, i) => {

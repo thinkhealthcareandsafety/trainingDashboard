@@ -7,7 +7,8 @@
  */
 export type QuizOption = { text: string; image?: string };
 export type QuizQuestion = { id: string; text: string; options: QuizOption[]; answer: number };
-export type Quiz = { id: string; title: string; intro: string[]; pointsEach: number; passPct: number; badgePct: number; badge: string; questions: QuizQuestion[] };
+/** `topics`: the course's parts, in question order (`count` questions each), for the report's "By topic" chart (owner, 16 Nov). */
+export type Quiz = { id: string; title: string; intro: string[]; pointsEach: number; passPct: number; badgePct: number; badge: string; questions: QuizQuestion[]; topics?: { name: string; count: number }[] };
 
 const img = (file: string) => `/portal/quiz/${file}`;
 const q = (n: number, text: string, options: (string | QuizOption)[], answer: number): QuizQuestion =>
@@ -21,6 +22,7 @@ export const CPR_AED_QUIZ: Quiz = {
   passPct: 70,
   badgePct: 100,
   badge: "First Aid Badge",
+  topics: [{ name: "First Aid basics", count: 8 }, { name: "CPR", count: 9 }, { name: "AED", count: 8 }, { name: "Heart attack", count: 5 }],
   questions: [
     q(1, "What is First Aid?", ["Treatment provided by doctors", "Immediate help given to a person who is ill or injured"], 1),
     q(2, "What is the role of First Aider?", ["Call for Help", "Declare Dead", "Give Medications"], 0),
