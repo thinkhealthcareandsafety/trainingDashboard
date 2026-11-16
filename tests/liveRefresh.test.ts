@@ -7,6 +7,7 @@ import { goneFromList, putZohoDoc } from "@/lib/zohoSync";
 import { putSalesDoc } from "@/lib/salesSync";
 import { POST as storePost } from "@/app/api/store/route";
 import { GET as changesGet } from "@/app/api/changes/route";
+import { GET as portalChangesGet } from "@/app/api/portal/changes/route";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 
@@ -76,4 +77,12 @@ test("deleted in Zoho is remembered per kind, so slow copies (Reports, quotes se
   assert.deepEqual([...(await deletedIds("estimates"))].sort(), ["11", "12", "13"]);
   assert.deepEqual([...(await deletedIds("salesorders"))], ["900"]);
   assert.ok((await versions()).work >= 1); // the open tabs reload
+});
+
+test("the portal's counters (owner, 16 Nov): no staff sign-in, numbers only, they move with a change", async () => {
+  const before = (await (await portalChangesGet()).json()) as { work: number };
+  await bump("work");
+  const after = (await (await portalChangesGet()).json()) as Record<string, unknown>;
+  assert.equal(after.work, before.work + 1);
+  assert.deepEqual(Object.keys(after).sort(), ["team", "work", "zoho"]);
 });

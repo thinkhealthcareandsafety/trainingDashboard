@@ -21,8 +21,8 @@ const EVERY_MS = 5000;
 
 type Versions = { team: number; work: number; zoho: string };
 
-/** Starts the tab's watcher; returns its stop. */
-export function watchChanges(): () => void {
+/** Starts the tab's watcher; returns its stop. The portal watches /api/portal/changes (no staff sign-in there). */
+export function watchChanges(url = "/api/changes"): () => void {
   let last: Versions | null = null;
   let stopped = false;
   let busy = false;
@@ -30,7 +30,7 @@ export function watchChanges(): () => void {
     if (busy || stopped || document.visibilityState !== "visible") return;
     busy = true;
     try {
-      const r = await fetch("/api/changes", { cache: "no-store" });
+      const r = await fetch(url, { cache: "no-store" });
       if (!r.ok) return;
       const v = (await r.json()) as Versions;
       if (last) {

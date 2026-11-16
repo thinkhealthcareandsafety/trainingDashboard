@@ -8,6 +8,7 @@ import { type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
 import { portalPrefix } from "@/lib/portalHost";
 import { primaryBtn, secondaryBtn } from "./TrainingTools";
 import { QuizScreen } from "./Quiz";
+import { useLive, watchChanges } from "@/lib/live";
 
 /*
  * Participants (docs/TRAINING_MANAGER_PLAN.md step 7), phone-first and light: the join page the coordinator's QR code
@@ -151,12 +152,16 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
     if (open) url.searchParams.set("quiz", "1"); else url.searchParams.delete("quiz");
     history.replaceState(null, "", url);
   };
-  useEffect(() => {
-    fetch(`/api/portal/join?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`).then(async (r) => {
-      const j = await r.json().catch(() => ({}));
-      if (r.ok) setData(j); else { setData(null); setError(j.error ?? "We couldn't find that page."); }
-    }).catch(() => { setData(null); setError("Couldn't reach Think Health. Check your connection and try again."); });
-  }, [number, th, p]);
+  const loadPage = (first: boolean) => fetch(`/api/portal/join?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`, { cache: "no-store" }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) setData(j); else if (first) { setData(null); setError(j.error ?? "We couldn't find that page."); }
+  }).catch(() => { if (first) { setData(null); setError("Couldn't reach Think Health. Check your connection and try again."); } });
+  useEffect(() => { loadPage(true); }, [number, th, p]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Live (owner, 16 Nov): a new date, Start training, their attendance — on the page within seconds, no refresh.
+  useEffect(() => watchChanges("/api/portal/changes"), []);
+  const lookQuiz = () => fetch(`/api/portal/quiz?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`, { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null)).then((j) => setQuiz(j?.quiz ? (j as QuizInfo) : null)).catch(() => {});
+  useLive(() => { if (!showQuiz) { loadPage(false); lookQuiz(); } }, ["work", "team", "zoho"]);
 
   if (data === undefined) return <div className="min-h-screen bg-ground" aria-busy />;
   if (!data) return <Problem text={error} />;

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type Person, type Proposal, type Skipped, duplicatePhones, fmtProposalDate, indiaToday, parseCsv, peopleFromRows } from "@/lib/portalRules";
 import { type DayWindow, markable } from "@/lib/attendanceRules";
 import { portalPrefix } from "@/lib/portalHost";
+import { useLive } from "@/lib/live";
 import { Qr, qrPng } from "./Qr";
 
 /*
@@ -160,6 +161,8 @@ export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; 
   };
   const load = () => act<People>({ action: "people", id: t.id }).then((r) => { if (r.list) { update(r); setError(""); } else setError(r.error ?? "Couldn't load the list"); });
   useEffect(() => { load(); }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Someone joined by QR, we changed the list on Trainings: it shows at once (owner, 16 Nov).
+  useLive(load, ["work"]);
   // Live ticks (owner, 13 Nov): every 5 s on a training day, every minute otherwise once confirmed; paused while the tab is hidden.
   useEffect(() => {
     if (!att.on) return;

@@ -109,7 +109,7 @@
    - **Later (owner: "include it in the plan, no need to apply that right now"):**
      - The passed list goes into the **master Zoho Sheet** as rows (next serial, real `FAT-OD/<date>/<n>` numbers via `appendBatch`), replacing the TH-based number.
      - **Shreya's Fulfillment card**: how it treats certificates already sent from the portal (decide later).
-5. **Live refresh** across work.thinkhealth.in (`07f7748`): every tab checks for changes every 5 s; Zoho changes made from the dashboard are written straight into our copies.
+5. **Live refresh** across work.thinkhealth.in (`07f7748`): every tab checks for changes every 5 s; Zoho changes made from the dashboard are written straight into our copies. Since 16 Nov the portal too (owner: "any changes should be live at all times immediately"): the coordinator's trainings, their participant list and the participant page check `/api/portal/changes` every 5 s and reload on any change (an open Accept / Decline form is left alone).
 6. **Out of scope for now:** WhatsApp to participants. (Certificates now come from the quiz: see 4.)
 
 ## Next: Attendance and Quiz (plan, 13 Nov 2026; Step A built and live at `07f7748`, Step B waits for the Google Form)

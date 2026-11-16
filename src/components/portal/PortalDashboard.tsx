@@ -8,6 +8,7 @@ import { type DayWindow, fmtLength, ranMs, sessionMs } from "@/lib/attendanceRul
 import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
 import type { QuizResults } from "@/lib/portalTrainings";
 import { passedCsv } from "@/lib/portalCertRules";
+import { useLive, watchChanges } from "@/lib/live";
 import type { QuoteSheet } from "@/lib/trainingManager";
 
 /*
@@ -33,13 +34,16 @@ export function PortalDashboard({ me, number, welcome, onOut }: { me: Me; number
   const [error, setError] = useState("");
   const [intro, setIntro] = useState(() => welcome && !reducedMotion());
 
-  useEffect(() => {
-    fetch("/api/portal/home").then(async (r) => {
-      if (r.status === 401) return onOut();
-      const j = await r.json().catch(() => ({}));
-      if (j.me) setHome(j as Home); else setError(j.error ?? "Couldn't load your trainings. Try again in a minute.");
-    }).catch(() => setError("Couldn't reach Think Health. Check your connection and try again."));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = (first: boolean) => fetch("/api/portal/home", { cache: "no-store" }).then(async (r) => {
+    if (r.status === 401) return onOut();
+    const j = await r.json().catch(() => ({}));
+    if (j.me) { setHome(j as Home); setError(""); } else if (first) setError(j.error ?? "Couldn't load your trainings. Try again in a minute.");
+  }).catch(() => { if (first) setError("Couldn't reach Think Health. Check your connection and try again."); });
+  useEffect(() => { load(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Live (owner, 16 Nov: "any changes should be live at all times immediately"): whatever we or anyone changes (a Performa
+  // confirmed, a date moved on the board, someone joining) shows within seconds, no refresh.
+  useEffect(() => watchChanges("/api/portal/changes"), []);
+  useLive(() => load(false), ["work", "team", "zoho"]);
 
   // The training the link was for (training.thinkhealth.in/<number>): brought into view once the page is there.
   useEffect(() => {
@@ -226,6 +230,12 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const [people, setPeople] = useState(false);
   const [attendKey, setAttendKey] = useState(t.attendKey);
   const [live, setLive] = useState<Live>({ present: 0, total: t.registered });
+  // A fresh copy from the live refresh: taken in, except while they're filling in Accept / Decline (their form stays).
+  useEffect(() => {
+    if (editing || declining) return;
+    setT((x) => ({ ...x, ...initial }));
+    if (initial.attendKey) setAttendKey(initial.attendKey);
+  }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
   const title = t.lines.map((l) => l.name).join(" + ") || "Training";
   // A training day (owner, 13 Nov: the coordinator starts it): before Start, while it runs, and after End.
   const onTheDay = Boolean(t.confirmedAt) && !t.completedAt && ["waiting", "open", "ended"].includes(t.window.state);
