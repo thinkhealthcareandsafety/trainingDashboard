@@ -196,8 +196,9 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
     const marks = t.confirmed?.zohoAt ? await marksOf(t._id) : [];
     const list = await peopleOf(t._id);
     const mobile = cleanPhone(t.coordinator?.phone ?? "");
-    const mine = mobile ? list.find((x) => x.phone === mobile) ?? null : null;
-    const selfPrompt = !t.confirmed?.zohoAt || x.status === "declined" ? null : !t.selfAsk && !mine ? "self" as const : !t.teamAskedAt ? "team" as const : null;
+    // "You" only when they added themselves (owner, 16 Nov: "how did it know it's me? it could've been anyone").
+    const mine = t.selfAsk?.th ? list.find((p) => p._id === t.selfAsk!.th) ?? null : null;
+    const selfPrompt = !t.confirmed?.zohoAt || x.status === "declined" ? null : !t.selfAsk ? "self" as const : !t.teamAskedAt ? "team" as const : null;
     out.push({
       id: x.id, number: x.number, customer: x.customer, date: x.date,
       lines: x.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })), quote: x.sheet,
@@ -329,11 +330,17 @@ export async function removePerson(email: string, id: unknown, th: unknown): Pro
 export async function selfRegister(email: string, id: unknown, raw: unknown): Promise<{ th: string; token: string } | Fail> {
   const t = await own(email, id);
   if (!t) return notYours;
-  if (!t.confirmed?.zohoAt) return { error: "You can register once Think Health confirms the training.", status: 409 };
+  if (!t.proposal || t.rejected) return { error: "Accept the quotation first, then add yourself.", status: 409 };
+  const have = await peopleOf(t._id);
+  // Only once (owner, 16 Nov).
+  const had = t.selfAsk?.th ? have.find((p) => p._id === t.selfAsk!.th) : undefined;
+  if (had) return { error: `You're already on the list as ${had._id}.`, status: 409 };
   const person = readPerson(raw);
   if ("error" in person) return { error: person.error, status: 400 };
-  const have = await peopleOf(t._id);
-  const doc = have.find((x) => x.phone === person.phone) ?? (have.length >= MAX_PEOPLE ? null : (await insertPeople(t._id, [person], "coordinator"))[0]);
+  // Their number already on the list (someone typed it): that entry becomes theirs, one person per mobile number.
+  const same = have.find((x) => x.phone === person.phone);
+  if (same) await (await peopleCol()).updateOne({ _id: same._id }, { $set: { name: person.name, ...(person.email ? { email: person.email } : {}), source: "coordinator" } });
+  const doc = same ?? (have.length >= MAX_PEOPLE ? null : (await insertPeople(t._id, [person], "coordinator"))[0]);
   if (!doc) return { error: "This training's list is full.", status: 409 };
   await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { selfAsk: { at: new Date().toISOString(), th: doc._id } } });
   return { th: doc._id, token: doc.token };

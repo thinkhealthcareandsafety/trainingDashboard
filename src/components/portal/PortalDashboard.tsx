@@ -280,7 +280,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
           {myPage && <a className="mt-1 inline-block text-[14px] font-semibold text-action hover:underline" href={myPage}>Your own page ({t.me!.th})</a>}
           {/* Not on the list (skipped the ask, or a different number): register yourself here (owner, 16 Nov). */}
-          {!t.me && confirmed && t.selfPrompt !== "self" && (
+          {!t.me && t.proposal && !t.rejected && t.selfPrompt !== "self" && (
             <button type="button" className="mt-1 inline-block text-[14px] font-semibold text-action hover:underline"
               onClick={() => { setT((x) => ({ ...x, selfPrompt: "self" })); setTimeout(() => document.getElementById(`self-${t.number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" }), 50); }}>
               Attending too? Add yourself
@@ -308,7 +308,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
       </div>
 
       {/* Asked once after Mark confirmed (owner, 16 Nov): register yourself, then get your team registered. */}
-      {confirmed && t.selfPrompt && <SelfPrompt t={t} myPage={myPage} onDone={(patch) => setT((x) => ({ ...x, ...patch }))} onPeople={goPeople} />}
+      {t.proposal && !t.rejected && t.selfPrompt && (confirmed || t.selfPrompt === "self") && <SelfPrompt t={t} myPage={myPage} onDone={(patch) => setT((x) => ({ ...x, ...patch }))} onPeople={goPeople} />}
 
       {/* The quotation itself (owner, 16 Nov): open until they decide, folded after; at the bottom once confirmed. */}
       {!confirmed && <QuoteSection t={t} key={t.proposal || t.rejected ? "decided" : "open"} />}
@@ -646,7 +646,7 @@ function SelfPrompt({ t, myPage, onDone, onPeople }: { t: Training; myPage: stri
       <section id={`self-${t.number}`} className="scroll-mt-24 border-b border-line p-5 sm:p-7" aria-label="Register yourself">
         <div className="rounded-xl bg-ground px-5 py-5 sm:px-6">
           <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Are you attending too?</h4>
-          <p className="mt-1.5 max-w-[60ch] text-[15px] leading-relaxed text-ink-2">Register yourself and you get your own page, like everyone else: mark your attendance, take the quiz, get your certificate. We know it&apos;s you by your mobile number, on any device; your row in the list says <b className="text-ink">You</b>.</p>
+          <p className="mt-1.5 max-w-[60ch] text-[15px] leading-relaxed text-ink-2">Register yourself and you get your own page, like everyone else: mark your attendance, take the quiz, get your certificate. You can do this once; your row in the list then says <b className="text-ink">You</b>.</p>
           <form onSubmit={register} className="mt-4 grid gap-3 sm:grid-cols-3" noValidate>
             <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Your name</span><input className={field} autoComplete="name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label>
             <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Mobile number</span><input className={`${field} num`} type="tel" inputMode="tel" autoComplete="tel" value={phone} maxLength={16} onChange={(e) => setPhone(e.target.value)} /></label>
