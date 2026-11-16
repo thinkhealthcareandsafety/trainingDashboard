@@ -128,9 +128,10 @@ export function JoinPage({ number, k }: { number: string; k: string }) {
 type Page = { th: string; name: string; number: string; training: string; customer: string; dates: ProposalDate[]; tentative: boolean; location: string; tbd?: boolean; present?: string[]; confirmed?: boolean };
 
 type QuizInfo = {
-  quiz: { title: string; questions: { text: string; options: { text: string; image?: string }[]; answer?: number }[]; passPct: number }; state: "none" | "open" | "closed" | "revealed"; present: boolean; startedAt: string | null;
+  quiz: { title: string; questions: { text: string; options: { text: string; image?: string }[]; answer?: number; critical?: boolean; lesson?: string }[]; passPct: number }; state: "none" | "open" | "closed" | "revealed"; present: boolean; startedAt: string | null;
   result: { points: number; max: number; pct: number; correct: number; total: number; rank: number; of: number; passed: boolean; badge: boolean; bestPct: number; tries: number; seconds: number; answers: number[]; topics: { name: string; right: number; of: number }[] } | null;
   canRetake: boolean; certificate: { ready: boolean; email: string | null; emailedAt: string | null } | null;
+  leaderboard?: { seconds: number }[];
 };
 
 export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { number: string; th: string; p: string; quiz?: boolean }) {
@@ -206,7 +207,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
         <div className="h-12" />
       </main>
       <StayConnected social={content.social} />
-      {report && quiz?.result && <MyReport d={{ title: quiz.quiz.title, name: page.name, th: page.th, training: page.training, revealed: quiz.state === "revealed", passPct: quiz.quiz.passPct, questions: quiz.quiz.questions, result: quiz.result }} onClose={() => setReport(false)} />}
+      {report && quiz?.result && <MyReport d={{ title: quiz.quiz.title, name: page.name, th: page.th, training: page.training, revealed: quiz.state === "revealed", passPct: quiz.quiz.passPct, questions: quiz.quiz.questions, everyone: (quiz.leaderboard ?? []).map((b) => b.seconds), result: quiz.result }} onClose={() => setReport(false)} />}
     </div>
   );
 }

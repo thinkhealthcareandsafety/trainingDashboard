@@ -14,11 +14,12 @@ export function quizFor(titles: string[]): Quiz | null {
   return titles.some((t) => /\bcpr\b|\baed\b|basic life|\bbls\b|first[\s-]*aid/i.test(t)) ? QUIZZES.find((q) => q.id === "cpr-aed") ?? null : null;
 }
 
-export type PublicQuiz = Omit<Quiz, "questions"> & { questions: { id: string; text: string; options: { text: string; image?: string }[]; answer?: number }[] };
+export type PublicQuiz = Omit<Quiz, "questions"> & { questions: { id: string; text: string; options: { text: string; image?: string }[]; answer?: number; critical?: boolean; lesson?: string }[] };
 /** The quiz as a participant sees it: the right answers only once revealed. */
 export const publicQuiz = (quiz: Quiz, reveal: boolean): PublicQuiz => ({
   ...quiz,
-  questions: quiz.questions.map((x) => ({ id: x.id, text: x.text, options: x.options, ...(reveal ? { answer: x.answer } : {}) })),
+  // The lessons give the answer away, so they come only with the answers (owner, 16 Nov).
+  questions: quiz.questions.map((x) => ({ id: x.id, text: x.text, options: x.options, ...(reveal ? { answer: x.answer, ...(x.critical ? { critical: true } : {}), ...(x.lesson ? { lesson: x.lesson } : {}) } : {}) })),
 });
 
 /** The answers sent: one option index per question, every question answered. */

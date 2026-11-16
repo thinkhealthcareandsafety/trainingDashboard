@@ -1,22 +1,38 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { learningMoments, persona, speed, superpowerAndKryptonite } from "@/lib/myReport";
 
 /*
- * A participant's own quiz report (owner, 16 Nov: "in similar fashion let user see and download their report"): full
- * screen, the portal's look — their score, whether they passed, time, re-takes and rank; their score by topic; then every
- * question with the answer they gave (and, once the coordinator ends the training, the right one). Print / Save as PDF.
+ * A participant's own report as a story (owner, 16 Nov: "replace confusing statistical jargon with metrics that tell a
+ * story about the participant"): their persona badge, superpower and kryptonite, a speed flashcard against everyone's
+ * average, and their one or two most critical mistakes as real-world learning moments (once the answers are out). No
+ * wall of 30 questions. The portal's look; Print / Save as PDF.
  */
 
 export type MyReportData = {
   title: string; name: string; th: string; training: string; revealed: boolean; passPct: number;
-  questions: { text: string; options: { text: string; image?: string }[]; answer?: number }[];
+  questions: { text: string; options: { text: string; image?: string }[]; answer?: number; critical?: boolean; lesson?: string }[];
+  /** Everyone's time on their best try (seconds), for the speed card. */
+  everyone: number[];
   result: { pct: number; correct: number; total: number; passed: boolean; badge: boolean; rank: number; of: number; tries: number; seconds: number; answers: number[]; topics: { name: string; right: number; of: number }[] };
 };
 
-const card = "rounded-xl bg-surface p-4 ring-1 ring-line sm:p-5";
+const card = "rounded-2xl bg-surface p-5 ring-1 ring-line sm:p-6";
 const label = "text-[12px] font-bold uppercase tracking-[0.12em] text-muted";
-const time = (s: number) => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+const time = (s: number) => (s >= 60 ? `${Math.floor(s / 60)} min ${s % 60 ? `${s % 60} s` : ""}`.trim() : `${s} s`);
+
+function Shield({ tier }: { tier: "rookie" | "lifesaver" | "maestro" }) {
+  // A badge in the portal's sign language: a white shield on the navy card, a navy heart-beat, one to three stars by tier.
+  const stars = tier === "maestro" ? 3 : tier === "lifesaver" ? 2 : 1;
+  return (
+    <svg viewBox="0 0 96 108" className="h-[104px] w-[92px] shrink-0 drop-shadow-[0_4px_10px_rgb(2_40_60/0.25)]" aria-hidden>
+      <path d="M48 4 88 18v34c0 26-17 44-40 52C25 96 8 78 8 52V18Z" fill="#fff" />
+      <path d="M22 60h14l6-12 8 22 6-14h18" fill="none" stroke="var(--navy)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+      {Array.from({ length: stars }, (_, i) => <path key={i} transform={`translate(${48 + (i - (stars - 1) / 2) * 15 - 6} 24)`} d="M6 0l1.8 3.9 4.2.5-3.1 2.9.8 4.2L6 9.4 2.3 11.5l.8-4.2L0 4.4l4.2-.5Z" fill="var(--navy)" />)}
+    </svg>
+  );
+}
 
 export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void }) {
   const body = useRef<HTMLDivElement>(null);
@@ -36,71 +52,86 @@ export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void 
     setTimeout(() => { w.focus(); w.print(); }, 500);
   };
   const r = d.result;
-  const kpis: [string, React.ReactNode, string][] = [
-    ["Score", `${r.pct}%`, `${r.correct} of ${r.total} right`],
-    ["Result", r.badge ? "Badge" : r.passed ? "Passed" : "Not yet", r.passed ? `${d.passPct}% or more` : `${d.passPct}% passes`],
-    ["Time", time(r.seconds), "on the try that counts"],
-    ["Rank", `#${r.rank}`, `of ${r.of} · re-takes: ${r.tries - 1}`],
-  ];
+  const who = persona(r.pct, d.passPct);
+  const { power, weak } = superpowerAndKryptonite(r.topics);
+  const pace = speed(r.seconds, d.everyone, r.passed);
+  const moments = learningMoments(d.questions, r.answers);
+  const max = Math.max(pace.seconds, pace.avg, 1);
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-ground" role="dialog" aria-modal="true" aria-label="My report">
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3 sm:px-6">
-        <div className="min-w-0"><h4 className="truncate text-[18px] font-extrabold tracking-[-0.01em] text-ink">My report</h4><p className="truncate text-[13px] text-muted">{d.name} · {d.th}</p></div>
+        <div className="min-w-0"><h4 className="truncate text-[18px] font-extrabold tracking-[-0.01em] text-ink">My report</h4><p className="truncate text-[13px] text-muted">{d.title} · {d.training}</p></div>
         <div className="flex shrink-0 gap-2">
           <button type="button" onClick={print} className="h-10 rounded-xl px-3.5 text-[14px] font-bold text-action ring-1 ring-inset ring-action/35 hover:bg-action/5"><span className="sm:hidden">Print</span><span className="hidden sm:inline">Print / Save as PDF</span></button>
           <button type="button" onClick={onClose} className="h-10 rounded-xl bg-navy px-4 text-[14px] font-bold text-white hover:bg-navy-deep">Close</button>
         </div>
       </header>
       <div ref={body} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-        <div className="mx-auto max-w-4xl space-y-4">
-          <div>
-            <p className="text-[22px] font-extrabold tracking-[-0.02em] text-ink">{d.title}</p>
-            <p className="text-[14px] text-muted">{d.training} · {d.name} ({d.th})</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {kpis.map(([t, v, n]) => (
-              <div key={t} className={card}>
-                <p className={label}>{t}</p>
-                <p className="num mt-2 text-[26px] font-extrabold leading-none text-ink">{v}</p>
-                <p className="mt-1.5 text-[13px] text-ink-2">{n}</p>
-              </div>
-            ))}
-          </div>
-          {r.topics.length > 0 && (
+        <div className="mx-auto max-w-3xl space-y-4">
+          {/* The persona badge */}
+          <section className="flex flex-col items-center gap-5 rounded-2xl bg-navy px-6 py-7 text-center text-white sm:flex-row sm:text-left">
+            <Shield tier={who.tier} />
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/70">{d.name} is a</p>
+              <p className="mt-1 text-[32px] font-extrabold leading-tight tracking-[-0.02em] sm:text-[38px]">{who.title}</p>
+              <p className="mt-2 text-[15.5px] leading-relaxed text-white/85">{who.line}</p>
+              <p className="num mt-3 text-[14px] font-semibold text-white/75">{r.pct}% · {r.correct} of {r.total} right · #{r.rank} of {r.of}{r.tries > 1 ? ` · ${r.tries - 1} re-take${r.tries > 2 ? "s" : ""}` : ""}</p>
+            </div>
+          </section>
+
+          {/* Superpower & kryptonite */}
+          <div className="grid gap-4 sm:grid-cols-2">
             <section className={card}>
-              <p className="text-[16px] font-extrabold text-ink">By topic</p>
-              <ul className="mt-3 space-y-3">
-                {r.topics.map((t) => {
-                  const pct = t.of ? Math.round((t.right / t.of) * 100) : 0;
-                  return (
-                    <li key={t.name}>
-                      <div className="flex justify-between text-[14px]"><span className="font-semibold text-ink">{t.name}</span><span className="num text-ink-2"><b className="text-ink">{t.right}</b> of {t.of}</span></div>
-                      <span className="mt-1.5 block h-2.5 rounded-full bg-ground"><span className="block h-full rounded-l-full rounded-r-[4px] bg-navy" style={{ width: `${pct}%` }} /></span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <p className={label}>Your superpower</p>
+              <p className="mt-2 text-[22px] font-extrabold leading-tight tracking-[-0.01em] text-ink">{power ? power.title : "—"}</p>
+              {power && <p className="num mt-1.5 text-[14px] text-ink-2">{power.topic}: <b className="text-ink">{power.right} of {power.of}</b> right</p>}
             </section>
-          )}
+            <section className={card}>
+              <p className={label}>Your kryptonite</p>
+              <p className="mt-2 text-[22px] font-extrabold leading-tight tracking-[-0.01em] text-ink">{weak ? weak.title : "None. Clean sweep."}</p>
+              <p className="num mt-1.5 text-[14px] text-ink-2">{weak ? <>{weak.topic}: <b className="text-ink">{weak.right} of {weak.of}</b> right. Worth a second look.</> : "Every topic as strong as the next."}</p>
+            </section>
+          </div>
+
+          {/* Speed flashcard */}
           <section className={card}>
-            <p className="text-[16px] font-extrabold text-ink">My answers</p>
-            <p className="mt-0.5 text-[13px] text-muted">{d.revealed ? "The right answers are shown." : "The right answers show here once your coordinator ends the training."}</p>
-            <ol className="mt-4 divide-y divide-line">
-              {d.questions.map((q, i) => {
-                const mine = r.answers[i];
-                const right = d.revealed && q.answer !== undefined ? mine === q.answer : null;
-                return (
-                  <li key={i} className="py-3">
-                    <p className="text-[14.5px] font-semibold text-ink"><span className="num text-muted">{i + 1}. </span>{q.text}</p>
-                    <p className="mt-1 text-[14px] text-ink-2">
-                      My answer: <b className="font-semibold text-ink">{q.options[mine]?.text ?? "—"}</b>
-                      {right === true && <span className="ml-2 rounded-full bg-navy px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white">Right</span>}
-                      {right === false && <span className="ml-2 text-[13px] text-muted">· Right answer: <b className="font-semibold text-ink">{q.options[q.answer!]?.text}</b></span>}
-                    </p>
+            <p className={label}>Your speed</p>
+            <p className="mt-2 text-[22px] font-extrabold leading-tight tracking-[-0.01em] text-ink">
+              Finished in {time(pace.seconds)}{d.everyone.length > 1 && pace.diff !== 0 ? <span className="text-ink-2">, {time(Math.abs(pace.diff))} {pace.diff < 0 ? "faster" : "slower"} than average</span> : null}
+            </p>
+            <p className="mt-1.5 text-[15px] text-ink-2">{pace.line}</p>
+            {d.everyone.length > 1 && (
+              <div className="mt-4 space-y-2">
+                {[["You", pace.seconds, "var(--navy)"], ["Average", pace.avg, "var(--line-strong)"]].map(([who2, s, c]) => (
+                  <div key={who2 as string} className="grid grid-cols-[72px_minmax(0,1fr)_64px] items-center gap-3 text-[13.5px]">
+                    <span className="font-semibold text-ink">{who2}</span>
+                    <span className="h-2.5 rounded-full bg-ground"><span className="block h-full rounded-l-full rounded-r-[4px]" style={{ width: `${((s as number) / max) * 100}%`, background: c as string }} /></span>
+                    <span className="num text-right text-ink-2">{time(s as number)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Learning moments */}
+          <section className={card}>
+            <p className={label}>Learning moments</p>
+            {!d.revealed ? (
+              <p className="mt-2 text-[15px] leading-relaxed text-ink-2">Your most important learning moments appear here once your coordinator ends the training and the right answers are out.</p>
+            ) : !moments.length ? (
+              <p className="mt-2 text-[18px] font-extrabold text-ink">Nothing to fix. You got every question right.</p>
+            ) : (
+              <ol className="mt-3 space-y-4">
+                {moments.map((m) => (
+                  <li key={m.n} className="rounded-xl bg-ground p-4">
+                    <p className="text-[13px] font-bold uppercase tracking-[0.1em] text-muted">{m.critical ? "In a real emergency" : `Question ${m.n}`}</p>
+                    <p className="mt-1 text-[16px] font-bold leading-snug text-ink">{m.text}</p>
+                    <p className="mt-2 text-[14.5px] text-ink-2">You chose <b className="font-semibold text-ink">{m.chose}</b>. The right answer: <b className="font-semibold text-ink">{m.right}</b>.</p>
+                    <p className="mt-2 text-[14.5px] leading-relaxed text-ink">{m.lesson}</p>
                   </li>
-                );
-              })}
-            </ol>
+                ))}
+              </ol>
+            )}
           </section>
         </div>
       </div>

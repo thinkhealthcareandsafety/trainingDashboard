@@ -6,7 +6,8 @@
  * Every question is required here (in the form Q26–30 were optional), so everyone is scored out of the same 300.
  */
 export type QuizOption = { text: string; image?: string };
-export type QuizQuestion = { id: string; text: string; options: QuizOption[]; answer: number };
+/** `critical` + `lesson` (owner, 16 Nov: a participant's report shows their one or two most critical mistakes "framed as real-world learning moments"). Shown only once the answers are revealed. */
+export type QuizQuestion = { id: string; text: string; options: QuizOption[]; answer: number; critical?: boolean; lesson?: string };
 /** `topics`: the course's parts in question order (`count` questions each), for the report's topic breakdown (owner, 16 Nov). */
 export type Quiz = { id: string; title: string; intro: string[]; pointsEach: number; passPct: number; badgePct: number; badge: string; questions: QuizQuestion[]; topics?: { name: string; count: number }[] };
 
@@ -75,5 +76,25 @@ export const CPR_AED_QUIZ: Quiz = {
     ], 2),
   ],
 };
+
+/*
+ * The learning moments (standard first-aid / BLS guidance, worded for a hotel team; owner to review). Critical = a mistake
+ * here can cost a life in a real emergency, so the report raises these first.
+ */
+const LESSONS: Record<string, { critical?: boolean; lesson: string }> = {
+  q3: { critical: true, lesson: "Check for danger first. If the scene isn't safe, you become the second casualty: make it safe, or call for help before you go in." },
+  q8: { critical: true, lesson: "Start CPR when someone doesn't respond and isn't breathing normally. Gasping isn't breathing, and every minute without CPR lowers their chance of survival." },
+  q14: { critical: true, lesson: "Push at least 5 cm deep on an adult. Shallow compressions don't move enough blood to keep the brain alive." },
+  q15: { critical: true, lesson: "Push 100 to 120 times a minute. Too slow or too fast, and the heart pumps far less blood." },
+  q16: { critical: true, lesson: "If ribs crack, keep going. Broken ribs heal; a heart that has stopped won't restart without CPR." },
+  q19: { critical: true, lesson: "Place the pads exactly as the AED's pictures show, so the shock passes through the heart. Wrong placement can make the shock fail." },
+  q20: { critical: true, lesson: "For a child or infant, follow the AED's child pictures for the pads, and make sure the two pads never touch each other." },
+  q24: { critical: true, lesson: "On a child, use child pads or the child key and place the pads as the AED shows. Adult settings give too strong a shock." },
+  q28: { critical: true, lesson: "Use the AED only when the person is unconscious and not breathing normally. A conscious heart-attack patient needs calm, help and monitoring, not a shock." },
+  q12: { lesson: "Push hard and push fast in the centre of the chest. That one line is most of good CPR." },
+  q25: { lesson: "The AED operator says so out loud and follows the AED's voice prompts exactly. It talks you through every step." },
+  q30: { lesson: "When they start breathing, put them in the recovery position and keep checking their breathing until help arrives." },
+};
+for (const q of CPR_AED_QUIZ.questions) Object.assign(q, LESSONS[q.id] ?? {});
 
 export const QUIZZES: Quiz[] = [CPR_AED_QUIZ];
