@@ -22,7 +22,7 @@ const STATUS: Record<string, string> = { draft: "Draft", sent: "Sent", accepted:
 type Portal = { status: string; proposal: Proposal | null; history: Proposal[]; registered: number; loginSentAt: string | null; lastLogin: string | null; confirmed: { at: string; by: string; salesorderId: string; number: string; emailedAt?: string; zohoAt?: string; zohoBy?: string; board?: Board } | null; rejected: { at: string; by: string; reason: string; zoho: "declined" | "failed" } | null; attendance: { day: string; present: number }[] | null };
 type Board = { state: "scheduled" | "skipped" | "failed" | "notlive"; note: string; at: string; value?: string };
 type Quote = TrainingQuote & { portal: Portal | null };
-type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr" | "walkin"; addedAt: string; duplicate: boolean; present: string[] };
+type Person = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr" | "walkin" | "coordinator"; addedAt: string; duplicate: boolean; present: string[] };
 
 const portalStatus = (x: Quote) => x.portal?.status ?? (x.coordinator ? "Login not sent" : "No coordinator");
 const proposed = (x: Quote) => Boolean(x.portal?.proposal) && !x.portal?.confirmed && !x.portal?.rejected;
@@ -360,7 +360,7 @@ function TrainingManagerCard({ x, onChanged }: { x: Quote; onChanged: () => void
   );
 }
 
-const SOURCE: Record<Person["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR", walkin: "Walk-in" };
+const SOURCE: Record<Person["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR", walkin: "Walk-in", coordinator: "Coordinator" };
 
 /** Steps 6–7, our side: the attendee list the coordinator built, downloadable. */
 function ParticipantList({ x }: { x: Quote }) {

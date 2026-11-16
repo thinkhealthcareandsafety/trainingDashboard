@@ -40,6 +40,10 @@ export type TrainingDoc = {
   attendKey?: string;
   /** Start training / End training per day (owner, 13 Nov): attendance and the quiz run only while a session does. */
   sessions?: Session[];
+  /** The coordinator was asked once, after Mark confirmed, to register themselves (owner, 16 Nov): when, and their TH (null = skipped). */
+  selfAsk?: { at: string; th: string | null };
+  /** …then to get their team registered: when they answered. */
+  teamAskedAt?: string;
 };
 export type Rejected = { at: string; by: string; reason: string; zoho: "declined" | "failed" };
 /**
@@ -49,8 +53,8 @@ export type Rejected = { at: string; by: string; reason: string; zoho: "declined
  */
 export type Confirmed = { at: string; by: string; salesorderId: string; number: string; emailedAt?: string; zohoAt?: string; zohoBy?: string; board?: BoardResult };
 export type BoardResult = { state: "scheduled" | "skipped" | "failed" | "notlive"; note: string; at: string; value?: string };
-/** How a participant got on the list; "walkin": registered on the day by the attendance QR (owner, 13 Nov). */
-export type Source = "typed" | "excel" | "qr" | "walkin";
+/** How a participant got on the list; "walkin": registered on the day by the attendance QR (owner, 13 Nov); "coordinator": the coordinator themselves (owner, 16 Nov). */
+export type Source = "typed" | "excel" | "qr" | "walkin" | "coordinator";
 type ParticipantDoc = { _id: string; trainingId: string; name: string; phone: string; email?: string; source: Source; token: string; addedAt: string };
 
 const trainingsCol = async () => (await db()).collection<TrainingDoc>("portalTrainings");
@@ -164,6 +168,13 @@ export type PortalTraining = {
   session: { startedAt: string; endedAt: string | null } | null;
   /** Every day's Start / End (the report's training time, owner 16 Nov). */
   sessions: { day: string; startedAt: string; endedAt: string | null }[];
+  /**
+   * Once confirmed (owner, 16 Nov), asked once each: "self" = register yourself, then "team" = get your team registered.
+   * `me`: the coordinator's own participant page (on the list by their mobile number). `self`: what the form starts with.
+   */
+  selfPrompt: "self" | "team" | null;
+  me: { th: string; token: string } | null;
+  self: { name: string; phone: string; email: string };
 };
 
 /** The trainings this coordinator was named on (step 2), newest first. A join key is made the first time they're shown. */
@@ -181,6 +192,10 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
     if (t.confirmed?.zohoAt && !attendKey) { attendKey = newKey(); await col.updateOne({ _id: t._id }, { $set: { attendKey } }); }
     const cur = await datesOf(t);
     const marks = t.confirmed?.zohoAt ? await marksOf(t._id) : [];
+    const list = await peopleOf(t._id);
+    const mobile = cleanPhone(t.coordinator?.phone ?? "");
+    const mine = mobile ? list.find((x) => x.phone === mobile) ?? null : null;
+    const selfPrompt = !t.confirmed?.zohoAt || x.status === "declined" ? null : !t.selfAsk && !mine ? "self" as const : !t.teamAskedAt ? "team" as const : null;
     out.push({
       id: x.id, number: x.number, customer: x.customer, date: x.date,
       lines: x.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })), quote: x.sheet,
@@ -190,6 +205,8 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       attendKey: t.confirmed?.zohoAt ? attendKey : "", window: sessionWindow(daysOf(cur), indiaToday(), t.sessions), attended: presentByPerson(marks).size,
       session: (() => { const ss = (t.sessions ?? []).find((x) => x.day === indiaToday()); return ss ? { startedAt: ss.startedAt, endedAt: ss.endedAt ?? null } : null; })(),
       sessions: (t.sessions ?? []).map((s) => ({ day: s.day, startedAt: s.startedAt, endedAt: s.endedAt ?? null })).sort((a, b) => a.day.localeCompare(b.day)),
+      selfPrompt, me: mine ? { th: mine._id, token: mine.token } : null,
+      self: { name: t.coordinator?.name ?? "", phone: mobile, email: t.coordinator?.email ?? email },
       quiz: (() => { const qz = quizFor(x.lines.map((l) => l.name)); return qz ? { title: qz.title, state: quizState(daysOf(cur), indiaToday(), t.sessions) } : null; })(),
     });
   }
@@ -300,6 +317,31 @@ export async function removePerson(email: string, id: unknown, th: unknown): Pro
   if ((await marksOf(t._id)).some((m) => m.th === p._id)) return { error: `${p.name} is marked present. Untick their attendance first.`, status: 409 };
   await (await peopleCol()).deleteOne({ _id: p._id });
   return peopleResult(t);
+}
+
+/**
+ * The coordinator registers themselves (owner, 16 Nov: "let the coordinator register themselves too, ask them once when they
+ * first open this after it's confirmed"): on the list as "coordinator", with their own page. The same mobile number twice
+ * gets their existing entry back. `skip`: they said not now (they can still scan or add themselves later).
+ */
+export async function selfRegister(email: string, id: unknown, raw: unknown): Promise<{ th: string; token: string } | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  if (!t.confirmed?.zohoAt) return { error: "You can register once Think Health confirms the training.", status: 409 };
+  const person = readPerson(raw);
+  if ("error" in person) return { error: person.error, status: 400 };
+  const have = await peopleOf(t._id);
+  const doc = have.find((x) => x.phone === person.phone) ?? (have.length >= MAX_PEOPLE ? null : (await insertPeople(t._id, [person], "coordinator"))[0]);
+  if (!doc) return { error: "This training's list is full.", status: 409 };
+  await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { selfAsk: { at: new Date().toISOString(), th: doc._id } } });
+  return { th: doc._id, token: doc.token };
+}
+export async function selfAnswer(email: string, id: unknown, which: "skip" | "team"): Promise<{ ok: true } | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  const at = new Date().toISOString();
+  await (await trainingsCol()).updateOne({ _id: t._id }, { $set: which === "skip" ? { selfAsk: { at, th: null } } : { teamAskedAt: at } });
+  return { ok: true };
 }
 
 /** Step 7: a new join link; the old one stops working. */

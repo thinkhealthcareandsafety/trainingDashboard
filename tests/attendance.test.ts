@@ -216,3 +216,39 @@ test("the report's training time (owner, 16 Nov): each ended day's Start → End
   assert.equal(fmtLength(45 * 60000), "45 min");
   assert.equal(fmtLength(3 * 3600000), "3 h");
 });
+
+test("owner, 16 Nov: after Mark confirmed the coordinator is asked once to register themselves, then to get the team registered", async () => {
+  const { selfRegister, selfAnswer } = await import("@/lib/portalTrainings");
+  await seed([indiaToday()]);
+  assert.equal((await trainingsFor(RIYA))[0].selfPrompt, null); // not before Mark confirmed
+  assert.equal(((await selfRegister(RIYA, "1", { name: "Riya", phone: "9800000000" })) as { status: number }).status, 409);
+  let t = await confirm();
+  assert.equal(t.selfPrompt, "self");
+  assert.deepEqual(t.self, { name: "Riya Mehta", phone: "9800000000", email: RIYA });
+  assert.equal(((await selfRegister("someone@else.com", "1", { name: "X", phone: "9800000001" })) as { status: number }).status, 404);
+  const me = await selfRegister(RIYA, "1", { name: "Riya Mehta", phone: "98000 00000", email: RIYA });
+  assert.ok("th" in me);
+  t = (await trainingsFor(RIYA))[0];
+  assert.equal(t.selfPrompt, "team");
+  assert.deepEqual(t.me, { th: me.th, token: me.token });
+  const list = await participants(RIYA, "1");
+  assert.ok("list" in list && list.list.find((p) => p.th === me.th)?.source === "coordinator");
+  assert.deepEqual(await selfRegister(RIYA, "1", { name: "Riya again", phone: "9800000000" }), me); // the same number: back, not twice
+  await selfAnswer(RIYA, "1", "team");
+  assert.equal((await trainingsFor(RIYA))[0].selfPrompt, null); // asked once each
+});
+
+test("owner, 16 Nov: Skip asks about the team next; a coordinator already on the list by their number isn't asked to register", async () => {
+  const { selfAnswer } = await import("@/lib/portalTrainings");
+  await seed([indiaToday()]);
+  await confirm();
+  await selfAnswer(RIYA, "1", "skip");
+  let t = (await trainingsFor(RIYA))[0];
+  assert.equal(t.selfPrompt, "team");
+  assert.equal(t.me, null);
+  await (await db()).collection<{ _id: string }>("portalTrainings").updateOne({ _id: "1" }, { $unset: { selfAsk: "" } });
+  await addPeople(RIYA, "1", [{ name: "Riya Mehta", phone: "9800000000" }], "typed");
+  t = (await trainingsFor(RIYA))[0];
+  assert.equal(t.selfPrompt, "team");
+  assert.ok(t.me);
+});

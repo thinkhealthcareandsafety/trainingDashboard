@@ -53,6 +53,8 @@
 - TH001, TH002… are counted across everything and never reused.
 - Each participant has a private page, On / At / For, reached through their `?p=` link.
 
+**4b. After Mark confirmed (owner, 16 Nov).** The panel puts the attendance QR first, the leaderboard under it, then participants and details; the quotation moves to the bottom. The coordinator is asked once to register themselves (prefilled; Register me / Skip; "you can also do this later": scan or add yourself), then once to get the team registered (Share the QR code / Add names / Later). Stored as `portalTrainings.selfAsk` {at, th} and `teamAskedAt`; a coordinator already on the list by their mobile number isn't asked to register. Their entry is tagged `coordinator`.
+
 **5. Our side (Trainings).**
 - A green row: accepted and waiting for us. Opening it shows the details and **Confirm → make Performa**. Confirm:
   - marks the quote Accepted in Zoho if that didn't go through earlier;

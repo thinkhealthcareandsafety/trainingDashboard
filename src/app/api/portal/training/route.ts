@@ -1,6 +1,6 @@
 import { portalToken, portalUser } from "@/lib/portalAuth";
 import { withBump } from "@/lib/changes";
-import { addPeople, endTraining, newAttendKey, newJoinKey, participants, propose, quizResults, quotePdfFor, reject, removePerson, startTraining, tick } from "@/lib/portalTrainings";
+import { addPeople, endTraining, selfAnswer, selfRegister, newAttendKey, newJoinKey, participants, propose, quizResults, quotePdfFor, reject, removePerson, startTraining, tick } from "@/lib/portalTrainings";
 import { estimatePdf } from "@/lib/zoho";
 import { setQuoteStatus } from "@/lib/quotations";
 import { certificatesLater } from "@/lib/portalCertLater";
@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
  *  "start" / "end" — Start training / End training today (owner, 13 Nov): attendance and the quiz run only in between;
  *            (certificates go as each person passes, owner 16 Nov; End sends any that didn't go)
  *  "results" — the quiz's live leaderboard and per-question analytics
+ *  "self" { person: { name, phone, email? } } / "selfskip" / "teamdone" — the once-only asks after Mark confirmed (owner, 16 Nov)
  * Only on their own trainings. GET ?pdf=<id>: the quotation's PDF (below).
  */
 /** GET ?pdf=<id>: the quotation as Zoho's own PDF (owner, 16 Nov: see it before accepting), for its coordinator only. */
@@ -53,6 +54,9 @@ async function handlePOST(request: Request) {
       : b?.action === "start" ? await startTraining(me.email, b.id)
       : b?.action === "end" ? await endTraining(me.email, b.id).then((x) => { if (!("error" in x) && x.certificates) certificatesLater(x.trainingId, me.email); return x; })
       : b?.action === "results" ? await quizResults(me.email, b.id)
+      : b?.action === "self" ? await selfRegister(me.email, b.id, (b as { person?: unknown }).person)
+      : b?.action === "selfskip" ? await selfAnswer(me.email, b.id, "skip")
+      : b?.action === "teamdone" ? await selfAnswer(me.email, b.id, "team")
       : { error: "Unknown action", status: 400 };
     return "error" in r ? Response.json({ error: r.error }, { status: r.status }) : Response.json(r);
   } catch (e) {

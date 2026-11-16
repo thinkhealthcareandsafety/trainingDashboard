@@ -6,6 +6,7 @@ import { type PortalContent, type Programme, type Social, type SocialKey, youtub
 import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
 import { type DayWindow, fmtLength, ranMs, sessionMs } from "@/lib/attendanceRules";
 import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
+import { portalPrefix } from "@/lib/portalHost";
 import type { QuizResults } from "@/lib/portalTrainings";
 import { passedCsv } from "@/lib/portalCertRules";
 import { useLive, watchChanges } from "@/lib/live";
@@ -19,7 +20,8 @@ import type { QuoteSheet } from "@/lib/trainingManager";
 type Me = { email: string; name: string };
 type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; quote: QuoteSheet; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
   dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number;
-  quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null; sessions: { day: string; startedAt: string; endedAt: string | null }[] };
+  quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null; sessions: { day: string; startedAt: string; endedAt: string | null }[];
+  selfPrompt: "self" | "team" | null; me: { th: string; token: string } | null; self: { name: string; phone: string; email: string } };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -228,6 +230,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const [editing, setEditing] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [people, setPeople] = useState(false);
+  const [openTab, setOpenTab] = useState<{ tab: "type" | "excel" | "qr"; n: number } | undefined>(undefined);
   const [attendKey, setAttendKey] = useState(t.attendKey);
   const [live, setLive] = useState<Live>({ present: 0, total: t.registered });
   // A fresh copy from the live refresh: taken in, except while they're filling in Accept / Decline (their form stays).
@@ -248,6 +251,26 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const sign = signFor(title);
   const tool = { id: t.id, number: t.number, title, expected: t.expected, proposal: t.proposal, history: t.history, joinKey: t.joinKey, registered: t.registered };
   const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
+  // Confirmed (owner, 16 Nov): the QR first, then the leaderboard, participants, details; the quotation goes to the bottom.
+  const confirmed = Boolean(t.proposal && t.confirmedAt && !t.rejected);
+  const myPage = t.me ? `${typeof location !== "undefined" ? portalPrefix(location.host) : ""}/${encodeURIComponent(t.number)}/${t.me.th}?p=${encodeURIComponent(t.me.token)}` : "";
+  const goPeople = (tab: "type" | "qr") => {
+    setPeople(true); setOpenTab({ tab, n: Date.now() });
+    setTimeout(() => document.getElementById(`people-${t.number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" }), 50);
+  };
+  const peopleBlock = (
+    <div id={`people-${t.number}`} className="scroll-mt-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className={sub}>Participants</p>
+          <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
+          {myPage && <a className="mt-1 inline-block text-[14px] font-semibold text-action hover:underline" href={myPage}>Your own page ({t.me!.th})</a>}
+        </div>
+        <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>
+      </div>
+      <div className="mt-5"><Participants t={tool} adding={people} openTab={openTab} onCount={(registered) => setT((x) => ({ ...x, registered }))} onLive={setLive} /></div>
+    </div>
+  );
   return (
     <article id={`training-${t.number}`} className={`scroll-mt-6 overflow-hidden rounded-2xl bg-surface ring-1 ${focused || onTheDay ? "ring-2 ring-navy" : "ring-line"}`}>
       <div className="border-b border-line p-5 sm:p-7">
@@ -262,8 +285,11 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
         <Progress t={t} />
       </div>
 
-      {/* The quotation itself (owner, 16 Nov): open until they decide, folded after. */}
-      <QuoteSection t={t} key={t.proposal || t.rejected ? "decided" : "open"} />
+      {/* Asked once after Mark confirmed (owner, 16 Nov): register yourself, then get your team registered. */}
+      {confirmed && t.selfPrompt && <SelfPrompt t={t} myPage={myPage} onDone={(patch) => setT((x) => ({ ...x, ...patch }))} onPeople={goPeople} />}
+
+      {/* The quotation itself (owner, 16 Nov): open until they decide, folded after; at the bottom once confirmed. */}
+      {!confirmed && <QuoteSection t={t} key={t.proposal || t.rejected ? "decided" : "open"} />}
 
       {/* The decision (owner, 12 Nov): accept with the date, "course conducted at" and headcount, or reject. */}
       <div className="border-b border-line p-5 sm:p-7">
@@ -284,7 +310,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             <RejectForm id={t.id} onCancel={() => setDeclining(false)} onDone={(reason) => { setT({ ...t, stamp: "Rejected", rejected: { at: new Date().toISOString(), reason } }); setDeclining(false); setPeople(false); }} />
           </>
         ) : t.proposal && t.confirmedAt ? (
-          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} onChanged={reload} />
+          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} onChanged={reload} people={peopleBlock} />
         ) : t.proposal ? (
           <>
             <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
@@ -313,16 +339,9 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
 
       {/* Steps 6–7: the attendee list, once they've accepted (owner, 16 Nov: "first they accept, only then they add participants").
           The toggle doesn't animate its colour (transition-none), so no frame shows it blank. */}
-      {!t.rejected && t.proposal && <div className="border-b border-line p-5 sm:p-7">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className={sub}>Participants</p>
-            <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
-          </div>
-          <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>
-        </div>
-        <div className="mt-5"><Participants t={tool} adding={people} onCount={(registered) => setT((x) => ({ ...x, registered }))} onLive={setLive} /></div>
-      </div>}
+      {!t.rejected && t.proposal && !confirmed && <div className="border-b border-line p-5 sm:p-7">{peopleBlock}</div>}
+
+      {confirmed && <QuoteSection t={t} key="decided" />}
 
       <div className="p-5 sm:p-7">
         <div className="min-w-0">
@@ -512,7 +531,8 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
   );
 }
 
-function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void }) {
+function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode }) {
+  const peopleHere = <div className="mt-7 border-t border-line pt-6">{people}</div>;
   const qr = attendKey ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big={onTheDay} /> : null;
   // The report (owner, 16 Nov): once the coordinator ends a day (and isn't running or about to start another), and after it's completed.
   const ended = t.sessions.some((s) => s.endedAt);
@@ -525,6 +545,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
         {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} report />}
         {/* Ended by mistake: Start again is still there on the day. */}
         {w.state === "ended" && !t.completedAt && <div className="mt-7"><TodayStrip t={t} meta={meta} onChanged={onChanged} /></div>}
+        {peopleHere}
         <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
         <p className="mt-5 text-[14.5px] text-ink-2">{t.completedAt ? "Thank you for organising it with us." : <>To change anything now, {contact}.</>}</p>
       </>
@@ -547,6 +568,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
           </div>
         </div>
         {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
+        {peopleHere}
         <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
         <p className="mt-5 text-[14.5px] text-ink-2">To change anything now, {contact}.</p>
       </>
@@ -555,19 +577,85 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
   return (
     <>
       <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Training confirmed</h4>
-      <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-10">
-        <ConfirmedDetails t={t} p={p} title={title} />
-        {qr && (
-          <div className="sm:w-[184px]">
-            <p className={`${valueLabel} mb-2 text-center sm:text-left`}>Attendance QR</p>
-            {qr}
-            <p className="mt-2 text-center text-[13px] leading-snug text-muted sm:text-left">{t.window.state === "after" ? "Attendance has closed." : "Works on the training day only. Print it, or show it on a screen."}</p>
+      {qr && (
+        <div className="grid items-center gap-5 sm:grid-cols-[184px_minmax(0,1fr)] sm:gap-8">
+          {qr}
+          <div className="text-center sm:text-left">
+            <p className={valueLabel}>Attendance QR</p>
+            <p className="mt-2 max-w-[44ch] text-[15px] leading-relaxed text-ink-2">{t.window.state === "after" ? "Attendance has closed." : "Works on the training day only. Print it, or show it on a screen: each person scans it and taps Present."}</p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
       {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
+      {peopleHere}
+      <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
       <p className="mt-6 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, {contact}.</p>
     </>
+  );
+}
+
+/**
+ * Asked once after Mark confirmed (owner, 16 Nov): "ask them once when they first open this after it's confirmed to register
+ * themselves, then once they do or skip, ask them to get others registered … tell them they can do it later themselves too".
+ */
+function SelfPrompt({ t, myPage, onDone, onPeople }: { t: Training; myPage: string; onDone: (patch: Partial<Training>) => void; onPeople: (tab: "type" | "qr") => void }) {
+  const [name, setName] = useState(t.self.name);
+  const [phone, setPhone] = useState(t.self.phone);
+  const [email, setEmail] = useState(t.self.email);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const field = "h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-[15px] text-ink transition focus:border-action focus:outline-none focus:ring-4 focus:ring-action/15";
+  const register = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError("");
+    const r = await act<{ th?: string; token?: string }>({ action: "self", id: t.id, person: { name, phone, email } });
+    setBusy(false);
+    if (!r.th || !r.token) return setError(r.error ?? "Couldn't register you");
+    onDone({ selfPrompt: "team", me: { th: r.th, token: r.token }, registered: t.registered + (t.me ? 0 : 1) });
+  };
+  const answer = async (action: "selfskip" | "teamdone", then?: () => void) => {
+    setBusy(true);
+    await act({ action, id: t.id });
+    setBusy(false);
+    onDone({ selfPrompt: action === "selfskip" ? "team" : null });
+    then?.();
+  };
+  if (t.selfPrompt === "self") {
+    return (
+      <section className="border-b border-line p-5 sm:p-7" aria-label="Register yourself">
+        <div className="rounded-xl bg-ground px-5 py-5 sm:px-6">
+          <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Are you attending too?</h4>
+          <p className="mt-1.5 max-w-[60ch] text-[15px] leading-relaxed text-ink-2">Register yourself and you get your own page, like everyone else: mark your attendance, take the quiz, get your certificate.</p>
+          <form onSubmit={register} className="mt-4 grid gap-3 sm:grid-cols-3" noValidate>
+            <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Your name</span><input className={field} autoComplete="name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label>
+            <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Mobile number</span><input className={`${field} num`} type="tel" inputMode="tel" autoComplete="tel" value={phone} maxLength={16} onChange={(e) => setPhone(e.target.value)} /></label>
+            <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Email <span className="font-normal text-muted">(for your certificate)</span></span><input className={field} type="email" inputMode="email" autoComplete="email" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} /></label>
+            {error && <p className="rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger sm:col-span-3" role="alert">{error}</p>}
+            <div className="flex flex-wrap items-center gap-2.5 sm:col-span-3">
+              <button className={primaryBtn} disabled={busy}>{busy ? "One moment…" : "Register me"}</button>
+              <button type="button" className={secondaryBtn} disabled={busy} onClick={() => answer("selfskip")}>Skip</button>
+            </div>
+          </form>
+          <p className="mt-3 text-[13.5px] leading-relaxed text-muted">You can also do this later yourself: scan the attendance QR on the day, or add yourself to the list.</p>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section className="border-b border-line p-5 sm:p-7" aria-label="Get your team registered">
+      <div className="flex flex-col gap-4 rounded-xl bg-ground px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="min-w-0">
+          {t.me && <p className="num mb-1.5 text-[14px] font-semibold text-ink-2">You&apos;re registered as <b className="text-ink">{t.me.th}</b>. <a className="text-action hover:underline" href={myPage}>Open your page</a></p>}
+          <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Now get your team registered</h4>
+          <p className="mt-1.5 max-w-[56ch] text-[15px] leading-relaxed text-ink-2">Share the QR code so each person joins from their phone, or type the names or import a file.</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2.5">
+          <button type="button" className={primaryBtn} disabled={busy} onClick={() => answer("teamdone", () => onPeople("qr"))}>Share the QR code</button>
+          <button type="button" className={secondaryBtn} disabled={busy} onClick={() => answer("teamdone", () => onPeople("type"))}>Add names</button>
+          <button type="button" className="px-2 text-[14px] font-semibold text-muted hover:text-ink" disabled={busy} onClick={() => answer("teamdone")}>Later</button>
+        </div>
+      </div>
+    </section>
   );
 }
 

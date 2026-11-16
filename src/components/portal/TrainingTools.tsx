@@ -14,7 +14,7 @@ import { Qr, qrPng } from "./Qr";
  */
 
 export type ToolTraining = { id: string; number: string; title: string; expected: number; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number };
-type Row = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr" | "walkin"; addedAt: string; duplicate: boolean; present: string[] };
+type Row = { th: string; name: string; phone: string; email: string; source: "typed" | "excel" | "qr" | "walkin" | "coordinator"; addedAt: string; duplicate: boolean; present: string[] };
 /** The list as the server sends it: with attendance once the training is confirmed (owner, 13 Nov). */
 type People = { list?: Row[]; days?: string[]; window?: DayWindow; attendance?: boolean };
 export type Live = { present: number; total: number };
@@ -127,16 +127,18 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
 
 /* ---------------- Steps 6 and 7: the attendee list and the QR link ---------------- */
 
-const SOURCE: Record<Row["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR", walkin: "Walk-in" };
+const SOURCE: Record<Row["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR", walkin: "Walk-in", coordinator: "Coordinator" };
 const dayShort = (d: string) => fmtProposalDate({ date: d, time: "" }).replace(/ \d{4}$/, "");
 /** "4 Dec": the day on a several-day training's stamp. */
 const stampDay = (d: string) => dayShort(d).replace(/^\w+, /, "");
 
 /** The list always shows (owner, 12 Nov: "let me see the user without opening it"); the ways to add, when `adding`. */
-export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void; onLive?: (l: Live) => void }) {
+export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void; onLive?: (l: Live) => void; openTab?: { tab: "type" | "excel" | "qr"; n: number } }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"type" | "excel" | "qr">("type");
+  const [tab, setTab] = useState<"type" | "excel" | "qr">(openTab?.tab ?? "type");
+  // "Share the QR code" from the team ask (owner, 16 Nov) opens the QR tab.
+  useEffect(() => { if (openTab) setTab(openTab.tab); }, [openTab?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const [joinKey, setJoinKey] = useState(t.joinKey);
   const [att, setAtt] = useState<{ days: string[]; window: DayWindow; on: boolean }>({ days: [], window: { state: "none", of: 0 }, on: false });
   const [busyTick, setBusyTick] = useState("");
