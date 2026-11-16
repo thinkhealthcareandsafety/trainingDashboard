@@ -10,6 +10,7 @@ import { PerformaEditor } from "./PerformaEditor";
 import type { TrainingSort, TrainingSortKey } from "@/lib/uiPrefs";
 import type { HistoryLine, SentEmail } from "@/lib/quoteStory";
 import { useLive } from "@/lib/live";
+import { fmtLength } from "@/lib/attendanceRules";
 import { passedCsv } from "@/lib/portalCertRules";
 import type { QuizResults } from "@/lib/portalTrainings";
 
@@ -449,7 +450,7 @@ function QuizSummary({ id }: { id: string }) {
   return (
     <section className={card}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className={label}>{r.title} · {r.taken} of {r.present} present took it · {r.passed} passed ({r.passPct}%+) · average best {r.avgPct}%</p>
+        <p className={label}>{r.title}{r.ranMs ? ` · ran ${fmtLength(r.ranMs)}` : ""} · {r.taken} of {r.present} present took it · {r.passed} passed ({r.passPct}%+) · average best {r.avgPct}%</p>
         <span className="text-[12.5px] text-muted">{r.state === "open" ? "Running now" : r.state === "revealed" ? "Closed" : r.state === "closed" ? "Paused until the next day" : "Opens when the coordinator starts the training"}</span>
       </div>
       {r.leaderboard.length > 0 && (

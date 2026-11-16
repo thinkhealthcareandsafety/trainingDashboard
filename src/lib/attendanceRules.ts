@@ -52,6 +52,18 @@ export function quizState(days: string[], today: string, sessions: Session[] = [
   return lastEnded || today > last ? "revealed" : "closed";
 }
 
+/**
+ * How long the training ran (owner, 16 Nov: "training time (how long the training was)"): each ended day's Start → End.
+ */
+export const sessionMs = (s: { startedAt: string; endedAt?: string | null }) => (s.endedAt ? Math.max(0, Date.parse(s.endedAt) - Date.parse(s.startedAt)) : 0);
+export const ranMs = (list: { startedAt: string; endedAt?: string | null }[]) => list.reduce((n, s) => n + sessionMs(s), 0);
+/** "2 h 15 min", "45 min", "3 h". */
+export function fmtLength(ms: number): string {
+  const m = Math.round(ms / 60000);
+  const h = Math.floor(m / 60);
+  return h ? `${h} h${m % 60 ? ` ${m % 60} min` : ""}` : `${m} min`;
+}
+
 /** Where the training's days stand today (YYYY-MM-DD, India time). Several days: open on each of them, shut in between. */
 export function attendanceWindow(days: string[], today: string): DayWindow {
   const list = [...new Set(days.map((d) => d.slice(0, 10)))].sort();

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
 import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
-import type { DayWindow } from "@/lib/attendanceRules";
+import { type DayWindow, fmtLength, ranMs, sessionMs } from "@/lib/attendanceRules";
 import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
 import type { QuizResults } from "@/lib/portalTrainings";
 import { passedCsv } from "@/lib/portalCertRules";
@@ -18,7 +18,7 @@ import type { QuoteSheet } from "@/lib/trainingManager";
 type Me = { email: string; name: string };
 type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; quote: QuoteSheet; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
   dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number;
-  quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null };
+  quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null; sessions: { day: string; startedAt: string; endedAt: string | null }[] };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -504,13 +504,19 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
 
 function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void }) {
   const qr = attendKey ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big={onTheDay} /> : null;
-  if (t.completedAt) {
+  // The report (owner, 16 Nov): once the coordinator ends a day (and isn't running or about to start another), and after it's completed.
+  const ended = t.sessions.some((s) => s.endedAt);
+  if (t.completedAt || (ended && t.window.state !== "open" && t.window.state !== "waiting")) {
+    const w = t.window;
+    const meta = w.state === "ended" ? [w.of > 1 ? `Day ${w.dayNo} of ${w.of}` : "", p.location, t.trainers.length ? `With ${t.trainers.join(", ")}` : ""].filter(Boolean) : [];
     return (
       <>
-        <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Training completed</h4>
-        <ConfirmedDetails t={t} p={p} title={title} />
-        <p className="mt-5 text-[14.5px] text-ink-2"><b className="num text-ink">{t.attended} of {t.registered}</b> attended. Thank you for organising it with us.</p>
-        {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
+        <TrainingReport t={t} />
+        {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} report />}
+        {/* Ended by mistake: Start again is still there on the day. */}
+        {w.state === "ended" && !t.completedAt && <div className="mt-7"><TodayStrip t={t} meta={meta} onChanged={onChanged} /></div>}
+        <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
+        <p className="mt-5 text-[14.5px] text-ink-2">{t.completedAt ? "Thank you for organising it with us." : <>To change anything now, {contact}.</>}</p>
       </>
     );
   }
@@ -552,6 +558,48 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
       {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
       <p className="mt-6 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, {contact}.</p>
     </>
+  );
+}
+
+/**
+ * The training report's head (owner, 16 Nov: "when training ends, the top of it shows training time (how long the training
+ * was)"): a mist well with the training time and who came, and each day's Start → End below.
+ */
+function TrainingReport({ t }: { t: Training }) {
+  const ran = t.sessions.filter((s) => s.endedAt);
+  const total = ranMs(ran);
+  const at = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  const lastDone = Boolean(t.completedAt) || t.window.state === "after" || (t.window.state === "ended" && t.window.dayNo === t.window.of);
+  const of = t.window.state !== "none" ? t.window.of : t.dates.length;
+  const figure = "num text-[40px] font-extrabold leading-none tracking-[-0.03em] text-ink sm:text-[48px]";
+  return (
+    <section className="rounded-xl bg-ground px-5 py-5 sm:px-6" aria-label="Training report">
+      <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">{t.completedAt ? "Training completed" : "Training report"}</h4>
+      {!lastDone && of > 1 && <p className="num mt-1 text-[14px] text-muted">Day {ran.length} of {of} done. The report grows with each day.</p>}
+      <div className="mt-5 flex flex-wrap gap-x-12 gap-y-5">
+        {total > 0 && (
+          <div>
+            <p className={figure}>{fmtLength(total)}</p>
+            <p className="mt-2 text-[15px] font-bold text-ink">training time</p>
+          </div>
+        )}
+        <div>
+          <p className={figure}>{t.attended}<span className="text-[24px] font-bold tracking-normal text-muted"> of {t.registered}</span></p>
+          <p className="mt-2 text-[15px] font-bold text-ink">present</p>
+        </div>
+      </div>
+      {ran.length > 0 && (
+        <ul className="mt-5 space-y-1 border-t border-line pt-4">
+          {ran.map((s) => (
+            <li key={s.day} className="num flex flex-wrap gap-x-2 text-[14px] text-ink-2">
+              <span className="font-semibold text-ink">{fmtProposalDate({ date: s.day, time: "" })}</span>
+              <span>· {at(s.startedAt)} – {at(s.endedAt!)}</span>
+              <span className="text-muted">· {fmtLength(sessionMs(s))}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -616,9 +664,10 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
  * The quiz's live results (owner, 13 Nov: "it will start displaying on the coordinator's board"): leaderboard (best tries)
  * and, per question, the picks (first tries). Owner, 14 Nov: tries, each passed person's certificate, the passed list as CSV.
  */
-function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]> }) {
+function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean }) {
   const [r, setR] = useState<QuizResults | null>(null);
-  const [byQuestion, setByQuestion] = useState(false);
+  // In the report (owner, 16 Nov) every question's picks show, open.
+  const [byQuestion, setByQuestion] = useState(report);
   // A certificate goes the moment its person passes (owner, 16 Nov): keep checking until each one with an email has gone.
   const sending = Boolean(r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
   useEffect(() => {
@@ -633,7 +682,7 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
   return (
     <section className="mt-7 border-t border-line pt-6" aria-label="Quiz results">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h4 className="text-[18px] font-extrabold tracking-[-0.01em] text-ink">{quiz.title} results</h4>
+        <h4 className="text-[18px] font-extrabold tracking-[-0.01em] text-ink">{quiz.title} {report ? "report" : "results"}</h4>
         <span className="text-[13.5px] text-muted">{quiz.state === "open" ? "Live: updates as people finish" : quiz.state === "revealed" ? "Closed: right answers shown" : quiz.state === "closed" ? "Closed until the training restarts" : "Opens when you start the training"}</span>
       </div>
       {!r ? <p className="mt-3 text-[14px] text-muted">Loading the results…</p> : (
@@ -670,7 +719,9 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
           )}
           {r.taken > 0 && (
             <div className="mt-4">
-              <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide the answers by question" : "See the answers by question (first tries)"}</button>
+              {report
+                ? <h5 className="mt-2 text-[16px] font-extrabold tracking-[-0.01em] text-ink">Answers by question <span className="text-[13.5px] font-semibold text-muted">· what people picked on their first try</span></h5>
+                : <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide the answers by question" : "See the answers by question (first tries)"}</button>}
               {byQuestion && (
                 <ol className="mt-3 space-y-4">
                   {r.questions.map((q, i) => {
@@ -680,8 +731,9 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
                         <p className="text-[14.5px] font-semibold text-ink"><span className="num text-muted">{i + 1}. </span>{q.text} <span className="num font-normal text-muted">· {q.correctPct}% right</span></p>
                         <ul className="mt-1.5 space-y-1">
                           {q.options.map((o, k) => (
-                            <li key={k} className="grid grid-cols-[minmax(0,1fr)_minmax(60px,34%)_32px] items-center gap-2 text-[13.5px]">
-                              <span className={`truncate ${k === q.answer ? "font-bold text-ink" : "text-ink-2"}`}>{k === q.answer ? "Right: " : ""}{o.text}</span>
+                            <li key={k} className="grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-2 gap-y-1 text-[13.5px] sm:grid-cols-[minmax(0,1fr)_minmax(60px,34%)_32px]">
+                              {/* Phones: the option on its own line, its bar and count under it (nothing cut off). */}
+                              <span className={`col-span-2 sm:col-span-1 sm:truncate ${k === q.answer ? "font-bold text-ink" : "text-ink-2"}`}>{k === q.answer ? "Right: " : ""}{o.text}</span>
                               <span className="h-2 overflow-hidden rounded-full bg-ground"><span className={`block h-full rounded-full ${k === q.answer ? "bg-navy" : "bg-line-strong"}`} style={{ width: `${(o.picked / most) * 100}%` }} /></span>
                               <span className="num text-right text-muted">{o.picked}</span>
                             </li>

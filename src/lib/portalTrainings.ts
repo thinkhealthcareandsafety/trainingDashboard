@@ -6,7 +6,7 @@ import { type QuoteSheet, type TrainingQuote, isTrainingOnly, toTrainingQuote } 
 import { booksApi } from "./quotations";
 import { MAX_PEOPLE, type Person, type Proposal, type ProposalDate, type Stamp, TH_ID, cleanEmail, duplicatePhones, fmtProposalDate, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 import { cleanPhone } from "./trainingManager";
-import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, markable, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
+import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, markable, ranMs, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
 import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
 import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
@@ -162,6 +162,8 @@ export type PortalTraining = {
   quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null;
   /** Today's session: when Start training / End training were pressed. */
   session: { startedAt: string; endedAt: string | null } | null;
+  /** Every day's Start / End (the report's training time, owner 16 Nov). */
+  sessions: { day: string; startedAt: string; endedAt: string | null }[];
 };
 
 /** The trainings this coordinator was named on (step 2), newest first. A join key is made the first time they're shown. */
@@ -187,6 +189,7 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       dates: cur.dates, datesWas: cur.was, tbd: cur.tbd, trainers: cur.trainers, completedAt: cur.completedAt,
       attendKey: t.confirmed?.zohoAt ? attendKey : "", window: sessionWindow(daysOf(cur), indiaToday(), t.sessions), attended: presentByPerson(marks).size,
       session: (() => { const ss = (t.sessions ?? []).find((x) => x.day === indiaToday()); return ss ? { startedAt: ss.startedAt, endedAt: ss.endedAt ?? null } : null; })(),
+      sessions: (t.sessions ?? []).map((s) => ({ day: s.day, startedAt: s.startedAt, endedAt: s.endedAt ?? null })).sort((a, b) => a.day.localeCompare(b.day)),
       quiz: (() => { const qz = quizFor(x.lines.map((l) => l.name)); return qz ? { title: qz.title, state: quizState(daysOf(cur), indiaToday(), t.sessions) } : null; })(),
     });
   }
@@ -700,6 +703,8 @@ export async function saveParticipantEmail(number: unknown, th: unknown, token: 
 export type CertStatus = { th: string; name: string; email: string; certNo: string; day: string; pct: number; badge: boolean; emailedAt: string | null; error: string | null };
 export type QuizResults = {
   title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; passPct: number;
+  /** How long it ran, ended days only (ms; owner 16 Nov). */
+  ranMs: number;
   leaderboard: Ranked[]; questions: QuestionStats[];
   /** The passed list with each certificate's state (each is emailed the moment its person passes, owner 16 Nov). */
   certificates: { list: CertStatus[] };
@@ -713,7 +718,7 @@ export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null
   const certs = await certificateLines(t._id);
   return {
     title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
-    avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, leaderboard: board, questions: analytics(qz.quiz, done),
+    avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, ranMs: ranMs(t.sessions ?? []), leaderboard: board, questions: analytics(qz.quiz, done),
     certificates: {
       list: certs.map((c) => ({ th: c.th, name: c.name, email: c.email, certNo: c.certNo, day: c.day, pct: c.pct, badge: c.badge, emailedAt: c.emailedAt ?? null, error: c.error || null })),
     },

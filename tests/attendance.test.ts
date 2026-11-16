@@ -206,3 +206,13 @@ test("owner, 16 Nov: on the day, before Start, walk-ins register and people mark
   await endTraining(RIYA, "1");
   assert.equal(((await attendIdentify("QT-1", k, "9833333333")) as { status: number }).status, 409);
 });
+
+test("the report's training time (owner, 16 Nov): each ended day's Start → End, added up", async () => {
+  const { fmtLength, ranMs, sessionMs } = await import("@/lib/attendanceRules");
+  const s = (a: string, b?: string) => ({ startedAt: `2026-11-16T${a}:00+05:30`, endedAt: b ? `2026-11-16T${b}:00+05:30` : null });
+  assert.equal(sessionMs(s("10:02", "12:17")), 135 * 60000);
+  assert.equal(sessionMs(s("10:02")), 0); // still running: not counted
+  assert.equal(fmtLength(ranMs([s("10:02", "12:17"), s("14:00", "15:00"), s("16:00")])), "3 h 15 min");
+  assert.equal(fmtLength(45 * 60000), "45 min");
+  assert.equal(fmtLength(3 * 3600000), "3 h");
+});
