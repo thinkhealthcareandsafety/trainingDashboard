@@ -7,13 +7,13 @@ import { useSession } from "@/lib/session";
 import { boardsFor } from "@/lib/roles";
 import { KpiStrip, type OverviewMode, RangePicker, TrendCard, UPCOMING_DAYS } from "@/components/Kpis";
 import { type OverviewRange, RANGE_KEY, parseRange } from "@/lib/overviewRange";
-import { PipelineCard } from "@/components/Pipeline";
 import { MiniCalendar } from "@/components/Calendar";
 import { PageHeader } from "@/components/AppShell";
 import { CardHeader, Skeleton } from "@/components/ui";
 import { addDays, fmtDate, startOfDay, ymd } from "@/lib/dates";
 import { upcoming } from "@/lib/kpi";
 import type { BoardTraining } from "@/lib/types";
+import { OverviewSales } from "@/components/OverviewSales";
 
 function greeting(d: Date) {
   const h = d.getHours();
@@ -85,8 +85,8 @@ export default function OverviewPage() {
     <>
       <PageHeader
         title={`${greeting(now)}`}
-        sub={`${now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} · Here’s how ${mode === "aed" ? "AED trainings" : "trainings"} are going`}
-        actions={loaded ? <RangePicker value={range} onChange={pick} now={now} /> : undefined}
+        sub={`${now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} · ${mode === "aed" ? "Here’s how AED trainings are going" : "Quotations and invoices, for the company and each of you"}`}
+        actions={loaded && mode === "aed" ? <RangePicker value={range} onChange={pick} now={now} /> : undefined}
       />
       {data?.error && (
         <p className="mb-6 flex items-center gap-2.5 rounded-2xl bg-medium-bg px-4 py-3 text-[13.5px] text-ink-2">
@@ -94,6 +94,8 @@ export default function OverviewPage() {
           Zoho is busy right now. You’re seeing the figures from the last update{data.trainings.length ? ` (${new Date(data.syncedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })})` : ""} — they’ll refresh by themselves.
         </p>
       )}
+      {/* The team's Overview (owner, 16 Nov sketch: "replace the Overview section entirely"); Priyanka keeps her AED view. */}
+      {mode === "team" ? <OverviewSales board={ready && data ? data.board ?? null : null} now={now} /> : (
       <div className="space-y-5">
         {has ? <KpiStrip trainings={data.trainings} board={list} now={now} mode={mode} range={range} aedWaiting={data.aedWaiting} pipeline={data.pipeline} lastYear={data.lastYear} /> : <Skeleton className="h-[236px]" />}
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -102,11 +104,11 @@ export default function OverviewPage() {
             <MiniCalendar />
           </div>
         </div>
-        <div className={`grid gap-5 [&>*]:min-w-0 ${mode === "team" ? "lg:grid-cols-2" : ""}`}>
-          {mode === "team" && (ready && data ? <PipelineCard pipeline={data.pipeline ?? []} trainings={data.trainings} now={now} orgId={data.orgId} /> : <Skeleton className="h-[420px]" />)}
-          {has ? <UpcomingTrainings list={list} now={now} aed={mode === "aed"} /> : <Skeleton className="h-[420px]" />}
+        <div className="grid gap-5 [&>*]:min-w-0">
+          {has ? <UpcomingTrainings list={list} now={now} aed /> : <Skeleton className="h-[420px]" />}
         </div>
       </div>
+      )}
     </>
   );
 }

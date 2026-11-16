@@ -322,6 +322,21 @@ export function KpiStrip({ trainings, board, now, mode, aedWaiting = 0, range, .
   );
 }
 
+/** The month's and the year's training goals alone (owner, 16 Nov: Shikha only does training: "keep the month & year training goal"). */
+export function TrainingGoals({ board, now }: { board: BoardTraining[]; now: Date }) {
+  const r = useMemo(() => rangeDates({ kind: "month" }, now), [now]);
+  const m = useMemo(() => boardPeriod(board, r.from, r.to, now, TEAM_TARGETS.month, TEAM_TARGETS.peopleMonth), [board, r, now]);
+  const y = useMemo(() => boardYear(board, now, TEAM_TARGETS), [board, now]);
+  const endOf = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  const fy = fiscalYearStart(now);
+  return (
+    <div className="grid sm:grid-cols-2">
+      <TargetTile hero label={`Trainings · ${r.label}`} s={m} end={endOf(r.to)} past={r.past} showPeople />
+      <div className="border-t border-line sm:border-l sm:border-t-0"><TargetTile label={`Trainings · ${fiscalYearLabel(now)}`} s={y} end={endOf(new Date(fy.getFullYear() + 1, fy.getMonth(), 0))} /></div>
+    </div>
+  );
+}
+
 /* ---------------- Trend chart ---------------- */
 
 type ChartPoint = { key: string; label: string; year: number; actual: number; scheduled: number; people: number; revenue?: number; isCurrent: boolean; isFuture: boolean };
