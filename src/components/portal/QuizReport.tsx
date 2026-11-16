@@ -1,13 +1,15 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { QuizResults } from "@/lib/portalTrainings";
-import { type Item, accuracyColor, buildReport, fmtSeconds } from "@/lib/quizReport";
+import { type Item, accuracyColor, buildReport, fmtSeconds, insight } from "@/lib/quizReport";
 
 /*
  * The quiz report (owner, 16 Nov: "click here to generate report for the quiz"): a full-screen dashboard in four tiers,
  * top-down — 1 KPI cards; 2 score distribution, topic mastery, time vs score; 3 the 30-question item analysis (an
- * accuracy heatmap and the questions sorted hardest first); 4 a searchable, filterable drill-down table. Print / Save as
+ * accuracy heatmap and the questions sorted hardest first); 4 every question as a card with its own chart (owner, 16 Nov:
+ * "different charts … if I see I understand nothing"): a donut for 3–4 options, a split bar for two, the pictures for
+ * picture questions, and one plain-words line. Print / Save as
  * PDF. The portal's world: navy marks on white cards, hairline guides, values in text inks; the heatmap alone goes
  * red → grey → green (owner's ask) and every tile carries its number, so colour is never the only cue.
  */
@@ -135,63 +137,127 @@ function Hardest({ items, onPick }: { items: Item[]; onPick: (n: number) => void
   );
 }
 
-type Sort = "n" | "right" | "disc";
-function Table({ items, open, setOpen }: { items: Item[]; open: number | null; setOpen: (n: number | null) => void }) {
-  const [q, setQ] = useState("");
-  const [topic, setTopic] = useState("");
-  const [sort, setSort] = useState<Sort>("n");
-  const topics = [...new Set(items.map((i) => i.topic).filter(Boolean))];
-  const rows = items
-    .filter((i) => (!topic || i.topic === topic) && (!q.trim() || `${i.n} ${i.text} ${i.topic}`.toLowerCase().includes(q.trim().toLowerCase())))
-    .sort((a, b) => (sort === "right" ? a.rightPct - b.rightPct : sort === "disc" ? (a.discrimination ?? 9) - (b.discrimination ?? 9) : a.n - b.n) || a.n - b.n);
-  const th = (key: Sort, text: string, cls = "") => (
-    <th className={`px-3 py-2 text-left text-[12px] font-bold uppercase tracking-[0.08em] text-muted ${cls}`}>
-      <button type="button" className={`whitespace-nowrap uppercase tracking-[0.08em] hover:text-ink ${sort === key ? "text-ink" : ""}`} onClick={() => setSort(key)}>{text}{sort === key ? " ↓" : ""}</button>
-    </th>
-  );
+/** The options' colours, in a fixed order (A, B, C, D), checked for colour-blind separation; every option is also labelled. */
+const OPTION_COLORS = ["#1f6fb2", "#e08a1e", "#2fa37a", "#8e5bd8"];
+
+function Correct() {
   return (
-    <section className={card} aria-label="Every question">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h5 className={h}>Every question</h5><p className={sub}>Search, filter by topic, sort; open a row for every option&apos;s count</p></div>
-        <div className="flex flex-wrap gap-2">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search questions" className="h-10 w-56 rounded-xl border border-line bg-surface px-3 text-[14px] text-ink focus:border-action focus:outline-none focus:ring-4 focus:ring-action/15" />
-          <select value={topic} onChange={(e) => setTopic(e.target.value)} className="h-10 rounded-xl border border-line bg-surface px-3 text-[14px] text-ink">
-            <option value="">All topics</option>{topics.map((t) => <option key={t}>{t}</option>)}
-          </select>
+    <span className="ml-1.5 inline-flex items-center gap-1 align-[1px] text-[11.5px] font-bold uppercase tracking-[0.08em] text-navy">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden><circle cx="8" cy="8" r="8" fill="var(--navy)" /><path d="m4.5 8.2 2.3 2.3 4.7-4.8" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      correct
+    </span>
+  );
+}
+
+/** A donut of how the group split, the share who got it right in the middle (3–4 options). */
+function Donut({ q }: { q: Item }) {
+  const R = 44, C = 2 * Math.PI * R, GAP = q.options.filter((o) => o.count).length > 1 ? 2.5 : 0;
+  let at = 0;
+  return (
+    <div className="flex items-center gap-5">
+      <div className="relative size-[116px] shrink-0">
+        <svg viewBox="0 0 116 116" className="size-full -rotate-90" aria-hidden>
+          <circle cx="58" cy="58" r={R} fill="none" stroke="var(--ground)" strokeWidth="18" />
+          {q.options.map((o, k) => {
+            if (!o.count) return null;
+            const len = (o.pct / 100) * C;
+            const seg = <circle key={k} cx="58" cy="58" r={R} fill="none" stroke={OPTION_COLORS[k % 4]} strokeWidth="18" strokeDasharray={`${Math.max(0, len - GAP)} ${C}`} strokeDashoffset={-at}><title>{`${o.text}: ${o.count} (${o.pct}%)`}</title></circle>;
+            at += len;
+            return seg;
+          })}
+        </svg>
+        <div className="absolute inset-0 grid place-items-center text-center"><div><p className="num text-[20px] font-extrabold leading-none text-ink">{q.rightPct}%</p><p className="mt-0.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted">correct</p></div></div>
+      </div>
+      <ul className="min-w-0 flex-1 space-y-1.5">
+        {q.options.map((o, k) => (
+          <li key={k} className="flex items-start gap-2 text-[13.5px] leading-snug">
+            <span className="mt-1 size-2.5 shrink-0 rounded-full" style={{ background: OPTION_COLORS[k % 4] }} aria-hidden />
+            <span className={`min-w-0 flex-1 ${o.right ? "font-semibold text-ink" : "text-ink-2"}`}>{o.text}{o.right && <Correct />}</span>
+            <span className="num shrink-0 text-ink-2"><b className="text-ink">{o.pct}%</b> <span className="text-muted">· {o.count}</span></span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Two options: one bar split between them. */
+function Split({ q }: { q: Item }) {
+  const [a, b] = q.options;
+  return (
+    <div>
+      <div className="flex h-9 gap-[2px] overflow-hidden rounded-lg bg-ground">
+        {q.options.map((o, k) => o.pct > 0 && (
+          <span key={k} className="grid place-items-center text-[13px] font-extrabold text-white" style={{ width: `${o.pct}%`, background: OPTION_COLORS[k] }} title={`${o.text}: ${o.count} (${o.pct}%)`}>{o.pct >= 12 ? `${o.pct}%` : ""}</span>
+        ))}
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-4 text-[13.5px] leading-snug">
+        {[a, b].map((o, k) => o && (
+          <div key={k} className={k === 1 ? "text-right" : ""}>
+            <span className={`inline-flex items-start gap-1.5 ${k === 1 ? "flex-row-reverse" : ""}`}><span className="mt-1 size-2.5 shrink-0 rounded-full" style={{ background: OPTION_COLORS[k] }} aria-hidden /><span className={o.right ? "font-semibold text-ink" : "text-ink-2"}>{o.text}{o.right && <Correct />}</span></span>
+            <p className="num text-muted">{o.count} {o.count === 1 ? "person" : "people"}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Picture questions: the pictures themselves, the share under each. */
+function Pictures({ q }: { q: Item }) {
+  return (
+    <div className={`grid gap-2.5 ${q.options.length >= 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
+      {q.options.map((o, k) => (
+        <div key={k} className={`overflow-hidden rounded-lg bg-surface ring-1 ${o.right ? "ring-2 ring-navy" : "ring-line"}`} title={`${o.text}: ${o.count} (${o.pct}%)`}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- the quiz's own option pictures */}
+          {o.image && <img src={o.image} alt={o.text} className="aspect-square w-full bg-ground object-contain p-1" />}
+          <div className="px-2 pb-2 pt-1.5">
+            <p className={`line-clamp-2 min-h-[2.4em] text-[12px] leading-tight ${o.right ? "font-semibold text-ink" : "text-ink-2"}`}>{o.text}</p>
+            <span className="mt-1 block h-1.5 rounded-full bg-ground"><span className="block h-full rounded-full" style={{ width: `${o.pct}%`, background: o.right ? "var(--navy)" : "var(--line-strong)" }} /></span>
+            <p className="num mt-1 flex items-center gap-1 text-[13px] font-extrabold text-ink">{o.pct}%{o.right && <svg viewBox="0 0 16 16" width="13" height="13" role="img" aria-label="correct"><circle cx="8" cy="8" r="8" fill="var(--navy)" /><path d="m4.5 8.2 2.3 2.3 4.7-4.8" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}</p>
+          </div>
         </div>
+      ))}
+    </div>
+  );
+}
+
+function QuestionCard({ q, focus }: { q: Item; focus: boolean }) {
+  const pictures = q.options.some((o) => o.image);
+  const verdict = insight(q);
+  return (
+    <li id={`qcard-${q.n}`} className={`scroll-mt-4 rounded-xl bg-surface p-4 ring-1 sm:p-5 ${focus ? "ring-2 ring-navy" : "ring-line"}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="num text-[12px] font-bold uppercase tracking-[0.12em] text-muted">Question {q.n}</p>
+        {q.topic && <span className="rounded-full bg-ground px-2 py-0.5 text-[11.5px] font-semibold text-ink-2">{q.topic}</span>}
       </div>
-      <div className="mt-4 overflow-x-auto rounded-xl ring-1 ring-line">
-        <table className="w-full min-w-[760px] text-[14px]">
-          <thead className="bg-ground"><tr>{th("n", "#", "w-12")}<th className="px-3 py-2 text-left text-[12px] font-bold uppercase tracking-[0.08em] text-muted">Question</th>{th("right", "Correct", "w-28")}<th className="px-3 py-2 text-left text-[12px] font-bold uppercase tracking-[0.08em] text-muted">Most common wrong answer</th>{th("disc", "Discrimination", "w-36")}</tr></thead>
-          <tbody>
-            {rows.map((i) => (
-              <Fragment key={i.n}>
-                <tr className={`cursor-pointer border-t border-line align-top hover:bg-ground/60 ${open === i.n ? "bg-ground/60" : ""}`} onClick={() => setOpen(open === i.n ? null : i.n)}>
-                  <td className="num px-3 py-2.5 font-semibold text-muted">{i.n}</td>
-                  <td className="px-3 py-2.5"><p className="font-semibold text-ink">{i.text}</p>{i.topic && <p className="text-[12.5px] text-muted">{i.topic}</p>}</td>
-                  <td className="num px-3 py-2.5 font-bold text-ink">{i.rightPct}%</td>
-                  <td className="px-3 py-2.5 text-ink-2">{i.wrong ? <>{i.wrong.text} <span className="num text-muted">({i.wrong.pct}%)</span></> : <span className="text-muted">—</span>}</td>
-                  <td className="num px-3 py-2.5 text-ink-2">{i.discrimination === null ? <span className="text-muted">—</span> : <>{i.discrimination.toFixed(2)} <span className="text-[12.5px] text-muted">{i.discrimination >= 0.3 ? "good" : i.discrimination >= 0.1 ? "fair" : "weak"}</span></>}</td>
-                </tr>
-                {open === i.n && (
-                  <tr className="bg-ground/60"><td /><td colSpan={4} className="px-3 pb-3">
-                    <ul className="space-y-1.5">
-                      {i.options.map((o, k) => (
-                        <li key={k} className="grid grid-cols-[minmax(0,1fr)_minmax(80px,30%)_70px] items-center gap-3 text-[13.5px]">
-                          <span className={o.right ? "font-bold text-ink" : "text-ink-2"}>{o.text}{o.right ? " (right)" : ""}</span>
-                          <span className="h-2 rounded-full bg-surface"><span className={`block h-full rounded-full ${o.right ? "bg-navy" : "bg-line-strong"}`} style={{ width: `${o.pct}%` }} /></span>
-                          <span className="num text-right text-ink-2">{o.count} · {o.pct}%</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </td></tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+      <p className="mt-1.5 text-[15px] font-bold leading-snug text-ink">{q.text}</p>
+      <p className={`mt-1 text-[13.5px] font-semibold ${verdict.tone === "good" ? "text-navy" : verdict.tone === "bad" ? "text-danger" : "text-ink-2"}`}>{verdict.text}</p>
+      <div className="mt-4">{pictures ? <Pictures q={q} /> : q.options.length === 2 ? <Split q={q} /> : <Donut q={q} />}</div>
+      <p className="num mt-3 text-[12px] text-muted">{q.answered} {q.answered === 1 ? "answer" : "answers"}, first tries</p>
+    </li>
+  );
+}
+
+function Questions({ items, focus }: { items: Item[]; focus: number | null }) {
+  const [topic, setTopic] = useState("");
+  const topics = [...new Set(items.map((i) => i.topic).filter(Boolean))];
+  const shown = items.filter((i) => !topic || i.topic === topic);
+  const chip = (on: boolean) => `h-9 rounded-full px-3.5 text-[13.5px] font-semibold transition ${on ? "bg-navy text-white" : "bg-surface text-ink-2 ring-1 ring-line hover:text-ink"}`;
+  return (
+    <section aria-label="Every question">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div><h5 className="text-[18px] font-extrabold tracking-[-0.01em] text-ink">Question by question</h5><p className="mt-0.5 text-[13.5px] text-muted">How everyone answered each one</p></div>
+        {topics.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={chip(!topic)} onClick={() => setTopic("")}>All</button>
+            {topics.map((t) => <button key={t} type="button" className={chip(topic === t)} onClick={() => setTopic(t)}>{t}</button>)}
+          </div>
+        )}
       </div>
-      <p className="mt-2 text-[12.5px] text-muted">Discrimination: the share right among the top 27% of scorers minus among the bottom 27% (first tries). 0.3 or more separates well; below 0.1 the question may be unclear or a giveaway.</p>
+      <ol className="mt-4 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+        {shown.map((q) => <QuestionCard key={q.n} q={q} focus={focus === q.n} />)}
+      </ol>
     </section>
   );
 }
@@ -207,7 +273,7 @@ function Report({ title, r, onClose }: { title: string; r: QuizResults; onClose:
     window.addEventListener("keydown", key);
     return () => { document.body.style.overflow = was; window.removeEventListener("keydown", key); };
   }, [onClose]);
-  const pick = (n: number) => { setOpen(n); setTimeout(() => body.current?.querySelector("[aria-label='Every question']")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); };
+  const pick = (n: number) => { setOpen(n); setTimeout(() => body.current?.querySelector(`#qcard-${n}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); };
   // Print / Save as PDF: the report alone, in a window of its own with the page's styles.
   const print = () => {
     const w = window.open("", "_blank");
@@ -244,7 +310,7 @@ function Report({ title, r, onClose }: { title: string; r: QuizResults; onClose:
             <Heatmap items={data.items} onPick={pick} />
             <Hardest items={data.items} onPick={pick} />
           </div>
-          <Table items={data.items} open={open} setOpen={setOpen} />
+          <Questions items={data.items} focus={open} />
         </div>
       </div>
     </div>

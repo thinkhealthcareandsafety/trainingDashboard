@@ -73,3 +73,12 @@ export function accuracyColor(pct: number): { bg: string; ink: "light" | "dark" 
 }
 
 export const fmtSeconds = (s: number) => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+
+/** One plain-words line per question (owner, 16 Nov: "if I see I understand nothing"). */
+export function insight(q: Pick<Item, "rightPct" | "wrong" | "answered">): { text: string; tone: "good" | "bad" | "plain" } {
+  if (!q.answered) return { text: "No answers yet.", tone: "plain" };
+  if (q.rightPct >= 80) return { text: `Most got this right: ${q.rightPct}%.`, tone: "good" };
+  if (q.wrong && q.wrong.pct >= 30) return { text: `${q.wrong.pct}% picked "${q.wrong.text}" instead.`, tone: "bad" };
+  if (q.rightPct < 50) return { text: `Needs another look: only ${q.rightPct}% got it right.`, tone: "bad" };
+  return { text: `${q.rightPct}% got it right.`, tone: "plain" };
+}

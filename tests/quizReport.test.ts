@@ -42,3 +42,11 @@ test("discrimination (upper 27% vs lower 27%, first tries) and topics come with 
   assert.deepEqual(s.map((x) => [x.topic, x.discrimination]), [["One", 1], ["Two", 0]]);
   assert.equal(analytics(quiz as never, [at("1", [0, 0])])[0].discrimination, null); // too few people
 });
+
+test("each question's plain-words line (owner, 16 Nov: 'if I see I understand nothing')", async () => {
+  const { insight } = await import("@/lib/quizReport");
+  assert.deepEqual(insight({ rightPct: 91, wrong: null, answered: 11 }), { text: "Most got this right: 91%.", tone: "good" });
+  assert.deepEqual(insight({ rightPct: 55, wrong: { text: "Check pulse", pct: 45 }, answered: 11 }), { text: '45% picked "Check pulse" instead.', tone: "bad" });
+  assert.equal(insight({ rightPct: 40, wrong: { text: "x", pct: 20 }, answered: 11 }).text, "Needs another look: only 40% got it right.");
+  assert.equal(insight({ rightPct: 0, wrong: null, answered: 0 }).text, "No answers yet.");
+});
