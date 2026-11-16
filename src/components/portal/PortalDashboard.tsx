@@ -11,7 +11,7 @@ import type { QuizResults } from "@/lib/portalTrainings";
 import { passedCsv } from "@/lib/portalCertRules";
 import { useLive, watchChanges } from "@/lib/live";
 import type { QuoteSheet } from "@/lib/trainingManager";
-import { quizReport } from "@/lib/quizReport";
+import { questionReport } from "@/lib/quizReport";
 import { QuizCharts } from "./QuizCharts";
 
 /*
@@ -787,8 +787,6 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
  */
 function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean }) {
   const [r, setR] = useState<QuizResults | null>(null);
-  // Owner, 16 Nov: the charts are the report; every question's picks fold under "Every question".
-  const [byQuestion, setByQuestion] = useState(false);
   // A certificate goes the moment its person passes (owner, 16 Nov): keep checking until each one with an email has gone.
   const sending = Boolean(r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
   useEffect(() => {
@@ -840,31 +838,8 @@ function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<T
           )}
           {r.taken > 0 && (
             <div className="mt-4">
-              {/* The report as charts (owner, 16 Nov: "reports … bar charts, pie charts"). */}
-              <QuizCharts report={quizReport(r)} passPct={r.passPct} />
-              <button type="button" className="mt-5 text-[14px] font-semibold text-action hover:underline" onClick={() => setByQuestion((x) => !x)} aria-expanded={byQuestion}>{byQuestion ? "Hide every question" : "Every question: what people picked (first tries)"}</button>
-              {byQuestion && (
-                <ol className="mt-3 space-y-4">
-                  {r.questions.map((q, i) => {
-                    const most = Math.max(1, ...q.options.map((o) => o.picked));
-                    return (
-                      <li key={q.id}>
-                        <p className="text-[14.5px] font-semibold text-ink"><span className="num text-muted">{i + 1}. </span>{q.text} <span className="num font-normal text-muted">· {q.correctPct}% right</span></p>
-                        <ul className="mt-1.5 space-y-1">
-                          {q.options.map((o, k) => (
-                            <li key={k} className="grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-2 gap-y-1 text-[13.5px] sm:grid-cols-[minmax(0,1fr)_minmax(60px,34%)_32px]">
-                              {/* Phones: the option on its own line, its bar and count under it (nothing cut off). */}
-                              <span className={`col-span-2 sm:col-span-1 sm:truncate ${k === q.answer ? "font-bold text-ink" : "text-ink-2"}`}>{k === q.answer ? "Right: " : ""}{o.text}</span>
-                              <span className="h-2 overflow-hidden rounded-full bg-ground"><span className={`block h-full rounded-full ${k === q.answer ? "bg-navy" : "bg-line-strong"}`} style={{ width: `${(o.picked / most) * 100}%` }} /></span>
-                              <span className="num text-right text-muted">{o.picked}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
+              {/* The report, question by question for the whole group (owner, 16 Nov). */}
+              <QuizCharts questions={questionReport(r.questions)} />
             </div>
           )}
         </>

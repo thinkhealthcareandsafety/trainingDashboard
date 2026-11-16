@@ -780,8 +780,6 @@ export type QuizResults = {
   title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; passPct: number;
   /** How long it ran, ended days only (ms; owner 16 Nov). */
   ranMs: number;
-  /** The quiz's topics, for the report charts (owner, 16 Nov). */
-  topics: { name: string; count: number }[];
   leaderboard: Ranked[]; questions: QuestionStats[];
   /** The passed list with each certificate's state (each is emailed the moment its person passes, owner 16 Nov). */
   certificates: { list: CertStatus[] };
@@ -795,7 +793,7 @@ export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null
   const certs = await certificateLines(t._id);
   return {
     title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
-    avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, ranMs: ranMs(t.sessions ?? []), topics: qz.quiz.topics ?? [], leaderboard: board, questions: analytics(qz.quiz, done),
+    avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, ranMs: ranMs(t.sessions ?? []), leaderboard: board, questions: analytics(qz.quiz, done),
     certificates: {
       list: certs.map((c) => ({ th: c.th, name: c.name, email: c.email, certNo: c.certNo, day: c.day, pct: c.pct, badge: c.badge, emailedAt: c.emailedAt ?? null, error: c.error || null })),
     },
