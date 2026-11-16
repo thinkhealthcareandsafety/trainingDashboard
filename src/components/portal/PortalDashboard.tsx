@@ -47,9 +47,12 @@ export function PortalDashboard({ me, number, welcome, onOut }: { me: Me; number
   useEffect(() => watchChanges("/api/portal/changes"), []);
   useLive(() => load(false), ["work", "team", "zoho"]);
 
-  // The training the link was for (training.thinkhealth.in/<number>): brought into view once the page is there.
+  // The training the link was for (training.thinkhealth.in/<number>): brought into view once, when the page first shows (not
+  // on every live refresh: owner, 16 Nov, "how does this auto scroll down").
+  const scrolled = useRef(false);
   useEffect(() => {
-    if (!home || intro || !number) return;
+    if (!home || intro || !number || scrolled.current) return;
+    scrolled.current = true;
     document.getElementById(`training-${number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
   }, [home, intro, number]);
 
