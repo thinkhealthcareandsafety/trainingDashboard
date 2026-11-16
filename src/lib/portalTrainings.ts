@@ -199,6 +199,8 @@ async function own(email: string, id: unknown): Promise<TrainingDoc | null> {
   return t && (t.coordinator?.email ?? "").toLowerCase() === email ? t : null;
 }
 const notYours: Fail = { error: "That training isn't on your list", status: 404 };
+/** Participants come after Accept (owner, 16 Nov: "first they accept, only then they add participants"). */
+const notAccepted: Fail = { error: "Accept the quotation first, then add participants.", status: 409 };
 
 /** The quotation's PDF (owner, 16 Nov): only for the coordinator named on it; the file is named by the quote number. */
 export async function quotePdfFor(email: string, id: unknown): Promise<{ estimateId: string; number: string } | null> {
@@ -267,6 +269,7 @@ async function insertPeople(trainingId: string, people: Person[], source: Source
 export async function addPeople(email: string, id: unknown, raw: unknown, sourceRaw: unknown): Promise<({ added: number; already: number } & PeopleResult) | Fail> {
   const t = await own(email, id);
   if (!t) return notYours;
+  if (!t.proposal) return notAccepted;
   const source: Source = sourceRaw === "excel" ? "excel" : "typed";
   const rows = Array.isArray(raw) ? raw : [];
   const people: Person[] = [];
@@ -318,15 +321,16 @@ async function byJoinLink(number: unknown, key: unknown): Promise<{ t: TrainingD
   return q ? { t, q } : null;
 }
 
-export async function joinInfo(number: unknown, key: unknown): Promise<{ training: string; customer: string; coordinator: string; closed: boolean } | null> {
+export async function joinInfo(number: unknown, key: unknown): Promise<{ training: string; customer: string; coordinator: string; closed: boolean; notYet: boolean } | null> {
   const j = await byJoinLink(number, key);
-  return j ? { training: titleOf(j.q), customer: j.q.customer, coordinator: j.t.coordinator?.name ?? "", closed: !registrationOpen(daysOf(await datesOf(j.t)), indiaToday()) } : null;
+  return j ? { training: titleOf(j.q), customer: j.q.customer, coordinator: j.t.coordinator?.name ?? "", closed: !registrationOpen(daysOf(await datesOf(j.t)), indiaToday()), notYet: !j.t.proposal } : null;
 }
 
 /** Someone joins by the QR link. The same phone twice on one training gets their existing page back. */
 export async function join(number: unknown, key: unknown, raw: unknown): Promise<{ th: string; token: string; name: string; existed: boolean } | Fail> {
   const j = await byJoinLink(number, key);
   if (!j) return { error: "This link has changed. Ask your training coordinator for the new one.", status: 404 };
+  if (!j.t.proposal) return { error: "Registration opens once your training coordinator confirms the training with Think Health.", status: 409 };
   // Registration closes once the training is over (owner, 13 Nov); on the day, the attendance QR registers walk-ins.
   if (!registrationOpen(daysOf(await datesOf(j.t)), indiaToday())) return { error: "Registration for this training has closed.", status: 409 };
   const p = readPerson(raw);

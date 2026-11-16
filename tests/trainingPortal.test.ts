@@ -29,6 +29,8 @@ const seed = async () => {
   await d.collection<{ _id: string } & Record<string, unknown>>("portalTrainings").insertOne({ _id: "1", customerId: "77", coordinator: { name: "Riya Mehta", email: RIYA, phone: "9800000000" } });
 };
 
+const accept = async () => { await propose(RIYA, "1", { dates: [{ date: "2099-01-10", time: "10:00" }], location: "Ballroom 2", headcount: 30 }); };
+
 /* ---------------- Pure rules ---------------- */
 
 test("a proposal: dates today or later, a location, a headcount; days sorted; the same day twice refused", () => {
@@ -122,6 +124,7 @@ test("accept (propose): only on their own training; a change keeps the earlier o
 
 test("the list: TH numbers in order; one person per mobile number (repeats skipped, said how many); remove; others can't touch it", async () => {
   await seed();
+  await accept(); // participants come after Accept (owner, 16 Nov)
   const r = await addPeople(RIYA, "1", [{ name: "Aman", phone: "9876543210" }, { name: "Neha", phone: "98765 43211" }, { name: "Neha again", phone: "9876543211" }], "typed");
   assert.ok("list" in r && r.added === 2 && r.already === 1);
   const r2 = await addPeople(RIYA, "1", [{ name: "Aman twice", phone: "+919876543210" }, { name: "Ravi", phone: "9876543212" }], "excel");
@@ -141,8 +144,9 @@ test("the list: TH numbers in order; one person per mobile number (repeats skipp
 
 test("QR join: the right key lets people in; the same phone gets their page back; a new link shuts the old one", async () => {
   await seed();
+  await accept(); // participants come after Accept (owner, 16 Nov)
   const [t] = await trainingsFor(RIYA);
-  assert.deepEqual(await joinInfo("QT-1", t.joinKey), { training: "CPR & AED Training", customer: "The Grand", coordinator: "Riya Mehta", closed: false });
+  assert.deepEqual(await joinInfo("QT-1", t.joinKey), { training: "CPR & AED Training", customer: "The Grand", coordinator: "Riya Mehta", closed: false, notYet: false });
   assert.equal(await joinInfo("QT-1", "wrong-key-123"), null);
   const a = await join("QT-1", t.joinKey, { name: "Aman Shah", phone: "9876543210" });
   assert.ok("th" in a && !a.existed);
@@ -153,7 +157,7 @@ test("QR join: the right key lets people in; the same phone gets their page back
   assert.equal(await participantPage("QT-1", a.th, "not-it"), null);
   let page = await participantPage("QT-1", a.th, a.token);
   assert.equal(page?.name, "Aman Shah");
-  assert.deepEqual(page?.dates, []);
+  assert.deepEqual(page?.dates, [{ date: "2099-01-10", time: "10:00" }]); // accepted first
   await propose(RIYA, "1", { dates: [{ date: "2099-02-01", time: "" }], tentative: true, location: "Hall A", headcount: 25 });
   page = await participantPage("QT-1", a.th, a.token);
   assert.equal(page?.location, "Hall A");
@@ -166,6 +170,7 @@ test("QR join: the right key lets people in; the same phone gets their page back
 
 test("routes: the coordinator's actions need their session; join and the participant page need no login", async () => {
   await seed();
+  await accept(); // participants come after Accept (owner, 16 Nov)
   const post = (body: object, cookie = "") => training(new Request("http://x/api/portal/training", { method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify(body) }));
   assert.equal((await post({ action: "people", id: "1" })).status, 401);
   const pw = await issueLogin(RIYA, "Riya Mehta");
@@ -187,10 +192,11 @@ test("routes: the coordinator's actions need their session; join and the partici
 
 test("Trainings page: portal state and the list for staff; Send login only from the live site", async () => {
   await seed();
+  await accept(); // participants come after Accept (owner, 16 Nov)
   const ashish = { "x-test-member": JSON.stringify({ id: "ashish", name: "Ashish" }), "content-type": "application/json" };
   await addPeople(RIYA, "1", [{ name: "Aman", phone: "9876543210" }], "typed");
   const j = (await (await tmGet(new Request("http://x/api/training-management", { headers: ashish }))).json()) as { quotes: { id: string; portal: { status: string; registered: number } }[] };
-  assert.deepEqual([j.quotes[0].portal.status, j.quotes[0].portal.registered], ["Login not sent", 1]);
+  assert.deepEqual([j.quotes[0].portal.status, j.quotes[0].portal.registered], ["Accepted", 1]);
   const people = (await (await tmGet(new Request("http://x/api/training-management?people=1", { headers: ashish }))).json()) as { list: { name: string }[] };
   assert.deepEqual(people.list.map((p) => p.name), ["Aman"]);
   const send = await tmPost(new Request("http://x/api/training-management", { method: "POST", headers: ashish, body: JSON.stringify({ action: "sendlogin", id: "1" }) }));
@@ -314,4 +320,15 @@ test("the quotation PDF: only with the coordinator's session, only their own tra
   assert.equal((await get("1", `th_portal=${s.ok ? s.token : ""}`)).status, 404);
   assert.equal(await quotePdfFor("other@hotel.com", "1"), null);
   assert.deepEqual(await quotePdfFor(RIYA, "1"), { estimateId: "1", number: "QT-1" });
+});
+
+test("participants only after Accept (owner, 16 Nov): adding and joining by QR are refused before", async () => {
+  await seed();
+  const [t] = await trainingsFor(RIYA);
+  assert.match(((await addPeople(RIYA, "1", [{ name: "Aman", phone: "9876543210" }], "typed")) as { error: string }).error, /Accept the quotation first/);
+  assert.equal((await joinInfo("QT-1", t.joinKey))?.notYet, true);
+  assert.equal(((await join("QT-1", t.joinKey, { name: "Aman", phone: "9876543210" })) as { status: number }).status, 409);
+  await accept();
+  assert.ok("list" in (await addPeople(RIYA, "1", [{ name: "Aman", phone: "9876543210" }], "typed")));
+  assert.equal((await joinInfo("QT-1", t.joinKey))?.notYet, false);
 });

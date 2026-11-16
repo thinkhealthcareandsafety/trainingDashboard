@@ -48,7 +48,7 @@
 - **Decline** (in the portal, or from the email's link) takes an optional reason. Zoho marks the quote **Declined**. It's final for them; the Trainings page has **Reopen**, which puts Zoho back to Sent.
 
 **4. Participants.**
-- The list always shows. "Add participants" opens three ways in: **Type names**, **Excel / CSV** (read in the browser, no package; header and phoneless rows skipped, with reasons), and **QR code** (copy, download, share on WhatsApp, new link).
+- Only after Accept (owner, 16 Nov: "first they accept, only then they add participants"): before it the panel has no Participants section, and adding or joining by QR is refused. Then the list always shows. "Add participants" opens three ways in: **Type names**, **Excel / CSV** (read in the browser, no package; header and phoneless rows skipped, with reasons), and **QR code** (copy, download, share on WhatsApp, new link).
 - One person per mobile number on a training.
 - TH001, TH002… are counted across everything and never reused.
 - Each participant has a private page, On / At / For, reached through their `?p=` link.

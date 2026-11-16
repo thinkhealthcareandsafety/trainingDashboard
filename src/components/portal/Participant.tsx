@@ -47,7 +47,7 @@ export const Problem = ({ text }: { text: string }) => (
 
 /* ---------------- The join page ---------------- */
 
-type Invite = { training: string; customer: string; coordinator: string; closed?: boolean };
+type Invite = { training: string; customer: string; coordinator: string; closed?: boolean; notYet?: boolean };
 
 export function JoinPage({ number, k }: { number: string; k: string }) {
   const [invite, setInvite] = useState<Invite | null | undefined>(undefined);
@@ -82,6 +82,7 @@ export function JoinPage({ number, k }: { number: string; k: string }) {
   if (!invite) return <Problem text={error} />;
   // Registration closes once the training is over (owner, 13 Nov).
   if (invite.closed && !thanks) return <Problem text={`Registration for ${invite.training} has closed. For anything about it, speak to your training coordinator.`} />;
+  if (invite.notYet && !thanks) return <Problem text={`Registration for ${invite.training} opens once your training coordinator confirms it with Think Health. Please try this link again later.`} />;
   if (thanks) {
     return (
       <main className="grid min-h-screen place-items-center bg-navy px-6 text-white">

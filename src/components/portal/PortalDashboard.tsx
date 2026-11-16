@@ -301,8 +301,9 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
         )}
       </div>
 
-      {/* Steps 6–7: the attendee list. The toggle doesn't animate its colour (transition-none), so no frame shows it blank. */}
-      {!t.rejected && <div className="border-b border-line p-5 sm:p-7">
+      {/* Steps 6–7: the attendee list, once they've accepted (owner, 16 Nov: "first they accept, only then they add participants").
+          The toggle doesn't animate its colour (transition-none), so no frame shows it blank. */}
+      {!t.rejected && t.proposal && <div className="border-b border-line p-5 sm:p-7">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className={sub}>Participants</p>
