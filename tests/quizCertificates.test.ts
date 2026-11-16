@@ -232,3 +232,16 @@ test("Good Samaritan records into the sheet (owner, 16 Nov): a row per certifica
   await take("TH003", await token("TH003"), wrong(1)).catch(() => undefined); // Meera isn't marked present: no try, no row
   assert.equal(written.length, 1);
 });
+
+test("a participant's own report (owner, 16 Nov): their score by topic (counts only), their time", async () => {
+  const today = indiaToday();
+  await seed([today]);
+  await startTraining(RIYA, "1");
+  await tick(RIYA, "1", "TH002", today, true);
+  const vik = await token("TH002");
+  await take("TH002", vik, wrong(3)); // the first three wrong: all in First Aid basics
+  const v = await participantQuiz("QT-1", "TH002", vik);
+  assert.deepEqual(v?.result?.topics, [{ name: "First Aid basics", right: 5, of: 8 }, { name: "CPR", right: 9, of: 9 }, { name: "AED", right: 8, of: 8 }, { name: "Heart attack", right: 5, of: 5 }]);
+  assert.equal(typeof v?.result?.seconds, "number");
+  assert.equal(v?.quiz.questions[0].answer, undefined); // the right answers still hidden until End
+});

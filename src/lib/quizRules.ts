@@ -41,6 +41,16 @@ export function scoreOf(quiz: Quiz, answers: number[]): Score {
   return { correct, total, points: correct * quiz.pointsEach, max: total * quiz.pointsEach, pct, passed: pct >= quiz.passPct, badge: pct >= quiz.badgePct };
 }
 
+/** Their own score by topic (owner, 16 Nov: a participant's report): right of each part, never which questions. */
+export function topicScores(quiz: Quiz, answers: number[]): { name: string; right: number; of: number }[] {
+  let at = 0;
+  return (quiz.topics ?? []).map((t) => {
+    const qs = quiz.questions.slice(at, at + t.count).map((q, k) => ({ q, i: at + k }));
+    at += t.count;
+    return { name: t.name, right: qs.filter(({ q, i }) => answers[i] === q.answer).length, of: qs.length };
+  });
+}
+
 /** A finished attempt; `n` = which try it was (1, 2, …) — retakes after a fail (owner, 14 Nov). */
 export type Attempt = { th: string; name: string; answers: number[]; startedAt: string; finishedAt: string; points: number; correct: number; n?: number };
 export type Ranked = { rank: number; th: string; name: string; points: number; correct: number; pct: number; seconds: number; passed: boolean; badge: boolean; tries: number };

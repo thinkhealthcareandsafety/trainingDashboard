@@ -8,6 +8,7 @@ import { type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
 import { portalPrefix } from "@/lib/portalHost";
 import { primaryBtn, secondaryBtn } from "./TrainingTools";
 import { QuizScreen } from "./Quiz";
+import { MyReport } from "./ParticipantReport";
 import { useLive, watchChanges } from "@/lib/live";
 
 /*
@@ -127,8 +128,8 @@ export function JoinPage({ number, k }: { number: string; k: string }) {
 type Page = { th: string; name: string; number: string; training: string; customer: string; dates: ProposalDate[]; tentative: boolean; location: string; tbd?: boolean; present?: string[]; confirmed?: boolean };
 
 type QuizInfo = {
-  quiz: { title: string; questions: unknown[]; passPct: number }; state: "none" | "open" | "closed" | "revealed"; present: boolean; startedAt: string | null;
-  result: { points: number; max: number; pct: number; rank: number; of: number; passed: boolean; bestPct: number; tries: number } | null;
+  quiz: { title: string; questions: { text: string; options: { text: string; image?: string }[]; answer?: number }[]; passPct: number }; state: "none" | "open" | "closed" | "revealed"; present: boolean; startedAt: string | null;
+  result: { points: number; max: number; pct: number; correct: number; total: number; rank: number; of: number; passed: boolean; badge: boolean; bestPct: number; tries: number; seconds: number; answers: number[]; topics: { name: string; right: number; of: number }[] } | null;
   canRetake: boolean; certificate: { ready: boolean; email: string | null; emailedAt: string | null } | null;
 };
 
@@ -137,6 +138,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
   const [error, setError] = useState("");
   const [showQuiz, setShowQuiz] = useState(quizOpen);
   const [quiz, setQuiz] = useState<QuizInfo | null>(null);
+  const [report, setReport] = useState(false);
   // The quiz (owner, 13 Nov): checked every 15 s, so "Take the quiz" appears by itself when the coordinator starts.
   useEffect(() => {
     let on = true;
@@ -197,13 +199,14 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
           </div>
         </section>
         {/* The quiz card (owner, 16 Nov: "where is the quiz"): on every CPR / AED / BLS / First Aid training, confirmed or not. */}
-        {quiz && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
+        {quiz && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} onReport={() => setReport(true)} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
         {page.confirmed && page.dates.length > 0 && <Attendance dates={page.dates} present={page.present ?? []} />}
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen. Show your number, {page.th}, on the day.</p>
         {withVideo.length > 0 && <div className="pb-4"><Programmes list={withVideo} title="Watch before you come" /></div>}
         <div className="h-12" />
       </main>
       <StayConnected social={content.social} />
+      {report && quiz?.result && <MyReport d={{ title: quiz.quiz.title, name: page.name, th: page.th, training: page.training, revealed: quiz.state === "revealed", passPct: quiz.quiz.passPct, questions: quiz.quiz.questions, result: quiz.result }} onClose={() => setReport(false)} />}
     </div>
   );
 }
@@ -236,7 +239,7 @@ function Attendance({ dates, present }: { dates: ProposalDate[]; present: string
  * Owner, 14 Nov: after a fail, Try again while it runs; after a pass, the certificate (owner, 16 Nov: emailed the moment they pass,
  * the training, and downloadable here).
  */
-function QuizPanel({ q, onOpen, certHref }: { q: QuizInfo; onOpen: () => void; certHref: string }) {
+function QuizPanel({ q, onOpen, onReport, certHref }: { q: QuizInfo; onOpen: () => void; onReport: () => void; certHref: string }) {
   const r = q.result;
   const c = q.certificate;
   const going = q.startedAt && q.state === "open";
@@ -260,10 +263,12 @@ function QuizPanel({ q, onOpen, certHref }: { q: QuizInfo; onOpen: () => void; c
             : <>Your certificate is ready. To get it by email, open <b className="text-ink">See results</b> and add your email.</>}
         </p>
       )}
-      {(action || c?.ready) && (
+      {(action || c?.ready || r) && (
         <div className="mt-4 flex flex-wrap gap-3">
           {action && <button type="button" className={`${strong ? primaryBtn : secondaryBtn} ${strong ? "h-12 w-full text-[16px]" : ""}`} onClick={onOpen}>{action}</button>}
           {c?.ready && <a className={primaryBtn} href={certHref} download>Download certificate</a>}
+          {/* Their own report (owner, 16 Nov), once they've sent their answers. */}
+          {r && !going && <button type="button" className={secondaryBtn} onClick={onReport}>My report</button>}
         </div>
       )}
     </section>

@@ -9,7 +9,7 @@ import { cleanPhone } from "./trainingManager";
 import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, markable, ranMs, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
 import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
-import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
+import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, topicScores, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
 import { type InvoiceLite, certDay, indiaDayOf, paidInFull, portalCertNumber } from "./portalCertRules";
 import { goodSamaritanNumber } from "./goodSamaritan";
 import type { GoodSamaritanRow } from "./zohoSheet";
@@ -641,7 +641,7 @@ export type ParticipantQuiz = {
   /** Marked present on any day (only they can take it, owner); a try in progress (the clock runs from opening it). */
   present: boolean; startedAt: string | null;
   /** Their latest try, their best rank, how many tries, and whether another try is allowed now (after a fail, while open). */
-  result: (Score & { rank: number; of: number; answers: number[]; tries: number; bestPct: number; passedEver: boolean }) | null;
+  result: (Score & { rank: number; of: number; answers: number[]; tries: number; bestPct: number; passedEver: boolean; seconds: number; topics: { name: string; right: number; of: number }[] }) | null;
   canRetake: boolean;
   certificate: MyCertificate | null;
   leaderboard: Ranked[];
@@ -662,7 +662,7 @@ export async function participantQuiz(number: unknown, th: unknown, token: unkno
   const cert = passed ? await (await certsCol()).findOne({ _id: certId(r.t._id, r.p._id) }) : null;
   return {
     quiz: publicQuiz(qz.quiz, qz.state === "revealed"), state: qz.state, present, startedAt: open?.startedAt ?? null,
-    result: latest && ranked ? { ...scoreOf(qz.quiz, latest.answers), rank: ranked.rank, of: board.length, answers: latest.answers, tries: done.length, bestPct: ranked.pct, passedEver: passed } : null,
+    result: latest && ranked ? { ...scoreOf(qz.quiz, latest.answers), rank: ranked.rank, of: board.length, answers: latest.answers, tries: done.length, bestPct: ranked.pct, passedEver: passed, seconds: ranked.seconds, topics: topicScores(qz.quiz, latest.answers) } : null,
     canRetake: qz.state === "open" && present && !open && canRetake(qz.quiz, done),
     // Owner, 16 Nov: emailed the moment they pass, and downloadable from then.
     certificate: passed ? {

@@ -317,6 +317,9 @@ Once confirmed, a training panel reads: title and progress track; the once-only 
 
 The once-only ask sits in a mist well under the header. First "Are you attending too?" (title scale) with name, mobile and email prefilled from the quote in a three-column row, **Register me** (primary) and **Skip** (secondary), and a muted line: "You can also do this later yourself: scan the attendance QR on the day, or add yourself to the list." Then "Now get your team registered" (with "You're registered as TH045. Open your page" above it when they did) and **Share the QR code** / **Add names** / a muted **Later**; any of them closes it for good. Registered coordinators are tagged "Coordinator" in the list.
 
+### A participant's own report (owner, 16 Nov)
+**My report** (secondary) on the participant's quiz card once they've sent answers opens a full-screen page in the portal's look: white top bar ("My report", name · TH, Print / Save as PDF, Close), the quiz title, four KPI cards (Score, Result, Time, Rank with re-takes), By topic (navy bars, "7 of 8"), then My answers (each question, "My answer: …", a navy RIGHT pill or "Right answer: …" once revealed).
+
 ### Certificates for the coordinator (owner, 16 Nov)
 Only once the training is fully paid, a section above Participants: the value label "Certificates", "3 ready to download · 1 downloaded", **Download all certificates (ZIP)** (primary), then a ringed list: TH number, name, the certificate number in tabular muted type, a mist "Downloaded 15 Nov" tag once downloaded, and a secondary **Download** ("Again" after). Participants get the Good Samaritan certificate instead (the owner's design).
 
