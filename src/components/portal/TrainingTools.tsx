@@ -133,7 +133,7 @@ const dayShort = (d: string) => fmtProposalDate({ date: d, time: "" }).replace(/
 const stampDay = (d: string) => dayShort(d).replace(/^\w+, /, "");
 
 /** The list always shows (owner, 12 Nov: "let me see the user without opening it"); the ways to add, when `adding`. */
-export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void; onLive?: (l: Live) => void; openTab?: { tab: "type" | "excel"; n: number } }) {
+export function Participants({ t, adding, onCount, onLive, openTab, meTh }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void; onLive?: (l: Live) => void; openTab?: { tab: "type" | "excel"; n: number }; meTh?: string }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"type" | "excel">(openTab?.tab ?? "type");
@@ -223,11 +223,12 @@ export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolT
               <button type="button" className={linkBtn} onClick={download}>Download</button>
             </li>
             {rows.map((r) => (
-              <li key={r.th} className={`flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-3.5 ${r.duplicate ? "bg-warn-bg" : "bg-surface"} ${att.days.some((d) => fresh.has(`${r.th}:${d}`)) ? "row-light" : ""}`}>
+              <li key={r.th} aria-current={r.th === meTh ? "true" : undefined} className={`flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-3.5 ${r.duplicate ? "bg-warn-bg" : "bg-surface"} ${r.th === meTh ? "rounded-xl ring-2 ring-inset ring-navy" : ""} ${att.days.some((d) => fresh.has(`${r.th}:${d}`)) ? "row-light" : ""}`}>
                 <span className="num w-11 shrink-0 text-[12.5px] font-semibold text-muted sm:w-14 sm:text-[13px]">{r.th}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-semibold text-ink">{r.name}</span>
-                  <span className="num block text-[13px] text-muted">{r.phone}{r.email ? ` · ${r.email}` : ""} · {SOURCE[r.source]}{r.duplicate && <b className="ml-1.5 font-bold text-warn">Same phone twice</b>}</span>
+                  {/* Their own row (owner, 16 Nov: "how do I know which participant is me"): ringed, with "You". */}
+                  <span className="flex min-w-0 items-center gap-2"><span className="truncate text-[15px] font-semibold text-ink">{r.name}</span>{r.th === meTh && <span className="shrink-0 rounded-full bg-navy px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white">You</span>}</span>
+                  <span className="num block truncate text-[13px] text-muted">{r.phone}{r.email ? ` · ${r.email}` : ""} · {SOURCE[r.source]}{r.duplicate && <b className="ml-1.5 font-bold text-warn">Same phone twice</b>}</span>
                 </span>
                 {/* A mark per training day (owner, 13 Nov): live; the coordinator can tick a day that has come. Owner, 16 Nov: a
                     present day is a small navy PRESENT ink stamp (the day's date on it when there are several days). */}
