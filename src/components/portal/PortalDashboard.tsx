@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
 import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
@@ -484,9 +484,9 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
         <div className="mt-6 grid items-center gap-6 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
           {qr}
           <div className="text-center sm:text-left" aria-live="polite">
-            <p className="num text-[64px] font-extrabold leading-none tracking-[-0.03em] text-ink">{live.present}<span className="text-[28px] font-bold tracking-normal text-muted"> of {live.total}</span></p>
+            <p className="num text-[64px] font-extrabold leading-none tracking-[-0.03em] text-ink"><CountUp value={live.present} /><span className="text-[28px] font-bold tracking-normal text-muted"> of {live.total}</span></p>
             <p className="mt-2 text-[17px] font-bold text-ink">present today</p>
-            <p className="mt-1.5 max-w-[34ch] text-[14px] leading-relaxed text-muted sm:max-w-none">Show this code in the room. Each person scans it and taps Present; the ticks below fill in by themselves.</p>
+            <p className="mt-1.5 max-w-[34ch] text-[14px] leading-relaxed text-muted sm:max-w-none">Show this code in the room. Each person scans it and taps Present; their PRESENT stamps land below by themselves.</p>
           </div>
         </div>
         {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
@@ -512,6 +512,27 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
       <p className="mt-6 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, {contact}.</p>
     </>
   );
+}
+
+/** "X of Y present" counts up as people mark themselves (owner, 16 Nov); straight to the number with reduced motion. */
+function CountUp({ value }: { value: number }) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(value);
+  useEffect(() => {
+    const start = from.current;
+    from.current = value;
+    if (start === value || reducedMotion()) { setShown(value); return; }
+    const t0 = performance.now();
+    let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / 700);
+      setShown(Math.round(start + (value - start) * (1 - Math.pow(1 - k, 3))));
+      if (k < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{shown}</>;
 }
 
 /** Today's strip (owner, 13 Nov): Start training opens the quiz; End training closes it and attendance. Attendance is open

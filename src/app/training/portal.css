@@ -78,4 +78,10 @@ input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px var(--surface) inset; -w
 /* Attendance marked (owner, 13 Nov): the PRESENT stamp lands harder than a panel stamp — the same press, from further away. */
 @keyframes stamp-present { from { opacity: 0; transform: rotate(-6deg) scale(2.4); } 55% { opacity: 1; } 75% { transform: rotate(-6deg) scale(0.96); } to { opacity: 1; transform: rotate(-6deg) scale(1); } }
 .stamp-present { animation: stamp-present 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both; }
-@media (prefers-reduced-motion: reduce) { .welcome-line, .portal-reveal, .stamp, .stamp-present { animation: none; } }
+/* The coordinator's list (owner, 16 Nov: "the normal tick is too boring"): each PRESENT lands as a small ink stamp as people
+   mark themselves, and the row lights up for a moment. Echoes of the PRESENT stamp, not a new moment. */
+@keyframes tick-stamp { from { opacity: 0; transform: rotate(-5deg) scale(1.9); } 60% { opacity: 1; } 80% { transform: rotate(-5deg) scale(0.95); } to { opacity: 1; transform: rotate(-5deg) scale(1); } }
+.tick-stamp { animation: tick-stamp 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes row-light { from { background-color: color-mix(in srgb, var(--navy) 11%, var(--surface)); } to { background-color: var(--surface); } }
+.row-light { animation: row-light 1.8s cubic-bezier(0.16, 1, 0.3, 1); }
+@media (prefers-reduced-motion: reduce) { .welcome-line, .portal-reveal, .stamp, .stamp-present, .tick-stamp, .row-light { animation: none; } }

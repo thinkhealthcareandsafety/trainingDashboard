@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type Person, type Proposal, type Skipped, duplicatePhones, fmtProposalDate, indiaToday, parseCsv, peopleFromRows } from "@/lib/portalRules";
 import { type DayWindow, markable } from "@/lib/attendanceRules";
 import { portalPrefix } from "@/lib/portalHost";
@@ -128,6 +128,8 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
 
 const SOURCE: Record<Row["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR", walkin: "Walk-in" };
 const dayShort = (d: string) => fmtProposalDate({ date: d, time: "" }).replace(/ \d{4}$/, "");
+/** "4 Dec": the day on a several-day training's stamp. */
+const stampDay = (d: string) => dayShort(d).replace(/^\w+, /, "");
 
 /** The list always shows (owner, 12 Nov: "let me see the user without opening it"); the ways to add, when `adding`. */
 export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void; onLive?: (l: Live) => void }) {
@@ -138,9 +140,19 @@ export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; 
   const [att, setAtt] = useState<{ days: string[]; window: DayWindow; on: boolean }>({ days: [], window: { state: "none", of: 0 }, on: false });
   const [busyTick, setBusyTick] = useState("");
   const today = indiaToday();
+  // Marks that just arrived ("TH001:2026-12-04"): their stamp lands and the row lights up (owner, 16 Nov). Not on first load.
+  const seen = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState<Set<string>>(new Set());
 
   const update = (r: People) => {
     if (!r.list) return;
+    const now = new Set(r.list.flatMap((p) => p.present.map((d) => `${p.th}:${d}`)));
+    const added = seen.current ? [...now].filter((k) => !seen.current!.has(k)) : [];
+    seen.current = now;
+    if (added.length) {
+      setFresh((f) => new Set([...f, ...added]));
+      setTimeout(() => setFresh((f) => { const n = new Set(f); added.forEach((k) => n.delete(k)); return n; }), 1900);
+    }
     setRows(r.list); onCount(r.list.length);
     const w: DayWindow = r.window ?? { state: "none", of: 0 };
     setAtt({ days: r.days ?? [], window: w, on: Boolean(r.attendance) });
@@ -207,13 +219,14 @@ export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; 
               <button type="button" className={linkBtn} onClick={download}>Download</button>
             </li>
             {rows.map((r) => (
-              <li key={r.th} className={`flex items-center gap-3 px-3.5 py-2.5 ${r.duplicate ? "bg-warn-bg" : "bg-surface"}`}>
+              <li key={r.th} className={`flex items-center gap-3 px-3.5 py-2.5 ${r.duplicate ? "bg-warn-bg" : "bg-surface"} ${att.days.some((d) => fresh.has(`${r.th}:${d}`)) ? "row-light" : ""}`}>
                 <span className="num w-14 shrink-0 text-[13px] font-semibold text-muted">{r.th}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[15px] font-semibold text-ink">{r.name}</span>
                   <span className="num block text-[13px] text-muted">{r.phone}{r.email ? ` · ${r.email}` : ""} · {SOURCE[r.source]}{r.duplicate && <b className="ml-1.5 font-bold text-warn">Same phone twice</b>}</span>
                 </span>
-                {/* A tick per training day (owner, 13 Nov): navy ink, live; the coordinator can tick a day that has come. */}
+                {/* A mark per training day (owner, 13 Nov): live; the coordinator can tick a day that has come. Owner, 16 Nov: a
+                    present day is a small navy PRESENT ink stamp (the day's date on it when there are several days). */}
                 {att.on && att.days.length > 0 && (
                   <span className="flex shrink-0 gap-1.5">
                     {att.days.map((d) => {
@@ -223,8 +236,12 @@ export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; 
                       return (
                         <button key={d} type="button" disabled={!can || busyTick === `${r.th}:${d}`} onClick={() => tick(r, d)} aria-pressed={here}
                           aria-label={here ? `${name}: present. Untick` : can ? `${name}: mark present` : `${name}: opens on the day`} title={att.days.length > 1 ? dayShort(d) : undefined}
-                          className={`grid size-9 place-items-center rounded-full transition-none ${here ? "bg-navy text-white" : "text-transparent ring-2 ring-inset ring-line-strong hover:ring-navy/50"} disabled:cursor-default ${!can && !here ? "opacity-40" : ""}`}>
-                          <svg viewBox="0 0 20 20" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M5 10.5l3.2 3.2L15 6.8" /></svg>
+                          className={`grid h-9 place-items-center rounded-md transition-none ${att.days.length > 1 ? "w-[60px]" : "w-[76px]"} ${here ? "" : "ring-2 ring-inset ring-line-strong hover:ring-navy/50"} disabled:cursor-default ${!can && !here ? "opacity-40" : ""}`}>
+                          {here && (
+                            <span className={`inline-flex rotate-[-5deg] items-center rounded-[5px] border-2 border-navy px-1.5 pb-[3px] pt-[5px] text-navy shadow-[inset_0_0_0_1.5px_var(--surface),inset_0_0_0_3px_var(--navy)] ${fresh.has(`${r.th}:${d}`) ? "tick-stamp" : ""}`} aria-hidden>
+                              <span className="num text-[10.5px] font-extrabold uppercase leading-none tracking-[0.12em]">{att.days.length > 1 ? stampDay(d) : "Present"}</span>
+                            </span>
+                          )}
                         </button>
                       );
                     })}

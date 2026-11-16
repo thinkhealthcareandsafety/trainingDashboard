@@ -30,7 +30,7 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [marked, setMarked] = useState<{ name: string; already: boolean } | null>(null);
+  const [marked, setMarked] = useState<{ name: string; full: string; at: string; already: boolean } | null>(null);
 
   useEffect(() => {
     fetch(`/api/portal/attend?n=${encodeURIComponent(number)}&k=${encodeURIComponent(k)}`).then(async (r) => {
@@ -68,7 +68,8 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
     const j = await post({ action: "present" });
     setBusy(false);
     if (!j.th || !j.token) return setError(j.error ?? "Couldn't mark your attendance");
-    setMarked({ name: first(j.name ?? me?.name ?? ""), already: Boolean(j.already) });
+    const full = j.name ?? me?.name ?? "";
+    setMarked({ name: first(full), full, at: new Date().toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }), already: Boolean(j.already) });
     const to = `${portalPrefix(location.host)}/${encodeURIComponent(number)}/${j.th}?p=${encodeURIComponent(j.token)}`;
     setTimeout(() => location.replace(to), reduced() ? 1200 : 3200);
   };
@@ -86,8 +87,10 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
       <main className="grid min-h-screen place-items-center bg-navy px-6 text-white" role="status" aria-live="polite">
         <div className="flex max-w-xl flex-col items-center text-center">
           <span className="stamp-present inline-flex rotate-[-6deg] flex-col items-center rounded-lg border-[3px] border-navy bg-surface px-7 pb-3 pt-4 text-navy shadow-[inset_0_0_0_3px_var(--surface),inset_0_0_0_5px_var(--navy),0_10px_30px_rgb(0_20_35/0.35)]">
-            <span className="text-[34px] font-extrabold uppercase leading-none tracking-[0.16em] sm:text-[42px]">Present</span>
-            <span className="num mt-2 text-[12px] font-bold uppercase leading-none tracking-[0.12em]">{markable(info.window) ? fmtProposalDate({ date: info.window.day, time: "" }) : ""}</span>
+            <span className="text-[42px] font-extrabold uppercase leading-none tracking-[0.16em] sm:text-[52px]">Present</span>
+            {/* Owner, 16 Nov: a bigger stamp, with their name and the time they marked it. */}
+            <span className="mt-3 max-w-[16ch] truncate text-[16px] font-extrabold uppercase leading-none tracking-[0.1em] sm:text-[18px]">{marked.full}</span>
+            <span className="num mt-2 text-[12px] font-bold uppercase leading-none tracking-[0.12em]">{marked.already ? "" : `${marked.at} · `}{markable(info.window) ? fmtProposalDate({ date: info.window.day, time: "" }) : ""}</span>
           </span>
           <p className="welcome-line mt-10 text-[30px] font-extrabold leading-[1.1] tracking-[-0.025em] sm:text-[40px]" style={{ animationDelay: "650ms" }}>{marked.already ? "You're already marked present." : "Attendance marked."}</p>
           <p className="welcome-line mt-3 text-[19px] font-bold text-white/80" style={{ animationDelay: "1100ms" }}>Thank you for being here, {marked.name}.</p>
