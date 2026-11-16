@@ -74,7 +74,7 @@ const seed = async () => {
   for (const [id, email] of [["1", "riya@grand.com"], ["2", "riya@grand.com"], ["3", "riya@grand.com"], ["4", "someone@else.com"]]) await d.collection<{ _id: string }>("portalTrainings").insertOne({ _id: id, ...co(email) });
 };
 
-test("a coordinator sees only their own trainings, newest first, a declined one stamped Rejected, and never a price", async () => {
+test("a coordinator sees only their own trainings, newest first, a declined one stamped Rejected; prices only in the quotation", async () => {
   await seed();
   const t = await trainingsFor("riya@grand.com");
   assert.deepEqual(t.map((x) => [x.number, x.stamp]), [["QT-3", "Rejected"], ["QT-2", "Awaiting decision"], ["QT-1", "Awaiting decision"]]);
@@ -82,7 +82,9 @@ test("a coordinator sees only their own trainings, newest first, a declined one 
   assert.equal(t[0].lines[0].name, "CPR & AED Training");
   assert.equal(t[0].expected, 30);
   assert.equal(t[0].stamp, "Awaiting decision");
-  assert.ok(!/99999|45000|1500/.test(JSON.stringify(t)));
+  // Owner, 16 Nov: the coordinator sees the quotation before accepting; prices sit only in `quote`.
+  assert.ok(!/99999|45000|1500/.test(JSON.stringify(t.map(({ quote: _q, ...rest }) => rest))));
+  assert.ok(/45000/.test(JSON.stringify(t.map((x) => x.quote))));
   assert.deepEqual(await trainingsFor("nobody@grand.com"), []);
 });
 

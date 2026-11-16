@@ -25,7 +25,34 @@ export type TrainingQuote = {
   expected: number;
   total: number;
   salesperson: string;
+  /** The whole quotation as Zoho has it, every line with its price, for the coordinator before they accept (owner, 16 Nov). */
+  sheet: QuoteSheet;
 };
+
+/**
+ * The quotation as the coordinator sees it on the portal before accepting (owner, 16 Nov: "otherwise what do they know what
+ * they are accepting"): every line (names without "(I)"), the rate and amount, discount, shipping, adjustment, each tax,
+ * the total and the valid-until date.
+ */
+export type QuoteSheet = {
+  lines: { name: string; description: string; qty: number; unit: string; rate: number; gst: number | null; amount: number }[];
+  subTotal: number; discount: number; shipping: number; adjustment: number; adjustmentLabel: string;
+  taxes: { name: string; amount: number }[]; total: number; currency: string; expiry: string; taxInclusive: boolean;
+};
+
+export function quoteSheet(doc: ZDoc): QuoteSheet {
+  const n = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
+  return {
+    lines: ((doc.line_items as ZDoc[]) ?? []).map((li) => ({
+      name: trainingName(str(li.name)), description: str(li.description), qty: n(li.quantity), unit: str(li.unit), rate: n(li.rate),
+      gst: li.tax_percentage === undefined || li.tax_percentage === null || li.tax_percentage === "" ? null : n(li.tax_percentage), amount: n(li.item_total),
+    })),
+    subTotal: n(doc.sub_total), discount: n(doc.discount_total ?? doc.discount_amount), shipping: n(doc.shipping_charge),
+    adjustment: n(doc.adjustment), adjustmentLabel: str(doc.adjustment_description) || "Adjustment",
+    taxes: ((doc.taxes as ZDoc[]) ?? []).map((t) => ({ name: str(t.tax_name), amount: n(t.tax_amount) })).filter((t) => t.amount),
+    total: n(doc.total), currency: str(doc.currency_code) || "INR", expiry: str(doc.expiry_date), taxInclusive: doc.is_inclusive_tax === true,
+  };
+}
 
 /** The client-facing training name: no "(I)" (owner: "exclude the (I)"). */
 export const trainingName = (name: string) => name.replace(/\s*\(I\)\s*/gi, " ").replace(/\s+/g, " ").trim();
@@ -70,6 +97,7 @@ export function toTrainingQuote(doc: ZDoc, trainingIds: Set<string>): TrainingQu
     expected: lines.reduce((m, l) => Math.max(m, l.qty), 0),
     total: num(doc.total),
     salesperson: str(doc.salesperson_name),
+    sheet: quoteSheet(doc),
   };
 }
 

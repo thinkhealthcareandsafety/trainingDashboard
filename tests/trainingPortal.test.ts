@@ -6,10 +6,11 @@ import { deflateRawSync } from "node:zlib";
 import { duplicatePhones, fmtProposalDate, parseCsv, peopleFromRows, readPerson, readProposal, thId } from "@/lib/portalRules";
 import { sheetRows, readXlsx } from "@/lib/xlsxRead";
 import { loginBoxHtml, loginEmail, trainingLink } from "@/lib/portalEmail";
-import { addPeople, join, joinInfo, newJoinKey, participantPage, propose, reject, removePerson, reopen, staffPortal, trainingsFor } from "@/lib/portalTrainings";
+import { addPeople, join, joinInfo, newJoinKey, participantPage, propose, quotePdfFor, reject, removePerson, reopen, staffPortal, trainingsFor } from "@/lib/portalTrainings";
 import { storyPhases } from "@/lib/quoteStory";
 import { issueLogin, signIn } from "@/lib/portalAuth";
-import { POST as training } from "@/app/api/portal/training/route";
+import { GET as training_get, POST as training } from "@/app/api/portal/training/route";
+import { quoteSheet } from "@/lib/trainingManager";
 import { GET as joinGet, POST as joinPost } from "@/app/api/portal/join/route";
 import { GET as tmGet, POST as tmPost } from "@/app/api/training-management/route";
 import { db } from "@/lib/db";
@@ -278,4 +279,39 @@ test("decline from the email: the link's key opens the page without changing any
   assert.equal(t.rejected?.reason, "Not this year");
   assert.equal((await declineInfo("QT-1", k))?.state, "rejected");
   assert.equal(((await declineByLink("QT-1", "wrong-key-123", "", async () => undefined)) as { status: number }).status, 404);
+});
+
+/* ---------------- The quotation before accepting (owner, 16 Nov) ---------------- */
+
+test("the coordinator sees the whole quotation: every line priced, no (I), taxes, total, valid until", async () => {
+  const s = quoteSheet({
+    line_items: [
+      { item_id: "cpr", name: "CPR & AED Training (I)", description: "Hands-on", quantity: 30, unit: "pax", rate: 1500, tax_percentage: 18, item_total: 45000 },
+      { item_id: "t", name: "Travel", quantity: 1, rate: 2000, tax_percentage: "", item_total: 2000 },
+    ],
+    sub_total: 47000, discount_total: 0, adjustment: -0.4, adjustment_description: "Round off",
+    taxes: [{ tax_name: "CGST9 (9%)", tax_amount: 4050 }, { tax_name: "SGST9 (9%)", tax_amount: 4050 }, { tax_name: "IGST", tax_amount: 0 }],
+    total: 55099.6, expiry_date: "2026-12-01", currency_code: "INR",
+  });
+  assert.deepEqual(s.lines.map((l) => [l.name, l.qty, l.unit, l.rate, l.gst, l.amount]), [["CPR & AED Training", 30, "pax", 1500, 18, 45000], ["Travel", 1, "", 2000, null, 2000]]);
+  assert.deepEqual(s.taxes.map((t) => t.name), ["CGST9 (9%)", "SGST9 (9%)"]);
+  assert.equal(s.adjustmentLabel, "Round off");
+  assert.equal(s.total, 55099.6);
+  assert.equal(s.expiry, "2026-12-01");
+  assert.equal(s.taxInclusive, false);
+  await seed();
+  const [t] = await trainingsFor(RIYA);
+  assert.deepEqual(t.quote.lines.map((l) => [l.name, l.amount]), [["CPR & AED Training", 45000]]);
+  assert.equal(t.quote.total, 45000);
+});
+
+test("the quotation PDF: only with the coordinator's session, only their own training", async () => {
+  await seed();
+  const get = (id: string, cookie = "") => training_get(new Request(`http://x/api/portal/training?pdf=${id}`, { headers: { cookie } }));
+  assert.equal((await get("1")).status, 401);
+  const pw = await issueLogin("other@hotel.com", "Other");
+  const s = await signIn("other@hotel.com", pw);
+  assert.equal((await get("1", `th_portal=${s.ok ? s.token : ""}`)).status, 404);
+  assert.equal(await quotePdfFor("other@hotel.com", "1"), null);
+  assert.deepEqual(await quotePdfFor(RIYA, "1"), { estimateId: "1", number: "QT-1" });
 });

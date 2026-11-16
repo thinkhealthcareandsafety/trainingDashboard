@@ -8,14 +8,15 @@ import type { DayWindow } from "@/lib/attendanceRules";
 import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
 import type { QuizResults } from "@/lib/portalTrainings";
 import { passedCsv } from "@/lib/portalCertRules";
+import type { QuoteSheet } from "@/lib/trainingManager";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
  * right after signing in; tap to skip; none with "reduce motion"), then Our Programmes as identical sign tiles, Your
- * trainings as sign panels with a state stamp, and Stay connected. Prices are never shown here.
+ * trainings as sign panels with a state stamp and their quotation (prices included, owner 16 Nov), and Stay connected.
  */
 type Me = { email: string; name: string };
-type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
+type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; quote: QuoteSheet; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
   dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number;
   quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
@@ -250,6 +251,9 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
         <div className="hidden sm:block"><Stamps t={t} /></div>
       </div>
 
+      {/* The quotation itself (owner, 16 Nov): open until they decide, folded after. */}
+      <QuoteSection t={t} key={t.proposal || t.rejected ? "decided" : "open"} />
+
       {/* The decision (owner, 12 Nov): accept with the date, "course conducted at" and headcount, or reject. */}
       <div className="border-b border-line p-5 sm:p-7">
         {t.rejected ? (
@@ -317,6 +321,65 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
         </div>
       </div>
     </article>
+  );
+}
+
+/** Rupees as the quotation prints them: ₹45,000, or ₹1,234.50 when there are paise. */
+const money = (n: number, currency = "INR") =>
+  n.toLocaleString("en-IN", { style: "currency", currency, minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
+
+/**
+ * The quotation as Zoho has it (owner, 16 Nov: "otherwise what do they know what they are accepting"): open before they
+ * decide, a one-line summary after. Every line with quantity × rate and amount, then the subtotal, discount, taxes and
+ * total; Download PDF is Zoho's own PDF.
+ */
+function QuoteSection({ t }: { t: Training }) {
+  const q = t.quote;
+  const [open, setOpen] = useState(!t.proposal && !t.rejected);
+  const cur = q.currency;
+  const pdf = `/api/portal/training?pdf=${encodeURIComponent(t.id)}`;
+  const sum = "flex items-baseline justify-between gap-4 text-[15px]";
+  const expires = q.expiry ? fmtDate(q.expiry) : "";
+  return (
+    <section className="border-b border-line p-5 sm:p-7" aria-label="Quotation">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div>
+          <p className="text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">Quotation</p>
+          <p className="mt-1 text-[15.5px] text-ink-2">
+            <b className="num text-[17px] text-ink">{money(q.total, cur)}</b>{q.taxes.length ? (q.taxInclusive ? " incl. GST" : " with GST") : ""}
+            {expires && <> · valid until <span className="num">{expires}</span></>}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <a className={secondaryBtn} href={pdf} download>Download PDF</a>
+          <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => setOpen((x) => !x)} aria-expanded={open}>
+            {open ? "Hide the details" : "See the details"}
+          </button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-5 rounded-xl bg-ground px-4 py-1 sm:px-5">
+          <ul className="divide-y divide-line">
+            {q.lines.map((l, i) => (
+              <li key={i} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-3.5">
+                <p className="text-[15.5px] font-bold leading-snug text-ink">{l.name}</p>
+                <p className="num text-right text-[15.5px] font-bold text-ink">{money(l.amount, cur)}</p>
+                <p className="num mt-0.5 text-[14px] text-muted">{l.qty}{l.unit ? ` ${l.unit}` : ""} × {money(l.rate, cur)}{l.gst !== null && l.gst > 0 ? ` · GST ${l.gst}%` : ""}</p>
+                {l.description && <p className="col-span-full mt-1 line-clamp-2 whitespace-pre-line text-[14px] leading-relaxed text-ink-2">{l.description}</p>}
+              </li>
+            ))}
+          </ul>
+          <div className="space-y-1.5 border-t border-line-strong py-3.5">
+            {(q.discount > 0 || q.taxes.length > 0 || q.shipping > 0 || q.adjustment !== 0) && <p className={`${sum} text-ink-2`}><span>Subtotal</span><span className="num">{money(q.subTotal, cur)}</span></p>}
+            {q.discount > 0 && <p className={`${sum} text-ink-2`}><span>Discount</span><span className="num">−{money(q.discount, cur)}</span></p>}
+            {q.taxes.map((x) => <p key={x.name} className={`${sum} text-ink-2`}><span>{x.name}</span><span className="num">{money(x.amount, cur)}</span></p>)}
+            {q.shipping > 0 && <p className={`${sum} text-ink-2`}><span>Shipping</span><span className="num">{money(q.shipping, cur)}</span></p>}
+            {q.adjustment !== 0 && <p className={`${sum} text-ink-2`}><span>{q.adjustmentLabel}</span><span className="num">{money(q.adjustment, cur)}</span></p>}
+            <p className={`${sum} pt-1.5 text-ink`}><span className="text-[16px] font-extrabold">Total</span><span className="num text-[18px] font-extrabold">{money(q.total, cur)}</span></p>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

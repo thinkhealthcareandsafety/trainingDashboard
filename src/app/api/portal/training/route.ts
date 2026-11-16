@@ -1,6 +1,7 @@
 import { portalToken, portalUser } from "@/lib/portalAuth";
 import { withBump } from "@/lib/changes";
-import { addPeople, endTraining, newAttendKey, newJoinKey, participants, propose, quizResults, reject, removePerson, startTraining, tick } from "@/lib/portalTrainings";
+import { addPeople, endTraining, newAttendKey, newJoinKey, participants, propose, quizResults, quotePdfFor, reject, removePerson, startTraining, tick } from "@/lib/portalTrainings";
+import { estimatePdf } from "@/lib/zoho";
 import { setQuoteStatus } from "@/lib/quotations";
 import { certificatesLater } from "@/lib/portalCertLater";
 
@@ -19,8 +20,23 @@ export const dynamic = "force-dynamic";
  *  "start" / "end" — Start training / End training today (owner, 13 Nov): attendance and the quiz run only in between;
  *            End on the last day emails the passed people's certificates (owner, 14 Nov)
  *  "results" — the quiz's live leaderboard and per-question analytics
- * Only on their own trainings.
+ * Only on their own trainings. GET ?pdf=<id>: the quotation's PDF (below).
  */
+/** GET ?pdf=<id>: the quotation as Zoho's own PDF (owner, 16 Nov: see it before accepting), for its coordinator only. */
+export async function GET(request: Request) {
+  try {
+    const me = await portalUser(portalToken(request));
+    if (!me) return Response.json({ error: "Please sign in again" }, { status: 401 });
+    const q = await quotePdfFor(me.email, new URL(request.url).searchParams.get("pdf"));
+    if (!q) return Response.json({ error: "That training isn't on your list" }, { status: 404 });
+    const name = q.number.replace(/[^A-Za-z0-9_-]/g, "") || "Quotation";
+    return new Response(await estimatePdf(q.estimateId), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${name}.pdf"`, "Cache-Control": "private, no-store" } });
+  } catch (e) {
+    console.error("[portal/training] quote pdf", e);
+    return Response.json({ error: "Couldn't get the PDF from our system just now. Try again in a minute." }, { status: 502 });
+  }
+}
+
 async function handlePOST(request: Request) {
   try {
     const me = await portalUser(portalToken(request));

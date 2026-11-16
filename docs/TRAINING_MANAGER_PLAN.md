@@ -43,6 +43,7 @@
 - Then **Your trainings**, each as a sign panel with stacked ink stamps: **Awaiting decision → Accepted → Confirmed**, or a red **Rejected**. Earlier stamps stay faded, with their dates.
 
 **3. Accept or Decline.**
+- **The quotation first (owner, 16 Nov: "otherwise what do they know what they are accepting"):** each training panel shows the quotation as Zoho has it: every line (no "(I)"), quantity × rate, amount, GST, subtotal, taxes, total, valid until, and **Download PDF** (Zoho's PDF through `GET /api/portal/training?pdf=<id>`, the coordinator's session only). Open until they decide, folded after. This reverses the old "prices never leave here" rule; participants still never see prices.
 - **Accept** needs the date(s) (one or more days, a time, a Tentative switch), **"Course conducted at"** (printed on the certificates) and **people attending**. Zoho then marks the quote **Accepted**. They can change it until we confirm; the old values show struck through.
 - **Decline** (in the portal, or from the email's link) takes an optional reason. Zoho marks the quote **Declined**. It's final for them; the Trainings page has **Reopen**, which puts Zoho back to Sent.
 

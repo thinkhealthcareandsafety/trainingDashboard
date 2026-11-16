@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { db } from "./db";
 import { itemSets, type ZItem } from "./zoho";
-import { type TrainingQuote, isTrainingOnly, toTrainingQuote } from "./trainingManager";
+import { type QuoteSheet, type TrainingQuote, isTrainingOnly, toTrainingQuote } from "./trainingManager";
 import { booksApi } from "./quotations";
 import { MAX_PEOPLE, type Person, type Proposal, type ProposalDate, type Stamp, TH_ID, cleanEmail, duplicatePhones, fmtProposalDate, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 import { cleanPhone } from "./trainingManager";
@@ -20,7 +20,8 @@ import { DESIGNS, type DesignId, designFor } from "./certificates";
  *    the earlier ones (step 5), the join key (step 7), when the login was sent (step 8).
  *  - portalParticipants (_id = TH001…): the training, name, phone, optional email, how they came in, a private token for
  *    their own page. counters "th": the running TH number, never reused.
- * Everything is read from our copy of Zoho (zohoDocs), so no visit calls Zoho. Prices never leave here.
+ * Everything is read from our copy of Zoho (zohoDocs), so no visit calls Zoho. The coordinator sees their own quotation with
+ * its prices (owner, 16 Nov: "otherwise what do they know what they are accepting"); participants never see prices.
  */
 
 type Coordinator = { name: string; email: string; phone: string; contactPersonId?: string };
@@ -147,6 +148,8 @@ async function peopleOf(trainingId: string): Promise<ParticipantDoc[]> {
 export type PortalTraining = {
   id: string; number: string; customer: string; date: string;
   lines: { name: string; description: string; qty: number }[];
+  /** The quotation as Zoho has it, prices included (owner, 16 Nov); its PDF: GET /api/portal/training?pdf=<id>. */
+  quote: QuoteSheet;
   expected: number; stamp: Stamp; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number;
   /** When we marked it Confirmed (in Zoho). `locked`: the Performa is made, so the date can't change from the portal. */
   confirmedAt: string | null; locked: boolean;
@@ -178,7 +181,7 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
     const marks = t.confirmed?.zohoAt ? await marksOf(t._id) : [];
     out.push({
       id: x.id, number: x.number, customer: x.customer, date: x.date,
-      lines: x.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })),
+      lines: x.lines.map((l) => ({ name: l.name, description: l.description, qty: l.qty })), quote: x.sheet,
       expected: x.expected, stamp: stampOf(t, x.status, cur.completedAt), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.zohoAt ?? null, locked: Boolean(t.confirmed),
       rejected: t.rejected ? { at: t.rejected.at, reason: t.rejected.reason } : x.status === "declined" && !t.confirmed ? { at: "", reason: "" } : null,
       dates: cur.dates, datesWas: cur.was, tbd: cur.tbd, trainers: cur.trainers, completedAt: cur.completedAt,
@@ -196,6 +199,14 @@ async function own(email: string, id: unknown): Promise<TrainingDoc | null> {
   return t && (t.coordinator?.email ?? "").toLowerCase() === email ? t : null;
 }
 const notYours: Fail = { error: "That training isn't on your list", status: 404 };
+
+/** The quotation's PDF (owner, 16 Nov): only for the coordinator named on it; the file is named by the quote number. */
+export async function quotePdfFor(email: string, id: unknown): Promise<{ estimateId: string; number: string } | null> {
+  const t = await own(email, id);
+  if (!t) return null;
+  const q = (await quotes(new Set([t._id]))).get(t._id);
+  return q ? { estimateId: t._id, number: q.number } : null;
+}
 
 /** Step 5: the coordinator proposes (or changes) the dates, location and headcount. The earlier proposal is kept. */
 export async function propose(email: string, id: unknown, raw: unknown, acceptInZoho?: (estimateId: string) => Promise<void>): Promise<{ ok: true; proposal: Proposal } | Fail> {
