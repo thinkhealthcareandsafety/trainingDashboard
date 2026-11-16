@@ -40,11 +40,12 @@ export type QuoteSheet = {
   taxes: { name: string; amount: number }[]; total: number; currency: string; expiry: string; taxInclusive: boolean;
 };
 
-export function quoteSheet(doc: ZDoc): QuoteSheet {
+/** `trainingIds`: training lines count people, not Zoho's unit (owner, 16 Nov: "not pcs but number of people"). */
+export function quoteSheet(doc: ZDoc, trainingIds: Set<string> = new Set()): QuoteSheet {
   const n = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
   return {
     lines: ((doc.line_items as ZDoc[]) ?? []).map((li) => ({
-      name: trainingName(str(li.name)), description: str(li.description), qty: n(li.quantity), unit: str(li.unit), rate: n(li.rate),
+      name: trainingName(str(li.name)), description: str(li.description), qty: n(li.quantity), unit: trainingIds.has(str(li.item_id)) ? (n(li.quantity) === 1 ? "person" : "people") : str(li.unit), rate: n(li.rate),
       gst: li.tax_percentage === undefined || li.tax_percentage === null || li.tax_percentage === "" ? null : n(li.tax_percentage), amount: n(li.item_total),
     })),
     subTotal: n(doc.sub_total), discount: n(doc.discount_total ?? doc.discount_amount), shipping: n(doc.shipping_charge),
@@ -97,7 +98,7 @@ export function toTrainingQuote(doc: ZDoc, trainingIds: Set<string>): TrainingQu
     expected: lines.reduce((m, l) => Math.max(m, l.qty), 0),
     total: num(doc.total),
     salesperson: str(doc.salesperson_name),
-    sheet: quoteSheet(doc),
+    sheet: quoteSheet(doc, trainingIds),
   };
 }
 

@@ -292,14 +292,14 @@ test("decline from the email: the link's key opens the page without changing any
 test("the coordinator sees the whole quotation: every line priced, no (I), taxes, total, valid until", async () => {
   const s = quoteSheet({
     line_items: [
-      { item_id: "cpr", name: "CPR & AED Training (I)", description: "Hands-on", quantity: 30, unit: "pax", rate: 1500, tax_percentage: 18, item_total: 45000 },
+      { item_id: "cpr", name: "CPR & AED Training (I)", description: "Hands-on", quantity: 30, unit: "pcs", rate: 1500, tax_percentage: 18, item_total: 45000 },
       { item_id: "t", name: "Travel", quantity: 1, rate: 2000, tax_percentage: "", item_total: 2000 },
     ],
     sub_total: 47000, discount_total: 0, adjustment: -0.4, adjustment_description: "Round off",
     taxes: [{ tax_name: "CGST9 (9%)", tax_amount: 4050 }, { tax_name: "SGST9 (9%)", tax_amount: 4050 }, { tax_name: "IGST", tax_amount: 0 }],
     total: 55099.6, expiry_date: "2026-12-01", currency_code: "INR",
-  });
-  assert.deepEqual(s.lines.map((l) => [l.name, l.qty, l.unit, l.rate, l.gst, l.amount]), [["CPR & AED Training", 30, "pax", 1500, 18, 45000], ["Travel", 1, "", 2000, null, 2000]]);
+  }, new Set(["cpr"]));
+  assert.deepEqual(s.lines.map((l) => [l.name, l.qty, l.unit, l.rate, l.gst, l.amount]), [["CPR & AED Training", 30, "people", 1500, 18, 45000], ["Travel", 1, "", 2000, null, 2000]]);
   assert.deepEqual(s.taxes.map((t) => t.name), ["CGST9 (9%)", "SGST9 (9%)"]);
   assert.equal(s.adjustmentLabel, "Round off");
   assert.equal(s.total, 55099.6);
