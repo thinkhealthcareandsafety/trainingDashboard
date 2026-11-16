@@ -13,9 +13,9 @@ Coordinator: see their trainings (name without "(I)", description, expected pax)
 
 ## Direction contract
 THESIS: Safety signage as an identity system. Every programme speaks in the ISO 7010 sign language (First Aid and AED in safe-condition green, Fire in fire red, mandatory actions in blue = brand cerulean), set with signage discipline. It refuses the generic SaaS portal of grey cards and a sidebar.
-OWN-WORLD: deep petrol navy #034f72 header band and ink; cerulean #0088c8 reserved strictly for things you can press (raise from warm-consumer-app: action-only colour); white sign panels with strict proportions and a fixed pictogram-to-label ratio; sign green and red appear only as programme identity; Proposed / Confirmed / Done stamp onto rows and never vanish (raise from ticket-wallet: states stamp, nothing disappears); hierarchy by scale contrast (raise from type-specimen); identical programme tiles on one baseline (raise from botanical folio).
+OWN-WORLD: deep petrol navy #034f72 header band and ink; cerulean #0088c8 reserved strictly for things you can press (raise from warm-consumer-app: action-only colour); white sign panels with strict proportions and a fixed pictogram-to-label ratio; sign green and red appear only as programme identity; states show as a progress track on each panel, done steps keep their dates (raise from ticket-wallet: nothing disappears; owner, 16 Nov: the stamps became the track, ink stamps stay for PRESENT); hierarchy by scale contrast (raise from type-specimen); identical programme tiles on one baseline (raise from botanical folio).
 STORY: The coordinator understands what was bought, decides the date and headcount, and fills the list. Participants know when, where and what.
-FIRST VIEWPORT: navy band with the logo and "Training Manager"; a row of programme sign tiles; below, "Your trainings" as sign-panel rows with a state stamp and two cerulean actions.
+FIRST VIEWPORT: navy band with the logo and "Training Manager"; a row of programme sign tiles; below, "Your trainings" as sign-panel rows with a progress track and two cerulean actions.
 FORM: candidate 5 of 7 (ISO 7010 safety signage); seed ea9867ba.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 

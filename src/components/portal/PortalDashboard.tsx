@@ -13,7 +13,7 @@ import type { QuoteSheet } from "@/lib/trainingManager";
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
  * right after signing in; tap to skip; none with "reduce motion"), then Our Programmes as identical sign tiles, Your
- * trainings as sign panels with a state stamp and their quotation (prices included, owner 16 Nov), and Stay connected.
+ * trainings as sign panels with a progress track and their quotation (prices included, owner 16 Nov), and Stay connected.
  */
 type Me = { email: string; name: string };
 type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; quote: QuoteSheet; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
@@ -240,15 +240,16 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
   return (
     <article id={`training-${t.number}`} className={`scroll-mt-6 overflow-hidden rounded-2xl bg-surface ring-1 ${focused || onTheDay ? "ring-2 ring-navy" : "ring-line"}`}>
-      <div className="flex items-start gap-4 border-b border-line p-5 sm:gap-5 sm:p-7">
-        <SignTile sign={sign} size={52} />
-        <div className="min-w-0 flex-1">
-          <p className="num text-[13px] font-semibold text-muted">{t.number}{t.date ? ` · ${fmtDate(t.date)}` : ""}</p>
-          <h3 className="mt-1 text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink sm:text-[24px]">{title}</h3>
-          {t.customer && <p className="mt-1 text-[14.5px] text-ink-2">{t.customer}</p>}
-          <div className="mt-3 sm:hidden"><Stamps t={t} /></div>
+      <div className="border-b border-line p-5 sm:p-7">
+        <div className="flex items-start gap-4 sm:gap-5">
+          <SignTile sign={sign} size={52} />
+          <div className="min-w-0 flex-1">
+            <p className="num text-[13px] font-semibold text-muted">{t.number}{t.date ? ` · ${fmtDate(t.date)}` : ""}</p>
+            <h3 className="mt-1 text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink sm:text-[24px]">{title}</h3>
+            {t.customer && <p className="mt-1 text-[14.5px] text-ink-2">{t.customer}</p>}
+          </div>
         </div>
-        <div className="hidden sm:block"><Stamps t={t} /></div>
+        <Progress t={t} />
       </div>
 
       {/* The quotation itself (owner, 16 Nov): open until they decide, folded after. */}
@@ -400,32 +401,71 @@ function Included({ name, text }: { name: string; text: string }) {
   );
 }
 
-/** The state stamps (Awaiting decision → Accepted → Confirmed, or → Rejected): each lands like an ink stamp and none ever goes;
- * the earlier ones stay on the panel, faded, with the date they landed. */
-function Stamps({ t }: { t: Training }) {
-  const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const list = [
-    { label: "Awaiting decision", date: t.date ? shortDate(`${t.date}T00:00:00`) : "" },
-    ...(t.rejected ? [{ label: "Rejected", date: t.rejected.at ? shortDate(t.rejected.at) : "" }] : []),
-    ...(!t.rejected && t.proposal ? [{ label: "Accepted", date: shortDate(t.proposal.at) }] : []),
-    ...(!t.rejected && t.confirmedAt ? [{ label: "Confirmed", date: shortDate(t.confirmedAt) }] : []),
-    ...(!t.rejected && t.confirmedAt && t.completedAt ? [{ label: "Completed", date: shortDate(t.completedAt) }] : []),
+/**
+ * Where the training stands (owner, 16 Nov: "remove the stamp, make it something else"): a progress track across the panel.
+ * Quotation → Accepted → Confirmed → Training (Completed), each done step with its date, the current one saying who it waits
+ * on, the ones ahead in muted; a declined quotation ends the track in red.
+ */
+type Step = { label: string; sub: string; state: "done" | "now" | "next" | "stop" };
+function stepsOf(t: Training): Step[] {
+  const day = (iso: string) => new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const quote: Step = { label: "Quotation", sub: t.date ? day(t.date) : "", state: "done" };
+  if (t.rejected) return [quote, { label: "Declined", sub: t.rejected.at ? day(t.rejected.at) : "", state: "stop" }];
+  const first = t.dates[0]?.date ?? t.proposal?.dates[0]?.date ?? "";
+  return [
+    quote,
+    t.proposal ? { label: "Accepted", sub: day(t.proposal.at), state: "done" } : { label: "Your decision", sub: "Waiting for you", state: "now" },
+    t.confirmedAt ? { label: "Confirmed", sub: day(t.confirmedAt), state: "done" }
+      : t.proposal ? { label: "Confirmation", sub: t.locked ? "Performa on its way" : "With Think Health", state: "now" }
+      : { label: "Confirmation", sub: "", state: "next" },
+    t.completedAt ? { label: "Completed", sub: day(t.completedAt), state: "done" }
+      : t.confirmedAt ? { label: "Training", sub: t.tbd ? "Date to be confirmed" : first ? day(first) : "", state: "now" }
+      : { label: "Training", sub: "", state: "next" },
   ];
+}
+
+function Progress({ t }: { t: Training }) {
+  const steps = stepsOf(t);
   return (
-    <div className="flex flex-wrap items-center gap-2.5 sm:flex-col sm:items-end">
-      {list.map((st, i) => <Stamp key={st.label} label={st.label} date={st.date} past={i < list.length - 1} />)}
-    </div>
+    // Phones: a vertical track (label and date on one line); from 640px: across the panel.
+    <ol className="mt-5 grid sm:mt-6 sm:grid-cols-[repeat(var(--steps),minmax(0,1fr))]" style={{ "--steps": Math.max(4, steps.length) } as React.CSSProperties} aria-label="Where this training stands">
+      {steps.map((st, i) => {
+        const next = steps[i + 1];
+        const reached = next && next.state !== "next";
+        return (
+          <li key={st.label} className="flex min-w-0 gap-3 sm:block" aria-current={st.state === "now" ? "step" : undefined}>
+            <div className="flex flex-col items-center sm:flex-row">
+              <Node state={st.state} />
+              {next && <span className={`my-1 min-h-3 w-[2px] flex-1 rounded-full sm:mx-1.5 sm:my-0 sm:h-[2px] sm:min-h-0 sm:w-auto ${reached ? (next.state === "stop" ? "bg-danger/60" : "bg-navy") : "bg-line"}`} aria-hidden />}
+            </div>
+            <div className={`flex min-w-0 flex-wrap items-baseline gap-x-2 sm:block ${next ? "pb-3 sm:pb-0" : ""}`}>
+              <p className={`pt-px text-[14px] leading-tight sm:mt-2.5 sm:pr-2 sm:pt-0 sm:text-[13.5px] ${st.state === "stop" ? "font-bold text-danger" : st.state === "next" ? "font-semibold text-muted" : "font-bold text-ink"}`}>{st.label}</p>
+              {st.sub && <p className={`num text-[13px] leading-snug sm:mt-0.5 sm:pr-2 sm:text-[12.5px] ${st.state === "now" ? "text-ink-2" : "text-muted"}`}>{st.sub}</p>}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
-function Stamp({ label, date, past }: { label: string; date: string; past: boolean }) {
-  const ink = label === "Rejected" ? "border-danger text-danger shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--danger)]" : "border-navy text-navy shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--navy)]";
-  return (
-    <span className={`${past ? "scale-90 opacity-40" : "stamp"} inline-flex rotate-[-4deg] flex-col items-center rounded-md border-2 px-2.5 pb-1 pt-1.5 ${ink}`}>
-      <span className="text-[11.5px] font-extrabold uppercase leading-none tracking-[0.14em]">{label}</span>
-      {date && <span className="num mt-1 text-[10px] font-bold uppercase leading-none tracking-[0.1em]">{date}</span>}
+function Node({ state }: { state: Step["state"] }) {
+  if (state === "done") return (
+    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-navy text-white" aria-hidden>
+      <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3l2.3 2.3L9.5 3.8" /></svg>
     </span>
   );
+  if (state === "stop") return (
+    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-danger text-white" aria-hidden>
+      <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5" /></svg>
+    </span>
+  );
+  if (state === "now") return (
+    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-surface shadow-[inset_0_0_0_2.5px_var(--navy),0_0_0_4px_color-mix(in_srgb,var(--navy)_12%,transparent)]" aria-hidden>
+      <span className="size-2 rounded-full bg-navy" />
+    </span>
+  );
+  return <span className="size-5 shrink-0 rounded-full bg-surface shadow-[inset_0_0_0_2px_var(--line-strong)]" aria-hidden />;
 }
 
 /* ---------------- Confirmed: the training, the attendance QR, and on the day the live count (owner, 13 Nov) ---------------- */

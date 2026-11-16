@@ -143,7 +143,7 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.panel}"
     padding: "16px"
-  state-stamp:
+  present-stamp:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.navy}"
     typography: "{typography.stamp}"
@@ -174,7 +174,7 @@ The world is light only (`color-scheme: light`): coordinators use it at a desk i
 - One navy band at the top carries the wordmark on a white plate, the page's greeting, and a compact labelled strip of the four signs.
 - Safety-sign colours appear only as programme identity, inside sign tiles.
 - Action blue marks only things you can press.
-- States are ink stamps that stack; nothing vanishes.
+- State is a progress track across each training panel: done steps keep their dates; nothing vanishes. Ink stamps remain only for PRESENT.
 - One face (Manrope) at extreme weight and size contrast; sentence-case headings, no kickers.
 - One authored motion moment, the welcome; everything respects reduced motion.
 
@@ -233,10 +233,10 @@ A deep petrol navy and white world, with the ISO 7010 sign colours held strictly
 - **Body** (400, 15px to 16px, relaxed 1.625): descriptions, prompts, notes, held to 46-56ch.
 - **Field label** (600, 13.5px, sentence case, ink-2): the name above an input.
 - **Value label** (700, 12.5px, uppercase, 0.12em, muted): the small-caps name of a shown value: On, At, Attending, For, Participants, What's included.
-- **Stamp** (800, 11.5px, uppercase, 0.14em): the state word inside a stamp; its date at 10px.
+- **Stamp** (800, 10.5–52px, uppercase, 0.12–0.16em): the word PRESENT inside an attendance stamp.
 
 ### Named Rules
-**The Scale Not Kicker Rule.** Section headings are display-scale, sentence case, and stand alone. No eyebrow or kicker sits above a heading. Small caps exist only as labels for values (On / At / For) and inside stamps.
+**The Scale Not Kicker Rule.** Section headings are display-scale, sentence case, and stand alone. No eyebrow or kicker sits above a heading. Small caps exist only as labels for values (On / At / For) and inside the PRESENT stamps.
 
 **The Tabular Numbers Rule.** Every TH number, date, count and phone number uses tabular figures.
 
@@ -287,7 +287,7 @@ Confident and plain: a solid blue slab or a blue-ruled outline, nothing else.
 - **Segmented control:** a mist tray at 12px radius; the selected segment becomes a white 8px pill with the selected-tab shadow and ink text; others are muted until hover.
 
 ### Cards / Containers
-- **Training panel:** white, 16px radius, 1px line ring, sections split by hairlines. The header section holds a 52px sign, the quote number and date in tabular muted type, the title, the customer and the stamps.
+- **Training panel:** white, 16px radius, 1px line ring, sections split by hairlines. The header section holds a 52px sign, the quote number and date in tabular muted type, the title, the customer and the progress track.
 - **Programme tile:** white, 16px radius, line ring plus panel-rest shadow; a 16:9 media well (photo, YouTube poster, or the 76px sign on mist when neither exists) over the name and one line.
 - **Notes:** 12px radius wells: danger-bg with danger text for errors, ok-bg with ink-2 for confirmations, ground for neutral info.
 
@@ -299,12 +299,12 @@ Confident and plain: a solid blue slab or a blue-ruled outline, nothing else.
 ### Sign Tile (signature)
 The programme's identity mark, drawn as SVG in ISO 7010 grammar. First Aid: white cross on a green square. AED: white heart with a green lightning bolt on a green square. Fire Safety: white extinguisher on a red square (never a flame, which means "flammable"). CPR: white heartbeat line on a sign-blue circle. Sizes in use: 34, 40, 48, 52, 76px; the pictogram is always 66% of the tile. On navy, a 2px white rim.
 
-### State Stamp (signature)
-An ink stamp, not a pill. Navy text on white, a 2px navy border with a second inset navy rule (a double-rule stamp), 6px radius, rotated -4deg. The state word in 11.5px extra-bold uppercase; the date it landed beneath in 10px. States stack in order (Awaiting decision, Accepted, then Confirmed; or Rejected): earlier stamps stay at 90% scale and 40% opacity with their dates; only the newest stamp is at full strength and lands with a short press. Stamps sit right-aligned in a column on wide screens and wrap in a row under the title on phones.
+### Progress track (signature; owner, 16 Nov: "remove the stamp, make it something else")
+Where a training stands, across its panel under the title: **Quotation → Accepted → Confirmed → Training** (Completed). Each step is a 20px node with a 2px connector to the next, the label (13.5px bold) and one line under it (12.5px tabular). Done: a solid navy node with a white check, its date under the label, a navy connector. Now: a white node with a 2.5px navy rim, a navy centre dot and a soft 4px navy-at-12% halo, the label naming the step ("Your decision", "Confirmation", "Training") and who or what it waits on ("Waiting for you", "With Think Health", "Performa on its way", the training date); `aria-current="step"`. Ahead: a white node with a 2px line-strong rim, the label muted, a line connector. Declined: the track ends at a danger node with a white cross, "Declined" and its date in danger, the connector at danger 60%. Four equal columns from 640px (a declined track keeps the same step width); on phones it stacks vertically, label and date on one line, with vertical connectors. No motion.
 
-Confirmed lands only when Think Health marks the Performa Confirmed. Between Convert to PI and that, the stamp stays Accepted, the Change action goes, and one line takes its place, in the same pattern as the confirmed line (bold fact, then how to change things): "**Think Health is preparing your Performa Invoice.** To change anything now, write to learn@thinkhealth.in." No new stamp, colour or layout for this state.
+Confirmed is reached only when Think Health marks the Performa Confirmed. Between Convert to PI and that, the track waits at Confirmation ("Performa on its way"), the Change action goes, and one line takes its place, in the same pattern as the confirmed line (bold fact, then how to change things): "**Think Health is preparing your Performa Invoice.** To change anything now, write to learn@thinkhealth.in."
 
-A **Completed** stamp lands when the Training board marks the training completed.
+The last step becomes **Completed** with its date when the Training board marks the training completed.
 
 ### Quotation (owner, 16 Nov)
 The coordinator sees what they are accepting. A section under the panel's header: the value label "Quotation", then the total in bold tabular ink ("with GST" / "incl. GST") and "valid until" its date; on the right a secondary **Download PDF** (Zoho's own PDF) and a text link "See the details" / "Hide the details". Open before they decide, folded after (Accepted or declined). The details sit in a mist well (12px radius): a row per line (name bold, amount right in tabular bold; under it "30 pax × ₹1,500 · GST 18%" in muted and the description clamped to two lines in slate), hairlines between, then a line-strong rule over Subtotal, discount, each tax, shipping and adjustment in slate, and **Total** at 16px / 18px extra-bold. Names never carry "(I)". No new colours.
@@ -339,10 +339,10 @@ Shown once, right after signing in, on full navy: the four rimmed signs set in o
 - **Do** draw programmes only as sign tiles in their ISO 7010 shape and colour: green squares for First Aid and AED, a red square with an extinguisher for Fire Safety, a sign-blue circle for CPR.
 - **Do** give every sign on navy a 2px white rim.
 - **Do** keep action blue (#0077b6) for things you can press, and sign blue (#005387) for the CPR sign only.
-- **Do** show state as stacked double-rule ink stamps that keep earlier states, faded, with their dates.
+- **Do** show a training's state as the progress track (done steps with their dates, the current one saying what it waits on).
 - **Do** set section headings at display scale in sentence case, and use small caps only to label values (On / At / For).
 - **Do** use tabular figures for every TH number, date, count and phone number.
-- **Do** honour `prefers-reduced-motion`: no welcome, no set-in, no stamp landing.
+- **Do** honour `prefers-reduced-motion`: no welcome, no set-in, no PRESENT stamp landing, no row light-up or count-up.
 
 ### Don't:
 - **Don't** add eyebrows or kickers above headings.
