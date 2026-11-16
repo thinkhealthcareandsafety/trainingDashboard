@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { learningMoments, persona, speed, superpowerAndKryptonite } from "@/lib/myReport";
+import { learningMoments, persona, speed } from "@/lib/myReport";
 import { publicQuiz } from "@/lib/quizRules";
 import { CPR_AED_QUIZ } from "@/lib/quizCprAed";
 
@@ -10,13 +10,6 @@ test("persona: CPR Rookie below the pass mark, Certified Lifesaver from it, Emer
   assert.equal(persona(70, 70).title, "Certified Lifesaver");
   assert.equal(persona(96.7, 70).title, "Certified Lifesaver");
   assert.equal(persona(100, 70).title, "Emergency Maestro");
-});
-
-test("superpower and kryptonite: best and weakest topic, named; no kryptonite on a clean sweep", () => {
-  const t = [{ name: "First Aid basics", right: 7, of: 8 }, { name: "CPR", right: 5, of: 9 }, { name: "AED", right: 8, of: 8 }, { name: "Heart attack", right: 4, of: 5 }];
-  const r = superpowerAndKryptonite(t);
-  assert.deepEqual([r.power?.title, r.weak?.title], ["AED Setup Master", "Chest compressions"]);
-  assert.equal(superpowerAndKryptonite(t.map((x) => ({ ...x, right: x.of }))).weak, null);
 });
 
 test("speed: against everyone's average, with a line that fits", () => {

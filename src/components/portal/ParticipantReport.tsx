@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { learningMoments, persona, speed, superpowerAndKryptonite } from "@/lib/myReport";
+import { learningMoments, persona, speed } from "@/lib/myReport";
 
 /*
  * A participant's own report as a story (owner, 16 Nov: "replace confusing statistical jargon with metrics that tell a
- * story about the participant"): their persona badge, superpower and kryptonite, a speed flashcard against everyone's
+ * story about the participant"; 16 Nov: no superpower / kryptonite): their persona badge, a speed flashcard against everyone's
  * average, and their one or two most critical mistakes as real-world learning moments (once the answers are out). No
  * wall of 30 questions. The portal's look; Print / Save as PDF.
  */
@@ -53,7 +53,6 @@ export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void 
   };
   const r = d.result;
   const who = persona(r.pct, d.passPct);
-  const { power, weak } = superpowerAndKryptonite(r.topics);
   const pace = speed(r.seconds, d.everyone, r.passed);
   const moments = learningMoments(d.questions, r.answers);
   const max = Math.max(pace.seconds, pace.avg, 1);
@@ -78,20 +77,6 @@ export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void 
               <p className="num mt-3 text-[14px] font-semibold text-white/75">{r.pct}% · {r.correct} of {r.total} right · #{r.rank} of {r.of}{r.tries > 1 ? ` · ${r.tries - 1} re-take${r.tries > 2 ? "s" : ""}` : ""}</p>
             </div>
           </section>
-
-          {/* Superpower & kryptonite */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <section className={card}>
-              <p className={label}>Your superpower</p>
-              <p className="mt-2 text-[22px] font-extrabold leading-tight tracking-[-0.01em] text-ink">{power ? power.title : "—"}</p>
-              {power && <p className="num mt-1.5 text-[14px] text-ink-2">{power.topic}: <b className="text-ink">{power.right} of {power.of}</b> right</p>}
-            </section>
-            <section className={card}>
-              <p className={label}>Your kryptonite</p>
-              <p className="mt-2 text-[22px] font-extrabold leading-tight tracking-[-0.01em] text-ink">{weak ? weak.title : "None. Clean sweep."}</p>
-              <p className="num mt-1.5 text-[14px] text-ink-2">{weak ? <>{weak.topic}: <b className="text-ink">{weak.right} of {weak.of}</b> right. Worth a second look.</> : "Every topic as strong as the next."}</p>
-            </section>
-          </div>
 
           {/* Speed flashcard */}
           <section className={card}>

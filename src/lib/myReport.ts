@@ -1,7 +1,6 @@
 /*
  * A participant's report as a story (owner, 16 Nov: "replace confusing statistical jargon with metrics that tell a story
- * about the participant"): a persona badge from their score, their superpower and kryptonite (best and weakest topic),
- * a speed flashcard against the group's average, and their one or two most critical mistakes as learning moments.
+ * about the participant"): a persona badge from their score, a speed flashcard against the group's average, and their one or two most critical mistakes as learning moments.
  * Pure and client-safe.
  */
 
@@ -11,26 +10,6 @@ export function persona(pct: number, passPct: number): Persona {
   if (pct >= 100) return { tier: "maestro", title: "Emergency Maestro", line: "A perfect score. You know exactly what to do when it counts." };
   if (pct >= passPct) return { tier: "lifesaver", title: "Certified Lifesaver", line: "You passed. You're ready to step in and help someone in an emergency." };
   return { tier: "rookie", title: "CPR Rookie", line: "A solid start. One more go and you'll be a Certified Lifesaver." };
-}
-
-const NAMES: Record<string, { power: string; weak: string }> = {
-  "First Aid basics": { power: "Scene Safety Pro", weak: "The first steps at a scene" },
-  CPR: { power: "Compression Champion", weak: "Chest compressions" },
-  AED: { power: "AED Setup Master", weak: "Using the AED" },
-  "Heart attack": { power: "Heart Attack Spotter", weak: "Spotting a heart attack" },
-};
-export type Strength = { topic: string; title: string; right: number; of: number };
-/** Their best topic (the superpower) and their weakest (the kryptonite; none when every topic is perfect or all are level). */
-export function superpowerAndKryptonite(topics: { name: string; right: number; of: number }[]): { power: Strength | null; weak: Strength | null } {
-  const scored = topics.filter((t) => t.of > 0).map((t, i) => ({ ...t, ratio: t.right / t.of, i }));
-  if (!scored.length) return { power: null, weak: null };
-  const best = [...scored].sort((a, b) => b.ratio - a.ratio || a.i - b.i)[0];
-  const worst = [...scored].sort((a, b) => a.ratio - b.ratio || a.i - b.i)[0];
-  const name = (t: { name: string }, k: "power" | "weak") => NAMES[t.name]?.[k] ?? t.name;
-  return {
-    power: { topic: best.name, title: name(best, "power"), right: best.right, of: best.of },
-    weak: worst.ratio < 1 && worst.ratio < best.ratio ? { topic: worst.name, title: name(worst, "weak"), right: worst.right, of: worst.of } : null,
-  };
 }
 
 export type Speed = { seconds: number; avg: number; diff: number; line: string };
