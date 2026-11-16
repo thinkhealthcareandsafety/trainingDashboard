@@ -108,6 +108,26 @@ export function zohoTrainerFor(picked: string[]): string {
   return picked.length ? zohoTrainer(picked) : PI_FIELDS.trainer.options.find((o) => sameOption(o, "None"))!;
 }
 
+/**
+ * What Mark confirmed still needs (owner, 16 Nov: "it should guide you"), in the order they sit on the page: the sales
+ * order date and Purchase Order Date (Zoho requires them), the trainers; with the email, who it goes to, its subject and
+ * message.
+ */
+export type PiNeed = "date" | "poDate" | "trainers" | "to" | "subject" | "text";
+export const PI_NEED_LABEL: Record<PiNeed, string> = { date: "Sales order date", poDate: "Purchase Order Date", trainers: "Trainers", to: "To", subject: "Subject", text: "Message" };
+export function piMissing(d: { date: string; fields: Partial<PiFields> }, trainers: string[], email?: { to: string[]; subject: string; text: string } | null): PiNeed[] {
+  const out: PiNeed[] = [];
+  if (!d.date) out.push("date");
+  if (!(d.fields.poDate ?? "").trim()) out.push("poDate");
+  if (!trainers.length) out.push("trainers");
+  if (email) {
+    if (!email.to.length) out.push("to");
+    if (!email.subject.trim()) out.push("subject");
+    if (!email.text.trim()) out.push("text");
+  }
+  return out;
+}
+
 /** A full edit of the draft as Zoho has it (Save to Zoho's shape), to change one field before confirming. */
 export const editOf = (d: PiDraft, fields: Partial<PiFields> = {}) => ({
   fields: { ...d.fields, ...fields }, notes: d.notes, shipmentDate: d.shipmentDate, date: d.date,

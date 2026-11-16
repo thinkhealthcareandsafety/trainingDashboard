@@ -1,7 +1,7 @@
 // Accept date → Performa (owner, 12 Nov): the rules, the confirmed state, and the routes — Zoho is never reached in tests.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { acceptDefaults, editOf, fieldsFromZoho, pickedForZohoTrainer, piEmail, piStatusLabel, readPiEdit, readPiEmailFields, readTrainers, trainerFromZoho, trainingNote, zohoCustomFields, zohoTrainer, zohoTrainerFor } from "@/lib/performaRules";
+import { PI_NEED_LABEL, acceptDefaults, editOf, fieldsFromZoho, pickedForZohoTrainer, piEmail, piMissing, piStatusLabel, readPiEdit, readPiEmailFields, readTrainers, trainerFromZoho, trainingNote, zohoCustomFields, zohoTrainer, zohoTrainerFor } from "@/lib/performaRules";
 import { TRAINERS } from "@/lib/pipeline";
 import { markConfirmed, markZohoConfirmed, propose, staffPortal, trainingsFor } from "@/lib/portalTrainings";
 import { POST as tmPost, GET as tmGet } from "@/app/api/training-management/route";
@@ -175,4 +175,13 @@ test("the Performa's Trainer Name and the Trainers picker follow each other (own
   assert.equal(zohoTrainerFor([]), " None");
   // round trip: what the dropdown puts in the picker gives the same dropdown back
   for (const o of ["Sumit Shah ", "Ashish Dalal", " Baiju Stephen", "Shikha Dixit", "Priyanka "]) assert.equal(zohoTrainerFor(pickedForZohoTrainer([], " None", o, TRAINERS)), o);
+});
+
+test("Mark confirmed's guide: what's still needed, in page order; the email's fields only when sending (owner, 16 Nov)", () => {
+  const d = { date: "2026-11-16", fields: { poDate: "2026-11-16" } };
+  assert.deepEqual(piMissing(d, ["Sumit Shah"]), []);
+  assert.deepEqual(piMissing({ date: "", fields: { poDate: " " } }, []), ["date", "poDate", "trainers"]);
+  assert.deepEqual(piMissing(d, ["Sumit Shah"], { to: [], subject: " ", text: "Hi" }), ["to", "subject"]);
+  assert.deepEqual(piMissing(d, [], { to: ["a@b.in"], subject: "S", text: "" }), ["trainers", "text"]);
+  assert.equal(PI_NEED_LABEL.poDate, "Purchase Order Date");
 });

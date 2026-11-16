@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { PI_FIELDS, type PiDraft, type PiFieldKey, piStatusLabel, pickedForZohoTrainer, trainerFromZoho, zohoTrainerFor } from "@/lib/performaRules";
+import { useEffect, useRef, useState } from "react";
+import { PI_FIELDS, PI_NEED_LABEL, type PiDraft, type PiFieldKey, type PiNeed, piMissing, piStatusLabel, pickedForZohoTrainer, trainerFromZoho, zohoTrainerFor } from "@/lib/performaRules";
 import { zohoUrl } from "@/lib/zohoLinks";
 import { fmtDate } from "@/lib/dates";
 import { btn, inputCls, selectCls } from "./ui";
@@ -13,6 +13,9 @@ import { TRAINERS } from "@/lib/pipeline";
  * and it updates on the draft directly"): the Zoho Draft sales order edited here — dates, PO, trainer, training date,
  * product type, the lines' description / quantity / rate, notes — saved straight to Zoho; then emailed with its PDF from
  * the Performa template (Templates → Performa emails).
+ * Owner, 16 Nov ("less cluttered, it should guide you"): a red "!" on each required field still empty; Mark confirmed with
+ * something missing scrolls to it and rings it; while one is off-screen a floating "↓ 1 to fill below" takes you there;
+ * the Trainers picker sits beside Trainer Name.
  */
 
 type Email = { to: string[]; cc: string[]; subject: string; text: string };
@@ -20,7 +23,18 @@ type Loaded = { draft: PiDraft; email: Email; emailedAt: string | null; live: bo
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 const label = "text-[12px] font-medium text-muted";
-const FIELD_ORDER: PiFieldKey[] = ["poDate", "poNumber", "trainingDate", "trainer", "productType", "businessType", "leadSource"];
+// Six before the trainer row, so the grid has no hole at two or three columns.
+const FIELD_ORDER: PiFieldKey[] = ["poDate", "poNumber", "trainingDate", "productType", "trainer", "businessType", "leadSource"];
+const reduced = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+/** The email's own needs (Email again needs them too), without the draft's. */
+const emailMissing = (e: Email) => piMissing({ date: "x", fields: { poDate: "x" } }, ["x"], e);
+
+/** The red "!" on a required field that's still empty. */
+const Need = () => <span role="img" aria-label="required, still empty" title="Required" className="ml-1 inline-grid size-[14px] place-items-center rounded-full bg-high-bg align-middle text-[10px] font-extrabold leading-none text-high ring-1 ring-high/50">!</span>;
+
+function Arrow({ up }: { up: boolean }) {
+  return <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden className={up ? "rotate-180" : ""}><path d="M8 2.5v10M3.5 8.5 8 13l4.5-4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
 
 export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () => void }) {
   const [data, setData] = useState<Loaded | null>(null);
@@ -32,6 +46,10 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   // first becomes Zoho's Trainer Name. Starts from Zoho's Trainer Name, and the two follow each other (owner, 14 Nov).
   const [trainers, setTrainers] = useState<string[] | null>(null);
   const [other, setOther] = useState("");
+  // The field Mark confirmed pointed at (ringed until it's filled), and which still-empty ones are off-screen.
+  const [pointed, setPointed] = useState<PiNeed | null>(null);
+  const [away, setAway] = useState<{ above: PiNeed[]; below: PiNeed[] }>({ above: [], below: [] });
+  const root = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     const r = await fetch(`/api/training-management?pi=${id}`).catch(() => null);
@@ -52,6 +70,28 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     if (!busy && untouched) load();
   }, ["work", "zoho"]);
 
+  // What's still empty (the "!" marks): the draft's required fields and trainers while it's a draft; the email's always.
+  const marks: PiNeed[] = draft && email ? (draft.status === "draft" ? piMissing(draft, trainers ?? [], email) : emailMissing(email)) : [];
+  const marksKey = marks.join(",");
+  // Which of them are off-screen, above or below (owner: a floating "↓ 1 to fill below" while one is out of view).
+  useEffect(() => {
+    const el = root.current;
+    if (!el || !marksKey) { setAway({ above: [], below: [] }); return; }
+    const seen = new Map<Element, IntersectionObserverEntry>();
+    let editorOn = false;
+    const update = () => {
+      const above: PiNeed[] = [], below: PiNeed[] = [];
+      if (editorOn) for (const e of seen.values()) if (!e.isIntersecting) (e.boundingClientRect.top < 0 ? above : below).push((e.target as HTMLElement).dataset.need as PiNeed);
+      setAway({ above, below });
+    };
+    const io = new IntersectionObserver((list) => { for (const e of list) seen.set(e.target, e); update(); }, { threshold: 0.6 });
+    const whole = new IntersectionObserver(([e]) => { editorOn = e.isIntersecting; update(); });
+    const want = marksKey.split(",");
+    el.querySelectorAll<HTMLElement>("[data-need]").forEach((x) => { if (want.includes(x.dataset.need ?? "")) io.observe(x); });
+    whole.observe(el);
+    return () => { io.disconnect(); whole.disconnect(); };
+  }, [marksKey]);
+
   if (!data) return <p className="text-[13.5px] text-muted">Opening the Performa from Zoho…</p>;
   if (data.error || !draft || !email) return <p className="text-[13.5px] text-high">{data.error ?? "Couldn't open the Performa"}</p>;
   const editable = draft.status === "draft";
@@ -70,6 +110,17 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   const setLine = (i: number, patch: Partial<PiDraft["lines"][number]>) => setDraft({ ...draft, lines: draft.lines.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
   const estimate = draft.lines.reduce((n, l) => n + l.qty * l.rate, 0);
   const toggle = (t: string) => pick(picked.includes(t) ? picked.filter((x) => x !== t) : [...picked, t]);
+  // Take them to a field that's still needed: scroll it to the middle, ring it, put the cursor in it.
+  const point = (k: PiNeed) => {
+    const el = root.current?.querySelector<HTMLElement>(`[data-need="${k}"]`);
+    if (!el) return;
+    setPointed(null);
+    requestAnimationFrame(() => setPointed(k)); // pointed again: the ring breathes again
+    el.scrollIntoView({ block: "center", behavior: reduced() ? "auto" : "smooth" });
+    el.querySelector<HTMLElement>("input, select, textarea, button")?.focus({ preventScroll: true });
+  };
+  const ring = (k: PiNeed) => (pointed === k && marks.includes(k) ? "need-ring" : "");
+  const isNeeded = (k: PiNeed) => marks.includes(k);
   const addOther = () => { const t = other.replace(/\s+/g, " ").trim(); if (t && !picked.some((x) => x.toLowerCase() === t.toLowerCase())) pick([...picked, t]); setOther(""); };
 
   const save = async () => {
@@ -86,7 +137,8 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   // Mark confirmed (owner, 13 Nov): unsaved edits go with it; Zoho marks it Confirmed, the portal stamps Confirmed and the
   // training goes on the Training board; "& send email" then emails it.
   const markConfirmed = async (withEmail: boolean) => {
-    if (!picked.length) return setMsg("Pick the trainers first.");
+    const miss = piMissing(draft, picked, withEmail ? email : null);
+    if (miss.length) { point(miss[0]); return setMsg(`Fill in ${miss.map((k) => PI_NEED_LABEL[k]).join(", ")} first.`); }
     if (!window.confirm(withEmail
       ? `Mark ${draft.number} Confirmed in Zoho and email it to ${email.to.join(", ") || "—"}? The coordinator's portal shows Confirmed and the training goes on the Training board.`
       : `Mark ${draft.number} Confirmed in Zoho? The coordinator's portal shows Confirmed and the training goes on the Training board. Nothing is emailed.`)) return;
@@ -103,6 +155,8 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     onChanged?.();
   };
   const send = async () => {
+    const miss = emailMissing(email);
+    if (miss.length) { point(miss[0]); return setMsg(`Fill in ${miss.map((k) => PI_NEED_LABEL[k]).join(", ")} first.`); }
     if (dirty && !window.confirm("Your changes above aren't saved to Zoho yet. Email the Performa as Zoho has it now?")) return;
     setBusy("email"); setMsg("");
     const r = await fetch("/api/training-management", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "piemail", id, to: email.to.join(","), cc: email.cc.join(","), subject: email.subject, text: email.text }) }).catch(() => null);
@@ -114,8 +168,42 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
     load();
   };
 
+  // Trainer Name beside the Trainers picker (owner, 16 Nov): one row, the whole width.
+  const trainerRow = (v: string) => {
+    const def = PI_FIELDS.trainer;
+    return (
+      <div key="trainer" className="grid gap-3 rounded-xl border border-line bg-surface-2/40 p-3 sm:col-span-2 sm:grid-cols-[200px_minmax(0,1fr)] lg:col-span-3">
+        <label className="block">
+          <span className={label}>{def.label}</span>
+          <select className={`${selectCls} mt-1 w-full`} value={def.options.find((o) => o.trim().toLowerCase() === v.trim().toLowerCase()) ?? ""} disabled={!editable} onChange={(e) => setField("trainer", e.target.value)}>
+            <option value="">—</option>
+            {def.options.map((o) => <option key={o} value={o}>{o.trim()}</option>)}
+          </select>
+        </label>
+        <div data-need="trainers" className={ring("trainers")}>
+          <p className={label}>Trainers{editable && " *"}{isNeeded("trainers") && <Need />} <span className="font-normal text-faint">· go on the Training board and get the reminders</span></p>
+          {editable ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {[...TRAINERS, ...picked.filter((t) => !TRAINERS.includes(t))].map((t) => {
+                const on = picked.includes(t);
+                return (
+                  <button key={t} type="button" aria-pressed={on} onClick={() => toggle(t)}
+                    className={`h-8 rounded-full px-3 text-[13px] font-semibold transition-none ${on ? "bg-brand text-brand-ink" : "border border-line text-ink-2 hover:border-brand/60"}`}>{on ? "✓ " : ""}{t}</button>
+                );
+              })}
+              <span className="inline-flex items-center gap-1">
+                <input className={`${inputCls} !h-8 w-36 text-[13px]`} placeholder="Someone else" value={other} onChange={(e) => setOther(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOther(); } }} />
+                {other.trim() && <button type="button" className="text-[13px] font-semibold text-brand hover:underline" onClick={addOther}>Add</button>}
+              </span>
+            </div>
+          ) : <p className="mt-2 text-[13.5px] text-ink-2">{picked.join(", ") || "—"}</p>}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-4">
+    <div ref={root} className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-[15px] font-semibold">
           {draft.number} <span className={`ml-1 rounded-full px-2 py-0.5 text-[12px] font-medium ${editable ? "bg-medium-bg text-medium" : "bg-surface-2 text-ink-2"}`}>{piStatusLabel(draft.status)}</span>
@@ -126,14 +214,16 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
       {!editable && <p className="rounded-xl bg-surface-2 px-3 py-2 text-[13px] text-ink-2">{draft.status === "open" ? "Confirmed in Zoho" : "It isn't a draft any more"}, so it&apos;s changed in Zoho now.</p>}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label className="block"><span className={label}>Sales order date *</span><input type="date" className={`${inputCls} mt-1`} value={draft.date} disabled={!editable} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></label>
+        <label data-need="date" className={`block ${ring("date")}`}><span className={label}>Sales order date *{isNeeded("date") && <Need />}</span><input type="date" className={`${inputCls} mt-1`} value={draft.date} disabled={!editable} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></label>
         <label className="block"><span className={label}>Expected shipment date</span><input type="date" className={`${inputCls} mt-1`} value={draft.shipmentDate} disabled={!editable} onChange={(e) => setDraft({ ...draft, shipmentDate: e.target.value })} /></label>
         {FIELD_ORDER.map((k) => {
           const def = PI_FIELDS[k];
           const v = draft.fields[k] ?? "";
+          if (k === "trainer") return trainerRow(v);
+          const po = k === "poDate";
           return (
-            <label key={k} className="block">
-              <span className={label}>{def.label}{"required" in def && def.required ? " *" : ""}</span>
+            <label key={k} data-need={po ? "poDate" : undefined} className={`block ${po ? ring("poDate") : ""}`}>
+              <span className={label}>{def.label}{"required" in def && def.required ? " *" : ""}{po && isNeeded("poDate") && <Need />}</span>
               {def.type === "dropdown" ? (
                 <select className={`${selectCls} mt-1 w-full`} value={def.options.find((o) => o.trim().toLowerCase() === v.trim().toLowerCase()) ?? ""} disabled={!editable} onChange={(e) => setField(k, e.target.value)}>
                   <option value="">—</option>
@@ -186,45 +276,36 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
           <span className="text-[12.5px] text-muted">{data.emailedAt ? `Emailed ${fmtDate(data.emailedAt, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Not emailed yet"} · its PDF goes with it</span>
         </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <label className="block"><span className={label}>To</span><input className={`${inputCls} mt-1`} value={email.to.join(", ")} onChange={(e) => setEmail({ ...email, to: e.target.value.split(/[,;\s]+/).filter(Boolean) })} /></label>
+          <label data-need="to" className={`block ${ring("to")}`}><span className={label}>To{isNeeded("to") && <Need />}</span><input className={`${inputCls} mt-1`} value={email.to.join(", ")} onChange={(e) => setEmail({ ...email, to: e.target.value.split(/[,;\s]+/).filter(Boolean) })} /></label>
           <label className="block"><span className={label}>Cc</span><input className={`${inputCls} mt-1`} value={email.cc.join(", ")} onChange={(e) => setEmail({ ...email, cc: e.target.value.split(/[,;\s]+/).filter(Boolean) })} /></label>
         </div>
-        <label className="mt-2 block"><span className={label}>Subject</span><input className={`${inputCls} mt-1`} value={email.subject} onChange={(e) => setEmail({ ...email, subject: e.target.value })} /></label>
-        <label className="mt-2 block"><span className={label}>Message</span>
+        <label data-need="subject" className={`mt-2 block ${ring("subject")}`}><span className={label}>Subject{isNeeded("subject") && <Need />}</span><input className={`${inputCls} mt-1`} value={email.subject} onChange={(e) => setEmail({ ...email, subject: e.target.value })} /></label>
+        <label data-need="text" className={`mt-2 block ${ring("text")}`}><span className={label}>Message{isNeeded("text") && <Need />}</span>
           <textarea className={`${inputCls} mt-1 !h-auto min-h-[200px] py-2 leading-relaxed`} rows={10} value={email.text} onChange={(e) => setEmail({ ...email, text: e.target.value })} spellCheck />
         </label>
-        {editable && (
-          <div className="mt-3 rounded-xl border border-line bg-surface-2/40 p-3">
-            <p className={label}>Trainers <span className="text-high">*</span> <span className="font-normal text-faint">· they go on the Training board and get the reminder emails; the first is Zoho&apos;s Trainer Name</span></p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {[...TRAINERS, ...picked.filter((t) => !TRAINERS.includes(t))].map((t) => {
-                const on = picked.includes(t);
-                return (
-                  <button key={t} type="button" aria-pressed={on} onClick={() => toggle(t)}
-                    className={`h-8 rounded-full px-3 text-[13px] font-semibold transition-none ${on ? "bg-brand text-white" : "border border-line text-ink-2 hover:border-brand/60"}`}>{on ? "✓ " : ""}{t}</button>
-                );
-              })}
-              <span className="inline-flex items-center gap-1">
-                <input className={`${inputCls} !h-8 w-40 text-[13px]`} placeholder="Someone else" value={other} onChange={(e) => setOther(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOther(); } }} />
-                {other.trim() && <button type="button" className="text-[13px] font-semibold text-brand hover:underline" onClick={addOther}>Add</button>}
-              </span>
-            </div>
-            {!picked.length && <p className="mt-1.5 text-[12.5px] text-medium">Pick at least one trainer to mark it confirmed.</p>}
-          </div>
-        )}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {editable ? (
             <>
-              <button type="button" className={btn.ghost} disabled={Boolean(busy) || !picked.length} onClick={() => markConfirmed(false)}>{busy === "confirm" ? "Marking confirmed…" : "Mark confirmed"}</button>
-              <button type="button" className={btn.primary} disabled={!data.live || Boolean(busy) || !picked.length} onClick={() => markConfirmed(true)}>{busy === "confirm-send" ? "Confirming and sending…" : "Mark confirmed & send email"}</button>
+              <button type="button" className={btn.ghost} disabled={Boolean(busy)} onClick={() => markConfirmed(false)}>{busy === "confirm" ? "Marking confirmed…" : "Mark confirmed"}</button>
+              <button type="button" className={btn.primary} disabled={!data.live || Boolean(busy)} onClick={() => markConfirmed(true)}>{busy === "confirm-send" ? "Confirming and sending…" : "Mark confirmed & send email"}</button>
             </>
           ) : (
             <button type="button" className={btn.primary} disabled={!data.live || busy === "email"} onClick={send}>{busy === "email" ? "Sending…" : data.emailedAt ? "Email again" : "Email the Performa"}</button>
           )}
           {!data.live && <span className="text-[12.5px] text-muted">Only the live site sends email.</span>}
-          <span className="text-[12px] text-faint">The wording comes from Templates → Performa emails.</span>
+          <span className="text-[12px] text-faint">Wording: Templates → Performa emails.</span>
         </div>
       </section>
+      {(away.below.length > 0 || away.above.length > 0) && (() => {
+        const up = !away.below.length;
+        const list = up ? away.above : away.below;
+        return (
+          <button type="button" onClick={() => point(up ? list[list.length - 1] : list[0])}
+            className={`rise fixed left-1/2 z-40 inline-flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full bg-high px-4 text-[13px] font-semibold text-white shadow-[0_4px_14px_rgb(0_0_0/0.25)] hover:brightness-110 ${up ? "top-4" : "bottom-5"}`}>
+            <Arrow up={up} />{list.length} to fill {up ? "above" : "below"}
+          </button>
+        );
+      })()}
       {msg && <p className={`text-[13px] ${/^(Saved|Confirmed in Zoho|Performa emailed)/.test(msg) && !/didn't go|Couldn't/.test(msg) ? "text-low" : "text-high"}`} role="status">{msg}</p>}
     </div>
   );
