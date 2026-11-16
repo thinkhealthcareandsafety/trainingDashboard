@@ -226,7 +226,7 @@ function Attendance({ dates, present }: { dates: ProposalDate[]; present: string
 
 /**
  * Their quiz on their page (owner, 13 Nov): open while the training runs, for those marked present; then their result.
- * Owner, 14 Nov: after a fail, Try again while it runs; after a pass, the certificate (emailed once the coordinator ends
+ * Owner, 14 Nov: after a fail, Try again while it runs; after a pass, the certificate (owner, 16 Nov: emailed the moment they pass,
  * the training, and downloadable here).
  */
 function QuizPanel({ q, onOpen, certHref }: { q: QuizInfo; onOpen: () => void; certHref: string }) {
@@ -249,8 +249,8 @@ function QuizPanel({ q, onOpen, certHref }: { q: QuizInfo; onOpen: () => void; c
       {c && (
         <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
           {c.emailedAt ? <>Your certificate was emailed to <b className="break-all text-ink">{c.email}</b>.</>
-            : c.ready ? <>Your certificate is ready.</>
-            : <>Your certificate comes by email once your coordinator ends the training.</>}
+            : c.email ? <>Your certificate is on its way to <b className="break-all text-ink">{c.email}</b>.</>
+            : <>Your certificate is ready. To get it by email, open <b className="text-ink">See results</b> and add your email.</>}
         </p>
       )}
       {(action || c?.ready) && (

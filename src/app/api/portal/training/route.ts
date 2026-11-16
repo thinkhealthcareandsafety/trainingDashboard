@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  *  "tick"     { th, day, on } — mark someone present (on: true) or not, on a training day that has come (owner, 13 Nov)
  *  "newattend" — a new attendance QR; the old one stops working
  *  "start" / "end" — Start training / End training today (owner, 13 Nov): attendance and the quiz run only in between;
- *            End on the last day emails the passed people's certificates (owner, 14 Nov)
+ *            (certificates go as each person passes, owner 16 Nov; End sends any that didn't go)
  *  "results" — the quiz's live leaderboard and per-question analytics
  * Only on their own trainings. GET ?pdf=<id>: the quotation's PDF (below).
  */

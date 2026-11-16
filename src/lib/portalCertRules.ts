@@ -1,30 +1,11 @@
-import type { Session } from "./attendanceRules";
 import { renderTemplate } from "./templateText";
 
 /*
  * Certificates from the quiz (owner, 14 Nov): "after the quiz is done … then only they pass and can get the certificate on
- * their email … also they only get the certificate after the training is ended by the coordinator". Pure: when they go,
- * what each one prints, and the email's wording (Templates → Training Manager → "Certificate email").
+ * their email". Owner, 16 Nov: "certificates should be sent on their mail the moment they pass the quiz" (no longer after
+ * End). Pure: what each one prints, and the email's wording (Templates → Training Manager → "Certificate email").
  * Later, not now (owner): the passed list goes into the master Zoho Sheet (serials, FAT-OD numbers); Shreya's Fulfillment card.
  */
-
-const lastDay = (days: string[]) => [...days].sort().at(-1) ?? "";
-
-/** The coordinator pressed End training on the last training day: the certificates go out. */
-export function certificatesReady(days: string[], sessions: Session[] = []): boolean {
-  const last = lastDay(days);
-  return Boolean(last) && sessions.some((s) => s.day === last && s.endedAt);
-}
-
-/**
- * Our fallback when the coordinator never pressed End (owner said yes to "Send certificates" on Trainings): from the last
- * training day on, and never while a session is running.
- */
-export function staffMaySend(days: string[], today: string, sessions: Session[] = []): boolean {
-  const last = lastDay(days);
-  if (!last || today < last) return false;
-  return !sessions.some((s) => s.day === today && !s.endedAt);
-}
 
 /** The date a certificate prints: the last training day they were marked present, else the day they passed. */
 export const certDay = (presentDays: string[], passedDay: string) => [...presentDays].sort().at(-1) ?? passedDay;
@@ -45,7 +26,7 @@ export const CERT_TEMPLATE = {
   id: "certificate", label: "Certificate email (after the quiz)",
   subject: "Your certificate · {training}",
   body: "Dear {name},\n\nCongratulations on passing the quiz with {score}. Your certificate ({certno}) is attached.\n\nYou can also download it any time from your page:\n{link}\n\nThank you for training with Think Health.\n\nWarm regards,\nThink Health Training Team",
-  note: "Sent from learn@thinkhealth.in to each person who passed the quiz, once the coordinator ends the training on its last day. Their certificate goes with it as a PDF.",
+  note: "Sent from learn@thinkhealth.in to each person the moment they pass the quiz (or when they add their email after passing). Their certificate goes with it as a PDF.",
 };
 export type CertVars = Record<(typeof CERT_VARS)[number], string>;
 

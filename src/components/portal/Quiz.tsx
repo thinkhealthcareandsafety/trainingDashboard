@@ -8,8 +8,8 @@ import type { PublicQuiz, Ranked, Score } from "@/lib/quizRules";
  * one question per screen with segmented step dots and an "Answered" pill, option rows or picture cards, a review step,
  * then the stamped seal with their score, pass / badge and rank, and the live leaderboard. The right answers show only
  * once the coordinator ends the training (state "revealed"). Opens only while the training runs, for people marked present.
- * Owner, 14 Nov: a fail may try again while the training runs (best score counts); a pass gets the certificate by email
- * once the coordinator ends the training, and a download here.
+ * Owner, 14 Nov: a fail may try again while the training runs (best score counts). Owner, 16 Nov: a pass gets the
+ * certificate by email at once, and a download here.
  */
 type Certificate = { ready: boolean; email: string | null; emailedAt: string | null; certNo: string | null };
 type QuizData = {
@@ -257,7 +257,7 @@ function Frame({ children, onClose, title = "Quiz", top, dots, footer }: { child
   );
 }
 
-/** After a pass: where the certificate goes, and the download once the training has ended. */
+/** After a pass: where the certificate goes (emailed at once, owner 16 Nov), and the download. */
 function CertificateCard({ c, number, th, token, onSaved }: { c: Certificate; number: string; th: string; token: string; onSaved: () => void }) {
   const [email, setEmail] = useState("");
   const [editing, setEditing] = useState(false);
@@ -278,8 +278,8 @@ function CertificateCard({ c, number, th, token, onSaved }: { c: Certificate; nu
   const text = c.emailedAt ? <>We&apos;ve emailed it to <b>{c.email}</b>. You can also download it here.</>
     : c.ready && c.email ? <>It&apos;s on its way to <b>{c.email}</b>. You can also download it here.</>
     : c.ready ? <>Download it here, or tell us where to email it.</>
-    : c.email ? <>It comes by email to <b>{c.email}</b> once your coordinator ends the training.</>
-    : <>It comes by email once your coordinator ends the training. Where shall we send it?</>;
+    : c.email ? <>It&apos;s on its way to <b>{c.email}</b>.</>
+    : <>Where shall we email it?</>;
   return (
     <div className="qz-card">
       <h3 className="qz-board-title">Your certificate</h3>

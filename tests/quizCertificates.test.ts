@@ -8,11 +8,11 @@ import { readFile } from "node:fs/promises";
 import { PDFDocument } from "pdf-lib";
 import { CPR_AED_QUIZ } from "@/lib/quizCprAed";
 import { analytics, bestAttempts, canRetake, firstAttempts, leaderboard } from "@/lib/quizRules";
-import { certDay, certEmail, certificatesReady, passedCsv, portalCertNumber, staffMaySend, CERT_TEMPLATE } from "@/lib/portalCertRules";
+import { certDay, certEmail, passedCsv, portalCertNumber, CERT_TEMPLATE } from "@/lib/portalCertRules";
 import { CERT_FONT_FILES, singleCertificate } from "@/lib/certPdf";
 import { DESIGN } from "@/lib/certBackground";
 import { indiaToday } from "@/lib/portalRules";
-import { addPeople, endTraining, markConfirmed, markZohoConfirmed, participantCertificate, participantQuiz, quizResults, quizStart, quizSubmit, saveParticipantEmail, startTraining, staffCertificatesAllowed, tick } from "@/lib/portalTrainings";
+import { addPeople, endTraining, markConfirmed, markZohoConfirmed, participantCertificate, participantQuiz, quizResults, quizStart, quizSubmit, saveParticipantEmail, startTraining, tick } from "@/lib/portalTrainings";
 import { sendCertificates } from "@/lib/portalCertSend";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -42,15 +42,7 @@ test("retakes: only after a fail; best try ranks, first try counts in the analyt
   assert.equal(analytics(CPR_AED_QUIZ, [t1, t2, v1])[10].correctPct, 50);
 });
 
-test("certificate rules: End on the last day, our fallback, the printed day and number, the email", () => {
-  const days = ["2026-11-20", "2026-11-21"];
-  const s = (day: string, ended: boolean) => ({ day, startedAt: "x", startedBy: "c", ...(ended ? { endedAt: "y" } : {}) });
-  assert.equal(certificatesReady(days, [s("2026-11-20", true)]), false); // day 2 still to come
-  assert.equal(certificatesReady(days, [s("2026-11-20", true), s("2026-11-21", false)]), false); // running
-  assert.equal(certificatesReady(days, [s("2026-11-20", true), s("2026-11-21", true)]), true);
-  assert.equal(staffMaySend(days, "2026-11-20", []), false); // before the last day
-  assert.equal(staffMaySend(days, "2026-11-21", [s("2026-11-21", false)]), false); // never while it runs
-  assert.equal(staffMaySend(days, "2026-11-22", [s("2026-11-21", false)]), true); // the coordinator never pressed End
+test("certificate rules: the printed day and number, the email", () => {
   assert.equal(certDay(["2026-11-20", "2026-11-21"], "2026-11-20"), "2026-11-21");
   assert.equal(certDay([], "2026-11-20"), "2026-11-20");
   assert.equal(portalCertNumber("2026-12-04", "TH012"), "FAT-OD/04-12-2026/TH012");
@@ -87,7 +79,7 @@ const seed = async (days: string[]) => {
 const token = async (th: string) => (await (await db()).collection<{ _id: string; token: string }>("portalParticipants").findOne({ _id: th }))!.token;
 const take = async (th: string, tok: string, answers: number[]) => { await quizStart("QT-1", th, tok); return quizSubmit("QT-1", th, tok, answers); };
 
-test("a fail tries again while the training runs; a pass is final; certificates go only after End, once each", async () => {
+test("a fail tries again while the training runs; a pass is final; the certificate goes the moment they pass, once (owner, 16 Nov)", async () => {
   const today = indiaToday();
   await seed([today]);
   const [asha, vikram, meera] = [await token("TH001"), await token("TH002"), await token("TH003")];
@@ -100,7 +92,9 @@ test("a fail tries again while the training runs; a pass is final; certificates 
   assert.equal(v1.certificate, null);
   const v2 = await take("TH002", vikram, wrong(6));
   assert.ok("result" in v2 && v2.result?.passed && v2.result.tries === 2 && !v2.canRetake);
-  assert.deepEqual(v2.certificate, { ready: false, email: null, emailedAt: null, certNo: null }); // passed, not yet ended
+  assert.ok("passedIn" in v2 && v2.passedIn === "1"); // the route emails it now
+  assert.equal(v2.certificate?.ready, true); // downloadable at once
+  assert.ok(!("passedIn" in v1)); // a fail sends nothing
   // Asha passes first time; Meera fails twice.
   await take("TH001", asha, KEY);
   await take("TH003", meera, wrong(15));
@@ -111,11 +105,9 @@ test("a fail tries again while the training runs; a pass is final; certificates 
   assert.ok("leaderboard" in res);
   assert.deepEqual(res.leaderboard.map((b) => [b.name, b.pct, b.tries]), [["Asha Rao", 100, 1], ["Vikram Shah", 80, 2], ["Meera Iyer", 66.7, 2]]);
   assert.deepEqual(res.certificates.list.map((c) => [c.name, c.certNo]), [["Asha Rao", `FAT-OD/${today.split("-").reverse().join("-")}/TH001`], ["Vikram Shah", `FAT-OD/${today.split("-").reverse().join("-")}/TH002`]]);
-  assert.equal(res.certificates.ready, false);
-  assert.equal(await participantCertificate("QT-1", "TH001", asha), null); // no download before End
-  assert.equal(await staffCertificatesAllowed("1"), false); // running
+  assert.ok(await participantCertificate("QT-1", "TH001", asha)); // the download works as soon as they pass
 
-  // End on the last day: certificates due; the quiz closes (no more retakes for Meera).
+  // End: any not yet sent go (a catch-up); the quiz closes (no more retakes for Meera).
   const ended = await endTraining(RIYA, "1");
   assert.ok("certificates" in ended && ended.certificates);
   assert.equal(((await quizStart("QT-1", "TH003", meera)) as { status: number }).status, 409);
@@ -126,7 +118,6 @@ test("a fail tries again while the training runs; a pass is final; certificates 
   assert.deepEqual([r.sent, r.noEmail, r.failed.length], [1, 1, 0]); // Asha emailed; Vikram has no email yet
   assert.deepEqual(sent, [{ to: "asha@grand.com", subject: "Your certificate · CPR, AED and First aid Training", files: ["Certificate - Asha Rao.pdf"] }]);
   assert.deepEqual((await sendCertificates("1", "riya", { mailer, pdf })).sent, 0); // never twice
-  assert.ok(await participantCertificate("QT-1", "TH001", asha)); // the download works now
 
   // Vikram gives his email: his goes now; Meera (failed) can't ask for one.
   const e = await saveParticipantEmail("QT-1", "TH002", vikram, "Vikram@Grand.com");
@@ -141,7 +132,7 @@ test("a fail tries again while the training runs; a pass is final; certificates 
   await assert.rejects(sendCertificates("1", "x"), /Only the live site/);
 });
 
-test("a multi-day training: End on day 1 sends nothing", async () => {
+test("a multi-day training: a pass on day 1 gets the certificate on day 1", async () => {
   const today = indiaToday();
   const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
   await seed([today, tomorrow]);
@@ -149,10 +140,11 @@ test("a multi-day training: End on day 1 sends nothing", async () => {
   await startTraining(RIYA, "1");
   await tick(RIYA, "1", "TH001", today, true);
   await take("TH001", asha, KEY);
+  assert.equal((await participantQuiz("QT-1", "TH001", asha))?.certificate?.ready, true);
   const ended = await endTraining(RIYA, "1");
-  assert.ok("certificates" in ended && ended.certificates === false);
-  assert.equal((await participantQuiz("QT-1", "TH001", asha))?.certificate?.ready, false);
-  assert.equal(await staffCertificatesAllowed("1"), false); // the last day hasn't come
+  assert.ok("certificates" in ended && ended.certificates === true); // catch-up for any that didn't go
+  const [line] = (await quizResults(RIYA, "1") as { certificates: { list: { day: string }[] } }).certificates.list;
+  assert.equal(line.day, today); // printed with the day they were there
 });
 
 test("the passed list as CSV: Excel-ready (BOM), quoted where needed, India's dates", () => {

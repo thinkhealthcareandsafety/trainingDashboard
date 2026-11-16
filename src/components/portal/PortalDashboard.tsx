@@ -618,8 +618,8 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
 function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]> }) {
   const [r, setR] = useState<QuizResults | null>(null);
   const [byQuestion, setByQuestion] = useState(false);
-  // Just after End on the last day the certificates are still going out: keep checking until each one with an email has gone.
-  const sending = Boolean(r?.certificates.ready && r.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
+  // A certificate goes the moment its person passes (owner, 16 Nov): keep checking until each one with an email has gone.
+  const sending = Boolean(r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
   useEffect(() => {
     let on = true;
     const load = () => act<QuizResults & { none?: boolean }>({ action: "results", id }).then((j) => { if (on && j.leaderboard) setR(j); });
@@ -648,9 +648,7 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
           {r.passed > 0 && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl bg-ground px-4 py-3">
               <p className="min-w-0 text-[14px] leading-snug text-ink-2">
-                {r.certificates.ready
-                  ? <>Certificates: <b className="num text-ink">{r.certificates.list.filter((c) => c.emailedAt).length} of {r.certificates.list.length}</b> emailed{r.certificates.list.some((c) => !c.email) ? "; those without an email can add one on their page" : ""}.</>
-                  : <>Everyone who passes is emailed their certificate when you end the training on its last day.</>}
+                Certificates: <b className="num text-ink">{r.certificates.list.filter((c) => c.emailedAt).length} of {r.certificates.list.length}</b> emailed, each the moment its person passed{r.certificates.list.some((c) => !c.email) ? "; those without an email can add one on their page" : ""}.
               </p>
               <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => downloadCsv(r)}>Download passed list</button>
             </div>
@@ -705,7 +703,7 @@ function Results({ id, quiz }: { id: string; quiz: NonNullable<Training["quiz"]>
 /** A passed person's certificate, in their row: emailed, or why not yet. */
 function certNote(r: QuizResults, th: string): string {
   const c = r.certificates.list.find((x) => x.th === th);
-  if (!c || !r.certificates.ready) return "";
+  if (!c) return "";
   return c.emailedAt ? " · Certificate emailed" : !c.email ? " · Certificate: no email yet" : c.error ? " · Certificate not sent yet" : " · Certificate on its way";
 }
 

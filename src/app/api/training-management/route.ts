@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { canQuote } from "@/lib/roles";
 import { itemSets, type ZItem } from "@/lib/zoho";
 import { byNewest, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
-import { certificateLines, markLoginSent, newerQuotes, quoteOf, setCoordinator, staffCertificatesAllowed, staffParticipants, staffPortal, staffQuizResults, trainingDoc } from "@/lib/portalTrainings";
+import { certificateLines, markLoginSent, newerQuotes, quoteOf, setCoordinator, staffParticipants, staffPortal, staffQuizResults, trainingDoc } from "@/lib/portalTrainings";
 import { certificatePdf, sendCertificates } from "@/lib/portalCertSend";
 import { certFileName } from "@/lib/portalCertRules";
 import { passwordForEmail } from "@/lib/portalAuth";
@@ -46,7 +46,7 @@ export const dynamic = "force-dynamic";
  *  POST { action: "reopen", id }     — a rejected quotation open again (Zoho back to Sent)
  *  POST { action: "decline", id }    — retry marking a rejected quotation Declined in Zoho
  * Certificates from the quiz (owner, 14 Nov):
- *  POST { action: "sendcerts", id }  — email the passed people's certificates not yet sent (when the coordinator didn't End)
+ *  POST { action: "sendcerts", id }  — email the passed people's certificates not yet sent (a retry: each goes as its person passes)
  *  GET ?cert=<id>&th=<TH001>         — one person's certificate PDF, to check it
  */
 const trainingSet = async () => itemSets(((await (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? []).training;
@@ -139,7 +139,6 @@ async function handlePOST(request: Request) {
 
     if (b?.action === "sendcerts") {
       if (process.env.VERCEL_ENV !== "production") return Response.json({ error: "Only the live site sends certificates." }, { status: 409 });
-      if (!(await staffCertificatesAllowed(id))) return Response.json({ error: "Certificates go once the training's last day has come and it isn't running." }, { status: 409 });
       const r = await sendCertificates(id, me.name);
       console.log(`[training-management] ${me.name} sent ${q.number}'s certificates: ${r.sent} sent, ${r.noEmail} without email, ${r.failed.length} failed`);
       return Response.json({ ok: true, ...r });

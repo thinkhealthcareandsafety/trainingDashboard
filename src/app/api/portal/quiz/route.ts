@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
  * The participant's quiz (owner, 13 Nov), from their private page (TH number + token), no login:
  *  GET ?n=<Training Number>&th=<TH001>&p=<token>  — the quiz (answers only once revealed), its state, their result, the leaderboard
  *  POST { n, th, p, action: "start" }             — opening it starts their clock
- *  POST { n, th, p, action: "submit", answers }   — the try in progress: scored, ranked; a fail may try again (owner, 14 Nov)
+ *  POST { n, th, p, action: "submit", answers }   — the try in progress: scored, ranked; a fail may try again (owner, 14 Nov);
+ *                                                   a pass emails their certificate at once (owner, 16 Nov)
  *  POST { n, th, p, action: "email", email }      — where their certificate goes (passed people with no email on file)
  * Open only while the coordinator's session runs, and only to people marked present.
  */
@@ -32,9 +33,16 @@ async function handlePOST(request: Request) {
       : b?.action === "submit" ? await quizSubmit(b.n, b.th, b.p, b.answers)
       : b?.action === "email" ? await saveParticipantEmail(b.n, b.th, b.p, b.email)
       : { error: "Unknown action", status: 400 };
-    // The training has ended: their certificate goes now.
-    if (b?.action === "email" && "sendNow" in r && r.sendNow) certificatesLater(r.trainingId, "participant", String(b.th ?? "").toUpperCase());
-    return "error" in r ? json({ error: r.error }, r.status) : json(r);
+    // Owner, 16 Nov: the certificate goes the moment they pass (or when a passed person gives their email).
+    const th = String(b?.th ?? "").toUpperCase();
+    if (b?.action === "email" && "sendNow" in r && r.sendNow) certificatesLater(r.trainingId, "participant", th);
+    if ("error" in r) return json({ error: r.error }, r.status);
+    if ("passedIn" in r) {
+      const { passedIn, ...rest } = r;
+      if (passedIn) certificatesLater(passedIn, "quiz", th);
+      return json(rest);
+    }
+    return json(r);
   } catch (e) {
     console.error("[portal/quiz]", e);
     return json({ error: "Something went wrong on our side. Try again in a minute." }, 500);

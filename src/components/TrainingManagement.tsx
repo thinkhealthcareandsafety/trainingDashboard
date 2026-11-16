@@ -411,8 +411,8 @@ function ParticipantList({ x }: { x: Quote }) {
 
 /**
  * The quiz's results, read only (owner, 13 Nov: "everyone else can see the same results too"): the coordinator runs it.
- * Owner, 14 Nov: tries, the passed list (CSV) with each certificate's state and PDF, and Send certificates for when the
- * coordinator never pressed End on the last day.
+ * Owner, 14 Nov: tries, the passed list (CSV) with each certificate's state and PDF. Owner, 16 Nov: each certificate is
+ * emailed the moment its person passes; "Send the rest now" retries any that didn't go.
  */
 function QuizSummary({ id }: { id: string }) {
   const [r, setR] = useState<QuizResults | null>(null);
@@ -443,7 +443,7 @@ function QuizSummary({ id }: { id: string }) {
   const certCell = (th: string) => {
     const c = certs.get(th);
     if (!c) return null;
-    const state = c.emailedAt ? "Emailed" : !r.certificates.ready ? "After End" : !c.email ? "No email" : c.error ? "Not sent" : "Sending";
+    const state = c.emailedAt ? "Emailed" : !c.email ? "No email" : c.error ? "Not sent" : "Sending";
     return <span title={c.error ?? c.certNo}>{state} · <a className="text-brand hover:underline" href={`/api/training-management?cert=${id}&th=${th}`} target="_blank" rel="noopener noreferrer">PDF</a></span>;
   };
   return (
@@ -474,10 +474,10 @@ function QuizSummary({ id }: { id: string }) {
       {r.passed > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
           <button type="button" className="text-[13px] font-semibold text-brand hover:underline" onClick={csv}>Download passed list (CSV)</button>
-          {r.certificates.staffMay && unsent.some((c) => c.email) && (
-            <button type="button" className={btn.ghost} disabled={busy} onClick={send}>{busy ? "Sending…" : r.certificates.ready ? "Send the rest now" : "Send certificates"}</button>
+          {unsent.some((c) => c.email) && (
+            <button type="button" className={btn.ghost} disabled={busy} onClick={send}>{busy ? "Sending…" : "Send the rest now"}</button>
           )}
-          <span className="text-[12.5px] text-muted">{r.certificates.ready ? "The coordinator ended the training: certificates go out by themselves." : r.certificates.staffMay ? "The coordinator didn't end the training, so certificates haven't gone." : "Certificates go when the coordinator ends the training on its last day."}</span>
+          <span className="text-[12.5px] text-muted">Each certificate is emailed the moment its person passes.</span>
         </div>
       )}
       {msg && <p className="mt-2 text-[13px] text-ink-2">{msg}</p>}

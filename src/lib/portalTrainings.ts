@@ -10,7 +10,7 @@ import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceI
 import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
 import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
-import { certDay, certificatesReady, indiaDayOf, portalCertNumber, staffMaySend } from "./portalCertRules";
+import { certDay, indiaDayOf, portalCertNumber } from "./portalCertRules";
 import { DESIGNS, type DesignId, designFor } from "./certificates";
 
 /*
@@ -504,7 +504,8 @@ export async function endTraining(email: string, id: unknown): Promise<{ window:
   sessions[i] = { ...sessions[i], endedAt: new Date().toISOString(), endedBy: email };
   await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { sessions } });
   const days = daysOf(await datesOf(t));
-  return { window: sessionWindow(days, today, sessions), certificates: certificatesReady(days, sessions) && Boolean(await quizOf(t)), trainingId: t._id };
+  // Certificates go as each person passes (owner, 16 Nov); End sends any that didn't go (a catch-up).
+  return { window: sessionWindow(days, today, sessions), certificates: Boolean(await quizOf(t)), trainingId: t._id };
 }
 
 type AttemptDoc = { _id: string; trainingId: string; th: string; name: string; quizId: string; n?: number; answers?: number[]; startedAt: string; finishedAt?: string; points?: number; correct?: number };
@@ -575,8 +576,9 @@ export async function participantQuiz(number: unknown, th: unknown, token: unkno
     quiz: publicQuiz(qz.quiz, qz.state === "revealed"), state: qz.state, present, startedAt: open?.startedAt ?? null,
     result: latest && ranked ? { ...scoreOf(qz.quiz, latest.answers), rank: ranked.rank, of: board.length, answers: latest.answers, tries: done.length, bestPct: ranked.pct, passedEver: passed } : null,
     canRetake: qz.state === "open" && present && !open && canRetake(qz.quiz, done),
+    // Owner, 16 Nov: emailed the moment they pass, and downloadable from then.
     certificate: passed ? {
-      ready: certificatesReady(qz.days, r.t.sessions) || Boolean(cert?.issuedAt),
+      ready: true,
       email: r.p.email ?? null, emailedAt: cert?.emailedAt ?? null, certNo: cert?.certNo ?? null,
     } : null,
     leaderboard: board,
@@ -600,7 +602,7 @@ export async function quizStart(number: unknown, th: unknown, token: unknown): P
 }
 
 /** Their answers to the try in progress: scored; the result, the rank and whether they may try again come back. */
-export async function quizSubmit(number: unknown, th: unknown, token: unknown, raw: unknown): Promise<ParticipantQuiz | Fail> {
+export async function quizSubmit(number: unknown, th: unknown, token: unknown, raw: unknown): Promise<(ParticipantQuiz & { passedIn?: string }) | Fail> {
   const r = await participantOf(number, th, token);
   if (!r) return { error: "We couldn't find your page. Use the link from when you joined.", status: 404 };
   const qz = await quizOf(r.t);
@@ -611,7 +613,8 @@ export async function quizSubmit(number: unknown, th: unknown, token: unknown, r
   if ("error" in answers) return { error: answers.error, status: 400 };
   const sc = scoreOf(qz.quiz, answers);
   await (await attemptsCol()).updateOne({ _id: open._id }, { $set: { answers, finishedAt: new Date().toISOString(), points: sc.points, correct: sc.correct } });
-  return (await participantQuiz(number, th, token))!;
+  // A pass (only ever the first: a passed person can't start another try): the route emails their certificate now.
+  return { ...(await participantQuiz(number, th, token))!, ...(sc.passed ? { passedIn: r.t._id } : {}) };
 }
 
 /* ---------------- Certificates from the quiz (owner, 14 Nov) ---------------- */
@@ -666,7 +669,7 @@ export async function recordCertificate(trainingId: string, th: string, r: { ema
   await (await certsCol()).updateOne({ _id: certId(trainingId, th) }, { $set: set });
 }
 
-/** Their certificate for the download (passed, and it has gone out or the training has ended). */
+/** Their certificate for the download: once they've passed (owner, 16 Nov). */
 export async function participantCertificate(number: unknown, th: unknown, token: unknown): Promise<CertLine | null> {
   const r = await participantOf(number, th, token);
   if (!r) return null;
@@ -674,7 +677,7 @@ export async function participantCertificate(number: unknown, th: unknown, token
   if (!qz) return null;
   const line = (await certificateLines(r.t._id)).find((c) => c.th === r.p._id);
   if (!line) return null;
-  return certificatesReady(qz.days, r.t.sessions) || line.issuedAt ? line : null;
+  return line;
 }
 
 /** A passed person gives the address for their certificate (most join with a mobile number only). */
@@ -687,22 +690,15 @@ export async function saveParticipantEmail(number: unknown, th: unknown, token: 
   if (!qz || !passedAny(qz.quiz, triesOf(await attemptsOf(r.t._id), r.p._id).done)) return { error: "The certificate comes once you pass the quiz.", status: 409 };
   await (await peopleCol()).updateOne({ _id: r.p._id }, { $set: { email } });
   const cert = await (await certsCol()).findOne({ _id: certId(r.t._id, r.p._id) });
-  return { email, sendNow: certificatesReady(qz.days, r.t.sessions) && !cert?.emailedAt, trainingId: r.t._id };
-}
-
-/** Whether we (Trainings) may send them: from the last training day on, never while it runs (the coordinator didn't End). */
-export async function staffCertificatesAllowed(trainingId: string): Promise<boolean> {
-  const t = await trainingDoc(trainingId);
-  const qz = t ? await quizOf(t) : null;
-  return Boolean(t && qz && (certificatesReady(qz.days, t.sessions) || staffMaySend(qz.days, indiaToday(), t.sessions)));
+  return { email, sendNow: !cert?.emailedAt, trainingId: r.t._id };
 }
 
 export type CertStatus = { th: string; name: string; email: string; certNo: string; day: string; pct: number; badge: boolean; emailedAt: string | null; error: string | null };
 export type QuizResults = {
   title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; passPct: number;
   leaderboard: Ranked[]; questions: QuestionStats[];
-  /** The passed list with each certificate's state; `ready` = End was pressed on the last day; `staffMay` = we may send them. */
-  certificates: { ready: boolean; staffMay: boolean; list: CertStatus[] };
+  /** The passed list with each certificate's state (each is emailed the moment its person passes, owner 16 Nov). */
+  certificates: { list: CertStatus[] };
 };
 /** The coordinator's (and our) live results: the leaderboard (best tries), per question how many picked each option (first tries), the passed list. */
 export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null> {
@@ -715,7 +711,6 @@ export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null
     title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
     avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, leaderboard: board, questions: analytics(qz.quiz, done),
     certificates: {
-      ready: certificatesReady(qz.days, t.sessions), staffMay: certificatesReady(qz.days, t.sessions) || staffMaySend(qz.days, indiaToday(), t.sessions),
       list: certs.map((c) => ({ th: c.th, name: c.name, email: c.email, certNo: c.certNo, day: c.day, pct: c.pct, badge: c.badge, emailedAt: c.emailedAt ?? null, error: c.error || null })),
     },
   };
