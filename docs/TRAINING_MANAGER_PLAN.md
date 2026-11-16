@@ -1,6 +1,6 @@
 # Training Manager: full plan
 
-## Status (14 Nov 2026, end of session 28): everything is live at `1502f87`
+## Status (16 Nov 2026, end of session 29): everything is live at `36ca061` (quiz retakes + certificates by email added). Next: HANDOFF.md "Build queue"
 
 | Step | What | State |
 |---|---|---|

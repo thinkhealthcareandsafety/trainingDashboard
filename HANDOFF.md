@@ -1,43 +1,108 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Sat 14 Nov 2026 (end of session 28). **Live = `1502f87`** on work.thinkhealth.in and training-dashboard-xfwl.vercel.app
-(Vercel status success). This handoff is its own commit on top. Written for the next Claude Code session, and for the owner (Sumit)._
+_Last updated: Mon 16 Nov 2026 (end of session 29). **Live = `a4cfc7f`** (code = `36ca061`) on work.thinkhealth.in,
+training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel status success on both projects). This handoff is its own commit
+on top. Written for the next Claude Code session, and for the owner (Sumit)._
 
-**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left", "Next: Attendance and Quiz". The portal's look is in
-`DESIGN.md` (incl. "Attendance" and "The quiz: its own world"); `.impeccable/design.json` is older than DESIGN.md (refresh only if asked).
+**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left" (item 4 has the quiz, retake and certificate
+rules), "Next: Attendance and Quiz". The portal's look is in `DESIGN.md` ("Attendance", "The quiz: its own world"); `.impeccable/design.json`
+is older than DESIGN.md (refresh only if asked).
 
-**Start of the next session (29). Do these first:**
-1. `git fetch`, then `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
-2. `npm test` (**290** should pass) and `npx tsc --noEmit -p tsconfig.json`.
-3. `nslookup training.thinkhealth.in 1.1.1.1`. If it resolves: check `curl https://training.thinkhealth.in/` gives "Think Health
-   Training Manager", then the owner sets `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel (Production) and redeploys.
-   - DNS for thinkhealth.in is on **Cloudflare** (nameservers bristol/piotr.ns.cloudflare.com) in the boss's account; GoDaddy is only the
-     registrar (its DNS tab does nothing). **Never suggest switching nameservers** (Zoho Mail, the website and work. would break). The
-     owner has a WhatsApp message for the account holder. The record is **optional** (cosmetic): the portal works at work.thinkhealth.in/training.
-4. Ask the owner, in **one** AskUserQuestion round:
-   - How did the first real **Start training → attendance → quiz** go (or when is the next CPR/AED training)? Anything to change?
-   - Did the **Trainers picker / Mark confirmed** look right on a real training? (I couldn't open the Trainings page: it reads the live DB.)
-   - Was the "dashboard testing" card removed from the live Training board? (Its Performa-25-1204 and Quotation-24-002795 were deleted in Zoho.)
-   - Cloudflare record added?
-5. GoDaddy shows **auto-renew Off** for thinkhealth.in: remind the owner once (their call; it bills their card).
+**Start of the next session (30). Do these first:**
+1. `git fetch`, `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
+2. `npm test` (**297** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. Ask the owner, in **one** AskUserQuestion round (keep it short: the owner asked for fewer words):
+   - Did **Send login** to their own email show a link starting `https://training.thinkhealth.in/`? (They set `PORTAL_BASE_URL` on
+     Vercel on 14 Nov; GitHub deploys to **two** Vercel projects, `training-dashboard` and `training-dashboard-xfwl`; the variable must be
+     on the one serving work.thinkhealth.in, most likely `-xfwl`.)
+   - "Start implementing the quiz": what do they mean? The CPR-AED quiz is **built and live** (Start training → present → quiz →
+     retakes → certificates). Offer: (a) a guided dry run on a real upcoming training, (b) quizzes for First Aid / Fire Safety (needs
+     their questions + answer keys, like the Google Form), (c) something they saw missing.
+   - The coordinator's stamps ("Awaiting decision → Accepted on … → Confirmed"): what bothers them (too many stamps, dates, wording, look)?
+   - When is the next real CPR/AED training (the first live test of attendance, quiz and the certificate email)?
+4. Then build the queue below, **one commit per item**, restating structural ones with defaults and waiting for "yeah" (owner's rule;
+   the queue's defaults were proposed on 14 Nov and **not yet confirmed**: restate them in one short message, then build).
 
-**Session 29 (14 Nov), so far:**
-- Checklist clean (290 tests, tsc). training.thinkhealth.in **resolves and serves HTTPS** (Vercel: valid configuration) → the owner
-  sets `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel (Production) and redeploys. "dashboard testing" card: gone.
-  Start training / quiz: not used on a real training yet.
-- **Trainer Name ↔ Trainers picker follow each other** on the Performa (owner: "it should automatically select the trainer … if I
-  select the corresponding trainer in the PI"): `trainerFromZoho`, `pickedForZohoTrainer`, `zohoTrainerFor` in `lib/performaRules.ts`;
-  choosing in the PI ticks them first (replacing the one the dropdown had put first), the first ticked sets the dropdown ("Other" for
-  a name Zoho lacks, None for nobody); None / Other in the dropdown leave the picker; Undo changes resets both. 291 tests.
-- **Quiz retakes + certificates by email** (owner, 14 Nov; full rules in TRAINING_MANAGER_PLAN.md "What's left" 4): form marking
-  (70%); a fail retries while the training runs, a pass is final; best try ranks, first try counts in analytics; passed list + CSV
-  on the coordinator panel and Trainings; certificates emailed from learn@ **only after End on the last day** (once each; PDF made
-  on the server by `singleCertificate` in `certPdf.ts` with the fonts traced via `outputFileTracingIncludes`; Zoho Mail attachment
-  upload in `sendMail`, with the page link as the fallback); email asked on the pass screen; Send certificates on Trainings as the
-  fallback; Templates → "Certificate email". Later: master Zoho Sheet rows, Shreya's card. 297 tests.
-  - **Unverified until a real run:** the Zoho Mail attachment upload (`POST …/messages/attachments?fileName=`) has never been called
-    for real; if it's refused the email still goes with the download link, and the server log says "attachment … not uploaded".
-    The certificate PDF needs the design in `certDesigns` (Admin uploads it on the Fulfillment board; Shreya's certificates use it since Oct).
+**Build queue (owner, 14 + 16 Nov), with the defaults proposed:**
+1. **The coordinator sees the quotation before accepting** ("otherwise what do they know what they are accepting"): on the portal,
+   before Accept, the quote as Zoho has it: items (never the "(I)" suffix), description, qty, rate, amount, GST, total, valid until,
+   and **Download PDF** (Zoho's estimate PDF, proxied through a portal route that checks the session). This reverses the old "prices
+   never leave here" rule (`portalTrainings.ts` header): update that comment and PRODUCT.md / the plan.
+2. **Cc only sales@thinkhealth.in, never sshah@**: `ALWAYS_CC` in `lib/quoteEmails.ts` (quotation emails, both companies) loses
+   sshah@; default: the Performa email (`PerformaEditor` / `piemail` / `piconfirm`) also Cc's sales@. The "sales@ / sshah@" line in the
+   signature's company details stays unless the owner says otherwise. Tests in `tests/quoteEmails.test.ts` likely assert the Cc.
+3. **Performa editor: less cluttered, guides you**: a red "!" on each required-but-empty field; Mark confirmed with something
+   missing scrolls to it and highlights it; a floating "↓ 1 to fill below" / "↑ above" while a missing one is off-screen (tap = go
+   there); the Trainers picker moves next to Trainer Name. Staff dashboard look (not the portal), dark theme shown in the owner's
+   screenshot: check both themes.
+4. **Trainer rule**: Zoho's Trainer Name = the **first picked trainer who is one of ours** (any position), else **Other**; our
+   dashboard / board keep the real names; picking in the PI still ticks the picker. Change `zohoTrainer` / `zohoTrainerFor` in
+   `lib/performaRules.ts` (today they look only at the first picked) and the server's `piconfirm` (uses `zohoTrainer(trainers)`);
+   update `tests/performa.test.ts`.
+5. **Start training only on the training date**: already enforced (button only on the day; `startTraining` refuses other days, India
+   time). Tell the owner; no change unless they saw otherwise.
+6. **Walk-ins on the training day**: people not on the list scan the **attendance QR** and register even **before Start** (added as
+   walk-ins); their Present button opens at Start without reloading (the attend page polls). The coordinator can add people any time.
+   Today `/api/portal/attend` refuses outside an open session: split "register on the day" from "mark present while running"
+   (`attendanceRules.ts`, `portalTrainings.ts` attend functions, `components/portal/Attend.tsx`), tests in `tests/attendance.test.ts`.
+7. **A more engaging attendance mark** ("the normal tick is too boring"): coordinator's list: each tick becomes a small navy PRESENT
+   ink stamp that lands as people mark themselves, the row lights up briefly, "X of Y present" counts up; participant: the Present
+   press ends in a bigger stamp with their name and time. Reduced motion: none. Impeccable (portal = safety-sign world; DESIGN.md
+   allows the stamp landing as an echo, not a new authored moment).
+8. **Coordinator's stamps UI** ("change the UI of Accepted on etc."): redesign the stamp stack on "Your trainings" after hearing what
+   bothers them (step 3); Impeccable critique first, then one direction, DESIGN.md in step.
+9. **The quiz**: whatever the owner answers in step 3.
+
+**Then: find inconsistencies and fill the gaps** (report each, fix the clear ones, ask about the rest). Known so far:
+- The Zoho Mail **attachment upload** in `sendMail` (`POST /accounts/{id}/messages/attachments?fileName=`) has never run for real;
+  first real certificate email will tell (fallback: the email carries the download link; log line "attachment … not uploaded").
+- A passed participant **removed from the list** gets no certificate (`certificateLines` skips them): fine, but say so on removal.
+- If the coordinator never presses End, participants read "comes once your coordinator ends the training" until staff press **Send
+  certificates** on Trainings: maybe a nudge on Trainings the day after.
+- Templates page `VAR_HELP.name` says "the person's name as the quote has it": wrong for the certificate email (participant's name).
+- The portal sign-in panel still says "Propose a date…": the owner said **leave it** (14 Nov). Don't change.
+- HANDOFF §1 ("Where things stand") and §10 are stale (old commit numbers, "Next 16.3 critical"); refresh when convenient.
+- Two Vercel projects deploy every push (`training-dashboard`, `training-dashboard-xfwl`): is the first one still needed? Owner's call.
+- Certificates exist only for trainings with a quiz (CPR / AED / BLS); other programmes still go through Shreya's Fulfillment flow.
+
+**Owner said no to (don't re-offer):** staff sign-in expiry / change-my-PIN screen. npm audit is 0 vulnerabilities.
+
+**Later (owner: "include it in the plan, no need to apply that right now"):** the passed list into the **master Zoho Sheet** (real
+serials and `FAT-OD/<date>/<n>`, replacing `FAT-OD/<date>/<TH>`); how **Shreya's Fulfillment card** treats portal certificates.
+Older open decisions: drop the Mongo `followUps` / `removedTriggers` collections (permanent); patch updates; PI templates for
+non-training items; a third quotation company.
+
+**Owner's side (waiting):** confirm the training. login link; the Gmail App Password for saletotalsupply@gmail.com; the Zia steps in
+Zoho Flow; GoDaddy auto-renew (reminded 14 Nov); a GitHub `CRON_SECRET`; making the repo private (their call).
+
+**Traps learned in session 29:**
+- `git push` can take over 2 minutes here: run it with a long timeout (or it moves to the background; wait for the notification).
+- Headless Chrome renders iframes from a `file://` page blank: screenshot each preview URL directly at `--window-size=500,…`.
+- The fake DB's `find` ignores filters (hence the `.filter(...)` after every `find` in portalTrainings); its `updateOne` matches `_id` only.
+- Server code that reads `public/` files needs `outputFileTracingIncludes` in `next.config.ts` (done for the certificate fonts on
+  `/api/portal/{training,quiz,certificate}` and `/api/training-management`); check `.next/server/.../route.js.nft.json` after a build.
+- `sendMail` now takes `attachments` and returns `attached` (count uploaded).
+- Adding a template changes the count in `tests/templates.test.ts` (route test).
+- Portal previews: `src/app/training/zz-*` with a client component that replaces `window.fetch` with canned JSON; delete before committing.
+
+**Session 29 in short (14–16 Nov): all live.**
+- Checklist clean. training.thinkhealth.in resolves and serves HTTPS; the owner set `PORTAL_BASE_URL` and `a4cfc7f` (empty commit)
+  redeployed both Vercel projects. "dashboard testing" card gone. Start training / quiz not yet used on a real training.
+- `459ecc2` **Trainer Name ↔ Trainers picker follow each other** on the Performa (`trainerFromZoho`, `pickedForZohoTrainer`,
+  `zohoTrainerFor` in `lib/performaRules.ts`; Undo changes resets both). Queue item 4 changes the rule again.
+- `fda0948` **Quiz retakes + certificates by email** (rules: TRAINING_MANAGER_PLAN.md "What's left" 4):
+  - Form marking (70% passes, 100% = badge). A fail retries while the training runs (`canRetake`), a pass is final; leaderboard =
+    best try (`bestAttempts`), analytics = first tries (`firstAttempts`); attempts `portalQuizAttempts` _id `<training>:<TH>:<n>`.
+  - Passed list + CSV (`passedCsv`) on the coordinator's Results and on Trainings (`QuizSummary`, with tries, certificate state,
+    per-person PDF link `GET /api/training-management?cert=&th=`, **Send certificates** = `POST sendcerts`, fallback only).
+  - Certificates (`lib/portalCertRules.ts` pure, `lib/portalCertSend.ts`, `lib/portalCertLater.ts`, `portalCertificates` collection):
+    emailed from learn@ only after **End on the last day** (`endTraining` returns `certificates`; `certificatesLater` runs in `after()`,
+    live site only), once each; PDF = `singleCertificate` (one A5 page, uploaded design, fonts from disk); number
+    `FAT-OD/<dd-mm-yyyy>/<TH>`; date = last day present. No email → the pass screen asks (`saveParticipantEmail`, sends at once if
+    ended). Download: `/api/portal/certificate`. Wording: Templates → Training Manager → "Certificate email" (`portal:certificate`).
+  - Screens (Impeccable, campaign design kept): Try again, "Try 2" intro, "Your certificate" card, participant QuizPanel, coordinator
+    Results; DESIGN.md updated.
+- `36ca061` Impeccable ignore for the quiz pill's springy easing (the campaign's own design).
 
 **Session 28 in short (13–14 Nov): all live at `1502f87`.** In order:
 - `35933fd` **Performa confirm flow**: Convert to PI sits in the story's Performa box only; the draft has **Mark confirmed** and **Mark
