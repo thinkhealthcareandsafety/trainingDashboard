@@ -839,7 +839,7 @@ function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<T
           {r.taken > 0 && (
             <div className="mt-4">
               {/* The report, question by question for the whole group (owner, 16 Nov). */}
-              <QuizCharts questions={questionReport(r.questions)} />
+              <QuizCharts title={quiz.title} questions={questionReport(r.questions)} />
             </div>
           )}
         </>
