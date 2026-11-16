@@ -26,7 +26,7 @@ export const CERT_TEMPLATE = {
   id: "certificate", label: "Certificate email (after the quiz)",
   subject: "Your certificate · {training}",
   body: "Dear {name},\n\nCongratulations on passing the quiz with {score}. Your certificate ({certno}) is attached.\n\nYou can also download it any time from your page:\n{link}\n\nThank you for training with Think Health.\n\nWarm regards,\nThink Health Training Team",
-  note: "Sent from learn@thinkhealth.in to each person the moment they pass the quiz (or when they add their email after passing). Their certificate goes with it as a PDF.",
+  note: "Sent from learn@thinkhealth.in to each person the moment they pass the quiz (or when they add their email after passing), with their Good Samaritan certificate as a PDF. {certno} is its number (IAGS-SN/…).",
 };
 export type CertVars = Record<(typeof CERT_VARS)[number], string>;
 
@@ -39,17 +39,20 @@ export function certEmail(t: { subject: string; body: string }, v: CertVars): { 
   return { subject: renderTemplate(t.subject, v).replace(/\s+/g, " ").trim(), html, text };
 }
 
+/** The Good Samaritan certificate's file name (owner, 16 Nov). */
+export const goodSamaritanFileName = (name: string) => `Good Samaritan certificate - ${name.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "Think Health"}.pdf`;
+
 /** "Asha Rao.pdf" style, safe as a file name. */
 export const certFileName = (name: string) => `Certificate - ${name.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "Think Health"}.pdf`;
 
 /* ---------------- The passed list (owner, 14 Nov: "the training people list we will get right away") ---------------- */
 
-export type PassedRow = { th: string; name: string; email: string; pct: number; badge: boolean; day: string; certNo: string; emailedAt: string | null };
+export type PassedRow = { th: string; name: string; email: string; pct: number; badge: boolean; day: string; certNo: string; gsNo?: string; emailedAt: string | null };
 const cell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 /** The passed list as CSV (opens in Excel): one row per person who passed. Later (owner): these rows go into the master Zoho Sheet. */
 export function passedCsv(rows: PassedRow[]): string {
-  const head = ["TH number", "Name", "Email", "Score %", "First Aid Badge", "Training day", "Certificate no.", "Certificate emailed"];
+  const head = ["TH number", "Name", "Email", "Score %", "First Aid Badge", "Training day", "Certificate no.", "Good Samaritan no.", "Good Samaritan emailed"];
   const day = (d: string) => d.slice(0, 10).split("-").reverse().join("/");
-  const body = rows.map((r) => [r.th, r.name, r.email, String(r.pct), r.badge ? "Yes" : "", day(r.day), r.certNo, r.emailedAt ? day(indiaDayOf(r.emailedAt)) : ""].map(cell).join(","));
+  const body = rows.map((r) => [r.th, r.name, r.email, String(r.pct), r.badge ? "Yes" : "", day(r.day), r.certNo, r.gsNo ?? "", r.emailedAt ? day(indiaDayOf(r.emailedAt)) : ""].map(cell).join(","));
   return "\uFEFF" + [head.join(","), ...body].join("\r\n") + "\r\n";
 }

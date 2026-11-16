@@ -11,6 +11,7 @@ import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
 import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
 import { certDay, indiaDayOf, portalCertNumber } from "./portalCertRules";
+import { goodSamaritanNumber } from "./goodSamaritan";
 import { DESIGNS, type DesignId, designFor } from "./certificates";
 
 /*
@@ -661,7 +662,7 @@ export async function participantQuiz(number: unknown, th: unknown, token: unkno
     // Owner, 16 Nov: emailed the moment they pass, and downloadable from then.
     certificate: passed ? {
       ready: true,
-      email: r.p.email ?? null, emailedAt: cert?.emailedAt ?? null, certNo: cert?.certNo ?? null,
+      email: r.p.email ?? null, emailedAt: cert?.emailedAt ?? null, certNo: cert?.gsNo ?? null, // the Good Samaritan number is theirs
     } : null,
     leaderboard: board,
   };
@@ -705,12 +706,21 @@ export async function quizSubmit(number: unknown, th: unknown, token: unknown, r
 type CertDoc = {
   _id: string; trainingId: string; th: string; name: string; certNo: string; day: string; location: string; design: DesignId; course: string;
   pct: number; badge: boolean; issuedAt?: string; email?: string; emailedAt?: string; attached?: boolean; error?: string; by?: string;
+  /** The Good Samaritan certificate's number (owner, 16 Nov): IAGS-SN/001, 002, … one counter across everyone, never reused. */
+  gsNo?: string;
+  /** When the coordinator downloaded this person's official certificate (owner, 16 Nov: "mark when downloaded once"). */
+  downloadedAt?: string;
 };
+/** The next Good Samaritan number: one atomic step on the counter, so two people passing at once never share one. */
+async function nextGsNo(): Promise<string> {
+  const r = await (await countersCol()).findOneAndUpdate({ _id: "iags" }, { $inc: { n: 1 } }, { upsert: true, returnDocument: "after" });
+  return goodSamaritanNumber((r as { n?: number } | null)?.n ?? 1);
+}
 const certsCol = async () => (await db()).collection<CertDoc>("portalCertificates");
 const certId = (trainingId: string, th: string) => `${trainingId}:${th}`;
 
 /** A passed person's certificate as it prints, and how it stands (emailed, waiting for an email address, failed). */
-export type CertLine = Omit<CertDoc, "_id"> & { email: string; token: string; number: string };
+export type CertLine = Omit<CertDoc, "_id" | "gsNo"> & { gsNo: string; email: string; token: string; number: string };
 
 /** Everyone who passed this training's quiz, with their certificate (made now if new; the FAT-OD number never changes). */
 export async function certificateLines(trainingId: string): Promise<CertLine[]> {
@@ -734,11 +744,14 @@ export async function certificateLines(trainingId: string): Promise<CertLine[]> 
     const doc: CertDoc = had ?? {
       _id: certId(t._id, best.th), trainingId: t._id, th: best.th, name: p.name, certNo: portalCertNumber(day, best.th), day,
       location: t.proposal?.location ?? "", design, course: DESIGNS.find((d) => d.id === design)!.course, pct: best.pct, badge: best.badge,
+      gsNo: await nextGsNo(),
     };
     if (!had) await (await certsCol()).insertOne(doc);
+    // Made before the Good Samaritan certificate existed: its number now, once.
+    else if (!had.gsNo) { doc.gsNo = await nextGsNo(); await (await certsCol()).updateOne({ _id: had._id }, { $set: { gsNo: doc.gsNo } }); }
     const { _id: _drop, ...rest } = doc;
     void _drop;
-    out.push({ ...rest, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number });
+    out.push({ ...rest, gsNo: doc.gsNo!, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number });
   }
   return out;
 }
@@ -775,7 +788,7 @@ export async function saveParticipantEmail(number: unknown, th: unknown, token: 
   return { email, sendNow: !cert?.emailedAt, trainingId: r.t._id };
 }
 
-export type CertStatus = { th: string; name: string; email: string; certNo: string; day: string; pct: number; badge: boolean; emailedAt: string | null; error: string | null };
+export type CertStatus = { th: string; name: string; email: string; certNo: string; gsNo: string; day: string; pct: number; badge: boolean; emailedAt: string | null; error: string | null };
 export type QuizResults = {
   title: string; state: "none" | "open" | "closed" | "revealed"; taken: number; present: number; passed: number; avgPct: number; passPct: number;
   /** How long it ran, ended days only (ms; owner 16 Nov). */
@@ -795,7 +808,7 @@ export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null
     title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
     avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, ranMs: ranMs(t.sessions ?? []), leaderboard: board, questions: analytics(qz.quiz, done),
     certificates: {
-      list: certs.map((c) => ({ th: c.th, name: c.name, email: c.email, certNo: c.certNo, day: c.day, pct: c.pct, badge: c.badge, emailedAt: c.emailedAt ?? null, error: c.error || null })),
+      list: certs.map((c) => ({ th: c.th, name: c.name, email: c.email, certNo: c.certNo, gsNo: c.gsNo, day: c.day, pct: c.pct, badge: c.badge, emailedAt: c.emailedAt ?? null, error: c.error || null })),
     },
   };
 }

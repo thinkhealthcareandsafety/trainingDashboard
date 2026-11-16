@@ -283,7 +283,7 @@ function CertificateCard({ c, number, th, token, onSaved }: { c: Certificate; nu
     : <>Where shall we email it?</>;
   return (
     <div className="qz-card">
-      <h3 className="qz-board-title">Your certificate</h3>
+      <h3 className="qz-board-title">Your Good Samaritan certificate</h3>
       <p className="qz-note" style={{ fontSize: "1rem" }}>{text}</p>
       {askEmail && (
         <form className="qz-field" onSubmit={save}>

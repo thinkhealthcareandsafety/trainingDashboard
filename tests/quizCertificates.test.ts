@@ -116,7 +116,7 @@ test("a fail tries again while the training runs; a pass is final; the certifica
   const pdf = async () => new Uint8Array([37, 80, 68, 70]);
   const r = await sendCertificates("1", "riya", { mailer, pdf });
   assert.deepEqual([r.sent, r.noEmail, r.failed.length], [1, 1, 0]); // Asha emailed; Vikram has no email yet
-  assert.deepEqual(sent, [{ to: "asha@grand.com", subject: "Your certificate · CPR, AED and First aid Training", files: ["Certificate - Asha Rao.pdf"] }]);
+  assert.deepEqual(sent, [{ to: "asha@grand.com", subject: "Your certificate · CPR, AED and First aid Training", files: ["Good Samaritan certificate - Asha Rao.pdf"] }]); // owner, 16 Nov: participants get the Good Samaritan one
   assert.deepEqual((await sendCertificates("1", "riya", { mailer, pdf })).sent, 0); // never twice
 
   // Vikram gives his email: his goes now; Meera (failed) can't ask for one.
@@ -148,9 +148,29 @@ test("a multi-day training: a pass on day 1 gets the certificate on day 1", asyn
 });
 
 test("the passed list as CSV: Excel-ready (BOM), quoted where needed, India's dates", () => {
-  const csv = passedCsv([{ th: "TH001", name: "Rao, Asha", email: "asha@grand.com", pct: 100, badge: true, day: "2026-12-04", certNo: "FAT-OD/04-12-2026/TH001", emailedAt: "2026-12-04T20:00:00Z" }]);
+  const csv = passedCsv([{ th: "TH001", name: "Rao, Asha", email: "asha@grand.com", pct: 100, badge: true, day: "2026-12-04", certNo: "FAT-OD/04-12-2026/TH001", gsNo: "IAGS-SN/007", emailedAt: "2026-12-04T20:00:00Z" }]);
   const [head, row] = csv.replace(/^\uFEFF/, "").trim().split("\r\n");
   assert.ok(csv.startsWith("\uFEFF"));
-  assert.equal(head, "TH number,Name,Email,Score %,First Aid Badge,Training day,Certificate no.,Certificate emailed");
-  assert.equal(row, `TH001,"Rao, Asha",asha@grand.com,100,Yes,04/12/2026,FAT-OD/04-12-2026/TH001,05/12/2026`); // 8 pm UTC is the 5th in India
+  assert.equal(head, "TH number,Name,Email,Score %,First Aid Badge,Training day,Certificate no.,Good Samaritan no.,Good Samaritan emailed");
+  assert.equal(row, `TH001,"Rao, Asha",asha@grand.com,100,Yes,04/12/2026,FAT-OD/04-12-2026/TH001,IAGS-SN/007,05/12/2026`); // 8 pm UTC is the 5th in India
+});
+
+test("the Good Samaritan certificate (owner, 16 Nov): its own number, one counter for everyone, never twice; drawn on the owner's design", async () => {
+  const { goodSamaritanNumber, goodSamaritanPdf } = await import("@/lib/goodSamaritan");
+  const { certificateLines } = await import("@/lib/portalTrainings");
+  assert.equal(goodSamaritanNumber(7), "IAGS-SN/007");
+  assert.equal(goodSamaritanNumber(1234), "IAGS-SN/1234");
+  const template = new Uint8Array(await readFile("assets/certificates/good-samaritan.pdf"));
+  const font = new Uint8Array(await readFile(`public/certificate-fonts/${CERT_FONT_FILES.name}`));
+  const doc = await PDFDocument.load(await goodSamaritanPdf(template, font, { name: "Asha Rao", certNo: "IAGS-SN/007" }));
+  assert.equal(doc.getPageCount(), 1);
+  assert.match(doc.getTitle() ?? "", /Asha Rao/);
+  await assert.rejects(goodSamaritanPdf(template, font, { name: " ", certNo: "x" }), /needs a name/);
+  // Numbers follow people, in order, across trainings: three passers → 001, 002, 003; kept, never renumbered.
+  const today = indiaToday();
+  await seed([today]);
+  await startTraining(RIYA, "1");
+  for (const th of ["TH001", "TH002", "TH003"]) { await tick(RIYA, "1", th, today, true); await take(th, await token(th), KEY); }
+  assert.deepEqual((await certificateLines("1")).map((l) => l.gsNo).sort(), ["IAGS-SN/001", "IAGS-SN/002", "IAGS-SN/003"]);
+  assert.deepEqual((await certificateLines("1")).map((l) => l.gsNo).sort(), ["IAGS-SN/001", "IAGS-SN/002", "IAGS-SN/003"]);
 });

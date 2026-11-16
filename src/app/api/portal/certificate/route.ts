@@ -1,21 +1,21 @@
 import { participantCertificate } from "@/lib/portalTrainings";
-import { certificatePdf } from "@/lib/portalCertSend";
-import { certFileName } from "@/lib/portalCertRules";
+import { goodSamaritanCertificate } from "@/lib/portalCertSend";
+import { goodSamaritanFileName } from "@/lib/portalCertRules";
 
 export const dynamic = "force-dynamic";
 
 /*
  * A participant's certificate (owner, 14 Nov), from their private page: GET ?n=<Training Number>&th=<TH001>&p=<token>.
- * Once they've passed the quiz (owner, 16 Nov).
+ * Once they've passed the quiz: their Good Samaritan certificate (owner, 16 Nov).
  */
 export async function GET(request: Request) {
   const s = new URL(request.url).searchParams;
   try {
     const c = await participantCertificate(s.get("n"), s.get("th"), s.get("p"));
     if (!c) return Response.json({ error: "Your certificate comes once you pass the quiz." }, { status: 404 });
-    const pdf = await certificatePdf(c);
+    const pdf = await goodSamaritanCertificate(c);
     return new Response(Buffer.from(pdf), {
-      headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${certFileName(c.name).replace(/"/g, "")}"`, "Cache-Control": "private, no-store" },
+      headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${goodSamaritanFileName(c.name).replace(/"/g, "")}"`, "Cache-Control": "private, no-store" },
     });
   } catch (e) {
     console.error("[portal/certificate]", e);

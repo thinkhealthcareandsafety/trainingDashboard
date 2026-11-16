@@ -6,7 +6,8 @@ import { db } from "./db";
 import { CERT_FONT_FILES, type FontBytes, singleCertificate } from "./certPdf";
 import type { DesignId } from "./certificates";
 import { type CertLine, certificateLines, recordCertificate } from "./portalTrainings";
-import { certEmail, certFileName } from "./portalCertRules";
+import { certEmail, goodSamaritanFileName } from "./portalCertRules";
+import { goodSamaritanPdf } from "./goodSamaritan";
 import { certTemplate } from "./templateStore";
 import { portalBase } from "./portalHost";
 import { trainingLink } from "./portalEmail";
@@ -36,7 +37,18 @@ async function designBytes(id: DesignId): Promise<Uint8Array> {
   return new Uint8Array(d.pdf.buffer);
 }
 
-/** One person's certificate as a PDF. */
+let gsBytes: Promise<[Uint8Array, Uint8Array]> | null = null;
+/** The Good Samaritan certificate (owner, 16 Nov): what participants get, on the owner's design (assets/certificates). */
+export async function goodSamaritanCertificate(c: Pick<CertLine, "name" | "gsNo">): Promise<Uint8Array> {
+  gsBytes ??= Promise.all([
+    readFile(path.join(process.cwd(), "assets", "certificates", "good-samaritan.pdf")),
+    readFile(path.join(process.cwd(), "public", "certificate-fonts", CERT_FONT_FILES.name)),
+  ]).then(([t, f]) => [new Uint8Array(t), new Uint8Array(f)] as [Uint8Array, Uint8Array]).catch((e) => { gsBytes = null; throw e; });
+  const [template, font] = await gsBytes;
+  return goodSamaritanPdf(template, font, { name: c.name, certNo: c.gsNo });
+}
+
+/** One person's official certificate (the Fulfillment design) as a PDF: for the coordinator once paid, and for staff. */
 export async function certificatePdf(c: CertLine): Promise<Uint8Array> {
   return singleCertificate(await designBytes(c.design), { serial: 0, certNo: c.certNo, name: c.name, location: c.location, course: c.course, date: c.day }, await fontBytes());
 }
@@ -55,7 +67,7 @@ export async function sendCertificates(trainingId: string, by: string, opts: { o
   const out: SendResult = { sent: 0, noEmail: 0, failed: [] };
   if (!opts.mailer && process.env.VERCEL_ENV !== "production") throw new Error("Only the live site sends certificates.");
   const mailer: Mailer = opts.mailer ?? ((to, m) => sendMail(FROM, { to, ...m }));
-  const make = opts.pdf ?? certificatePdf;
+  const make = opts.pdf ?? goodSamaritanCertificate; // participants get the Good Samaritan one (owner, 16 Nov)
   const t = await certTemplate();
   for (const c of await certificateLines(trainingId)) {
     if (opts.only && c.th !== opts.only) continue;
@@ -63,8 +75,8 @@ export async function sendCertificates(trainingId: string, by: string, opts: { o
     if (!c.email) { out.noEmail++; continue; }
     try {
       const pdf = await make(c);
-      const m = certEmail(t, { name: c.name, training: c.course, score: `${c.pct}%`, link: pageLink(c), certno: c.certNo });
-      const r = await mailer(c.email, { subject: m.subject, html: m.html, attachments: [{ name: certFileName(c.name), bytes: pdf }] });
+      const m = certEmail(t, { name: c.name, training: c.course, score: `${c.pct}%`, link: pageLink(c), certno: c.gsNo });
+      const r = await mailer(c.email, { subject: m.subject, html: m.html, attachments: [{ name: goodSamaritanFileName(c.name), bytes: pdf }] });
       await recordCertificate(trainingId, c.th, { emailedAt: new Date().toISOString(), email: c.email, attached: r.attached > 0, by });
       out.sent++;
     } catch (e) {
