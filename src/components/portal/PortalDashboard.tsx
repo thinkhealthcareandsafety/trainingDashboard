@@ -259,6 +259,11 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
   // Confirmed (owner, 16 Nov): the QR first, then the leaderboard, participants, details; the quotation goes to the bottom.
   const confirmed = Boolean(t.proposal && t.confirmedAt && !t.rejected);
+  // Once the training has started (owner, 16 Nov: "hide these details by default when the training is started, small
+  // button to unhide"): On / At / For, the quotation and what's included fold away.
+  const started = confirmed && (t.sessions.length > 0 || Boolean(t.completedAt));
+  const [details, setDetails] = useState(false);
+  const folded = started && !details;
   const myPage = t.me ? `${typeof location !== "undefined" ? portalPrefix(location.host) : ""}/${encodeURIComponent(t.number)}/${t.me.th}?p=${encodeURIComponent(t.me.token)}` : "";
   // From the team ask: "Share the QR code" goes to the one QR card; "Add names" opens Type names (owner, 16 Nov).
   const goPeople = (to: "type" | "qr") => {
@@ -335,7 +340,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             <RejectForm id={t.id} onCancel={() => setDeclining(false)} onDone={(reason) => { setT({ ...t, stamp: "Rejected", rejected: { at: new Date().toISOString(), reason } }); setDeclining(false); setPeople(false); }} />
           </>
         ) : t.proposal && t.confirmedAt ? (
-          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} onChanged={reload} people={peopleBlock} />
+          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} onChanged={reload} people={peopleBlock} folded={folded} onDetails={() => setDetails((x) => !x)} detailsOpen={started && details} />
         ) : t.proposal ? (
           <>
             <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
@@ -366,16 +371,16 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           The toggle doesn't animate its colour (transition-none), so no frame shows it blank. */}
       {!t.rejected && t.proposal && !confirmed && <div className="border-b border-line p-5 sm:p-7">{peopleBlock}</div>}
 
-      {confirmed && <QuoteSection t={t} key="decided" />}
+      {confirmed && !folded && <QuoteSection t={t} key="decided" />}
 
-      <div className="p-5 sm:p-7">
+      {!folded && <div className="p-5 sm:p-7">
         <div className="min-w-0">
           <p className={sub}>What&apos;s included</p>
           <div className="mt-2 space-y-4">
             {t.lines.map((l, i) => <Included key={i} name={t.lines.length > 1 ? l.name : ""} text={l.description} />)}
           </div>
         </div>
-      </div>
+      </div>}
     </article>
   );
 }
@@ -556,7 +561,14 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
   );
 }
 
-function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode }) {
+function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people, folded = false, onDetails, detailsOpen = false }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode; folded?: boolean; onDetails?: () => void; detailsOpen?: boolean }) {
+  const toggle = onDetails && (folded || detailsOpen) ? (
+    <button type="button" onClick={onDetails} aria-expanded={!folded} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-semibold text-action ring-1 ring-inset ring-action/30 transition hover:bg-action/5">
+      <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden className={folded ? "" : "rotate-180"}><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      {folded ? "Show training details" : "Hide training details"}
+    </button>
+  ) : null;
+  const detailsBlock = <div className="mt-7 border-t border-line pt-6">{toggle && <div className={folded ? "" : "mb-4"}>{toggle}</div>}{!folded && <ConfirmedDetails t={t} p={p} title={title} />}</div>;
   const peopleHere = <>{t.officialCerts && <div className="mt-7 border-t border-line pt-6"><Certificates t={t} /></div>}<div className="mt-7 border-t border-line pt-6">{people}</div></>;
   const qr = attendKey && onTheDay ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big /> : null;
   // The report (owner, 16 Nov): once the coordinator ends a day (and isn't running or about to start another), and after it's completed.
@@ -571,7 +583,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
         {/* Ended by mistake: Start again is still there on the day. */}
         {w.state === "ended" && !t.completedAt && <div className="mt-7"><TodayStrip t={t} meta={meta} onChanged={onChanged} /></div>}
         {peopleHere}
-        <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
+        {detailsBlock}
         <p className="mt-5 text-[14.5px] text-ink-2">{t.completedAt ? "Thank you for organising it with us." : <>To change anything now, {contact}.</>}</p>
       </>
     );
@@ -594,7 +606,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
         </div>
         {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
         {peopleHere}
-        <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
+        {detailsBlock}
         <p className="mt-5 text-[14.5px] text-ink-2">To change anything now, {contact}.</p>
       </>
     );
@@ -612,7 +624,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
       )}
       {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
       {peopleHere}
-      <div className="mt-7 border-t border-line pt-6"><ConfirmedDetails t={t} p={p} title={title} /></div>
+      {detailsBlock}
       <p className="mt-6 text-[14.5px] text-ink-2"><b className="text-ink">Confirmed by Think Health.</b> To change anything now, {contact}.</p>
     </>
   );
