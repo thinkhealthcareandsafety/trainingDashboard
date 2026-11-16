@@ -24,7 +24,7 @@ import { editOf, piEmail, readPiEmailFields, readTrainers, textToHtml, zohoTrain
 import { after } from "next/server";
 import { fmtProposalDate, indiaToday } from "@/lib/portalRules";
 import { piTemplate, templateOverrides } from "@/lib/templateStore";
-import { signature } from "@/lib/quoteEmails";
+import { mergeCc, signature } from "@/lib/quoteEmails";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +100,8 @@ export async function GET(request: Request) {
         total: inr(draft.total), sign: `Warm regards,\n${signature(q.salesperson || me.name, await templateOverrides())}`,
       });
       const to = t.coordinator?.email ? [t.coordinator.email] : q.contact?.email ? [q.contact.email] : [];
-      const cc = q.contact?.email && !to.includes(q.contact.email.toLowerCase()) ? [q.contact.email.toLowerCase()] : [];
+      // Cc sales@ like the quotation emails (owner, 16 Nov), and the quote's contact when it isn't the coordinator.
+      const cc = mergeCc(to, q.contact?.email ? [q.contact.email] : []);
       return Response.json({ draft, email: { to, cc, subject: m.subject, text: m.text }, emailedAt: t.confirmed.emailedAt ?? null, live: process.env.VERCEL_ENV === "production" });
     }
     const d = await db();

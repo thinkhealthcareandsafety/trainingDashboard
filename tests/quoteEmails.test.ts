@@ -154,10 +154,11 @@ test("the signature is the sender's: first line their name, Proprietor only for 
   assert.match(buildQuoteEmail("new", { ...base, salesperson: "Pranjal Nikalje", signer: "Ashish Dalal", lines }).text, /Warm regards,\nAshish Dalal\nTHINK HEALTH/);
 });
 
-test("Cc: always sales@ and sshah@, each address once, none already in To", () => {
-  assert.deepEqual(mergeCc(["a@x.in"], []), ["sales@thinkhealth.in", "sshah@thinkhealth.in"]);
-  assert.deepEqual(mergeCc(["a@x.in"], ["b@x.in", "SALES@thinkhealth.in", "b@x.in"]), ["sales@thinkhealth.in", "sshah@thinkhealth.in", "b@x.in"]);
-  assert.deepEqual(mergeCc(["sshah@thinkhealth.in"], []), ["sales@thinkhealth.in"]);
+test("Cc: always sales@ only (owner, 16 Nov: not sshah@), each address once, none already in To", () => {
+  assert.deepEqual(mergeCc(["a@x.in"], []), ["sales@thinkhealth.in"]);
+  assert.deepEqual(mergeCc(["a@x.in"], ["b@x.in", "SALES@thinkhealth.in", "b@x.in"]), ["sales@thinkhealth.in", "b@x.in"]);
+  assert.deepEqual(mergeCc(["sales@thinkhealth.in"], []), []);
+  assert.deepEqual(mergeCc(["a@x.in"], ["sshah@thinkhealth.in"]), ["sales@thinkhealth.in", "sshah@thinkhealth.in"]); // typed in by hand: kept
 });
 
 test("the Zia brief carries the request, items, total and the quote number in its subject", () => {
@@ -178,6 +179,6 @@ test("the Flow prompt asks for the email only; Zia's reply splits into subject a
 });
 
 test("the fixed Cc addresses are ticked by default; an unticked one stays off (owner, 11 Nov)", () => {
-  assert.deepEqual(mergeCc(["a@x.com"], ["b@x.com"]), ["sales@thinkhealth.in", "sshah@thinkhealth.in", "b@x.com"]);
-  assert.deepEqual(mergeCc(["a@x.com"], ["b@x.com"], ["SShah@thinkhealth.in"]), ["sales@thinkhealth.in", "b@x.com"]);
+  assert.deepEqual(mergeCc(["a@x.com"], ["b@x.com"]), ["sales@thinkhealth.in", "b@x.com"]);
+  assert.deepEqual(mergeCc(["a@x.com"], ["b@x.com"], ["Sales@thinkhealth.in"]), ["b@x.com"]);
 });

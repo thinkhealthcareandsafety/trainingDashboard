@@ -92,11 +92,11 @@ test("the Items page's Everything also gets inactive items; quotations never do"
   assert.deepEqual(await ask("items=1&all=1"), [["1", true], ["2", false]]);
 });
 
-test("the two fixed Cc addresses count towards the 20-address limit", async () => {
+test("the fixed Cc address (sales@) counts towards the 20-address limit", async () => {
   const list = (n: number) => Array.from({ length: n }, (_, i) => `p${i}@example.com`).join(",");
-  assert.match((await email({ ...mail, to: list(19) })).j.error, /At most 20/); // 19 + 2
-  assert.match((await email({ ...mail, to: list(18) })).j.error, /isn't connected/); // 18 + 2
-  assert.match((await email({ ...mail, to: `${list(18)},sales@thinkhealth.in,sshah@thinkhealth.in` })).j.error, /isn't connected/); // they're in To: not twice
+  assert.match((await email({ ...mail, to: list(20) })).j.error, /At most 20/); // 20 + 1
+  assert.match((await email({ ...mail, to: list(19) })).j.error, /isn't connected/); // 19 + 1
+  assert.match((await email({ ...mail, to: `${list(19)},sales@thinkhealth.in` })).j.error, /isn't connected/); // they're in To: not twice
 });
 
 const tsMail = { tsEstimateId: "9001", to: "asha@example.com", subject: "Quotation-2026-11-05-001", markups: "5" };
