@@ -233,7 +233,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const [editing, setEditing] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [people, setPeople] = useState(false);
-  const [openTab, setOpenTab] = useState<{ tab: "type" | "excel" | "qr"; n: number } | undefined>(undefined);
+  const [openTab, setOpenTab] = useState<{ tab: "type" | "excel"; n: number } | undefined>(undefined);
   const [attendKey, setAttendKey] = useState(t.attendKey);
   const [live, setLive] = useState<Live>({ present: 0, total: t.registered });
   // A fresh copy from the live refresh: taken in, except while they're filling in Accept / Decline (their form stays).
@@ -257,19 +257,31 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   // Confirmed (owner, 16 Nov): the QR first, then the leaderboard, participants, details; the quotation goes to the bottom.
   const confirmed = Boolean(t.proposal && t.confirmedAt && !t.rejected);
   const myPage = t.me ? `${typeof location !== "undefined" ? portalPrefix(location.host) : ""}/${encodeURIComponent(t.number)}/${t.me.th}?p=${encodeURIComponent(t.me.token)}` : "";
-  const goPeople = (tab: "type" | "qr") => {
-    setPeople(true); setOpenTab({ tab, n: Date.now() });
-    setTimeout(() => document.getElementById(`people-${t.number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" }), 50);
+  // From the team ask: "Share the QR code" goes to the one QR card; "Add names" opens Type names (owner, 16 Nov).
+  const goPeople = (to: "type" | "qr") => {
+    if (to === "type") { setPeople(true); setOpenTab({ tab: "type", n: Date.now() }); }
+    setTimeout(() => document.getElementById(to === "qr" ? `qr-${t.number}` : `people-${t.number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: to === "qr" ? "center" : "start" }), 50);
   };
+  // Accepted, not yet confirmed: the one QR sits above the list, so they can start registering people (owner, 16 Nov).
+  const earlyQr = !confirmed && t.proposal && !t.rejected && attendKey ? (
+    <div id={`qr-${t.number}`} className="mb-6 scroll-mt-24 border-b border-line pb-6">
+      <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={setAttendKey}>
+        <p className={sub}>Your training&apos;s QR</p>
+        <p className="mt-2 max-w-[46ch] text-[15px] leading-relaxed text-ink-2">Your team scans it (or opens the link) to register with their name and mobile number. On the training day the same code marks their attendance.</p>
+      </AttendQr>
+    </div>
+  ) : null;
   const peopleBlock = (
     <div id={`people-${t.number}`} className="scroll-mt-6">
+      {earlyQr}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className={sub}>Participants</p>
           <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
           {myPage && <a className="mt-1 inline-block text-[14px] font-semibold text-action hover:underline" href={myPage}>Your own page ({t.me!.th})</a>}
         </div>
-        <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>
+        {/* One way in at a time (owner, 16 Nov): while "get your team registered" is asked, its buttons are the way in. */}
+        {!(confirmed && t.selfPrompt === "team") && <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>}
       </div>
       <div className="mt-5"><Participants t={tool} adding={people} openTab={openTab} onCount={(registered) => setT((x) => ({ ...x, registered }))} onLive={setLive} /></div>
     </div>
@@ -536,7 +548,7 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
 
 function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode }) {
   const peopleHere = <div className="mt-7 border-t border-line pt-6">{people}</div>;
-  const qr = attendKey ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big={onTheDay} /> : null;
+  const qr = attendKey && onTheDay ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big /> : null;
   // The report (owner, 16 Nov): once the coordinator ends a day (and isn't running or about to start another), and after it's completed.
   const ended = t.sessions.some((s) => s.endedAt);
   if (t.completedAt || (ended && t.window.state !== "open" && t.window.state !== "waiting")) {
@@ -562,7 +574,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
       <>
         {/* Training today (owner, 13 Nov): the strip with Start / End, then the QR large with the live count; the details below. */}
         <TodayStrip t={t} meta={meta} onChanged={onChanged} />
-        <div className="mt-6 grid items-center gap-6 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
+        <div id={`qr-${t.number}`} className="mt-6 grid scroll-mt-24 items-center gap-6 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
           {qr}
           <div className="text-center sm:text-left" aria-live="polite">
             <p className="num text-[64px] font-extrabold leading-none tracking-[-0.03em] text-ink"><CountUp value={live.present} /><span className="text-[28px] font-bold tracking-normal text-muted"> of {live.total}</span></p>
@@ -580,13 +592,12 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
   return (
     <>
       <h4 className="mb-4 text-[18px] font-extrabold tracking-[-0.01em] text-ink">Training confirmed</h4>
-      {qr && (
-        <div className="grid items-center gap-5 sm:grid-cols-[184px_minmax(0,1fr)] sm:gap-8">
-          {qr}
-          <div className="text-center sm:text-left">
-            <p className={valueLabel}>Attendance QR</p>
-            <p className="mt-2 max-w-[44ch] text-[15px] leading-relaxed text-ink-2">{t.window.state === "after" ? "Attendance has closed." : "Works on the training day only. Print it, or show it on a screen: each person scans it and taps Present."}</p>
-          </div>
+      {attendKey && (
+        <div id={`qr-${t.number}`} className="scroll-mt-24">
+          <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey}>
+            <p className={valueLabel}>Your training&apos;s QR</p>
+            <p className="mt-2 max-w-[46ch] text-[15px] leading-relaxed text-ink-2">{t.window.state === "after" ? "Registration and attendance have closed." : "Your team scans it (or opens the link) to register now. On the training day the same code marks their attendance: print it, or show it on a screen."}</p>
+          </AttendQr>
         </div>
       )}
       {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}

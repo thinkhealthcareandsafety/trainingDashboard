@@ -133,13 +133,12 @@ const dayShort = (d: string) => fmtProposalDate({ date: d, time: "" }).replace(/
 const stampDay = (d: string) => dayShort(d).replace(/^\w+, /, "");
 
 /** The list always shows (owner, 12 Nov: "let me see the user without opening it"); the ways to add, when `adding`. */
-export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void; onLive?: (l: Live) => void; openTab?: { tab: "type" | "excel" | "qr"; n: number } }) {
+export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolTraining; adding: boolean; onCount: (n: number) => void; onLive?: (l: Live) => void; openTab?: { tab: "type" | "excel"; n: number } }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"type" | "excel" | "qr">(openTab?.tab ?? "type");
-  // "Share the QR code" from the team ask (owner, 16 Nov) opens the QR tab.
+  const [tab, setTab] = useState<"type" | "excel">(openTab?.tab ?? "type");
+  // "Add names" from the team ask (owner, 16 Nov) opens Type names.
   useEffect(() => { if (openTab) setTab(openTab.tab); }, [openTab?.n]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [joinKey, setJoinKey] = useState(t.joinKey);
   const [att, setAtt] = useState<{ days: string[]; window: DayWindow; on: boolean }>({ days: [], window: { state: "none", of: 0 }, on: false });
   const [busyTick, setBusyTick] = useState("");
   const today = indiaToday();
@@ -194,7 +193,8 @@ export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolT
     a.click();
   };
 
-  const tabs: { id: typeof tab; label: string }[] = [{ id: "type", label: "Type names" }, { id: "excel", label: "Excel / CSV" }, { id: "qr", label: "QR code" }];
+  // One QR per training (owner, 16 Nov): it's the card above; here only typing and a file.
+  const tabs: { id: typeof tab; label: string }[] = [{ id: "type", label: "Type names" }, { id: "excel", label: "Excel / CSV" }];
   return (
     <div className="space-y-6">
       {adding && <div>
@@ -207,14 +207,13 @@ export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolT
         <div className="pt-5">
           {tab === "type" && <TypeIn id={t.id} onAdded={update} />}
           {tab === "excel" && <ImportFile id={t.id} onAdded={update} />}
-          {tab === "qr" && <JoinLink t={t} joinKey={joinKey} onNew={setJoinKey} />}
         </div>
       </div>}
 
       <div>
         {error && <p className="mt-2 rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger" role="alert">{error}</p>}
         {!rows && !error && <p className="text-[14px] text-muted">Loading the list…</p>}
-        {rows && rows.length === 0 && <p className="text-[14.5px] text-muted">{adding ? "No one yet. Type names above, import a file, or share the QR code." : "No one yet. Add participants: type names, import a file, or share the QR code."}</p>}
+        {rows && rows.length === 0 && <p className="text-[14.5px] text-muted">{adding ? "No one yet. Type names above or import a file; or share the QR code." : "No one yet. Share the QR code, or add participants by name or from a file."}</p>}
         {rows && rows.length > 0 && (
           <ul className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
             <li className="flex items-center justify-between gap-3 bg-ground px-3.5 py-2">
@@ -224,8 +223,8 @@ export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolT
               <button type="button" className={linkBtn} onClick={download}>Download</button>
             </li>
             {rows.map((r) => (
-              <li key={r.th} className={`flex items-center gap-3 px-3.5 py-2.5 ${r.duplicate ? "bg-warn-bg" : "bg-surface"} ${att.days.some((d) => fresh.has(`${r.th}:${d}`)) ? "row-light" : ""}`}>
-                <span className="num w-14 shrink-0 text-[13px] font-semibold text-muted">{r.th}</span>
+              <li key={r.th} className={`flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-3.5 ${r.duplicate ? "bg-warn-bg" : "bg-surface"} ${att.days.some((d) => fresh.has(`${r.th}:${d}`)) ? "row-light" : ""}`}>
+                <span className="num w-11 shrink-0 text-[12.5px] font-semibold text-muted sm:w-14 sm:text-[13px]">{r.th}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[15px] font-semibold text-ink">{r.name}</span>
                   <span className="num block text-[13px] text-muted">{r.phone}{r.email ? ` · ${r.email}` : ""} · {SOURCE[r.source]}{r.duplicate && <b className="ml-1.5 font-bold text-warn">Same phone twice</b>}</span>
@@ -241,7 +240,7 @@ export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolT
                       return (
                         <button key={d} type="button" disabled={!can || busyTick === `${r.th}:${d}`} onClick={() => tick(r, d)} aria-pressed={here}
                           aria-label={here ? `${name}: present. Untick` : can ? `${name}: mark present` : `${name}: opens on the day`} title={att.days.length > 1 ? dayShort(d) : undefined}
-                          className={`grid h-9 place-items-center rounded-md transition-none ${att.days.length > 1 ? "w-[60px]" : "w-[76px]"} ${here ? "" : "ring-2 ring-inset ring-line-strong hover:ring-navy/50"} disabled:cursor-default ${!can && !here ? "opacity-40" : ""}`}>
+                          className={`grid h-9 place-items-center rounded-md transition-none ${att.days.length > 1 ? "w-[56px] sm:w-[60px]" : "w-[66px] sm:w-[76px]"} ${here ? "" : "ring-2 ring-inset ring-line-strong hover:ring-navy/50"} disabled:cursor-default ${!can && !here ? "opacity-40" : ""}`}>
                           {here && (
                             <span className={`inline-flex rotate-[-5deg] items-center rounded-[5px] border-2 border-navy px-1.5 pb-[3px] pt-[5px] text-navy shadow-[inset_0_0_0_1.5px_var(--surface),inset_0_0_0_3px_var(--navy)] ${fresh.has(`${r.th}:${d}`) ? "tick-stamp" : ""}`} aria-hidden>
                               <span className="num text-[10.5px] font-extrabold uppercase leading-none tracking-[0.12em]">{att.days.length > 1 ? stampDay(d) : "Present"}</span>
@@ -252,7 +251,7 @@ export function Participants({ t, adding, onCount, onLive, openTab }: { t: ToolT
                     })}
                   </span>
                 )}
-                {!r.present.length && <button type="button" className="shrink-0 rounded-lg px-2.5 py-1.5 text-[13.5px] font-semibold text-danger hover:bg-danger-bg" onClick={() => remove(r.th, r.name)}>Remove</button>}
+                {!r.present.length && <button type="button" className="shrink-0 rounded-lg px-1.5 py-1.5 text-[13px] font-semibold text-danger hover:bg-danger-bg sm:px-2.5 sm:text-[13.5px]" onClick={() => remove(r.th, r.name)}>Remove</button>}
               </li>
             ))}
           </ul>
@@ -355,45 +354,19 @@ function ImportFile({ id, onAdded }: { id: string; onAdded: (r: People) => void 
   );
 }
 
-function JoinLink({ t, joinKey, onNew }: { t: ToolTraining; joinKey: string; onNew: (k: string) => void }) {
-  const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const link = typeof window === "undefined" ? "" : `${location.origin}${portalPrefix(location.host)}/${encodeURIComponent(t.number)}/join?k=${joinKey}`;
-  const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { window.prompt("Copy this link:", link); } };
-  const png = () => { const a = document.createElement("a"); a.href = qrPng(link, [t.title, `Scan to join · ${t.number}`]); a.download = `QR ${t.number}.png`; a.click(); };
-  const whatsapp = `https://wa.me/?text=${encodeURIComponent(`Please register for the ${t.title} training: ${link}`)}`;
-  const renew = async () => {
-    if (!window.confirm("Make a new link? The old link and QR code will stop working, so share the new one.")) return;
-    setBusy(true);
-    const r = await act<{ joinKey?: string }>({ action: "newlink", id: t.id });
-    setBusy(false);
-    if (r.joinKey) onNew(r.joinKey); else window.alert(r.error ?? "Couldn't make a new link");
-  };
-  return (
-    <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-      <div className="mx-auto shrink-0 rounded-2xl p-2 ring-1 ring-line sm:mx-0"><Qr text={link} size={200} label={`QR code to join ${t.title}`} /></div>
-      <div className="min-w-0 flex-1 space-y-3">
-        <p className="text-[14.5px] leading-relaxed text-ink-2">Your team scans this, types their name and mobile number, and they&apos;re on the list with their own TH number. One person per mobile number: joining twice lists them once.</p>
-        <p className="break-all rounded-xl bg-ground px-3.5 py-2.5 font-mono text-[12.5px] text-ink-2">{link}</p>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={primaryBtn} onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
-          <button type="button" className={secondaryBtn} onClick={png}>Download QR</button>
-          <a className={secondaryBtn} href={whatsapp} target="_blank" rel="noopener noreferrer">Share on WhatsApp</a>
-        </div>
-        <button type="button" className={`${linkBtn} !text-muted`} onClick={renew} disabled={busy}>{busy ? "Making a new link…" : "Make a new link (the old one stops working)"}</button>
-      </div>
-    </div>
-  );
-}
-
 /**
- * The fixed attendance QR (owner, 13 Nov): printable and shown in advance; it works on the training's days only. A new QR
- * stops the old one (a forwarded copy, a lost printout). `big`: the training-day layout, where it leads the panel.
+ * The training's one QR (owner, 13 Nov; 16 Nov: "one QR"): from Accept it registers people (name + mobile → their own page);
+ * on the training day it marks attendance; closed after the last day. Copy link, WhatsApp, Print, Download; a new QR stops
+ * the old one (a forwarded copy, a lost printout). `big`: the training-day layout, where it leads the panel.
  */
-export function AttendQr({ id, number, title, attendKey, onNew, big = false }: { id: string; number: string; title: string; attendKey: string; onNew: (k: string) => void; big?: boolean }) {
+export function AttendQr({ id, number, title, attendKey, onNew, big = false, children }: { id: string; number: string; title: string; attendKey: string; onNew: (k: string) => void; big?: boolean; children?: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const link = typeof window === "undefined" ? "" : `${location.origin}${portalPrefix(location.host)}/${encodeURIComponent(number)}/attend?k=${attendKey}`;
-  const caption = [title, `Scan to mark your attendance · ${number}`];
+  const caption = [title, `Scan to register and mark attendance · ${number}`];
+  // Shareable (owner, 16 Nov): the same link by copy or WhatsApp.
+  const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { window.prompt("Copy this link:", link); } };
+  const whatsapp = `https://wa.me/?text=${encodeURIComponent(`${title}: register here, and on the training day use the same link to mark your attendance. ${link}`)}`;
   const png = () => { const a = document.createElement("a"); a.href = qrPng(link, caption); a.download = `Attendance QR ${number}.png`; a.click(); };
   const print = () => {
     const w = window.open("", "_blank", "width=720,height=900");
@@ -410,14 +383,35 @@ export function AttendQr({ id, number, title, attendKey, onNew, big = false }: {
     if (r.attendKey) onNew(r.attendKey); else window.alert(r.error ?? "Couldn't make a new QR");
   };
   return (
-    <div className={big ? "flex flex-col items-center gap-4" : "flex flex-col items-center gap-3 sm:items-start"}>
-      <div className="rounded-2xl p-2 ring-1 ring-line"><Qr text={link} size={big ? 260 : 168} label={`Attendance QR for ${title}`} /></div>
-      <div className={`flex flex-wrap gap-x-4 gap-y-1.5 ${big ? "justify-center" : ""}`}>
-        <button type="button" className={linkBtn} onClick={print}>Print</button>
-        <button type="button" className={linkBtn} onClick={png}>Download</button>
-        <button type="button" className={`${linkBtn} !text-muted`} onClick={renew} disabled={busy}>{busy ? "Making a new QR…" : "New QR"}</button>
+    big ? (
+      <div className="flex flex-col items-center gap-4">
+        <div className="rounded-2xl p-2 ring-1 ring-line"><Qr text={link} size={260} label={`QR for ${title}`} /></div>
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+          <button type="button" className={linkBtn} onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
+          <a className={linkBtn} href={whatsapp} target="_blank" rel="noopener noreferrer">Share on WhatsApp</a>
+          <button type="button" className={linkBtn} onClick={print}>Print</button>
+          <button type="button" className={linkBtn} onClick={png}>Download</button>
+          <button type="button" className={`${linkBtn} !text-muted`} onClick={renew} disabled={busy}>{busy ? "Making a new QR…" : "New QR"}</button>
+        </div>
       </div>
-    </div>
+    ) : (
+      // The card (owner, 16 Nov): the QR beside what it does, then Copy link and Share on WhatsApp as buttons.
+      <div className="grid items-center gap-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-8">
+        <div className="mx-auto rounded-2xl p-2 ring-1 ring-line sm:mx-0"><Qr text={link} size={168} label={`QR for ${title}`} /></div>
+        <div className="min-w-0 text-center sm:text-left">
+          {children}
+          <div className="mt-4 flex flex-wrap justify-center gap-2.5 sm:justify-start">
+            <button type="button" className={primaryBtn} onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
+            <a className={secondaryBtn} href={whatsapp} target="_blank" rel="noopener noreferrer">Share on WhatsApp</a>
+          </div>
+          <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1.5 sm:justify-start">
+            <button type="button" className={linkBtn} onClick={print}>Print</button>
+            <button type="button" className={linkBtn} onClick={png}>Download</button>
+            <button type="button" className={`${linkBtn} !text-muted`} onClick={renew} disabled={busy}>{busy ? "Making a new QR…" : "New QR"}</button>
+          </div>
+        </div>
+      </div>
+    )
   );
 }
 

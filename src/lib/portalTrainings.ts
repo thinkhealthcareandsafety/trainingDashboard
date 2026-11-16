@@ -189,7 +189,9 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
     let joinKey = t.joinKey;
     if (!joinKey) { joinKey = newKey(); await col.updateOne({ _id: t._id }, { $set: { joinKey } }); }
     let attendKey = t.attendKey ?? "";
-    if (t.confirmed?.zohoAt && !attendKey) { attendKey = newKey(); await col.updateOne({ _id: t._id }, { $set: { attendKey } }); }
+    // One QR per training (owner, 16 Nov), from Accept: it registers people before the day and marks attendance on it.
+    const qrOn = Boolean(t.proposal && !t.rejected && x.status !== "declined");
+    if (qrOn && !attendKey) { attendKey = newKey(); await col.updateOne({ _id: t._id }, { $set: { attendKey } }); }
     const cur = await datesOf(t);
     const marks = t.confirmed?.zohoAt ? await marksOf(t._id) : [];
     const list = await peopleOf(t._id);
@@ -202,7 +204,7 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       expected: x.expected, stamp: stampOf(t, x.status, cur.completedAt), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.zohoAt ?? null, locked: Boolean(t.confirmed),
       rejected: t.rejected ? { at: t.rejected.at, reason: t.rejected.reason } : x.status === "declined" && !t.confirmed ? { at: "", reason: "" } : null,
       dates: cur.dates, datesWas: cur.was, tbd: cur.tbd, trainers: cur.trainers, completedAt: cur.completedAt,
-      attendKey: t.confirmed?.zohoAt ? attendKey : "", window: sessionWindow(daysOf(cur), indiaToday(), t.sessions), attended: presentByPerson(marks).size,
+      attendKey: qrOn ? attendKey : "", window: sessionWindow(daysOf(cur), indiaToday(), t.sessions), attended: presentByPerson(marks).size,
       session: (() => { const ss = (t.sessions ?? []).find((x) => x.day === indiaToday()); return ss ? { startedAt: ss.startedAt, endedAt: ss.endedAt ?? null } : null; })(),
       sessions: (t.sessions ?? []).map((s) => ({ day: s.day, startedAt: s.startedAt, endedAt: s.endedAt ?? null })).sort((a, b) => a.day.localeCompare(b.day)),
       selfPrompt, me: mine ? { th: mine._id, token: mine.token } : null,
@@ -419,12 +421,26 @@ export async function participantPage(number: unknown, th: unknown, token: unkno
  * per person per day; the coordinator can tick and untick too.
  */
 type AttendLink = { t: TrainingDoc; q: TrainingQuote; cur: CurrentDates; win: DayWindow };
+/**
+ * What the one QR does now (owner, 16 Nov): "present" on a confirmed training's day (until End); "register" before it (and
+ * between days): name + mobile → on the list with their own page; "closed" once the last day is over or ended.
+ */
+export type AttendMode = "present" | "register" | "closed";
+function modeOf(j: AttendLink): AttendMode {
+  if (j.t.confirmed?.zohoAt && markable(j.win)) return "present";
+  const days = daysOf(j.cur);
+  const last = [...days].sort().at(-1);
+  if (j.win.state === "after" || (j.win.state === "ended" && j.win.day === last)) return "closed";
+  return "register";
+}
+const closedText = "Registration and attendance for this training have closed. For anything about it, speak to your training coordinator.";
+const refuse = (j: AttendLink, mode: AttendMode): Fail => ({ error: mode === "closed" ? closedText : shutText(j.win), status: 409 });
 async function byAttendLink(number: unknown, key: unknown): Promise<AttendLink | null> {
   const id = await idOfNumber(String(number ?? ""));
   if (!id) return null;
   const t = await (await trainingsCol()).findOne({ _id: id });
   const k = String(key ?? "");
-  if (!t?.attendKey || !k || !same(t.attendKey, k) || t.rejected || !t.confirmed?.zohoAt) return null;
+  if (!t?.attendKey || !k || !same(t.attendKey, k) || t.rejected || !t.proposal) return null;
   const q = (await quotes(new Set([id]))).get(id);
   if (!q) return null;
   const cur = await datesOf(t);
@@ -438,7 +454,7 @@ export const shutText = (w: DayWindow) =>
   : w.state === "after" ? "Attendance for this training has closed." : "The training date isn't set yet. Please speak to your training coordinator.";
 
 export type AttendMe = { th: string; name: string; presentToday: boolean };
-export type AttendInfo = { training: string; customer: string; coordinator: string; dates: ProposalDate[]; window: DayWindow; shut: string; me: AttendMe | null };
+export type AttendInfo = { training: string; customer: string; coordinator: string; dates: ProposalDate[]; window: DayWindow; shut: string; me: AttendMe | null; mode: AttendMode };
 type Cookie = { th: string; token: string } | null;
 
 /** The person the phone remembers, when they're still on this training's list. */
@@ -448,7 +464,7 @@ async function remembered(j: AttendLink, c: Cookie): Promise<ParticipantDoc | nu
   return p && p.trainingId === j.t._id && same(p.token, c.token) ? p : null;
 }
 async function meOf(j: AttendLink, p: ParticipantDoc): Promise<AttendMe> {
-  const day = markable(j.win) ? j.win.day : "";
+  const day = modeOf(j) === "present" && markable(j.win) ? j.win.day : "";
   const marked = day ? await (await attendCol()).findOne({ _id: attendanceId(p._id, day) }) : null;
   return { th: p._id, name: p.name, presentToday: Boolean(marked) };
 }
@@ -459,7 +475,7 @@ export async function attendInfo(number: unknown, key: unknown, c: Cookie): Prom
   const p = await remembered(j, c);
   return {
     training: titleOf(j.q), customer: j.q.customer, coordinator: j.t.coordinator?.name ?? "", dates: j.cur.dates, window: j.win,
-    shut: markable(j.win) ? "" : shutText(j.win), me: p ? await meOf(j, p) : null,
+    shut: modeOf(j) === "closed" ? closedText : "", me: p ? await meOf(j, p) : null, mode: modeOf(j),
   };
 }
 
@@ -467,7 +483,7 @@ export async function attendInfo(number: unknown, key: unknown, c: Cookie): Prom
 export async function attendIdentify(number: unknown, key: unknown, phoneRaw: unknown): Promise<{ me: AttendMe; cookie: { th: string; token: string } } | { register: true } | Fail> {
   const j = await byAttendLink(number, key);
   if (!j) return badAttendLink;
-  if (!markable(j.win)) return { error: shutText(j.win), status: 409 };
+  if (modeOf(j) === "closed") return refuse(j, "closed");
   const phone = cleanPhone(String(phoneRaw ?? ""));
   if (!phone) return { error: "Type your 10-digit mobile number", status: 400 };
   const p = (await peopleOf(j.t._id)).find((x) => x.phone === phone);
@@ -478,14 +494,15 @@ export async function attendIdentify(number: unknown, key: unknown, phoneRaw: un
 export async function attendRegister(number: unknown, key: unknown, raw: unknown): Promise<{ me: AttendMe; cookie: { th: string; token: string } } | Fail> {
   const j = await byAttendLink(number, key);
   if (!j) return badAttendLink;
-  if (!markable(j.win)) return { error: shutText(j.win), status: 409 };
+  const mode = modeOf(j);
+  if (mode === "closed") return refuse(j, mode);
   const person = readPerson(raw);
   if ("error" in person) return { error: person.error, status: 400 };
   const have = await peopleOf(j.t._id);
   const already = have.find((x) => x.phone === person.phone);
   if (already) return { me: await meOf(j, already), cookie: { th: already._id, token: already.token } };
   if (have.length >= MAX_PEOPLE) return { error: "This training's list is full. Please speak to your training coordinator.", status: 409 };
-  const [doc] = await insertPeople(j.t._id, [person], "walkin");
+  const [doc] = await insertPeople(j.t._id, [person], mode === "present" ? "walkin" : "qr");
   return { me: await meOf(j, doc), cookie: { th: doc._id, token: doc.token } };
 }
 
@@ -493,7 +510,8 @@ export async function attendRegister(number: unknown, key: unknown, raw: unknown
 export async function attendPresent(number: unknown, key: unknown, c: Cookie): Promise<{ th: string; token: string; name: string; already: boolean } | Fail> {
   const j = await byAttendLink(number, key);
   if (!j) return badAttendLink;
-  if (!markable(j.win)) return { error: shutText(j.win), status: 409 };
+  const mode = modeOf(j);
+  if (mode !== "present" || !markable(j.win)) return refuse(j, mode);
   const p = await remembered(j, c);
   if (!p) return { error: "Type your mobile number first.", status: 401 };
   const _id = attendanceId(p._id, j.win.day);
@@ -501,6 +519,14 @@ export async function attendPresent(number: unknown, key: unknown, c: Cookie): P
   const had = await col.findOne({ _id });
   if (!had) await col.insertOne({ _id, trainingId: j.t._id, th: p._id, day: j.win.day, at: new Date().toISOString(), how: "self", by: p._id });
   return { th: p._id, token: p.token, name: p.name, already: Boolean(had) };
+}
+
+/** Their own page, for the person this phone remembers (the one QR's "Open my page" before the day, owner 16 Nov). */
+export async function attendPage(number: unknown, key: unknown, c: Cookie): Promise<{ th: string; token: string } | Fail> {
+  const j = await byAttendLink(number, key);
+  if (!j) return badAttendLink;
+  const p = await remembered(j, c);
+  return p ? { th: p._id, token: p.token } : { error: "Type your mobile number first.", status: 401 };
 }
 
 /** The coordinator ticks or unticks someone, on a training day that has come (not one still ahead). */
@@ -780,7 +806,7 @@ export async function staffQuizResults(id: string): Promise<QuizResults | null> 
 export async function newAttendKey(email: string, id: unknown): Promise<{ attendKey: string } | Fail> {
   const t = await own(email, id);
   if (!t) return notYours;
-  if (!t.confirmed?.zohoAt) return { error: "The attendance QR comes once Think Health confirms the training.", status: 409 };
+  if (!t.proposal || t.rejected) return { error: "The QR comes once you accept the quotation.", status: 409 };
   const attendKey = newKey();
   await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { attendKey } });
   return { attendKey };

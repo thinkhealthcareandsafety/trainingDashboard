@@ -41,8 +41,7 @@ export async function performaDeleted(salesorderId: string): Promise<number> {
     await unconfirm(t._id, "deleted in Zoho");
     const marks = await col("portalAttendance");
     for (const m of (await marks.find({ trainingId: t._id }).toArray()).filter((x) => x.trainingId === t._id)) await marks.deleteOne({ _id: m._id });
-    await (await col("portalTrainings")).updateOne({ _id: t._id }, { $unset: { attendKey: "" } });
-    console.log(`[portal] ${String((t.confirmed as { number?: string }).number ?? salesorderId)} deleted in Zoho: training ${t._id} back to Accepted, attendance cleared`);
+    console.log(`[portal] ${String((t.confirmed as { number?: string }).number ?? salesorderId)} deleted in Zoho: training ${t._id} back to Accepted, attendance cleared (the QR stays: it registers people since Accept, owner 16 Nov)`);
   }
   if (trainings.length) { forgetBoardDates(); await bump("work"); }
   return trainings.length;

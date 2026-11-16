@@ -15,7 +15,7 @@ import { type DayWindow, markable } from "@/lib/attendanceRules";
  */
 
 type Me = { th: string; name: string; presentToday: boolean };
-type Info = { training: string; customer: string; coordinator: string; dates: ProposalDate[]; window: DayWindow; shut: string; me: Me | null };
+type Info = { training: string; customer: string; coordinator: string; dates: ProposalDate[]; window: DayWindow; shut: string; me: Me | null; mode: "present" | "register" | "closed" };
 const first = (name: string) => name.split(" ")[0];
 const reduced = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 const OFFLINE = "Couldn't reach Think Health. Check your connection and try again.";
@@ -62,6 +62,15 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
     setBusy(false);
     if (!j.me) return setError(j.error ?? "Couldn't register you");
     setReturning(false); setMe(j.me);
+  };
+  // Before the day (owner, 16 Nov: one QR): they're on the list; their own page opens from here.
+  const openPage = async () => {
+    setBusy(true); setError("");
+    const r = await fetch("/api/portal/attend", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ n: number, k, action: "page" }) }).catch(() => null);
+    const j = r ? ((await r.json().catch(() => ({}))) as { th?: string; token?: string; error?: string }) : { error: OFFLINE };
+    setBusy(false);
+    if (!j.th || !j.token) return setError(j.error ?? "Couldn't open your page");
+    location.assign(`${portalPrefix(location.host)}/${encodeURIComponent(number)}/${j.th}?p=${encodeURIComponent(j.token)}`);
   };
   const present = async () => {
     setBusy(true); setError("");
@@ -112,6 +121,15 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
             <p className="text-[20px] font-extrabold leading-snug tracking-[-0.01em] text-ink">{info.shut}</p>
             {info.window.state === "before" && <p className="mt-2 text-[15.5px] leading-relaxed text-ink-2">Scan this code again on the day of your training to mark your attendance.</p>}
           </div>
+        ) : me && info.mode === "register" ? (
+          <div className="flex flex-col items-center text-center">
+            <p className="text-[30px] font-extrabold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[36px]">{returning ? `You're on the list, ${first(me.name)}.` : `Thank you, ${first(me.name)}. You're on the list.`}</p>
+            <p className="mt-2 text-[16.5px] text-ink-2">{info.dates.length ? <>See you on <span className="num">{info.dates.map((d) => fmtProposalDate(d)).join(" + ")}</span>. </> : null}On the day, scan this code again and tap Present.</p>
+            <button type="button" onClick={openPage} disabled={busy} className={`${primaryBtn} mt-7 h-12 px-6 text-[16px]`}>{busy ? "One moment…" : "Open my page"}</button>
+            <p className="num mt-6 text-[14px] text-muted">{me.name} · {me.th}</p>
+            <button type="button" onClick={notMe} className="mt-1.5 text-[14px] font-semibold text-action hover:underline">Not you?</button>
+            {error && <p className="mt-5 w-full rounded-xl bg-danger-bg px-4 py-3 text-[14.5px] text-danger" role="alert">{error}</p>}
+          </div>
         ) : me ? (
           <div className="flex flex-col items-center text-center">
             <p className="text-[30px] font-extrabold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[36px]">{returning ? `Welcome back, ${first(me.name)}.` : `Welcome, ${first(me.name)}.`}</p>
@@ -126,7 +144,7 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
           </div>
         ) : step === "phone" ? (
           <form onSubmit={identify} className="space-y-4" noValidate>
-            <p className="text-[20px] font-extrabold leading-snug tracking-[-0.01em] text-ink">Mark your attendance</p>
+            <p className="text-[20px] font-extrabold leading-snug tracking-[-0.01em] text-ink">{info.mode === "register" ? "Register for the training" : "Mark your attendance"}</p>
             <label className="block">
               <span className="mb-1.5 block text-[14px] font-semibold text-ink-2">Your mobile number</span>
               <input className={`${field} num`} type="tel" inputMode="tel" autoComplete="tel" value={phone} maxLength={16} onChange={(e) => setPhone(e.target.value)} required autoFocus />
@@ -138,7 +156,7 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
         ) : (
           <form onSubmit={register} className="space-y-4" noValidate>
             <p className="text-[20px] font-extrabold leading-snug tracking-[-0.01em] text-ink">You&apos;re not on the list yet</p>
-            <p className="-mt-2 text-[15.5px] leading-relaxed text-ink-2">Add your name to join this training and mark your attendance.</p>
+            <p className="-mt-2 text-[15.5px] leading-relaxed text-ink-2">{info.mode === "register" ? "Add your name to join this training." : "Add your name to join this training and mark your attendance."}</p>
             <label className="block">
               <span className="mb-1.5 block text-[14px] font-semibold text-ink-2">Your name</span>
               <input className={field} autoComplete="name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} required autoFocus />
@@ -152,7 +170,7 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
               <input className={field} type="email" inputMode="email" autoComplete="email" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} />
             </label>
             {error && <p className="rounded-xl bg-danger-bg px-4 py-3 text-[14.5px] text-danger" role="alert">{error}</p>}
-            <button className={`${primaryBtn} h-12 w-full text-[16px]`} disabled={busy}>{busy ? "One moment…" : "Join and continue"}</button>
+            <button className={`${primaryBtn} h-12 w-full text-[16px]`} disabled={busy}>{busy ? "One moment…" : info.mode === "register" ? "Join" : "Join and continue"}</button>
             <button type="button" className="w-full text-center text-[14px] font-semibold text-action hover:underline" onClick={() => { setStep("phone"); setError(""); }}>Use a different number</button>
             <p className="text-[13px] leading-relaxed text-muted">Your details go only to Think Health and your training coordinator, for this training.</p>
           </form>

@@ -27,13 +27,13 @@ const login = async (own = false) => {
   await (await c("portalSessions")).insertOne({ _id: "sess1", email: RIYA, expires: "2099-01-01T00:00:00Z" });
 };
 
-test("Performa deleted: back to Accepted, attendance ticks and the QR cleared, the participants stay", async () => {
+test("Performa deleted: back to Accepted, attendance ticks cleared; the QR and the participants stay", async () => {
   await seed();
-  await (await trainingsFor(RIYA)); // makes the attendance key
+  const key = (await trainingsFor(RIYA))[0].attendKey; // the one QR, made at Accept (owner, 16 Nov)
   await tick(RIYA, "1", "TH001", indiaToday(), true);
   assert.equal(await performaDeleted("so1"), 1);
   const [t] = await trainingsFor(RIYA);
-  assert.deepEqual([t.stamp, t.locked, t.attendKey], ["Accepted", false, ""]);
+  assert.deepEqual([t.stamp, t.locked, t.attendKey], ["Accepted", false, key]);
   assert.equal(await (await c("portalAttendance")).countDocuments({}), 0);
   const r = await participants(RIYA, "1");
   assert.ok("list" in r && r.list.length === 1);

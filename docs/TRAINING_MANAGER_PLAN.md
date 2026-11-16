@@ -53,6 +53,8 @@
 - TH001, TH002… are counted across everything and never reused.
 - Each participant has a private page, On / At / For, reached through their `?p=` link.
 
+**4a. One QR per training (owner, 16 Nov: two QRs confused people).** From Accept the training has one link and QR (`/<number>/attend?k=`, `attendKey`): before the day (or before Mark confirmed) it registers people (mode "register", source `qr`, then their page); on a confirmed training's day it marks Present and registers walk-ins (mode "present"); after the last day it's closed. Copy link and Share on WhatsApp on the card. The old join links (`joinKey`) still work until the training ends but aren't shown any more. A deleted Performa keeps the QR.
+
 **4b. After Mark confirmed (owner, 16 Nov).** The panel puts the attendance QR first, the leaderboard under it, then participants and details; the quotation moves to the bottom. The coordinator is asked once to register themselves (prefilled; Register me / Skip; "you can also do this later": scan or add yourself), then once to get the team registered (Share the QR code / Add names / Later). Stored as `portalTrainings.selfAsk` {at, th} and `teamAskedAt`; a coordinator already on the list by their mobile number isn't asked to register. Their entry is tagged `coordinator`.
 
 **5. Our side (Trainings).**

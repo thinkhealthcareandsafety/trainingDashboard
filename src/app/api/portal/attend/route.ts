@@ -1,4 +1,4 @@
-import { attendIdentify, attendInfo, attendPresent, attendRegister, idOfTrainingNumber } from "@/lib/portalTrainings";
+import { attendIdentify, attendInfo, attendPage, attendPresent, attendRegister, idOfTrainingNumber } from "@/lib/portalTrainings";
 import { withBump } from "@/lib/changes";
 import { attendCookieName, readAttendCookie } from "@/lib/attendanceRules";
 
@@ -10,8 +10,10 @@ export const dynamic = "force-dynamic";
  *  POST { n, k, action: "identify", phone }          — on the list → them (the phone remembers them); else { register: true }
  *  POST { n, k, action: "register", name, phone, email? } — a walk-in joins the list, tagged walk-in
  *  POST { n, k, action: "present" }                  — today's tick for the person this phone remembers
+ *  POST { n, k, action: "page" }                     — their own page (th + token) for the person this phone remembers
  *  POST { n, k, action: "forget" }                   — "Not you?": the phone forgets them
- * Works on the training's days only (India time). The cookie (one per training) holds their TH number and private token.
+ * One QR per training (owner, 16 Nov): from Accept it registers people; on a confirmed training's day it marks attendance;
+ * after the last day it's closed (India time). The cookie (one per training) holds their TH number and private token.
  */
 const YEAR_HALF = 180 * 24 * 3600;
 const setCookie = (trainingId: string, value: string, maxAge: number) =>
@@ -44,6 +46,10 @@ async function handlePOST(request: Request) {
       if ("error" in r) return json({ error: r.error }, r.status);
       if ("register" in r) return json({ register: true });
       return json({ me: r.me }, 200, remember(r.cookie));
+    }
+    if (b?.action === "page") {
+      const r = await attendPage(b.n, b.k, readAttendCookie(request.headers.get("cookie"), id));
+      return "error" in r ? json({ error: r.error }, r.status) : json(r);
     }
     if (b?.action === "present") {
       const r = await attendPresent(b.n, b.k, readAttendCookie(request.headers.get("cookie"), id));

@@ -76,16 +76,18 @@ const confirm = async () => {
   return t;
 };
 
-test("no attendance QR until Mark confirmed; then a fixed key, and the panel knows it's the day", async () => {
+test("one QR from Accept (owner, 16 Nov): a fixed key; it registers before confirmation and marks attendance only once confirmed", async () => {
   const today = indiaToday();
   await seed([today]);
   let [t] = await trainingsFor(RIYA);
-  assert.equal(t.attendKey, "");
-  await markConfirmed("1", { at: "2026-11-12T10:00:00Z", by: "Ashish", salesorderId: "999", number: "Performa-25-1" });
-  [t] = await trainingsFor(RIYA);
-  assert.equal(t.attendKey, ""); // a draft Performa isn't confirmed yet
+  assert.match(t.attendKey, /^[\w-]{10,}$/); // accepted: the QR is there
+  const early = t.attendKey;
+  assert.equal((await attendInfo("QT-1", early, null))?.mode, "register"); // the training day, but not confirmed yet
+  const meera = await attendRegister("QT-1", early, { name: "Meera Iyer", phone: "9833333333" });
+  assert.ok("me" in meera);
+  assert.equal(((await attendPresent("QT-1", early, meera.cookie)) as { status: number }).status, 409); // no Present before Mark confirmed
   t = await confirm();
-  assert.match(t.attendKey, /^[\w-]{10,}$/);
+  assert.equal(t.attendKey, early); // the same QR
   assert.equal((await trainingsFor(RIYA))[0].attendKey, t.attendKey); // fixed: the same key every time
   // The coordinator starts the training (owner, 13 Nov): waiting until Start, open after, ended after End.
   assert.deepEqual(t.window, { state: "waiting", day: today, dayNo: 1, of: 1 });
@@ -94,7 +96,7 @@ test("no attendance QR until Mark confirmed; then a fixed key, and the panel kno
   assert.deepEqual(((await startTraining(RIYA, "1")) as { window: object }).window, { state: "open", day: today, dayNo: 1, of: 1 });
   assert.equal((await attendInfo("QT-1", t.attendKey, null))!.shut, "");
   assert.equal(((await endTraining(RIYA, "1")) as { window: { state: string } }).window.state, "ended");
-  assert.match((await attendInfo("QT-1", t.attendKey, null))!.shut, /ended/);
+  assert.match((await attendInfo("QT-1", t.attendKey, null))!.shut, /have closed/); // End on the last day closes the one QR
   assert.equal(((await startTraining(RIYA, "1")) as { window: { state: string } }).window.state, "open"); // ended by mistake: start again
 });
 
@@ -156,14 +158,22 @@ test("before and after the day: attendance is shut with the right words; registr
   const today = indiaToday();
   await seed([shift(today, 2)]);
   let { attendKey: k } = await confirm();
-  assert.match((await attendInfo("QT-1", k, null))!.shut, /^Attendance opens on /);
-  assert.equal(((await attendIdentify("QT-1", k, "9811111111")) as { status: number }).status, 409);
+  // Before the day the one QR registers (owner, 16 Nov): on the list → them; new → they join.
+  assert.equal((await attendInfo("QT-1", k, null))!.mode, "register");
+  assert.ok("me" in (await attendIdentify("QT-1", k, "9811111111")));
+  const early = await attendRegister("QT-1", k, { name: "Early Bird", phone: "9855555555" });
+  assert.ok("me" in early);
+  assert.equal(((await attendPresent("QT-1", k, early.cookie)) as { status: number }).status, 409); // Present waits for the day
+  const listed = await participants(RIYA, "1");
+  assert.ok("list" in listed && listed.list.find((p) => p.name === "Early Bird")?.source === "qr");
   assert.equal(((await tick(RIYA, "1", "TH001", shift(today, 2), true)) as { status: number }).status, 400); // still ahead
 
   resetFakeDb();
   await seed([shift(today, -1)]);
   ({ attendKey: k } = await confirm());
-  assert.equal((await attendInfo("QT-1", k, null))!.shut, "Attendance for this training has closed.");
+  assert.match((await attendInfo("QT-1", k, null))!.shut, /have closed/);
+  assert.equal((await attendInfo("QT-1", k, null))!.mode, "closed");
+  assert.equal(((await attendRegister("QT-1", k, { name: "Late", phone: "9866666666" })) as { status: number }).status, 409);
   assert.equal((await joinInfo("QT-1", "joinkey123"))?.closed, true);
   assert.equal(((await join("QT-1", "joinkey123", { name: "Late Comer", phone: "9844444444" })) as { status: number }).status, 409);
   assert.ok("list" in (await tick(RIYA, "1", "TH001", shift(today, -1), true))); // a past day can still be fixed
