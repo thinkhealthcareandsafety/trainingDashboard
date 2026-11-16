@@ -76,9 +76,10 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
     setAnswers((a) => a.map((x, k) => (k === i ? o : x)));
     setPulse(true); setTimeout(() => setPulse(false), 420);
     setError("");
-    // On to the next question after a beat, so the choice is seen.
-    if (answers[i] === null) setTimeout(() => setStep((s) => (s === i ? Math.min(i + 1, n) : s)), 380);
+    // No jumping on (owner, 16 Nov: "let me choose, then I can press Next on my own").
   };
+  // Questions open in order: answered ones, and the first one still to answer (owner, 16 Nov: Next only after choosing).
+  const reachable = (i: number) => { const gap = answers.findIndex((a) => a === null); return gap < 0 || i <= gap; };
   const submit = async () => {
     if (done < n) { setError(`Answer all ${n} questions first: ${n - done} left.`); return; }
     setBusy(true); setError("");
@@ -181,7 +182,7 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
     )} dots={(
       <div className="qz-dots">
         {quiz.questions.map((x, i) => (
-          <button key={x.id} type="button" className={`qz-dot${i === step ? " current" : answers[i] !== null ? " answered" : ""}`} onClick={() => setStep(i)} aria-label={`Question ${i + 1}${answers[i] !== null ? ", answered" : ""}`} aria-current={i === step ? "step" : undefined} />
+          <button key={x.id} type="button" className={`qz-dot${i === step ? " current" : answers[i] !== null ? " answered" : ""}`} onClick={() => reachable(i) && setStep(i)} disabled={!reachable(i)} aria-label={`Question ${i + 1}${answers[i] !== null ? ", answered" : ""}`} aria-current={i === step ? "step" : undefined} />
         ))}
       </div>
     )} footer={(
@@ -189,7 +190,7 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
         {error && <div className="qz-error" role="alert"><Warn /><span>{error}</span></div>}
         <div className="qz-footer-nav">
           <button type="button" className="qz-btn qz-btn-ghost" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0 || busy}>Back</button>
-          {q ? <button type="button" className="qz-btn qz-btn-primary" onClick={() => setStep((s) => Math.min(n, s + 1))}>{step === n - 1 ? "Review" : "Next"}</button>
+          {q ? <button type="button" className="qz-btn qz-btn-primary" onClick={() => setStep((s) => Math.min(n, s + 1))} disabled={answers[step] === null} title={answers[step] === null ? "Choose an answer first" : undefined}>{step === n - 1 ? "Review" : "Next"}</button>
             : <button type="button" className="qz-btn qz-btn-primary" onClick={submit} disabled={busy}>{busy ? "Sending…" : "Send my answers"}</button>}
         </div>
       </>
