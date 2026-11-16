@@ -214,3 +214,20 @@ test("official certificates for the coordinator only once fully paid; each downl
   assert.equal(z.readUInt32LE(14), crc32(data));
   assert.equal(z.readUInt32LE(z.length - 22), 0x06054b50);
 });
+
+test("Good Samaritan records into the sheet (owner, 16 Nov): a row per certificate, once; a redownload or resend adds nothing", async () => {
+  const { goodSamaritanRecords } = await import("@/lib/portalTrainings");
+  const today = indiaToday();
+  await seed([today]);
+  await startTraining(RIYA, "1");
+  for (const th of ["TH001", "TH002"]) { await tick(RIYA, "1", th, today, true); await take(th, await token(th), KEY); }
+  const written: Record<string, string>[][] = [];
+  const append = async (pending: () => Promise<Record<string, string>[]>, done: (n: number) => Promise<void>) => { const rows = await pending(); if (rows.length) { written.push(rows); await done(rows.length); } return rows.length; };
+  assert.equal(await goodSamaritanRecords("1", append as never), 2);
+  const [rows] = written;
+  assert.deepEqual(rows.map((r) => [r["Certificate No"], r.Name, r.Mobile, r.Company, r["TH Number"]]).sort(), [["IAGS-SN/001", "Asha Rao", "9811111111", "The Grand", "TH001"], ["IAGS-SN/002", "Vikram Shah", "9822222222", "The Grand", "TH002"]]);
+  assert.equal(rows[0].Training, "CPR & AED Training");
+  assert.equal(await goodSamaritanRecords("1", append as never), 0); // already there
+  await take("TH003", await token("TH003"), wrong(1)).catch(() => undefined); // Meera isn't marked present: no try, no row
+  assert.equal(written.length, 1);
+});

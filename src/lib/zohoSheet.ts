@@ -189,6 +189,45 @@ export function sheetRows(reg: Register, rows: CertRow[]): Record<string, string
   });
 }
 
+/* ---------------- The Good Samaritan register (owner, 16 Nov) ---------------- */
+
+/**
+ * "Good Samaritan records can be pasted here whenever their certs are generated": a tab in the same workbook as the
+ * master register (owner: "same workbook"), found by its name (/samaritan/i) or its id 2 (the link's sheetid=2). Row 1
+ * holds the headers (written once, if the tab is empty); a row per certificate, by header. Same connection, same lock.
+ */
+export const GOOD_SAMARITAN_HEADERS = ["Certificate No", "Name", "Mobile", "Email", "Company", "Training", "Training Date", "Location", "Score %", "TH Number", "Issued On"] as const;
+export type GoodSamaritanRow = Record<(typeof GOOD_SAMARITAN_HEADERS)[number], string>;
+
+async function goodSamaritanTab(): Promise<{ c: Conn; token: string; worksheet: string }> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  if (!c) throw new Error("The master sheet isn't connected yet — Admin connects it once");
+  const token = await accessFor(c);
+  const list = await call(c, token, { method: "worksheet.list" });
+  const tabs = (list.worksheet_names as { worksheet_name: string; worksheet_id?: string | number }[] | undefined) ?? [];
+  const tab = tabs.find((w) => /samaritan/i.test(w.worksheet_name)) ?? tabs.find((w) => String(w.worksheet_id ?? "") === "2");
+  if (!tab) throw new Error("No Good Samaritan tab in the certificate workbook (name a tab \"Good Samaritan\")");
+  return { c, token, worksheet: tab.worksheet_name };
+}
+
+/** Appends rows to the Good Samaritan tab (headers first, if it's empty). `pending` is read inside the lock, so two at once never write twice. */
+export async function appendGoodSamaritan(pending: () => Promise<GoodSamaritanRow[]>, done: (n: number) => Promise<void>): Promise<number> {
+  return lock(async () => {
+    const rows = await pending();
+    if (!rows.length) return 0;
+    const { c, token, worksheet } = await goodSamaritanTab();
+    const head = await call(c, token, { method: "worksheet.records.fetch", worksheet_name: worksheet, header_row: "1", count: "1" }).catch(() => ({} as SheetRes));
+    const have = ((head.columns as string[] | undefined) ?? []).filter((h) => h.trim());
+    if (!have.length) {
+      for (const [i, h] of GOOD_SAMARITAN_HEADERS.entries())
+        await call(c, token, { method: "cell.content.set", worksheet_name: worksheet, row: "1", column: String(i + 1), content: h });
+    }
+    await call(c, token, { method: "worksheet.records.add", worksheet_name: worksheet, header_row: "1", json_data: JSON.stringify(rows) });
+    await done(rows.length);
+    return rows.length;
+  });
+}
+
 /* ---------------- Adding a batch ---------------- */
 
 async function lock<T>(fn: () => Promise<T>): Promise<T> {

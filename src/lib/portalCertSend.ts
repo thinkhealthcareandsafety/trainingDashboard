@@ -5,7 +5,8 @@ import type { Binary } from "mongodb";
 import { db } from "./db";
 import { CERT_FONT_FILES, type FontBytes, singleCertificate } from "./certPdf";
 import type { DesignId } from "./certificates";
-import { type CertLine, certificateLines, recordCertificate } from "./portalTrainings";
+import { type CertLine, certificateLines, goodSamaritanRecords, recordCertificate } from "./portalTrainings";
+import { appendGoodSamaritan } from "./zohoSheet";
 import { certEmail, goodSamaritanFileName } from "./portalCertRules";
 import { goodSamaritanPdf } from "./goodSamaritan";
 import { certTemplate } from "./templateStore";
@@ -68,6 +69,8 @@ export async function sendCertificates(trainingId: string, by: string, opts: { o
   if (!opts.mailer && process.env.VERCEL_ENV !== "production") throw new Error("Only the live site sends certificates.");
   const mailer: Mailer = opts.mailer ?? ((to, m) => sendMail(FROM, { to, ...m }));
   const make = opts.pdf ?? goodSamaritanCertificate; // participants get the Good Samaritan one (owner, 16 Nov)
+  // Their rows into the workbook's Good Samaritan tab, once each (live only; never holds up the emails).
+  if (!opts.mailer) await goodSamaritanRecords(trainingId, appendGoodSamaritan).then((n) => { if (n) console.log(`[certificates] ${trainingId}: ${n} Good Samaritan rows added to the sheet`); }, (e) => console.error(`[certificates] Good Samaritan sheet: ${e instanceof Error ? e.message : e}`));
   const t = await certTemplate();
   for (const c of await certificateLines(trainingId)) {
     if (opts.only && c.th !== opts.only) continue;

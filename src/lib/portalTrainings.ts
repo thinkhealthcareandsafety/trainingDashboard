@@ -12,6 +12,7 @@ import type { Quiz } from "./quizCprAed";
 import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
 import { type InvoiceLite, certDay, indiaDayOf, paidInFull, portalCertNumber } from "./portalCertRules";
 import { goodSamaritanNumber } from "./goodSamaritan";
+import type { GoodSamaritanRow } from "./zohoSheet";
 import { DESIGNS, type DesignId, designFor } from "./certificates";
 
 /*
@@ -714,6 +715,8 @@ type CertDoc = {
   gsNo?: string;
   /** When the coordinator downloaded this person's official certificate (owner, 16 Nov: "mark when downloaded once"). */
   downloadedAt?: string;
+  /** When its row went into the Good Samaritan tab of the certificate workbook (owner, 16 Nov), once. */
+  sheetAt?: string;
 };
 /** The next Good Samaritan number: one atomic step on the counter, so two people passing at once never share one. */
 async function nextGsNo(): Promise<string> {
@@ -724,7 +727,7 @@ const certsCol = async () => (await db()).collection<CertDoc>("portalCertificate
 const certId = (trainingId: string, th: string) => `${trainingId}:${th}`;
 
 /** A passed person's certificate as it prints, and how it stands (emailed, waiting for an email address, failed). */
-export type CertLine = Omit<CertDoc, "_id" | "gsNo"> & { gsNo: string; email: string; token: string; number: string };
+export type CertLine = Omit<CertDoc, "_id" | "gsNo"> & { gsNo: string; email: string; token: string; number: string; phone: string; company: string; training: string };
 
 /** Everyone who passed this training's quiz, with their certificate (made now if new; the FAT-OD number never changes). */
 export async function certificateLines(trainingId: string): Promise<CertLine[]> {
@@ -755,9 +758,29 @@ export async function certificateLines(trainingId: string): Promise<CertLine[]> 
     else if (!had.gsNo) { doc.gsNo = await nextGsNo(); await (await certsCol()).updateOne({ _id: had._id }, { $set: { gsNo: doc.gsNo } }); }
     const { _id: _drop, ...rest } = doc;
     void _drop;
-    out.push({ ...rest, gsNo: doc.gsNo!, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number });
+    out.push({ ...rest, gsNo: doc.gsNo!, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number, phone: p.phone, company: q.customer, training: titleOf(q) });
   }
   return out;
+}
+
+/**
+ * The Good Samaritan records (owner, 16 Nov: "whenever their certs are generated"): each certificate's row goes into the
+ * workbook's Good Samaritan tab once (sheetAt); a redownload or a resend keeps its number and adds nothing.
+ */
+export async function goodSamaritanRecords(trainingId: string, append: (pending: () => Promise<GoodSamaritanRow[]>, done: (n: number) => Promise<void>) => Promise<number>): Promise<number> {
+  let ths: string[] = [];
+  const dmy = (ymd: string) => ymd.slice(0, 10).split("-").reverse().join("/");
+  return append(async () => {
+    const lines = (await certificateLines(trainingId)).filter((c) => !c.sheetAt);
+    ths = lines.map((c) => c.th);
+    return lines.map((c) => ({
+      "Certificate No": c.gsNo, Name: c.name, Mobile: c.phone, Email: c.email, Company: c.company, Training: c.training,
+      "Training Date": dmy(c.day), Location: c.location, "Score %": String(c.pct), "TH Number": c.th, "Issued On": dmy(indiaToday()),
+    }));
+  }, async () => {
+    const at = new Date().toISOString();
+    for (const th of ths) await (await certsCol()).updateOne({ _id: certId(trainingId, th) }, { $set: { sheetAt: at } });
+  });
 }
 
 /** The training's invoices from our Zoho copies (the Sales copy and the Training board's), as paidInFull reads them. */
