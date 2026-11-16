@@ -21,5 +21,3 @@ export function questionReport(questions: QuestionStats[]): QuestionReport[] {
   });
 }
 
-/** "Hardest first": fewest right on top; ties keep the quiz's order. */
-export const hardestFirst = (list: QuestionReport[]) => [...list].sort((a, b) => a.rightPct - b.rightPct || a.n - b.n);
