@@ -43,7 +43,7 @@ export function PerformaEditor({ id, onChanged }: { id: string; onChanged?: () =
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   // Trainers before Mark confirmed (owner, 13 Nov): required; they go on the Training board (reminders go to them) and the
-  // first becomes Zoho's Trainer Name. Starts from Zoho's Trainer Name, and the two follow each other (owner, 14 Nov).
+  // first of ours becomes Zoho's Trainer Name (owner, 16 Nov). Starts from Zoho's Trainer Name, and the two follow each other (owner, 14 Nov).
   const [trainers, setTrainers] = useState<string[] | null>(null);
   const [other, setOther] = useState("");
   // The field Mark confirmed pointed at (ringed until it's filled), and which still-empty ones are off-screen.

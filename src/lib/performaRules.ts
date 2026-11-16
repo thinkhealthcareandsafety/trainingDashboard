@@ -72,12 +72,17 @@ export function readTrainers(raw: unknown): string[] | { error: string } {
   return list;
 }
 
-/** Zoho's Trainer Name for these trainers: the first one as Zoho spells them (by first name), else "Other". */
+/**
+ * Zoho's Trainer Name for these trainers (owner, 16 Nov): the first picked who is one of ours (in any position: a name in
+ * Zoho's Trainer Name list, matched by first name), as Zoho spells it; nobody of ours → "Other". Our dashboard and the
+ * Training board keep the real names.
+ */
 export function zohoTrainer(trainers: string[]): string {
   const opts = PI_FIELDS.trainer.options;
   const first = (s: string) => s.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
-  const want = first(trainers[0] ?? "");
-  return opts.find((o) => want && first(o) === want && first(o) !== "none" && first(o) !== "other") ?? opts.find((o) => sameOption(o, "Other"))!;
+  const ours = (t: string) => { const f = first(t); return f && f !== "none" && f !== "other" ? opts.find((o) => first(o) === f) : undefined; };
+  for (const t of trainers) { const o = ours(t); if (o) return o; }
+  return opts.find((o) => sameOption(o, "Other"))!;
 }
 
 /*

@@ -89,7 +89,7 @@
    - The Cloudflare CNAME, then `PORTAL_BASE_URL=https://training.thinkhealth.in` on Vercel and a redeploy.
    - The first real test above.
    - Programme photos and videos (optional).
-2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board. Later on 13 Nov: trainers are required at Mark confirmed (on the board, Zoho Trainer Name = the first); Training completed needs trainers; a confirmed Performa shows green in the story.
+2. **Built 13 Nov (`35933fd`):** Convert to PI in the story's Performa box; Mark confirmed / Mark confirmed & send email; the portal stamps Confirmed only then; Mark confirmed schedules the training on the Training board. Later on 13 Nov: trainers are required at Mark confirmed (on the board; Zoho Trainer Name = the first picked who is one of ours, else Other, since 16 Nov); Training completed needs trainers; a confirmed Performa shows green in the story.
 3. **To decide, then build:** item-level PI templates beyond training ("training only for now", owner).
 4. **Attendance (Step A): live** (`07f7748`). **Start training + Quiz (Step B): built 13 Nov.**
    - The coordinator presses **Start training** on the training date. That opens attendance and the quiz; **End training** closes them.

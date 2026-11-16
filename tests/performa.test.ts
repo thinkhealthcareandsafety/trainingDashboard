@@ -126,6 +126,10 @@ test("trainers before Mark confirmed: at least one, no repeats; Zoho's Trainer N
   assert.equal(zohoTrainer(["Sumit A Shah", "Shikha Dixit"]), "Sumit Shah ");
   assert.equal(zohoTrainer(["Shikha Dixit"]), "Shikha Dixit");
   assert.equal(zohoTrainer(["Ravi Kumar"]), "Other ");
+  // Owner, 16 Nov: the first who is one of ours, in any position; nobody of ours → Other.
+  assert.equal(zohoTrainer(["Ravi Kumar", "Shikha Dixit", "Sumit A Shah"]), "Shikha Dixit");
+  assert.equal(zohoTrainer(["Ravi Kumar", "Neha"]), "Other ");
+  assert.equal(zohoTrainer([]), "Other ");
   const d = { salesorderId: "1", number: "P", status: "draft", reference: "", date: "2026-11-13", shipmentDate: "", paymentTerms: "", salesperson: "", customer: "", notes: "n", total: 0,
     fields: { poDate: "2026-11-13", trainer: " None", poNumber: "Verbal", trainingDate: "", leadSource: "Direct ", businessType: "Services", productType: "Training " },
     lines: [{ lineItemId: "9", itemId: "cpr", name: "CPR", description: "d", qty: 15, rate: 0, training: true }] };
@@ -172,6 +176,7 @@ test("the Performa's Trainer Name and the Trainers picker follow each other (own
   assert.equal(zohoTrainerFor(["Shikha Dixit", "Sumit A Shah"]), "Shikha Dixit");
   assert.equal(zohoTrainerFor(["Baiju Stephen"]), " Baiju Stephen");
   assert.equal(zohoTrainerFor(["Ravi Kumar"]), "Other ");
+  assert.equal(zohoTrainerFor(["Ravi Kumar", "Baiju Stephen"]), " Baiju Stephen");
   assert.equal(zohoTrainerFor([]), " None");
   // round trip: what the dropdown puts in the picker gives the same dropdown back
   for (const o of ["Sumit Shah ", "Ashish Dalal", " Baiju Stephen", "Shikha Dixit", "Priyanka "]) assert.equal(zohoTrainerFor(pickedForZohoTrainer([], " None", o, TRAINERS)), o);
