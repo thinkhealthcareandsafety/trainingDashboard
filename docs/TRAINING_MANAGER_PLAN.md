@@ -96,7 +96,7 @@
 3. **To decide, then build:** item-level PI templates beyond training ("training only for now", owner).
 4. **Attendance (Step A): live** (`07f7748`). **Start training + Quiz (Step B): built 13 Nov.**
    - The coordinator presses **Start training** on the training date. That opens the quiz; **End training** closes the quiz and attendance. Attendance (people on the list and walk-ins, by the attendance QR) opens from the morning of the training day, before Start too (owner, 16 Nov); the participant page shows the quiz card from then: "Wait for your coordinator to start the training", then **Take the quiz to get your certificate** at Start, without reloading.
-   - The quiz is the owner's Google Form "CPR-AED Quiz - by Think Health": 30 questions, 10 points each, 70% to pass, 100% earns a First Aid Badge. It applies to CPR / AED trainings and uses the answer key the owner confirmed.
+   - The quiz is the owner's Google Form "CPR-AED Quiz - by Think Health": 30 questions, 10 points each, 70% to pass, 100% earns a First Aid Badge. It applies to CPR / AED / BLS and (since 16 Nov) every First Aid training, and uses the answer key the owner confirmed.
    - Only people marked present can take it (a fail may try again while it runs, see below). They see their score and rank at once, and the right answers only after End on the last day.
    - The leaderboard (full names, then the faster finish) and per-question analytics show live on the coordinator's panel, on participants' pages and on our Trainings page.
    - Design: the AED Readiness Campaign's (DESIGN.md "The quiz: its own world").

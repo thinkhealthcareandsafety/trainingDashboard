@@ -25,6 +25,8 @@ test("the quiz is the form: 30 questions, 10 points each, every picture there, e
   assert.equal(quizFor(["THCAS CPR & AED Training 2026 (I)"])?.id, "cpr-aed");
   assert.equal(quizFor(["Basic Life Support"])?.id, "cpr-aed");
   assert.equal(quizFor(["Fire Safety Training"]), null);
+  assert.equal(quizFor(["THCAS First Aid Training (I)"])?.id, "cpr-aed"); // owner, 16 Nov: every First Aid too
+  assert.equal(quizFor(["Stress Management Training (Customised)"]), null);
   assert.equal(publicQuiz(CPR_AED_QUIZ, false).questions[0].answer, undefined); // no answers before they're revealed
   assert.equal(publicQuiz(CPR_AED_QUIZ, true).questions[0].answer, 1);
 });

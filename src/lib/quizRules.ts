@@ -6,9 +6,12 @@ import { type Quiz, QUIZZES } from "./quizCprAed";
  * fail (owner, 14 Nov), the leaderboard (best try, then the faster finish) and the per-question analytics (first tries).
  */
 
-/** A training's quiz, by its items: CPR / AED / Basic Life Support trainings get the CPR-AED quiz; others have none yet. */
+/**
+ * A training's quiz, by its items: CPR / AED / Basic Life Support and First Aid trainings (owner, 16 Nov: "also every First
+ * Aid") get the CPR-AED quiz; others (Fire Safety, Stress Management…) have none yet.
+ */
 export function quizFor(titles: string[]): Quiz | null {
-  return titles.some((t) => /\bcpr\b|\baed\b|basic life|\bbls\b/i.test(t)) ? QUIZZES.find((q) => q.id === "cpr-aed") ?? null : null;
+  return titles.some((t) => /\bcpr\b|\baed\b|basic life|\bbls\b|first[\s-]*aid/i.test(t)) ? QUIZZES.find((q) => q.id === "cpr-aed") ?? null : null;
 }
 
 export type PublicQuiz = Omit<Quiz, "questions"> & { questions: { id: string; text: string; options: { text: string; image?: string }[]; answer?: number }[] };

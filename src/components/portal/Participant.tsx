@@ -196,7 +196,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
             </div>
           </div>
         </section>
-        {/* The quiz card (owner, 16 Nov: "where is the quiz"): on every CPR / AED / BLS training, confirmed or not. */}
+        {/* The quiz card (owner, 16 Nov: "where is the quiz"): on every CPR / AED / BLS / First Aid training, confirmed or not. */}
         {quiz && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
         {page.confirmed && page.dates.length > 0 && <Attendance dates={page.dates} present={page.present ?? []} />}
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen. Show your number, {page.th}, on the day.</p>
