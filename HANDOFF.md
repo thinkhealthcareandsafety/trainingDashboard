@@ -1,89 +1,80 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Mon 16 Nov 2026 (end of session 29). **Live = `a4cfc7f`** (code = `36ca061`) on work.thinkhealth.in,
-training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel status success on both projects). This handoff is its own commit
-on top. Written for the next Claude Code session, and for the owner (Sumit)._
+_Last updated: Mon 16 Nov 2026 (end of session 30). **Live = `a4cfc7f`** (code `36ca061`) until the owner says "push"; session 30's
+commits (`b50b639` … `b2c1bc7`, plus this handoff) are **local, not pushed**. Only `training-dashboard-xfwl` matters on Vercel (owner, 16
+Nov: "ignore the other" project). Written for the next Claude Code session, and for the owner (Sumit)._
 
-**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left" (item 4 has the quiz, retake and certificate
-rules), "Next: Attendance and Quiz". The portal's look is in `DESIGN.md` ("Attendance", "The quiz: its own world"); `.impeccable/design.json`
+**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left" (item 4: quiz, retakes, certificates **at pass**).
+The portal's look is in `DESIGN.md` ("Quotation", "Progress track", "Attendance", "The quiz: its own world"); `.impeccable/design.json`
 is older than DESIGN.md (refresh only if asked).
 
-**Start of the next session (30). Do these first:**
-1. `git fetch`, `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: nothing either way.
-2. `npm test` (**297** should pass) and `npx tsc --noEmit -p tsconfig.json`.
-3. Ask the owner, in **one** AskUserQuestion round (keep it short: the owner asked for fewer words):
-   - Did **Send login** to their own email show a link starting `https://training.thinkhealth.in/`? (They set `PORTAL_BASE_URL` on
-     Vercel on 14 Nov; GitHub deploys to **two** Vercel projects, `training-dashboard` and `training-dashboard-xfwl`; the variable must be
-     on the one serving work.thinkhealth.in, most likely `-xfwl`.)
-   - "Start implementing the quiz": what do they mean? The CPR-AED quiz is **built and live** (Start training → present → quiz →
-     retakes → certificates). Offer: (a) a guided dry run on a real upcoming training, (b) quizzes for First Aid / Fire Safety (needs
-     their questions + answer keys, like the Google Form), (c) something they saw missing.
-   - The coordinator's stamps ("Awaiting decision → Accepted on … → Confirmed"): what bothers them (too many stamps, dates, wording, look)?
-   - When is the next real CPR/AED training (the first live test of attendance, quiz and the certificate email)?
-4. Then build the queue below, **one commit per item**, restating structural ones with defaults and waiting for "yeah" (owner's rule;
-   the queue's defaults were proposed on 14 Nov and **not yet confirmed**: restate them in one short message, then build).
+**Start of the next session (31). Do these first:**
+1. `git fetch`, `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. If session 30 isn't pushed yet, ask
+   the owner before pushing (`git push origin master`, long timeout), then check Vercel (`-xfwl` only) and curl the live site.
+2. `npm test` (**301** should pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. Ask the owner how the **first live CPR/AED training** went (planned "this week" as of 16 Nov): attendance before Start, the quiz
+   card, certificates emailed at pass. Read-only checks (ask before any production read from a script): `portalCertificates`
+   (`emailedAt`, `attached`: did the Zoho Mail attachment upload work? log line "attachment … not uploaded" if not), `portalAttendance`
+   (`how: "self"` marks made before the session's `startedAt`).
+4. Then whatever the owner asks; nothing is queued.
 
-**Build queue (owner, 14 + 16 Nov), with the defaults proposed:**
-1. **The coordinator sees the quotation before accepting** ("otherwise what do they know what they are accepting"): on the portal,
-   before Accept, the quote as Zoho has it: items (never the "(I)" suffix), description, qty, rate, amount, GST, total, valid until,
-   and **Download PDF** (Zoho's estimate PDF, proxied through a portal route that checks the session). This reverses the old "prices
-   never leave here" rule (`portalTrainings.ts` header): update that comment and PRODUCT.md / the plan.
-2. **Cc only sales@thinkhealth.in, never sshah@**: `ALWAYS_CC` in `lib/quoteEmails.ts` (quotation emails, both companies) loses
-   sshah@; default: the Performa email (`PerformaEditor` / `piemail` / `piconfirm`) also Cc's sales@. The "sales@ / sshah@" line in the
-   signature's company details stays unless the owner says otherwise. Tests in `tests/quoteEmails.test.ts` likely assert the Cc.
-3. **Performa editor: less cluttered, guides you**: a red "!" on each required-but-empty field; Mark confirmed with something
-   missing scrolls to it and highlights it; a floating "↓ 1 to fill below" / "↑ above" while a missing one is off-screen (tap = go
-   there); the Trainers picker moves next to Trainer Name. Staff dashboard look (not the portal), dark theme shown in the owner's
-   screenshot: check both themes.
-4. **Trainer rule**: Zoho's Trainer Name = the **first picked trainer who is one of ours** (any position), else **Other**; our
-   dashboard / board keep the real names; picking in the PI still ticks the picker. Change `zohoTrainer` / `zohoTrainerFor` in
-   `lib/performaRules.ts` (today they look only at the first picked) and the server's `piconfirm` (uses `zohoTrainer(trainers)`);
-   update `tests/performa.test.ts`.
-5. **Start training only on the training date**: already enforced (button only on the day; `startTraining` refuses other days, India
-   time). Tell the owner; no change unless they saw otherwise.
-6. **Walk-ins on the training day**: people not on the list scan the **attendance QR** and register even **before Start** (added as
-   walk-ins); their Present button opens at Start without reloading (the attend page polls). The coordinator can add people any time.
-   Today `/api/portal/attend` refuses outside an open session: split "register on the day" from "mark present while running"
-   (`attendanceRules.ts`, `portalTrainings.ts` attend functions, `components/portal/Attend.tsx`), tests in `tests/attendance.test.ts`.
-7. **A more engaging attendance mark** ("the normal tick is too boring"): coordinator's list: each tick becomes a small navy PRESENT
-   ink stamp that lands as people mark themselves, the row lights up briefly, "X of Y present" counts up; participant: the Present
-   press ends in a bigger stamp with their name and time. Reduced motion: none. Impeccable (portal = safety-sign world; DESIGN.md
-   allows the stamp landing as an echo, not a new authored moment).
-8. **Coordinator's stamps UI** ("change the UI of Accepted on etc."): redesign the stamp stack on "Your trainings" after hearing what
-   bothers them (step 3); Impeccable critique first, then one direction, DESIGN.md in step.
-9. **The quiz**: whatever the owner answers in step 3.
+**Session 30 in short (16 Nov): all local, one commit per item.**
+- `b50b639` **Quote before Accept**: each portal training panel shows the quotation as Zoho has it (`quoteSheet` in
+  `lib/trainingManager.ts`, `TrainingQuote.sheet`, `PortalTraining.quote`): lines without "(I)", qty × rate, GST, subtotal, taxes,
+  total, valid until; **Download PDF** = `GET /api/portal/training?pdf=<id>` (coordinator's session, `quotePdfFor`, `estimatePdf`).
+  Open until they decide, folded after. "Prices never leave here" is reversed (participants still see none).
+- `9ea4787` **Cc sales@ only**: `ALWAYS_CC = ["sales@thinkhealth.in"]`; the Performa email's default Cc = `mergeCc(to, [contact])`.
+- `ff47c3b` **Guided Performa editor**: `piMissing` / `PI_NEED_LABEL` (`lib/performaRules.ts`): red "!" on empty required fields
+  (sales order date, Purchase Order Date, trainers; To / Subject / Message), Mark confirmed / Email points at the first one (scroll,
+  `.need-ring`, focus), a floating "↓ N to fill below / ↑ above" pill (IntersectionObserver); Trainers picker in one row with Trainer
+  Name. Both themes checked.
+- `fc65d56` **Trainer rule**: `zohoTrainer` = the first picked who is one of ours (any position), else Other.
+- Item 5 (Start only on the training date): already enforced, no change.
+- `1210cad` **Attendance before Start + the quiz card** (queue items 6 and 9 merged; owner's answer: "the moment I've started the
+  training the take quiz option should be available … mark their attendance even before the training starts … Wait for the
+  coordinator to start the training"): `markable(window)` (`attendanceRules.ts`) = open or waiting; attend identify / register /
+  present work all day on a training day until End. Participant page: the quiz card shows once confirmed ("Wait for your coordinator
+  to start the training …"), "Take the quiz to get your certificate" at Start (15 s check). Coordinator strip: "People can mark their
+  attendance now. The quiz opens when you start."
+- `51da718` **Attendance mark**: the list's ticks are small navy PRESENT ink stamps (the day on them for multi-day); new marks land
+  (`.tick-stamp`) and the row lights (`.row-light`); "X of Y present" counts up (`CountUp`); the participant's stamp is bigger, with
+  name and time. Reduced motion: none.
+- `c69d7fc` **Progress track replaces the stamps** on Your trainings (owner: "remove the stamp, make it something else"):
+  Quotation → Accepted → Confirmed → Training/Completed, current step says what it waits on; declined ends red; vertical on phones.
+  DESIGN.md "Progress track"; surface brief updated; `.stamp` CSS removed (PRESENT stamps stay).
+- `8cd46c4` Gaps: Templates `{name}` help per email (participant on the certificate email, coordinator on portal / Performa);
+  removing someone warns a quiz-taker gets no certificate; PRODUCT.md and the plan refreshed.
+- `b2c1bc7` **Certificates at pass** (owner: "certificates should be sent on their mail the moment they pass the quiz"):
+  `quizSubmit` returns `passedIn` on a pass; `/api/portal/quiz` calls `certificatesLater(training, "quiz", th)` and strips it;
+  downloadable at once; End is a catch-up; Trainings "Send the rest now" is a retry with no End gate. `certificatesReady`,
+  `staffMaySend`, `staffCertificatesAllowed` and `QuizResults.certificates.ready/staffMay` are gone.
 
-**Then: find inconsistencies and fill the gaps** (report each, fix the clear ones, ask about the rest). Known so far:
-- The Zoho Mail **attachment upload** in `sendMail` (`POST /accounts/{id}/messages/attachments?fileName=`) has never run for real;
-  first real certificate email will tell (fallback: the email carries the download link; log line "attachment … not uploaded").
-- A passed participant **removed from the list** gets no certificate (`certificateLines` skips them): fine, but say so on removal.
-- If the coordinator never presses End, participants read "comes once your coordinator ends the training" until staff press **Send
-  certificates** on Trainings: maybe a nudge on Trainings the day after.
-- Templates page `VAR_HELP.name` says "the person's name as the quote has it": wrong for the certificate email (participant's name).
-- The portal sign-in panel still says "Propose a date…": the owner said **leave it** (14 Nov). Don't change.
-- HANDOFF §1 ("Where things stand") and §10 are stale (old commit numbers, "Next 16.3 critical"); refresh when convenient.
-- Two Vercel projects deploy every push (`training-dashboard`, `training-dashboard-xfwl`): is the first one still needed? Owner's call.
+**Known gaps / to watch:**
+- The Zoho Mail **attachment upload** in `sendMail` has never run for real (fallback: the email still carries the download link).
+- The portal sign-in panel still says "Propose a date…": owner said **leave it** (14 Nov).
 - Certificates exist only for trainings with a quiz (CPR / AED / BLS); other programmes still go through Shreya's Fulfillment flow.
+- HANDOFF §1 and §10 below are history (old commit numbers); this top block is current.
 
 **Owner said no to (don't re-offer):** staff sign-in expiry / change-my-PIN screen. npm audit is 0 vulnerabilities.
 
 **Later (owner: "include it in the plan, no need to apply that right now"):** the passed list into the **master Zoho Sheet** (real
 serials and `FAT-OD/<date>/<n>`, replacing `FAT-OD/<date>/<TH>`); how **Shreya's Fulfillment card** treats portal certificates.
 Older open decisions: drop the Mongo `followUps` / `removedTriggers` collections (permanent); patch updates; PI templates for
-non-training items; a third quotation company.
+non-training items; a third quotation company; quizzes for First Aid / Fire Safety (need questions + answer keys).
 
-**Owner's side (waiting):** confirm the training. login link; the Gmail App Password for saletotalsupply@gmail.com; the Zia steps in
-Zoho Flow; GoDaddy auto-renew (reminded 14 Nov); a GitHub `CRON_SECRET`; making the repo private (their call).
+**Owner's side (waiting):** the Gmail App Password for saletotalsupply@gmail.com; the Zia steps in Zoho Flow; GoDaddy auto-renew; a
+GitHub `CRON_SECRET`; making the repo private (their call); delete the test Performa-25-1204 in Zoho. (Login link on
+training.thinkhealth.in: confirmed working, 16 Nov.)
 
-**Traps learned in session 29:**
-- `git push` can take over 2 minutes here: run it with a long timeout (or it moves to the background; wait for the notification).
-- Headless Chrome renders iframes from a `file://` page blank: screenshot each preview URL directly at `--window-size=500,…`.
-- The fake DB's `find` ignores filters (hence the `.filter(...)` after every `find` in portalTrainings); its `updateOne` matches `_id` only.
-- Server code that reads `public/` files needs `outputFileTracingIncludes` in `next.config.ts` (done for the certificate fonts on
-  `/api/portal/{training,quiz,certificate}` and `/api/training-management`); check `.next/server/.../route.js.nft.json` after a build.
-- `sendMail` now takes `attachments` and returns `attached` (count uploaded).
-- Adding a template changes the count in `tests/templates.test.ts` (route test).
-- Portal previews: `src/app/training/zz-*` with a client component that replaces `window.fetch` with canned JSON; delete before committing.
+**Traps learned in session 30:**
+- Headless Chrome's `--screenshot` hangs with `--virtual-time-budget` against `next dev` and fires before client fetches resolve.
+  Use a tiny CDP script (Node 24's built-in WebSocket; launch Chrome with `--remote-debugging-port`, navigate, wait, optionally
+  `Runtime.evaluate` a click/scroll, `Page.captureScreenshot`); `--force-prefers-reduced-motion` shortens the attend redirect to 1.2 s.
+- Staff-dashboard previews need their own root layout: `src/app/(zz)/zz-x/layout.tsx` importing `../../globals.css`, theme from
+  `?t=dark`; portal previews stay `src/app/training/zz-*`. Delete both before committing.
+- Tailwind arbitrary *properties* with `var()` (`sm:[grid-template-columns:…]`) didn't generate; use `sm:grid-cols-[repeat(var(--x),…)]`.
+- No Python on this machine; Bash heredocs with backticks/`${}` inside `node -e` break: write patch scripts to the scratchpad and run them.
+- Traps from session 29 still hold (long `git push`, the fake DB's `find` ignores filters, `outputFileTracingIncludes` for `public/`).
 
 **Session 29 in short (14–16 Nov): all live.**
 - Checklist clean. training.thinkhealth.in resolves and serves HTTPS; the owner set `PORTAL_BASE_URL` and `a4cfc7f` (empty commit)
@@ -1093,6 +1084,9 @@ name** (`b146419`).
 ---
 
 ## 1. Where things stand
+
+> **History (as of session 18).** For where things stand now, read the top block. Live: work.thinkhealth.in, training.thinkhealth.in
+> and training-dashboard-xfwl.vercel.app (Vercel project `-xfwl`, the only one that matters).
 
 - **The app is LIVE: https://training-dashboard-xfwl.vercel.app** (Vercel, since 5 Oct 2026). Vercel redeploys
   **every push to `master`** — so a push is a production release for the whole team. Only push when the owner asks.
@@ -3000,6 +2994,9 @@ No test suite. Pattern used throughout:
 ---
 
 ## 10. Open items / known gaps
+
+> **History.** Several items below are done or decided (reminders are built; the dashboard writes to Zoho: quotes, Performas,
+> statuses; the owner said no to a change-PIN screen and session expiry). The top block lists what is open now.
 1. **Temporary**: `ALLOW_PAST_TRAINING_DATES = true` — set to `false` when the owner confirms the back-fill is done.
 2. `ZOHO_DAILY_LIMIT` is 2500 (cautious default) — replace with the Zoho plan's real allowance in Vercel and `.env.local`.
 3. Potential training's date is stored "for notifications/alerts later" — reminders are not built yet.

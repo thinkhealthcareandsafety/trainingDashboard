@@ -1,6 +1,6 @@
 # Training Manager: full plan
 
-## Status (16 Nov 2026, end of session 29): everything is live at `36ca061` (quiz retakes + certificates by email added). Next: HANDOFF.md "Build queue"
+## Status (16 Nov 2026, end of session 30): live at `36ca061`; session 30 (quote before Accept, Cc sales@, guided Performa, trainer rule, attendance before Start, PRESENT stamps, progress track, certificates at pass) is committed locally, pushed when the owner says. Next: HANDOFF.md top block
 
 | Step | What | State |
 |---|---|---|
