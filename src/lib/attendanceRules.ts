@@ -35,6 +35,12 @@ export function sessionWindow(days: string[], today: string, sessions: Session[]
 }
 
 /**
+ * Who can mark themselves present, and walk-ins register, by the attendance QR (owner, 16 Nov: "they should be able to mark
+ * their attendance even before the training starts"): on a training day, from the morning, before Start too, until End.
+ */
+export const markable = (w: DayWindow): w is Extract<DayWindow, { state: "open" | "waiting" }> => w.state === "open" || w.state === "waiting";
+
+/**
  * The quiz (owner, 13 Nov): visible only while a session runs ("only when the training is commenced"); the right answers
  * show once the last training day's session ended, or that day has passed (so nobody passes answers around between days).
  */

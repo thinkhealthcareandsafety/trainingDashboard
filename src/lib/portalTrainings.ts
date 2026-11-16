@@ -6,7 +6,7 @@ import { type QuoteSheet, type TrainingQuote, isTrainingOnly, toTrainingQuote } 
 import { booksApi } from "./quotations";
 import { MAX_PEOPLE, type Person, type Proposal, type ProposalDate, type Stamp, TH_ID, cleanEmail, duplicatePhones, fmtProposalDate, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 import { cleanPhone } from "./trainingManager";
-import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
+import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, markable, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
 import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
 import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
@@ -384,8 +384,7 @@ async function byAttendLink(number: unknown, key: unknown): Promise<AttendLink |
 const badAttendLink: Fail = { error: "This attendance code has changed. Please scan the one your training coordinator is showing.", status: 404 };
 /** What the attendance page says when it isn't a training day. */
 export const shutText = (w: DayWindow) =>
-  w.state === "before" ? `Attendance opens on ${fmtDay(w.next)}, once your training starts.`
-  : w.state === "waiting" ? "Your training hasn't started yet. Attendance opens when your coordinator starts it."
+  w.state === "before" ? `Attendance opens on ${fmtDay(w.next)}, the day of your training.`
   : w.state === "ended" ? "Today's training has ended, so attendance is closed. Please speak to your training coordinator."
   : w.state === "after" ? "Attendance for this training has closed." : "The training date isn't set yet. Please speak to your training coordinator.";
 
@@ -400,7 +399,7 @@ async function remembered(j: AttendLink, c: Cookie): Promise<ParticipantDoc | nu
   return p && p.trainingId === j.t._id && same(p.token, c.token) ? p : null;
 }
 async function meOf(j: AttendLink, p: ParticipantDoc): Promise<AttendMe> {
-  const day = j.win.state === "open" ? j.win.day : "";
+  const day = markable(j.win) ? j.win.day : "";
   const marked = day ? await (await attendCol()).findOne({ _id: attendanceId(p._id, day) }) : null;
   return { th: p._id, name: p.name, presentToday: Boolean(marked) };
 }
@@ -411,7 +410,7 @@ export async function attendInfo(number: unknown, key: unknown, c: Cookie): Prom
   const p = await remembered(j, c);
   return {
     training: titleOf(j.q), customer: j.q.customer, coordinator: j.t.coordinator?.name ?? "", dates: j.cur.dates, window: j.win,
-    shut: j.win.state === "open" ? "" : shutText(j.win), me: p ? await meOf(j, p) : null,
+    shut: markable(j.win) ? "" : shutText(j.win), me: p ? await meOf(j, p) : null,
   };
 }
 
@@ -419,18 +418,18 @@ export async function attendInfo(number: unknown, key: unknown, c: Cookie): Prom
 export async function attendIdentify(number: unknown, key: unknown, phoneRaw: unknown): Promise<{ me: AttendMe; cookie: { th: string; token: string } } | { register: true } | Fail> {
   const j = await byAttendLink(number, key);
   if (!j) return badAttendLink;
-  if (j.win.state !== "open") return { error: shutText(j.win), status: 409 };
+  if (!markable(j.win)) return { error: shutText(j.win), status: 409 };
   const phone = cleanPhone(String(phoneRaw ?? ""));
   if (!phone) return { error: "Type your 10-digit mobile number", status: 400 };
   const p = (await peopleOf(j.t._id)).find((x) => x.phone === phone);
   return p ? { me: await meOf(j, p), cookie: { th: p._id, token: p.token } } : { register: true };
 }
 
-/** A walk-in registers on the day (owner, 13 Nov: tagged "walk-in"). The same number twice gets them back, not twice. */
+/** A walk-in registers on the day, before Start too (owner, 13 Nov: tagged "walk-in"; 16 Nov: before Start). The same number twice gets them back, not twice. */
 export async function attendRegister(number: unknown, key: unknown, raw: unknown): Promise<{ me: AttendMe; cookie: { th: string; token: string } } | Fail> {
   const j = await byAttendLink(number, key);
   if (!j) return badAttendLink;
-  if (j.win.state !== "open") return { error: shutText(j.win), status: 409 };
+  if (!markable(j.win)) return { error: shutText(j.win), status: 409 };
   const person = readPerson(raw);
   if ("error" in person) return { error: person.error, status: 400 };
   const have = await peopleOf(j.t._id);
@@ -441,11 +440,11 @@ export async function attendRegister(number: unknown, key: unknown, raw: unknown
   return { me: await meOf(j, doc), cookie: { th: doc._id, token: doc.token } };
 }
 
-/** Present: today's tick, by the person the phone remembers. Marking twice keeps the first time. */
+/** Present: today's tick, by the person the phone remembers; on the day before Start too (owner, 16 Nov). Marking twice keeps the first time. */
 export async function attendPresent(number: unknown, key: unknown, c: Cookie): Promise<{ th: string; token: string; name: string; already: boolean } | Fail> {
   const j = await byAttendLink(number, key);
   if (!j) return badAttendLink;
-  if (j.win.state !== "open") return { error: shutText(j.win), status: 409 };
+  if (!markable(j.win)) return { error: shutText(j.win), status: 409 };
   const p = await remembered(j, c);
   if (!p) return { error: "Type your mobile number first.", status: 401 };
   const _id = attendanceId(p._id, j.win.day);

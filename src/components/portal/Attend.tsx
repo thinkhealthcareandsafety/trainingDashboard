@@ -5,7 +5,7 @@ import { Band, Problem, field } from "./Participant";
 import { primaryBtn } from "./TrainingTools";
 import { portalPrefix } from "@/lib/portalHost";
 import { type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
-import type { DayWindow } from "@/lib/attendanceRules";
+import { type DayWindow, markable } from "@/lib/attendanceRules";
 
 /*
  * Attendance on the day (owner, 13 Nov): what the coordinator's attendance QR opens. Phone-first, one decision per screen:
@@ -87,7 +87,7 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
         <div className="flex max-w-xl flex-col items-center text-center">
           <span className="stamp-present inline-flex rotate-[-6deg] flex-col items-center rounded-lg border-[3px] border-navy bg-surface px-7 pb-3 pt-4 text-navy shadow-[inset_0_0_0_3px_var(--surface),inset_0_0_0_5px_var(--navy),0_10px_30px_rgb(0_20_35/0.35)]">
             <span className="text-[34px] font-extrabold uppercase leading-none tracking-[0.16em] sm:text-[42px]">Present</span>
-            <span className="num mt-2 text-[12px] font-bold uppercase leading-none tracking-[0.12em]">{info.window.state === "open" ? fmtProposalDate({ date: info.window.day, time: "" }) : ""}</span>
+            <span className="num mt-2 text-[12px] font-bold uppercase leading-none tracking-[0.12em]">{markable(info.window) ? fmtProposalDate({ date: info.window.day, time: "" }) : ""}</span>
           </span>
           <p className="welcome-line mt-10 text-[30px] font-extrabold leading-[1.1] tracking-[-0.025em] sm:text-[40px]" style={{ animationDelay: "650ms" }}>{marked.already ? "You're already marked present." : "Attendance marked."}</p>
           <p className="welcome-line mt-3 text-[19px] font-bold text-white/80" style={{ animationDelay: "1100ms" }}>Thank you for being here, {marked.name}.</p>
@@ -96,7 +96,7 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
     );
   }
 
-  const day = info.window.state === "open" ? `${fmtProposalDate({ date: info.window.day, time: "" })}${info.window.of > 1 ? ` · Day ${info.window.dayNo} of ${info.window.of}` : ""}` : "";
+  const day = markable(info.window) ? `${fmtProposalDate({ date: info.window.day, time: "" })}${info.window.of > 1 ? ` · Day ${info.window.dayNo} of ${info.window.of}` : ""}` : "";
   return (
     <main className="min-h-screen bg-ground">
       <Band>

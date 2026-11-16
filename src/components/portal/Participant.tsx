@@ -190,7 +190,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
             </div>
           </div>
         </section>
-        {quiz && quiz.state !== "none" && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
+        {quiz && (page.confirmed || quiz.state !== "none") && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
         {page.confirmed && page.dates.length > 0 && <Attendance dates={page.dates} present={page.present ?? []} />}
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen. Show your number, {page.th}, on the day.</p>
         {withVideo.length > 0 && <div className="pb-4"><Programmes list={withVideo} title="Watch before you come" /></div>}
@@ -236,10 +236,11 @@ function QuizPanel({ q, onOpen, certHref }: { q: QuizInfo; onOpen: () => void; c
   const [line, action] = going ? [<>Your try is in progress.</>, "Carry on"]
     : r && q.canRetake ? [<>You scored <b className="num text-ink">{r.pct}%</b>{r.tries > 1 ? <> (best so far <b className="num text-ink">{r.bestPct}%</b>)</> : null}. {q.quiz.passPct}% passes, and you can try again while the training runs.</>, "Try again"]
     : r ? [<>You scored <b className="num text-ink">{r.points} of {r.max}</b> ({r.pct}%), <b className="num text-ink">#{r.rank}</b> of {r.of}{r.passed ? ". Passed." : "."}</>, "See results"]
-    : q.state === "open" && q.present ? [<>Your training has started. {q.quiz.questions.length} questions; {q.quiz.passPct}% to pass.</>, "Take the quiz"]
-    : q.state === "open" ? [<>Mark your attendance first (scan your coordinator&apos;s attendance code and tap Present), then the quiz opens here.</>, null]
+    : q.state === "open" && q.present ? [<>Your training has started. <b className="text-ink">Take the quiz to get your certificate</b>: {q.quiz.questions.length} questions, {q.quiz.passPct}% to pass.</>, "Take the quiz"]
+    : q.state === "open" ? [<>Mark your attendance first (scan your coordinator&apos;s attendance code and tap Present), then take the quiz here to get your certificate.</>, null]
     : q.state === "revealed" ? [<>The quiz has closed.</>, "See the leaderboard"]
-    : [<>The quiz opens when your coordinator starts the training.</>, null];
+    // Owner, 16 Nov: before Start the card is already there, and says what comes.
+    : [<>{q.present ? <>You&apos;re marked present. </> : null}<b className="text-ink">Wait for your coordinator to start the training.</b> Then take the quiz here to get your certificate; it opens by itself.</>, null];
   const strong = Boolean(going || (!r && q.state === "open" && q.present) || (r && q.canRetake));
   return (
     <section className={`mt-4 rounded-2xl bg-surface px-5 py-5 sm:px-7 ${strong ? "ring-2 ring-navy" : "ring-1 ring-line"}`} aria-label="Quiz">

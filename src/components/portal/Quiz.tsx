@@ -130,7 +130,7 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
   // Not open (yet, or any more), or not marked present.
   if (data.state !== "open" || !data.present) {
     const text = !data.present && data.state === "open" ? "Mark your attendance first: scan your coordinator's attendance code and tap Present. Then the quiz opens here."
-      : data.state === "none" || data.state === "closed" ? "The quiz opens when your coordinator starts the training. Come back to this page then."
+      : data.state === "none" || data.state === "closed" ? "Wait for your coordinator to start the training. Then the quiz opens here by itself: take it to get your certificate."
       : "The quiz has closed.";
     return (
       <Frame onClose={onClose} title={quiz.title}>

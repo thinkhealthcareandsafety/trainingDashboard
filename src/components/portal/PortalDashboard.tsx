@@ -514,7 +514,8 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
   );
 }
 
-/** Today's strip (owner, 13 Nov): Start training opens attendance and the quiz; End training closes them. */
+/** Today's strip (owner, 13 Nov): Start training opens the quiz; End training closes it and attendance. Attendance is open
+ * from the morning of the day, before Start too (owner, 16 Nov). */
 function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -531,7 +532,7 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
   const heading = state === "open" ? "Training in progress" : state === "ended" ? "Today's training has ended" : "Training today";
   const note = state === "open" ? `Started at ${at(t.session?.startedAt)}. Attendance${t.quiz ? " and the quiz are" : " is"} open.`
     : state === "ended" ? `Ended at ${at(t.session?.endedAt)}. Attendance${t.quiz ? " and the quiz are" : " is"} closed for today.`
-    : `Attendance${t.quiz ? " and the quiz open" : " opens"} when you start.`;
+    : `People can mark their attendance now.${t.quiz ? " The quiz opens when you start." : " Press Start when the training begins."}`;
   return (
     <div className={`rounded-xl px-5 py-4 ${state === "open" ? "bg-navy text-white" : "bg-ground"}`}>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">

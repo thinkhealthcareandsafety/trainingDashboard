@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { type Person, type Proposal, type Skipped, duplicatePhones, fmtProposalDate, indiaToday, parseCsv, peopleFromRows } from "@/lib/portalRules";
-import type { DayWindow } from "@/lib/attendanceRules";
+import { type DayWindow, markable } from "@/lib/attendanceRules";
 import { portalPrefix } from "@/lib/portalHost";
 import { Qr, qrPng } from "./Qr";
 
@@ -144,14 +144,14 @@ export function Participants({ t, adding, onCount, onLive }: { t: ToolTraining; 
     setRows(r.list); onCount(r.list.length);
     const w: DayWindow = r.window ?? { state: "none", of: 0 };
     setAtt({ days: r.days ?? [], window: w, on: Boolean(r.attendance) });
-    if (r.attendance && onLive) onLive({ present: w.state === "open" ? r.list.filter((p) => p.present.includes(w.day)).length : 0, total: r.list.length });
+    if (r.attendance && onLive) onLive({ present: markable(w) ? r.list.filter((p) => p.present.includes(w.day)).length : 0, total: r.list.length });
   };
   const load = () => act<People>({ action: "people", id: t.id }).then((r) => { if (r.list) { update(r); setError(""); } else setError(r.error ?? "Couldn't load the list"); });
   useEffect(() => { load(); }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Live ticks (owner, 13 Nov): every 5 s on a training day, every minute otherwise once confirmed; paused while the tab is hidden.
   useEffect(() => {
     if (!att.on) return;
-    const id = setInterval(() => { if (!document.hidden) load(); }, att.window.state === "open" ? 5000 : 60000);
+    const id = setInterval(() => { if (!document.hidden) load(); }, markable(att.window) ? 5000 : 60000);
     return () => clearInterval(id);
   }, [att.on, att.window.state, t.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
