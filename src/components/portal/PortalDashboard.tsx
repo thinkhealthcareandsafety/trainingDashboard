@@ -23,7 +23,8 @@ type Me = { email: string; name: string };
 type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; quote: QuoteSheet; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
   dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number;
   quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null; sessions: { day: string; startedAt: string; endedAt: string | null }[];
-  selfPrompt: "self" | "team" | null; me: { th: string; token: string } | null; self: { name: string; phone: string; email: string } };
+  selfPrompt: "self" | "team" | null; me: { th: string; token: string } | null; self: { name: string; phone: string; email: string };
+  officialCerts: { th: string; name: string; certNo: string; downloadedAt: string | null }[] | null };
 type Home = { me: Me; trainings: Training[]; content: PortalContent };
 
 const signOf = (key: string) => SIGNS.find((s) => s.key === key) ?? SIGNS[0];
@@ -556,7 +557,7 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
 }
 
 function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode }) {
-  const peopleHere = <div className="mt-7 border-t border-line pt-6">{people}</div>;
+  const peopleHere = <>{t.officialCerts && <div className="mt-7 border-t border-line pt-6"><Certificates t={t} /></div>}<div className="mt-7 border-t border-line pt-6">{people}</div></>;
   const qr = attendKey && onTheDay ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big /> : null;
   // The report (owner, 16 Nov): once the coordinator ends a day (and isn't running or about to start another), and after it's completed.
   const ended = t.sessions.some((s) => s.endedAt);
@@ -716,6 +717,45 @@ function TrainingReport({ t }: { t: Training }) {
               <span className="font-semibold text-ink">{fmtProposalDate({ date: s.day, time: "" })}</span>
               <span>· {at(s.startedAt)} – {at(s.endedAt!)}</span>
               <span className="text-muted">· {fmtLength(sessionMs(s))}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The official certificates (owner, 16 Nov: "when the payment is received … the option to download certificates will be
+ * visible to the coordinator"; "one by one (mark when downloaded once) … download all certificates (zip)").
+ */
+function Certificates({ t }: { t: Training }) {
+  const [done, setDone] = useState<Record<string, string>>({});
+  const list = t.officialCerts ?? [];
+  const when = (c: { th: string; downloadedAt: string | null }) => done[c.th] ?? c.downloadedAt;
+  const mark = (ths: string[]) => { const at = new Date().toISOString(); setDone((d) => ({ ...d, ...Object.fromEntries(ths.filter((th) => !d[th]).map((th) => [th, at])) })); };
+  const short = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const base = `/api/portal/training?`;
+  return (
+    <section aria-label="Certificates">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">Certificates</p>
+          <p className="mt-1 text-[15.5px] text-ink"><b className="num">{list.length}</b> ready to download · <span className="num">{list.filter((c) => when(c)).length}</span> downloaded</p>
+        </div>
+        {list.length > 0 && <a className={primaryBtn} href={`${base}certs=${encodeURIComponent(t.id)}`} download onClick={() => mark(list.map((c) => c.th))}>Download all certificates (ZIP)</a>}
+      </div>
+      {list.length === 0 ? <p className="mt-3 text-[14.5px] text-muted">No one has passed the quiz yet.</p> : (
+        <ul className="mt-4 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
+          {list.map((c) => (
+            <li key={c.th} className="flex items-center gap-3 bg-surface px-3.5 py-2.5">
+              <span className="num w-11 shrink-0 text-[12.5px] font-semibold text-muted sm:w-14 sm:text-[13px]">{c.th}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold text-ink">{c.name}</span>
+                <span className="num block truncate text-[13px] text-muted">{c.certNo}</span>
+              </span>
+              {when(c) && <span className="hidden shrink-0 rounded-full bg-ground px-2.5 py-1 text-[12px] font-semibold text-ink-2 sm:inline">Downloaded {short(when(c)!)}</span>}
+              <a className={`${secondaryBtn} shrink-0`} href={`${base}cert=${encodeURIComponent(t.id)}&th=${c.th}`} download onClick={() => mark([c.th])}>{when(c) ? "Again" : "Download"}</a>
             </li>
           ))}
         </ul>

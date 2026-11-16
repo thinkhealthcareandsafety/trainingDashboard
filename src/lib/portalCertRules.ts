@@ -19,6 +19,20 @@ export const portalCertNumber = (day: string, th: string) => `FAT-OD/${day.slice
 /** India's calendar day of an instant (the training's day when they passed). */
 export const indiaDayOf = (iso: string) => new Date(Date.parse(iso) + 330 * 60_000).toISOString().slice(0, 10);
 
+/* ---------------- The official certificates, for the coordinator once paid (owner, 16 Nov) ---------------- */
+
+export type InvoiceLite = { number: string; reference: string; total: number; balance: number; status: string };
+const cites = (ref: string, num: string) => Boolean(ref && num && ref.toLowerCase().includes(num.toLowerCase()));
+/**
+ * "When the payment is received for this training then only the option to download certificates will be visible" (owner,
+ * 16 Nov; fully paid): the training's invoices are those whose reference cites its Performa (or its quote, when the
+ * Performa was skipped), as the quote's story links them; void ones don't count. Paid = at least one, and none owes money.
+ */
+export function paidInFull(invoices: InvoiceLite[], refs: string[]): boolean {
+  const mine = invoices.filter((i) => i.status !== "void" && refs.some((r) => cites(i.reference, r)));
+  return mine.length > 0 && mine.every((i) => i.balance <= 0.5 || i.status === "paid");
+}
+
 /* ---------------- The email ---------------- */
 
 export const CERT_VARS = ["name", "training", "score", "link", "certno"] as const;

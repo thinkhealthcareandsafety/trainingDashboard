@@ -174,3 +174,43 @@ test("the Good Samaritan certificate (owner, 16 Nov): its own number, one counte
   assert.deepEqual((await certificateLines("1")).map((l) => l.gsNo).sort(), ["IAGS-SN/001", "IAGS-SN/002", "IAGS-SN/003"]);
   assert.deepEqual((await certificateLines("1")).map((l) => l.gsNo).sort(), ["IAGS-SN/001", "IAGS-SN/002", "IAGS-SN/003"]);
 });
+
+test("official certificates for the coordinator only once fully paid; each download marked; all as a ZIP (owner, 16 Nov)", async () => {
+  const { paidInFull } = await import("@/lib/portalCertRules");
+  const { coordinatorCertificates, trainingsFor } = await import("@/lib/portalTrainings");
+  const { zip, uniqueNames, crc32 } = await import("@/lib/zip");
+  const inv = (number: string, reference: string, balance: number, status = balance ? "sent" : "paid") => ({ number, reference, total: 1000, balance, status });
+  assert.equal(paidInFull([], ["Performa-25-1"]), false); // no invoice yet
+  assert.equal(paidInFull([inv("INV-1", "Performa-25-1", 400, "partially_paid")], ["Performa-25-1"]), false); // part paid
+  assert.equal(paidInFull([inv("INV-1", "Ref: performa-25-1", 0)], ["Performa-25-1"]), true);
+  assert.equal(paidInFull([inv("INV-1", "Performa-25-1", 0), inv("INV-2", "Performa-25-1", 500)], ["Performa-25-1"]), false); // a second still owes
+  assert.equal(paidInFull([inv("INV-1", "Performa-25-1", 0), inv("INV-2", "Performa-25-1", 500, "void")], ["Performa-25-1"]), true); // void doesn't count
+  assert.equal(paidInFull([inv("INV-9", "QT-1", 0)], ["Performa-25-1", "QT-1"]), true); // Performa skipped: the quote's reference
+
+  const today = indiaToday();
+  await seed([today]);
+  await startTraining(RIYA, "1");
+  await tick(RIYA, "1", "TH001", today, true);
+  await take("TH001", await token("TH001"), KEY);
+  assert.equal((await trainingsFor(RIYA))[0].officialCerts, null); // not paid: not even shown
+  assert.equal(((await coordinatorCertificates(RIYA, "1")) as { status: number }).status, 409);
+  await (await db()).collection<{ _id: string } & Record<string, unknown>>("salesDocs").insertOne({ _id: "invoices:9", kind: "invoices", id: "9", row: { invoice_number: "INV-1", reference_number: "Performa-25-1", total: 45000, balance: 0, status: "paid" } });
+  const [t] = await trainingsFor(RIYA);
+  assert.deepEqual(t.officialCerts?.map((c) => [c.th, c.downloadedAt]), [["TH001", null]]);
+  assert.equal(((await coordinatorCertificates("someone@else.com", "1")) as { status: number }).status, 404);
+  const one = await coordinatorCertificates(RIYA, "1", "th001");
+  assert.ok(Array.isArray(one) && one.length === 1 && one[0].certNo.startsWith("FAT-OD/"));
+  assert.ok((await trainingsFor(RIYA))[0].officialCerts?.[0].downloadedAt); // marked once
+
+  // The ZIP: a local header per file, the data inflates back, names kept unique.
+  const { inflateRawSync } = await import("node:zlib");
+  assert.deepEqual(uniqueNames(["A.pdf", "B.pdf", "a.pdf"]), ["A.pdf", "B.pdf", "a (2).pdf"]);
+  const data = new TextEncoder().encode("%PDF-1.7 hello");
+  const z = Buffer.from(zip([{ name: "Certificate - Asha Rao.pdf", data }]));
+  assert.equal(z.readUInt32LE(0), 0x04034b50);
+  const nameLen = z.readUInt16LE(26), size = z.readUInt32LE(18);
+  assert.equal(z.subarray(30, 30 + nameLen).toString(), "Certificate - Asha Rao.pdf");
+  assert.deepEqual(new Uint8Array(inflateRawSync(z.subarray(30 + nameLen, 30 + nameLen + size))), data);
+  assert.equal(z.readUInt32LE(14), crc32(data));
+  assert.equal(z.readUInt32LE(z.length - 22), 0x06054b50);
+});

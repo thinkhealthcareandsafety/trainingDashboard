@@ -2,6 +2,10 @@ import { portalToken, portalUser } from "@/lib/portalAuth";
 import { withBump } from "@/lib/changes";
 import { addPeople, endTraining, selfAnswer, selfRegister, newAttendKey, newJoinKey, participants, propose, quizResults, quotePdfFor, reject, removePerson, startTraining, tick } from "@/lib/portalTrainings";
 import { estimatePdf } from "@/lib/zoho";
+import { coordinatorCertificates } from "@/lib/portalTrainings";
+import { certificatePdf } from "@/lib/portalCertSend";
+import { certFileName } from "@/lib/portalCertRules";
+import { uniqueNames, zip } from "@/lib/zip";
 import { setQuoteStatus } from "@/lib/quotations";
 import { certificatesLater } from "@/lib/portalCertLater";
 
@@ -23,11 +27,30 @@ export const dynamic = "force-dynamic";
  *  "self" { person: { name, phone, email? } } / "selfskip" / "teamdone" — the once-only asks after Mark confirmed (owner, 16 Nov)
  * Only on their own trainings. GET ?pdf=<id>: the quotation's PDF (below).
  */
-/** GET ?pdf=<id>: the quotation as Zoho's own PDF (owner, 16 Nov: see it before accepting), for its coordinator only. */
+/**
+ * GET ?pdf=<id>: the quotation as Zoho's own PDF (owner, 16 Nov: see it before accepting), for its coordinator only.
+ * GET ?cert=<id>&th=<TH001>: one person's official certificate; GET ?certs=<id>: all of them as a ZIP (owner, 16 Nov:
+ * only once the training is fully paid; each download is marked).
+ */
 export async function GET(request: Request) {
   try {
     const me = await portalUser(portalToken(request));
     if (!me) return Response.json({ error: "Please sign in again" }, { status: 401 });
+    const s = new URL(request.url).searchParams;
+    const certFor = s.get("cert") ?? s.get("certs");
+    if (certFor) {
+      const lines = await coordinatorCertificates(me.email, certFor, s.get("cert") ? s.get("th") ?? "" : undefined);
+      if ("error" in lines) return Response.json({ error: lines.error }, { status: lines.status });
+      if (s.get("cert")) {
+        const c = lines[0];
+        return new Response(Buffer.from(await certificatePdf(c)), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${certFileName(c.name).replace(/"/g, "")}"`, "Cache-Control": "private, no-store" } });
+      }
+      const names = uniqueNames(lines.map((c) => certFileName(c.name)));
+      const files = [];
+      for (const [i, c] of lines.entries()) files.push({ name: names[i], data: await certificatePdf(c) });
+      const label = (lines[0]?.number ?? "Training").replace(/[^A-Za-z0-9_-]/g, "");
+      return new Response(Buffer.from(zip(files)), { headers: { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="Certificates ${label}.zip"`, "Cache-Control": "private, no-store" } });
+    }
     const q = await quotePdfFor(me.email, new URL(request.url).searchParams.get("pdf"));
     if (!q) return Response.json({ error: "That training isn't on your list" }, { status: 404 });
     const name = q.number.replace(/[^A-Za-z0-9_-]/g, "") || "Quotation";

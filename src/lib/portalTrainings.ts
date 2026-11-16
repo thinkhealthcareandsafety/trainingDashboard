@@ -10,7 +10,7 @@ import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceI
 import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
 import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
-import { certDay, indiaDayOf, portalCertNumber } from "./portalCertRules";
+import { type InvoiceLite, certDay, indiaDayOf, paidInFull, portalCertNumber } from "./portalCertRules";
 import { goodSamaritanNumber } from "./goodSamaritan";
 import { DESIGNS, type DesignId, designFor } from "./certificates";
 
@@ -175,6 +175,8 @@ export type PortalTraining = {
    */
   selfPrompt: "self" | "team" | null;
   me: { th: string; token: string } | null;
+  /** The official certificates (owner, 16 Nov): only once the training is fully paid; each person's, when it was downloaded. */
+  officialCerts: { th: string; name: string; certNo: string; downloadedAt: string | null }[] | null;
   self: { name: string; phone: string; email: string };
 };
 
@@ -210,6 +212,8 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       session: (() => { const ss = (t.sessions ?? []).find((x) => x.day === indiaToday()); return ss ? { startedAt: ss.startedAt, endedAt: ss.endedAt ?? null } : null; })(),
       sessions: (t.sessions ?? []).map((s) => ({ day: s.day, startedAt: s.startedAt, endedAt: s.endedAt ?? null })).sort((a, b) => a.day.localeCompare(b.day)),
       selfPrompt, me: mine ? { th: mine._id, token: mine.token } : null,
+      officialCerts: t.confirmed?.zohoAt && quizFor(x.lines.map((l) => l.name)) && (await paidFor(t, x.number))
+        ? (await certificateLines(t._id)).map((c) => ({ th: c.th, name: c.name, certNo: c.certNo, downloadedAt: c.downloadedAt ?? null })) : null,
       self: { name: t.coordinator?.name ?? "", phone: mobile, email: t.coordinator?.email ?? email },
       quiz: (() => { const qz = quizFor(x.lines.map((l) => l.name)); return qz ? { title: qz.title, state: quizState(daysOf(cur), indiaToday(), t.sessions) } : null; })(),
     });
@@ -754,6 +758,33 @@ export async function certificateLines(trainingId: string): Promise<CertLine[]> 
     out.push({ ...rest, gsNo: doc.gsNo!, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number });
   }
   return out;
+}
+
+/** The training's invoices from our Zoho copies (the Sales copy and the Training board's), as paidInFull reads them. */
+async function paidFor(t: TrainingDoc, quoteNumber: string): Promise<boolean> {
+  const refs = [t.confirmed?.number ?? "", quoteNumber].filter(Boolean);
+  if (!refs.length) return false;
+  const like = { $regex: refs.map((r) => r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), $options: "i" };
+  const d = await db();
+  const sales = (await d.collection<{ _id: string; kind: string; row: Record<string, unknown> }>("salesDocs").find({ kind: "invoices", "row.reference_number": like }).toArray()).filter((x) => x.kind === "invoices");
+  const ours = (await d.collection<{ _id: string; kind: string; doc: Record<string, unknown> }>("zohoDocs").find({ kind: "invoices", "doc.reference_number": like }).toArray()).filter((x) => x.kind === "invoices");
+  const lite = (r: Record<string, unknown>): InvoiceLite => ({ number: String(r.invoice_number ?? ""), reference: String(r.reference_number ?? ""), total: Number(r.total) || 0, balance: Number(r.balance) || 0, status: String(r.status ?? "") });
+  const byNo = new Map<string, InvoiceLite>();
+  for (const r of [...ours.map((x) => x.doc), ...sales.map((x) => x.row)]) { const i = lite(r); if (i.number) byNo.set(i.number, i); } // the Sales copy is the fresher
+  return paidInFull([...byNo.values()], refs);
+}
+
+/** The coordinator's download of official certificates (owner, 16 Nov): their own training, fully paid; marks them downloaded. */
+export async function coordinatorCertificates(email: string, id: unknown, th?: unknown): Promise<CertLine[] | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  const q = (await quotes(new Set([t._id]))).get(t._id);
+  if (!q || !t.confirmed?.zohoAt || !(await paidFor(t, q.number))) return { error: "The certificates can be downloaded once the training is fully paid.", status: 409 };
+  const lines = (await certificateLines(t._id)).filter((c) => !th || c.th === String(th).toUpperCase());
+  if (!lines.length) return { error: "No certificate for that person.", status: 404 };
+  const at = new Date().toISOString();
+  for (const c of lines) if (!c.downloadedAt) await (await certsCol()).updateOne({ _id: certId(t._id, c.th) }, { $set: { downloadedAt: at } });
+  return lines;
 }
 
 /** After a send: when it went (or why not), to which address, whether the PDF was attached. */
