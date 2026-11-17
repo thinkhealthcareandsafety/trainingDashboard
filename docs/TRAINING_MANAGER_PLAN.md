@@ -1,6 +1,6 @@
 # Training Manager: full plan
 
-## Status (17 Nov 2026, end of session 30): live at `d330aac` (quiz, certificates, reports, one QR, live refresh, new staff Overview). Next: HANDOFF.md top block (Overview person tabs first)
+## Status (17 Nov 2026, session 31): live at `d330aac`; local, not pushed: "this year" period, Overview person tabs (Company · Sumit · Ashish · Pranjal · Shikha). Next: HANDOFF.md top block step 4 (first live training checks)
 
 | Step | What | State |
 |---|---|---|

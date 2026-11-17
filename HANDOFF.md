@@ -14,7 +14,8 @@ coordinator", "A participant's own report", "Attendance", "The quiz: its own wor
    and this note), nothing behind. Push only when the owner says "push" (`git push origin master`, long timeout), then check Vercel
    `-xfwl` via `curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status` and curl the site.
 2. `npm test` (**322** pass) and `npx tsc --noEmit -p tsconfig.json`.
-3. **IMMEDIATE NEXT (owner's last ask, unfinished):** restructure the staff **Overview** (`src/components/OverviewSales.tsx`): "it
+3. **DONE in session 31 (local commit "Overview: person tabs", not pushed yet):** person tabs, four period cards, FY block with
+   day-vs-average bars, Pick dates card; tab kept in localStorage `th.overview.tab`. Was: restructure the staff **Overview** (`src/components/OverviewSales.tsx`): "it
    should be salesperson name as **tabs** and the rest reports go under them, not the other way around, like the daily, weekly,
    monthly, yearly etc". Build:
    - Tabs at the top: **Company · Sumit · Ashish · Pranjal · Shikha** (remember the choice in localStorage, try/catch).
