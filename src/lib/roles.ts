@@ -40,6 +40,9 @@ export function boardsFor(m: Who): BoardKind[] {
   return ["training"];
 }
 
+/** The Invoice Converter (owner, 17 Nov): everyone with full access, and logistics (Arti makes the invoices). */
+export const canConvertInvoices = (m: Who) => hasFullAccess(m) || boardsFor(m).includes("logistics");
+
 /** The Follow-ups page: anyone with at least one board. */
 export const hasFollowUps = (m: Who) => boardsFor(m).length > 0;
 

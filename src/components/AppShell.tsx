@@ -14,7 +14,7 @@ import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
 import { AnalyticsConnect } from "./AnalyticsConnect";
 import { ProgressToasts, useProgressPulse } from "./progress/ProgressPulse";
-import { boardsFor, canQuote, hasFullAccess, hasFollowUps, isAdmin } from "@/lib/roles";
+import { boardsFor, canConvertInvoices, canQuote, hasFullAccess, hasFollowUps, isAdmin } from "@/lib/roles";
 
 const NAV = [
   { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
@@ -33,6 +33,7 @@ const NAV = [
   { href: "/reports", label: "Reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
 ];
 const TRACKER = "/reports/progress-tracker";
+const CONVERTER = "/reports/invoice-converter";
 
 /**
  * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
@@ -367,6 +368,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Quotations also for Pranjal (canQuote); the other "full" pages for full access only.
   const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" || n.href === "/training-management" ? canQuote(session.member!) : hasFullAccess(session.member!))))).map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
   const onTracker = path.startsWith(TRACKER);
+  const onConverter = path.startsWith(CONVERTER);
   // Tagged and not answered yet: a red count on Progress tracker until you reply in the request or resolve it (owner, 26 Oct).
   const trackerBadge = progress.needs > 0 && (
     <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-high px-1 text-[11px] font-bold leading-none text-white" title={`Tagged in ${progress.needs} ${progress.needs === 1 ? "request" : "requests"} — reply or resolve to clear it`}>{progress.needs}</span>
@@ -431,7 +433,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="space-y-0.5">
             {nav.map((n) => {
               const reports = n.label === "Reports";
-              const on = reports ? isOn(n.href) && !onTracker : isOn(n.href);
+              const on = reports ? isOn(n.href) && !onTracker && !onConverter : isOn(n.href);
               return (
                 <div key={n.href}>
                   <Link
@@ -458,6 +460,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       </svg>
                       <span className="flex-1">Progress tracker</span>
                       {trackerBadge}
+                    </Link>
+                  )}
+                  {/* Reports → Invoice Converter (owner, 17 Nov), under Progress tracker: invoices, POs and e-way bills. */}
+                  {reports && session.member && canConvertInvoices(session.member) && (
+                    <Link
+                      href={CONVERTER}
+                      className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
+                        onConverter ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+                      }`}
+                    >
+                      {/* An invoice with a tick: the paperwork completed. */}
+                      <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M7.5 12l2 2 3.5-4" />
+                      </svg>
+                      <span className="flex-1">Invoice Converter</span>
                     </Link>
                   )}
                 </div>

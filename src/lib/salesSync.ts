@@ -72,7 +72,9 @@ const fireItemIds = async () => new Set((((await (await kv()).findOne({ _id: "zo
   .filter((i) => i.identifier?.trim().toLowerCase() === FIRE).map((i) => String(i.id)));
 /** List fields the board uses — the rest of Zoho's list row isn't kept (a whole row is ~1.5 KB; this is ~300 B). */
 const KEEP = ["estimate_id", "salesorder_id", "invoice_id", "estimate_number", "salesorder_number", "invoice_number", "date", "created_time", "last_modified_time",
-  "status", "customer_id", "customer_name", "salesperson_name", "reference_number", "total", "balance", "due_date", "payment_made"];
+  "status", "customer_id", "customer_name", "salesperson_name", "reference_number", "total", "balance", "due_date", "payment_made",
+  // The Invoice Converter (owner, 17 Nov): the invoice's Purchase Order Number, and whether it has attachments.
+  "cf_purchase_order_number", "has_attachment"];
 /** Lines that come along with a sale rather than being one (travel on a training invoice, freight on an AED). */
 const INCIDENTAL = /travel|conveyance|accommodation|lodging|boarding|freight|shipping|courier|packing|forwarding|transport/i;
 
