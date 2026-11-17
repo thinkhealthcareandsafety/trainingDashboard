@@ -19,13 +19,14 @@ const h = "text-[16px] font-extrabold tracking-[-0.01em] text-ink";
 const sub = "mt-0.5 text-[13px] leading-snug text-muted";
 const label = "text-[12px] font-bold uppercase tracking-[0.12em] text-muted";
 
-function Kpi({ title, value, note }: { title: string; value: React.ReactNode; note: React.ReactNode }) {
+function Kpi({ title, value, note, onClick }: { title: string; value: React.ReactNode; note: React.ReactNode; onClick?: () => void }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className={card}>
+    <Tag {...(onClick ? { type: "button" as const, onClick } : {})} className={`${card} text-left ${onClick ? "transition hover:ring-navy/40" : ""}`}>
       <p className={label}>{title}</p>
       <p className="num mt-2 text-[30px] font-extrabold leading-none tracking-[-0.02em] text-ink">{value}</p>
       <p className="mt-2 text-[13.5px] text-ink-2">{note}</p>
-    </div>
+    </Tag>
   );
 }
 
@@ -300,10 +301,11 @@ function Report({ title, r, onClose }: { title: string; r: QuizResults; onClose:
       <div ref={body} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8 sm:py-7 2xl:px-12">
         <div className="space-y-5 2xl:space-y-6">
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi title="Participants" value={<>{k.finished}<span className="text-[18px] font-bold text-muted"> of {k.started}</span></>} note={<>finished · {k.completionPct}% completion</>} />
+            {/* Owner, 17 Nov: no participation or pass rate (everyone should take it and pass); badges and the hardest question instead. */}
             <Kpi title="Average score" value={<>{k.avgCorrect}<span className="text-[18px] font-bold text-muted"> / {k.of}</span></>} note={<>{k.avgPct}% on best tries</>} />
-            <Kpi title="Pass rate" value={`${k.passPct}%`} note={<>{k.passed} passed ({r.passPct}% or more)</>} />
             <Kpi title="Average time" value={fmtSeconds(k.avgSeconds)} note="to finish, best try" />
+            <Kpi title="First Aid Badges" value={k.badges} note={k.badges === 1 ? "perfect score" : "perfect scores"} />
+            <Kpi title="Needs another look" value={k.hardest ? <>Q{k.hardest.n}<span className="text-[18px] font-bold text-muted"> · {k.hardest.pct}% right</span></> : "None"} note={k.hardest ? <span className="line-clamp-1" title={k.hardest.text}>{k.hardest.text}</span> : "every question was answered right"} onClick={k.hardest ? () => pick(k.hardest!.n) : undefined} />
           </div>
           <div className="grid gap-5 lg:grid-cols-3">
             <Histogram data={data.histogram} pass={`${Math.ceil((r.passPct / 100) * k.of)}+ passes`} />

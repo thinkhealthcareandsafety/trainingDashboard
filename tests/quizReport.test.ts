@@ -22,7 +22,8 @@ test("the report dashboard's numbers: KPIs on best tries, 30-question brackets, 
   const p = (name: string, correct: number, seconds: number, tries = 1) => ({ rank: 0, th: name, name, points: correct * 10, correct, pct: Math.round((correct / 30) * 1000) / 10, seconds, passed: correct >= 21, badge: correct === 30, tries });
   const qs = Array.from({ length: 30 }, (_, i) => ({ ...q(`q${i + 1}`, 0, i === 0 ? [1, 3, 0] : [4, 0, 0]), topic: i < 15 ? "CPR" : "AED", discrimination: i === 0 ? 0.5 : null }));
   const r = buildReport({ leaderboard: [p("A", 30, 400), p("B", 24, 500), p("C", 15, 300, 2), p("D", 8, 200)], questions: qs, passPct: 70, started: 5, finished: 4 });
-  assert.deepEqual(r.kpi, { started: 5, finished: 4, completionPct: 80, avgCorrect: 19.3, of: 30, avgPct: 64, passPct: 50, passed: 2, avgSeconds: 350 });
+  assert.deepEqual(r.kpi, { started: 5, finished: 4, completionPct: 80, avgCorrect: 19.3, of: 30, avgPct: 64, passPct: 50, passed: 2, avgSeconds: 350, badges: 1, hardest: { n: 1, pct: r.items[0].rightPct, text: r.items[0].text } });
+  assert.ok(r.items[0].rightPct < 100);
   assert.deepEqual(r.histogram.map((b) => [b.label, b.count, b.passing]), [["0–10", 1, false], ["11–20", 1, false], ["21–25", 1, true], ["26–30", 1, true]]);
   assert.deepEqual(r.topics.map((t) => [t.name, t.questions]), [["CPR", 15], ["AED", 15]]);
   assert.deepEqual([r.items[0].wrong, r.items[0].discrimination, r.items[1].wrong], [{ text: "q1-1", pct: 75 }, 0.5, null]);

@@ -24,7 +24,10 @@ export function questionReport(questions: QuestionStats[]): QuestionReport[] {
 
 export type Item = QuestionReport & { topic: string; wrong: { text: string; pct: number } | null; discrimination: number | null };
 export type QuizReportData = {
-  kpi: { started: number; finished: number; completionPct: number; avgCorrect: number; of: number; avgPct: number; passPct: number; passed: number; avgSeconds: number };
+  kpi: { started: number; finished: number; completionPct: number; avgCorrect: number; of: number; avgPct: number; passPct: number; passed: number; avgSeconds: number;
+    /** Owner, 17 Nov (participation and pass rate say nothing: everyone should take it and pass): perfect scores, and the
+     *  question the group got wrong most. */
+    badges: number; hardest: { n: number; pct: number; text: string } | null };
   /** Best scores (questions right) in brackets; \`passing\` = the bracket clears the pass mark. */
   histogram: { label: string; count: number; passing: boolean }[];
   topics: { name: string; pct: number; questions: number }[];
@@ -53,6 +56,8 @@ export function buildReport(r: { leaderboard: Ranked[]; questions: QuestionStats
       started: r.started, finished: r.finished, completionPct: r.started ? Math.round((r.finished / r.started) * 100) : 0,
       avgCorrect: Math.round(mean(board.map((b) => b.correct)) * 10) / 10, of, avgPct: Math.round(mean(board.map((b) => b.pct))),
       passPct: total ? Math.round((passed / total) * 100) : 0, passed, avgSeconds: Math.round(mean(board.map((b) => b.seconds))),
+      badges: board.filter((b) => b.badge).length,
+      hardest: (() => { const h = [...items].filter((q) => q.answered > 0).sort((a, b) => a.rightPct - b.rightPct || a.n - b.n)[0]; return h && h.rightPct < 100 ? { n: h.n, pct: h.rightPct, text: h.text } : null; })(),
     },
     histogram: brackets.map((b) => ({ label: b.label, count: board.filter((x) => x.correct >= b.from && x.correct <= b.to).length, passing: b.from >= passCorrect })),
     topics: topicNames.map((name) => { const qs = items.filter((q) => q.topic === name); return { name, questions: qs.length, pct: Math.round(mean(qs.map((q) => q.rightPct))) }; }),
