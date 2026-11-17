@@ -37,3 +37,10 @@ test("the financial year so far: its day number, the average a day, today; and t
   assert.equal(change(5, 0), null);
   assert.deepEqual([inrShort(8450), inrShort(420000), inrShort(13500000)], ["₹8,450", "₹4.2 L", "₹1.35 Cr"]);
 });
+
+test("this year: the financial year so far against the same days of the last one", () => {
+  const y = periods("year", "2026-11-16");
+  assert.deepEqual([y.now.from, y.now.to, y.before.from, y.before.to], ["2026-04-01", "2026-11-16", "2025-04-01", "2025-11-16"]);
+  const jan = periods("year", "2027-01-10");
+  assert.deepEqual([jan.now.from, jan.before.from, jan.before.to], ["2026-04-01", "2025-04-01", "2026-01-10"]);
+});

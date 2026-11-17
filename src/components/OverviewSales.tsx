@@ -15,7 +15,7 @@ import { Skeleton } from "./ui";
  */
 
 const PERIODS: { key: Period; label: string }[] = [{ key: "day", label: "Today" }, { key: "week", label: "This week" }, { key: "month", label: "This month" }, { key: "custom", label: "Pick dates" }];
-const BEFORE: Record<Period, string> = { day: "the day before", week: "the same days last week", month: "the same days last month", custom: "the days just before" };
+const BEFORE: Record<Period, string> = { day: "the day before", week: "the same days last week", month: "the same days last month", year: "the same days last year", custom: "the days just before" };
 
 function Delta({ now, before }: { now: number; before: number }) {
   const c = change(now, before);

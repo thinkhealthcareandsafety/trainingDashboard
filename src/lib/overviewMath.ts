@@ -36,7 +36,7 @@ export function sum(days: DaySums, person: string, from: string, to: string): { 
   return { quoted, invoiced };
 }
 
-export type Period = "day" | "week" | "month" | "custom";
+export type Period = "day" | "week" | "month" | "year" | "custom";
 export type Span = { from: string; to: string; label: string };
 /**
  * The period and the one it's compared with (owner: "compare to yesterday, last week, last month"), like for like: this
@@ -51,6 +51,14 @@ export function periods(kind: Period, on: string, custom?: { from: string; to: s
     const mon = add(on, -((d.getDay() + 6) % 7));
     const n = daysBetween(mon, on);
     return { now: { from: mon, to: on, label: `${fmt(mon)} – ${fmt(on)}` }, before: { from: add(mon, -7), to: add(mon, -7 + n), label: `${fmt(add(mon, -7))} – ${fmt(add(mon, -7 + n))}` } };
+  }
+  if (kind === "year") {
+    // The financial year so far (April) against the same days of the last one.
+    const d = parse(on);
+    const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+    const from = `${y}-04-01`, lastFrom = `${y - 1}-04-01`;
+    const lastTo = ymdOf(new Date(d.getFullYear() - 1, d.getMonth(), Math.min(d.getDate(), new Date(d.getFullYear() - 1, d.getMonth() + 1, 0).getDate())));
+    return { now: { from, to: on, label: `${fmt(from)} – ${fmt(on)}` }, before: { from: lastFrom, to: lastTo, label: `${fmt(lastFrom)} – ${fmt(lastTo)}` } };
   }
   if (kind === "month") {
     const d = parse(on);
