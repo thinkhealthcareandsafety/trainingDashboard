@@ -73,8 +73,8 @@ The portal sign-in panel still says "Propose a date…" (owner: leave it). HANDO
 
 **Traps learned in session 30:**
 - Screenshots: headless Chrome `--screenshot` hangs/fires early on `next dev`; use the CDP script (Node 24 WebSocket,
-  `--remote-debugging-port`, navigate, wait, `Runtime.evaluate`, `Page.captureScreenshot`) — keep a copy in the scratchpad.
-  `--force-prefers-reduced-motion` shortens redirects.
+  `--remote-debugging-port`, navigate, wait, `Runtime.evaluate`, `Page.captureScreenshot`).
+  `--force-prefers-reduced-motion` shortens redirects. The script is committed: `node scripts/cdp-shot.mjs <url> <out.png> <w> <h> [waitMs] [js] [afterMs]`.
 - Staff previews need their own root layout `src/app/(zz)/zz-x/layout.tsx` importing `../../globals.css` (theme via `?t=dark`); portal
   previews `src/app/training/zz-*`. Delete before committing. Stop `next dev` before `next build` (and kill stray node processes on
   port 3123 via PowerShell `Get-CimInstance Win32_Process`; a second `next dev` refuses to start while one runs).
