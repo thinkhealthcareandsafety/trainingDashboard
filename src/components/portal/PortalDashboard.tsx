@@ -909,7 +909,7 @@ function Results({ id, quiz, report = false, done = false, training = "", certs 
           <span className="text-center text-[15px] font-extrabold text-line-strong" aria-hidden>–</span>
           <span className="min-w-0">
             <span className="block truncate text-[15px] font-semibold text-ink-2">{w.name}</span>
-            <span className="num block text-[12.5px] text-muted">{w.th} · {w.started && quiz.state === "open" ? "Taking it now" : quiz.state === "open" ? "Not taken yet" : "Didn't finish"}</span>
+            <span className="num block text-[12.5px] text-muted">{w.th} · {!w.started ? "Have not started the quiz" : quiz.state === "open" ? "Taking the quiz now" : "Didn't finish"}</span>
           </span>
           <span />
         </li>
