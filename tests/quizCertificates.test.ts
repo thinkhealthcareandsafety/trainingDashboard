@@ -8,11 +8,11 @@ import { readFile } from "node:fs/promises";
 import { PDFDocument } from "pdf-lib";
 import { CPR_AED_QUIZ } from "@/lib/quizCprAed";
 import { analytics, bestAttempts, canRetake, firstAttempts, leaderboard } from "@/lib/quizRules";
-import { certDay, certEmail, passedCsv, portalCertNumber, CERT_TEMPLATE } from "@/lib/portalCertRules";
+import { certDay, certEmail, passedCsv, portalCertNumber, CERT_TEMPLATE, REPORT_LINE } from "@/lib/portalCertRules";
 import { CERT_FONT_FILES, singleCertificate } from "@/lib/certPdf";
 import { DESIGN } from "@/lib/certBackground";
 import { indiaToday } from "@/lib/portalRules";
-import { addPeople, endTraining, markConfirmed, markZohoConfirmed, participantCertificate, participantQuiz, quizResults, quizStart, quizSubmit, saveParticipantEmail, startTraining, tick } from "@/lib/portalTrainings";
+import { addPeople, claimCertificate, endTraining, markReportSaved, markConfirmed, markZohoConfirmed, participantCertificate, participantQuiz, quizResults, quizStart, quizSubmit, saveParticipantEmail, startTraining, tick } from "@/lib/portalTrainings";
 import { sendCertificates } from "@/lib/portalCertSend";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -46,8 +46,11 @@ test("certificate rules: the printed day and number, the email", () => {
   assert.equal(certDay(["2026-11-20", "2026-11-21"], "2026-11-20"), "2026-11-21");
   assert.equal(certDay([], "2026-11-20"), "2026-11-20");
   assert.equal(portalCertNumber("2026-12-04", "TH012"), "FAT-OD/04-12-2026/TH012");
-  const m = certEmail(CERT_TEMPLATE, { name: "Asha Rao", training: "CPR & AED", score: "90%", link: "https://training.thinkhealth.in/QT-1/TH001?p=k", certno: "FAT-OD/04-12-2026/TH001" });
-  assert.equal(m.subject, "Your certificate · CPR & AED");
+  const m = certEmail(CERT_TEMPLATE, { name: "Asha Rao", training: "CPR & AED", score: "90%", link: "https://training.thinkhealth.in/QT-1/TH001?p=k", certno: "FAT-OD/04-12-2026/TH001", report: REPORT_LINE });
+  assert.equal(m.subject, "Thank you for attending · CPR & AED");
+  assert.match(m.text, /Thank you for attending CPR & AED/);
+  assert.match(m.text, /Your quiz report is attached too./);
+  assert.doesNotMatch(certEmail(CERT_TEMPLATE, { name: "A", training: "T", score: "90%", link: "x", certno: "c", report: "" }).text, /report is attached/);
   assert.match(m.html, /Dear Asha Rao/);
   assert.match(m.html, /<a href="https:\/\/training\.thinkhealth\.in\/QT-1\/TH001\?p=k"/);
   assert.match(m.html, /CPR &amp; AED|90%/);
@@ -79,7 +82,7 @@ const seed = async (days: string[]) => {
 const token = async (th: string) => (await (await db()).collection<{ _id: string; token: string }>("portalParticipants").findOne({ _id: th }))!.token;
 const take = async (th: string, tok: string, answers: number[]) => { await quizStart("QT-1", th, tok); return quizSubmit("QT-1", th, tok, answers); };
 
-test("a fail tries again while the training runs; a pass is final; the certificate goes the moment they pass, once (owner, 16 Nov)", async () => {
+test("a fail tries again while the training runs; a pass is final; the thank-you with the certificate goes when the training ends, once (owner, 17 Nov)", async () => {
   const today = indiaToday();
   await seed([today]);
   const [asha, vikram, meera] = [await token("TH001"), await token("TH002"), await token("TH003")];
@@ -92,9 +95,7 @@ test("a fail tries again while the training runs; a pass is final; the certifica
   assert.equal(v1.certificate, null);
   const v2 = await take("TH002", vikram, wrong(6));
   assert.ok("result" in v2 && v2.result?.passed && v2.result.tries === 2 && !v2.canRetake);
-  assert.ok("passedIn" in v2 && v2.passedIn === "1"); // the route emails it now
-  assert.equal(v2.certificate?.ready, true); // downloadable at once
-  assert.ok(!("passedIn" in v1)); // a fail sends nothing
+  assert.equal(v2.certificate?.ready, true); // downloadable at once; emailed when the training ends (owner, 17 Nov)
   // Asha passes first time; Meera fails twice.
   await take("TH001", asha, KEY);
   await take("TH003", meera, wrong(15));
@@ -107,7 +108,11 @@ test("a fail tries again while the training runs; a pass is final; the certifica
   assert.deepEqual(res.certificates.list.map((c) => [c.name, c.certNo]), [["Asha Rao", `FAT-OD/${today.split("-").reverse().join("-")}/TH001`], ["Vikram Shah", `FAT-OD/${today.split("-").reverse().join("-")}/TH002`]]);
   assert.ok(await participantCertificate("QT-1", "TH001", asha)); // the download works as soon as they pass
 
-  // End: any not yet sent go (a catch-up); the quiz closes (no more retakes for Meera).
+  // Vikram gives his email before the end: it just waits (everyone gets theirs when the training ends).
+  const early = await saveParticipantEmail("QT-1", "TH002", vikram, "early@grand.com");
+  assert.ok("sendNow" in early && !early.sendNow);
+  await (await db()).collection<{ _id: string; email?: string }>("portalParticipants").updateOne({ _id: "TH002" }, { $unset: { email: "" } });
+  // End on the last day: the thank-you emails are due; the quiz closes (no more retakes for Meera).
   const ended = await endTraining(RIYA, "1");
   assert.ok("certificates" in ended && ended.certificates);
   assert.equal(((await quizStart("QT-1", "TH003", meera)) as { status: number }).status, 409);
@@ -116,7 +121,11 @@ test("a fail tries again while the training runs; a pass is final; the certifica
   const pdf = async () => new Uint8Array([37, 80, 68, 70]);
   const r = await sendCertificates("1", "riya", { mailer, pdf });
   assert.deepEqual([r.sent, r.noEmail, r.failed.length], [1, 1, 0]); // Asha emailed; Vikram has no email yet
-  assert.deepEqual(sent, [{ to: "asha@grand.com", subject: "Your certificate · CPR, AED and First aid Training", files: ["Good Samaritan certificate - Asha Rao.pdf"] }]); // owner, 16 Nov: participants get the Good Samaritan one
+  // Owner, 17 Nov: the thank-you with the Good Samaritan certificate, and her report as she never saved it.
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "asha@grand.com");
+  assert.match(sent[0].subject, /^Thank you for attending · /);
+  assert.deepEqual(sent[0].files, ["Good Samaritan certificate - Asha Rao.pdf", "My report - Asha Rao.pdf"]);
   assert.deepEqual((await sendCertificates("1", "riya", { mailer, pdf })).sent, 0); // never twice
 
   // Vikram gives his email: his goes now; Meera (failed) can't ask for one.
@@ -124,8 +133,13 @@ test("a fail tries again while the training runs; a pass is final; the certifica
   assert.ok("sendNow" in e && e.sendNow && e.email === "vikram@grand.com");
   assert.match(((await saveParticipantEmail("QT-1", "TH003", meera, "m@grand.com")) as { error: string }).error, /pass the quiz/);
   assert.match(((await saveParticipantEmail("QT-1", "TH002", vikram, "nope")) as { error: string }).error, /doesn't look right/);
+  // He saved his report himself: only the certificate goes.
+  assert.ok("ok" in (await markReportSaved("QT-1", "TH002", vikram)));
   await sendCertificates("1", "participant", { only: "TH002", mailer, pdf });
   assert.deepEqual(sent.map((x) => x.to), ["asha@grand.com", "vikram@grand.com"]);
+  assert.deepEqual(sent[1].files, ["Good Samaritan certificate - Vikram Shah.pdf"]);
+  // Two senders at once never send twice: the claim lets one through.
+  assert.equal(await claimCertificate("1", "TH002"), false);
   const v = await participantQuiz("QT-1", "TH002", vikram);
   assert.ok(v?.certificate?.ready && v.certificate.emailedAt && v.certificate.email === "vikram@grand.com");
   // Without a test mailer, nothing sends off the live site.
@@ -142,7 +156,7 @@ test("a multi-day training: a pass on day 1 gets the certificate on day 1", asyn
   await take("TH001", asha, KEY);
   assert.equal((await participantQuiz("QT-1", "TH001", asha))?.certificate?.ready, true);
   const ended = await endTraining(RIYA, "1");
-  assert.ok("certificates" in ended && ended.certificates === true); // catch-up for any that didn't go
+  assert.ok("certificates" in ended && ended.certificates === false); // day 1 of 2: the thank-you waits for the last day
   const [line] = (await quizResults(RIYA, "1") as { certificates: { list: { day: string }[] } }).certificates.list;
   assert.equal(line.day, today); // printed with the day they were there
 });

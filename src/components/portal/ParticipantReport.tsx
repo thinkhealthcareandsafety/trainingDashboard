@@ -34,7 +34,7 @@ function Shield({ tier }: { tier: "rookie" | "lifesaver" | "maestro" }) {
   );
 }
 
-export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void }) {
+export function MyReport({ d, onClose, autoSave = false, onSaved }: { d: MyReportData; onClose: () => void; autoSave?: boolean; onSaved?: () => void }) {
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const was = document.body.style.overflow;
@@ -44,6 +44,7 @@ export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void 
     return () => { document.body.style.overflow = was; window.removeEventListener("keydown", key); };
   }, [onClose]);
   const print = () => {
+    onSaved?.(); // owner, 17 Nov: saved, so the thank-you email doesn't attach it again
     const w = window.open("", "_blank");
     if (!w || !body.current) return window.print();
     const styles = [...document.querySelectorAll("link[rel=stylesheet], style")].map((n) => n.outerHTML).join("");
@@ -51,6 +52,9 @@ export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void 
     w.document.close();
     setTimeout(() => { w.focus(); w.print(); }, 500);
   };
+  // "Download (save as PDF)" from the quiz: the print dialog opens as soon as the report is drawn.
+  const saved = useRef(false);
+  useEffect(() => { if (autoSave && !saved.current) { saved.current = true; const id = setTimeout(print, 350); return () => clearTimeout(id); } }); // eslint-disable-line react-hooks/exhaustive-deps
   const r = d.result;
   const who = persona(r.pct, d.passPct);
   const pace = speed(r.seconds, d.everyone, r.passed);
@@ -61,7 +65,7 @@ export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void 
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3 sm:px-6">
         <div className="min-w-0"><h4 className="truncate text-[18px] font-extrabold tracking-[-0.01em] text-ink">My report</h4><p className="truncate text-[13px] text-muted">{d.title} · {d.training}</p></div>
         <div className="flex shrink-0 gap-2">
-          <button type="button" onClick={print} className="h-10 rounded-xl px-3.5 text-[14px] font-bold text-action ring-1 ring-inset ring-action/35 hover:bg-action/5"><span className="sm:hidden">Print</span><span className="hidden sm:inline">Print / Save as PDF</span></button>
+          <button type="button" onClick={print} className="h-10 rounded-xl px-3.5 text-[14px] font-bold text-action ring-1 ring-inset ring-action/35 hover:bg-action/5"><span className="sm:hidden">Download</span><span className="hidden sm:inline">Download (save as PDF)</span></button>
           <button type="button" onClick={onClose} className="h-10 rounded-xl bg-navy px-4 text-[14px] font-bold text-white hover:bg-navy-deep">Close</button>
         </div>
       </header>
@@ -74,7 +78,7 @@ export function MyReport({ d, onClose }: { d: MyReportData; onClose: () => void 
               <p className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/70">{d.name} is a</p>
               <p className="mt-1 text-[32px] font-extrabold leading-tight tracking-[-0.02em] sm:text-[38px]">{who.title}</p>
               <p className="mt-2 text-[15.5px] leading-relaxed text-white/85">{who.line}</p>
-              <p className="num mt-3 text-[14px] font-semibold text-white/75">{r.pct}% · {r.correct} of {r.total} right · #{r.rank} of {r.of}{r.tries > 1 ? ` · ${r.tries - 1} re-take${r.tries > 2 ? "s" : ""}` : ""}</p>
+              <p className="num mt-3 text-[14px] font-semibold text-white/75">{r.pct}% · {r.correct} of {r.total} right · #{r.rank} of {r.of}</p>
             </div>
           </section>
 

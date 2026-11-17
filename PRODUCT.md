@@ -9,7 +9,7 @@ web
 ## Users
 - **Think Health staff** (Ashish, Shikha, Sumit, Nikita, Anuj, Pranjal and others): run sales, quotations, trainings, AED and fulfilment from the internal dashboard at work.thinkhealth.in, daily, on laptops and phones.
 - **Training coordinators at client organisations**, mostly big hotels: the person a hotel names to organise a CPR / First Aid / safety training. They log in to the Training Manager portal (training.thinkhealth.in) to see their trainings and the quotation, accept it with the date, location and headcount (or decline), build the participant list, and on the day run attendance and the quiz.
-- **Participants**: hotel staff who scan a coordinator's QR code, mostly on Android phones, often on slow networks, in English. They register (name, phone, optional email) and then see when, where and what their training is.
+- **Participants**: hotel staff who scan a coordinator's QR code, mostly on Android phones, often on slow networks, in English. They register (name, phone and email; the email is required since 17 Nov, as the thank-you and Good Samaritan certificate go there) and then see when, where and what their training is.
 
 ## Product Purpose
 Think Health (Pune, India) sells and delivers health and safety training (CPR, First Aid, AED, fire safety) and equipment. The Training Manager turns a training quotation into a shared workspace with the client: the coordinator confirms the training and organises attendees there, and Think Health sees it all live. Success means fewer emails and calls to schedule a training, an accurate attendee list before the day, and a client who feels it is dealing with a premium provider.

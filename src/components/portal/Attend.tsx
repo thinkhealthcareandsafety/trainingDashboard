@@ -14,7 +14,7 @@ import { type DayWindow, markable } from "@/lib/attendanceRules";
  * training's days it says when attendance opens, or that it has closed.
  */
 
-type Me = { th: string; name: string; presentToday: boolean };
+type Me = { th: string; name: string; presentToday: boolean; hasEmail?: boolean };
 type Info = { training: string; customer: string; coordinator: string; dates: ProposalDate[]; window: DayWindow; shut: string; me: Me | null; mode: "present" | "register" | "closed" };
 const first = (name: string) => name.split(" ")[0];
 const reduced = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -74,7 +74,8 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
   };
   const present = async () => {
     setBusy(true); setError("");
-    const j = await post({ action: "present" });
+    if (needEmail && !email.trim()) return setError("Add your email: your certificate is sent there after the training.");
+    const j = await post({ action: "present", ...(needEmail ? { email } : {}) });
     setBusy(false);
     if (!j.th || !j.token) return setError(j.error ?? "Couldn't mark your attendance");
     const full = j.name ?? me?.name ?? "";
@@ -87,6 +88,8 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
     setMe(null); setStep("phone"); setPhone(""); setName(""); setEmail(""); setError("");
   };
 
+  // Owner, 17 Nov: everyone gives an email; someone typed in without one adds it here, before Present.
+  const needEmail = Boolean(me && me.hasEmail === false && !me.presentToday);
   if (info === undefined) return <div className="min-h-screen bg-ground" aria-busy />;
   if (!info) return <Problem text={error} />;
 
@@ -133,8 +136,14 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
         ) : me ? (
           <div className="flex flex-col items-center text-center">
             <p className="text-[30px] font-extrabold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[36px]">{returning ? `Welcome back, ${first(me.name)}.` : `Welcome, ${first(me.name)}.`}</p>
-            <p className="mt-2 text-[16.5px] text-ink-2">{me.presentToday ? "You're marked present for today." : "Please mark your attendance."}</p>
-            <button type="button" onClick={present} disabled={busy}
+            <p className="mt-2 text-[16.5px] text-ink-2">{me.presentToday ? "You're marked present for today." : needEmail ? "Add your email, then mark your attendance." : "Please mark your attendance."}</p>
+            {needEmail && (
+              <label className="mt-6 block w-full max-w-sm text-left">
+                <span className="mb-1.5 block text-[14px] font-semibold text-ink-2">Your email <span className="font-normal text-muted">(your certificate goes here)</span></span>
+                <input className={field} type="email" inputMode="email" autoComplete="email" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} required />
+              </label>
+            )}
+            <button type="button" onClick={present} disabled={busy || (needEmail && !email.trim())}
               className="mt-9 grid size-44 place-items-center rounded-full bg-action text-white shadow-[0_6px_18px_rgb(0_60_100/0.3)] ring-8 ring-action/10 transition hover:bg-action-hover active:scale-[0.97] disabled:opacity-60 sm:size-48">
               <span className="text-[24px] font-extrabold tracking-[-0.01em]">{busy ? "One moment…" : me.presentToday ? "Open my page" : "Present"}</span>
             </button>
@@ -166,8 +175,8 @@ export function AttendPage({ number, k }: { number: string; k: string }) {
               <input className={`${field} num`} type="tel" inputMode="tel" autoComplete="tel" value={phone} maxLength={16} onChange={(e) => setPhone(e.target.value)} required />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-[14px] font-semibold text-ink-2">Email <span className="font-normal text-muted">(optional)</span></span>
-              <input className={field} type="email" inputMode="email" autoComplete="email" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} />
+              <span className="mb-1.5 block text-[14px] font-semibold text-ink-2">Email <span className="font-normal text-muted">(your certificate goes here)</span></span>
+              <input className={field} type="email" inputMode="email" autoComplete="email" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} required />
             </label>
             {error && <p className="rounded-xl bg-danger-bg px-4 py-3 text-[14.5px] text-danger" role="alert">{error}</p>}
             <button className={`${primaryBtn} h-12 w-full text-[16px]`} disabled={busy}>{busy ? "One moment…" : info.mode === "register" ? "Join" : "Join and continue"}</button>

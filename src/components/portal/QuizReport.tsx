@@ -318,15 +318,15 @@ function Report({ title, r, onClose }: { title: string; r: QuizResults; onClose:
 }
 
 /** In the panel: one line and "Generate the quiz report". */
-export function QuizReportLauncher({ title, r }: { title: string; r: QuizResults }) {
+export function QuizReportLauncher({ title, r, label = "Generate the quiz report" }: { title: string; r: QuizResults; label?: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <section className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-ground px-5 py-4" aria-label="Quiz report">
+    <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-ground px-5 py-4" aria-label="Quiz report">
       <div>
         <h5 className="text-[17px] font-extrabold tracking-[-0.01em] text-ink">Quiz report</h5>
         <p className="mt-0.5 text-[13.5px] text-muted">Scores, topics, time and all {r.questions.length} questions, for everyone combined.</p>
       </div>
-      <button type="button" className="inline-flex h-11 items-center justify-center rounded-xl bg-action px-5 text-[15px] font-bold text-white shadow-[0_2px_8px_rgb(0_80_130/0.22)] transition hover:bg-action-hover" onClick={() => setOpen(true)}>Generate the quiz report</button>
+      <button type="button" className="inline-flex h-11 items-center justify-center rounded-xl bg-action px-5 text-[15px] font-bold text-white shadow-[0_2px_8px_rgb(0_80_130/0.22)] transition hover:bg-action-hover" onClick={() => setOpen(true)}>{label}</button>
       {open && <Report title={title} r={r} onClose={() => setOpen(false)} />}
     </section>
   );

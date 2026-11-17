@@ -22,7 +22,7 @@ const OFFLINE = "Couldn't reach Think Health. Check your connection and try agai
 const Check = () => <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2.5 6.3l2.3 2.3 4.7-5" /></svg>;
 const Warn = () => <svg viewBox="0 0 20 20" fill="none" aria-hidden><path d="M10 2.5 18 17H2L10 2.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M10 8v4M10 14.5v.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
 
-export function QuizScreen({ number, th, token, name, onClose }: { number: string; th: string; token: string; name: string; onClose: () => void }) {
+export function QuizScreen({ number, th, token, name, onClose, onReport }: { number: string; th: string; token: string; name: string; onClose: () => void; onReport?: (save: boolean) => void }) {
   const [data, setData] = useState<QuizData | null | undefined>(undefined);
   const [error, setError] = useState("");
   const [answers, setAnswers] = useState<(number | null)[]>([]);
@@ -120,9 +120,16 @@ export function QuizScreen({ number, th, token, name, onClose }: { number: strin
             </>
           ) : !r.passed && data.state !== "open" ? <p className="qz-lede">The quiz has closed.</p> : null}
           {(r.passed || !data.canRetake) && <p className="qz-lede">{data.state === "revealed" ? "The right answers are out." : "The right answers show once your coordinator ends the training."}</p>}
+          {/* Owner, 17 Nov: after the quiz, their own report: view it, or download it as a PDF. */}
+          {onReport && !data.canRetake && (
+            <div className="qz-actions" style={{ justifyContent: "center" }}>
+              <button type="button" className="qz-btn qz-btn-primary" onClick={() => onReport(false)}>View my report</button>
+              <button type="button" className="qz-btn qz-btn-ghost" onClick={() => onReport(true)}>Download (save as PDF)</button>
+            </div>
+          )}
           {data.state === "revealed" && <div style={{ marginTop: 14 }}><button type="button" className="qz-btn qz-btn-ghost" onClick={() => setReview(true)}>See the right answers</button></div>}
         </div>
-        {data.certificate && <CertificateCard c={data.certificate} number={number} th={th} token={token} onSaved={load} />}
+        {data.certificate && <CertificateCard c={data.certificate} over={data.state === "revealed"} number={number} th={th} token={token} onSaved={load} />}
         <Board list={data.leaderboard} me={th} live={data.state === "open"} />
       </Frame>
     );
@@ -259,7 +266,7 @@ function Frame({ children, onClose, title = "Quiz", top, dots, footer }: { child
 }
 
 /** After a pass: where the certificate goes (emailed at once, owner 16 Nov), and the download. */
-function CertificateCard({ c, number, th, token, onSaved }: { c: Certificate; number: string; th: string; token: string; onSaved: () => void }) {
+function CertificateCard({ c, over, number, th, token, onSaved }: { c: Certificate; over: boolean; number: string; th: string; token: string; onSaved: () => void }) {
   const [email, setEmail] = useState("");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -276,11 +283,11 @@ function CertificateCard({ c, number, th, token, onSaved }: { c: Certificate; nu
   };
   const href = `/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(token)}`;
   const askEmail = !c.emailedAt && (!c.email || editing);
-  const text = c.emailedAt ? <>We&apos;ve emailed it to <b>{c.email}</b>. You can also download it here.</>
-    : c.ready && c.email ? <>It&apos;s on its way to <b>{c.email}</b>. You can also download it here.</>
-    : c.ready ? <>Download it here, or tell us where to email it.</>
-    : c.email ? <>It&apos;s on its way to <b>{c.email}</b>.</>
-    : <>Where shall we email it?</>;
+  // Owner, 17 Nov: it goes by email with a thank-you when the training ends.
+  const text = c.emailedAt ? <>We&apos;ve emailed it to <b>{c.email}</b> with our thanks. You can also download it here.</>
+    : c.email && over ? <>It&apos;s on its way to <b>{c.email}</b>. You can also download it here.</>
+    : c.email ? <>It goes to <b>{c.email}</b> with a thank-you when the training ends. You can also download it here.</>
+    : <>Download it here, or tell us where to email it.</>;
   return (
     <div className="qz-card">
       <h3 className="qz-board-title">Your Good Samaritan certificate</h3>
@@ -289,7 +296,7 @@ function CertificateCard({ c, number, th, token, onSaved }: { c: Certificate; nu
         <form className="qz-field" onSubmit={save}>
           <label className="sr-only" htmlFor="qz-email">Your email</label>
           <input id="qz-email" className="qz-input" type="email" inputMode="email" autoComplete="email" placeholder="you@example.com" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} required />
-          <button type="submit" className="qz-btn qz-btn-primary" disabled={busy || !email.trim()}>{busy ? "Saving…" : c.ready ? "Email it to me" : "Save"}</button>
+          <button type="submit" className="qz-btn qz-btn-primary" disabled={busy || !email.trim()}>{busy ? "Saving…" : over ? "Email it to me" : "Save"}</button>
         </form>
       )}
       {error && <p className="qz-error" style={{ marginTop: 10 }} role="alert"><Warn /><span>{error}</span></p>}
@@ -312,7 +319,7 @@ function Board({ list, me, live }: { list: Ranked[]; me: string; live: boolean }
           <li key={b.th} className={b.th === me ? "me" : ""}>
             <span className="qz-rank tabular">{b.rank}</span>
             <span className="qz-board-name">{b.name}{b.th === me ? " (you)" : ""}</span>
-            <span className="qz-board-score tabular">{b.points}<small>{b.pct}%</small></span>
+            <span className="qz-board-score tabular">{b.pct}%<small>{Math.floor(b.seconds / 60)}m {String(b.seconds % 60).padStart(2, "0")}s</small></span>
           </li>
         ))}
       </ol>

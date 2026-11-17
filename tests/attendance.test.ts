@@ -83,7 +83,7 @@ test("one QR from Accept (owner, 16 Nov): a fixed key; it registers before confi
   assert.match(t.attendKey, /^[\w-]{10,}$/); // accepted: the QR is there
   const early = t.attendKey;
   assert.equal((await attendInfo("QT-1", early, null))?.mode, "register"); // the training day, but not confirmed yet
-  const meera = await attendRegister("QT-1", early, { name: "Meera Iyer", phone: "9833333333" });
+  const meera = await attendRegister("QT-1", early, { name: "Meera Iyer", phone: "9833333333", email: "meera@x.in" });
   assert.ok("me" in meera);
   assert.equal(((await attendPresent("QT-1", early, meera.cookie)) as { status: number }).status, 409); // no Present before Mark confirmed
   t = await confirm();
@@ -115,13 +115,18 @@ test("on the day: mobile number → them; walk-in → registered and tagged; Pre
   assert.deepEqual(await attendIdentify("QT-1", k, "9833333333"), { register: true });
   assert.equal(((await attendIdentify("QT-1", k, "12")) as { status: number }).status, 400);
 
-  const walk = await attendRegister("QT-1", k, { name: "Meera Iyer", phone: "9833333333" });
+  const walk = await attendRegister("QT-1", k, { name: "Meera Iyer", phone: "9833333333", email: "meera@x.in" });
   assert.ok("me" in walk);
+  // Owner, 17 Nov: an email when they join (the certificate goes there).
+  assert.equal(((await attendRegister("QT-1", k, { name: "No Mail", phone: "9877777777" })) as { status: number }).status, 400);
   const again = await attendRegister("QT-1", k, { name: "Meera I", phone: "98333 33333" }); // the same number twice: back, not twice
   assert.ok("me" in again && again.me.th === walk.me.th);
 
   assert.equal(((await attendPresent("QT-1", k, null)) as { status: number }).status, 401);
-  const p1 = await attendPresent("QT-1", k, "me" in asha ? asha.cookie : null);
+  // Typed in without an email: they give it before Present (owner, 17 Nov).
+  assert.ok("me" in asha && !asha.me.hasEmail);
+  assert.equal(((await attendPresent("QT-1", k, "me" in asha ? asha.cookie : null)) as { status: number }).status, 400);
+  const p1 = await attendPresent("QT-1", k, "me" in asha ? asha.cookie : null, "asha@x.in");
   assert.ok("th" in p1 && !p1.already);
   const p2 = await attendPresent("QT-1", k, "me" in asha ? asha.cookie : null);
   assert.ok("th" in p2 && p2.already);
@@ -161,7 +166,7 @@ test("before and after the day: attendance is shut with the right words; registr
   // Before the day the one QR registers (owner, 16 Nov): on the list → them; new → they join.
   assert.equal((await attendInfo("QT-1", k, null))!.mode, "register");
   assert.ok("me" in (await attendIdentify("QT-1", k, "9811111111")));
-  const early = await attendRegister("QT-1", k, { name: "Early Bird", phone: "9855555555" });
+  const early = await attendRegister("QT-1", k, { name: "Early Bird", phone: "9855555555", email: "early@x.in" });
   assert.ok("me" in early);
   assert.equal(((await attendPresent("QT-1", k, early.cookie)) as { status: number }).status, 409); // Present waits for the day
   const listed = await participants(RIYA, "1");
@@ -173,7 +178,7 @@ test("before and after the day: attendance is shut with the right words; registr
   ({ attendKey: k } = await confirm());
   assert.match((await attendInfo("QT-1", k, null))!.shut, /have closed/);
   assert.equal((await attendInfo("QT-1", k, null))!.mode, "closed");
-  assert.equal(((await attendRegister("QT-1", k, { name: "Late", phone: "9866666666" })) as { status: number }).status, 409);
+  assert.equal(((await attendRegister("QT-1", k, { name: "Late", phone: "9866666666", email: "late@x.in" })) as { status: number }).status, 409);
   assert.equal((await joinInfo("QT-1", "joinkey123"))?.closed, true);
   assert.equal(((await join("QT-1", "joinkey123", { name: "Late Comer", phone: "9844444444" })) as { status: number }).status, 409);
   assert.ok("list" in (await tick(RIYA, "1", "TH001", shift(today, -1), true))); // a past day can still be fixed
@@ -194,7 +199,7 @@ test("the route remembers the phone with a cookie, and Present works from it", a
   const cookie = decodeURIComponent(set.split(";")[0]);
   const info = await (await attendGet(new Request(`http://x/api/portal/attend?n=QT-1&k=${k}`, { headers: { cookie } }))).json();
   assert.equal(info.me.name, "Asha Rao");
-  const p = await (await post({ action: "present" }, cookie)).json();
+  const p = await (await post({ action: "present", email: "asha@x.in" }, cookie)).json();
   assert.equal(p.th, "TH001");
   assert.match((await post({ action: "forget" }, cookie)).headers.get("set-cookie") ?? "", /Max-Age=0/);
   assert.equal((await attendGet(new Request("http://x/api/portal/attend?n=QT-1&k=nope"))).status, 404);
@@ -204,7 +209,7 @@ test("owner, 16 Nov: on the day, before Start, walk-ins register and people mark
   const today = indiaToday();
   await seed([today]);
   const { attendKey: k } = await confirm();
-  const walk = await attendRegister("QT-1", k, { name: "Meera Iyer", phone: "9833333333" });
+  const walk = await attendRegister("QT-1", k, { name: "Meera Iyer", phone: "9833333333", email: "meera@x.in" });
   assert.ok("me" in walk);
   const p = await attendPresent("QT-1", k, walk.cookie);
   assert.ok("th" in p && !p.already);

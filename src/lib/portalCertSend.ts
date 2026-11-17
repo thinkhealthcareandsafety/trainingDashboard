@@ -5,9 +5,10 @@ import type { Binary } from "mongodb";
 import { db } from "./db";
 import { CERT_FONT_FILES, type FontBytes, singleCertificate } from "./certPdf";
 import type { DesignId } from "./certificates";
-import { type CertLine, certificateLines, goodSamaritanRecords, recordCertificate } from "./portalTrainings";
+import { type CertLine, certificateLines, claimCertificate, goodSamaritanRecords, recordCertificate, reportFacts } from "./portalTrainings";
 import { appendGoodSamaritan } from "./zohoSheet";
-import { certEmail, goodSamaritanFileName } from "./portalCertRules";
+import { REPORT_LINE, certEmail, goodSamaritanFileName } from "./portalCertRules";
+import { reportFileName, reportPdf } from "./reportPdf";
 import { goodSamaritanPdf } from "./goodSamaritan";
 import { certTemplate } from "./templateStore";
 import { portalBase } from "./portalHost";
@@ -61,14 +62,17 @@ export type SendResult = { sent: number; noEmail: number; failed: { name: string
 type Mailer = (to: string, m: { subject: string; html: string; attachments: { name: string; bytes: Uint8Array }[] }) => Promise<{ attached: number }>;
 
 /**
- * Emails every passed person's certificate that hasn't gone yet (`only`: just this one person). `mailer` / `pdf` are for
- * tests; without them only the live site sends.
+ * The thank-you email to every passed person whose certificate hasn't gone yet (`only`: just this one person), when the
+ * training ends (owner, 17 Nov): their Good Samaritan certificate, and their report too when they hadn't saved it.
+ * `mailer` / `pdf` / `report` / `claim` are for tests; without them only the live site sends.
  */
-export async function sendCertificates(trainingId: string, by: string, opts: { only?: string; mailer?: Mailer; pdf?: (c: CertLine) => Promise<Uint8Array> } = {}): Promise<SendResult> {
+export async function sendCertificates(trainingId: string, by: string, opts: { only?: string; mailer?: Mailer; pdf?: (c: CertLine) => Promise<Uint8Array>; report?: (c: CertLine) => Promise<Uint8Array | null>; claim?: (th: string) => Promise<boolean> } = {}): Promise<SendResult> {
   const out: SendResult = { sent: 0, noEmail: 0, failed: [] };
   if (!opts.mailer && process.env.VERCEL_ENV !== "production") throw new Error("Only the live site sends certificates.");
   const mailer: Mailer = opts.mailer ?? ((to, m) => sendMail(FROM, { to, ...m }));
   const make = opts.pdf ?? goodSamaritanCertificate; // participants get the Good Samaritan one (owner, 16 Nov)
+  const report = opts.report ?? (async (c: CertLine) => { const f = await reportFacts(trainingId, c.th); return f ? reportPdf(f) : null; });
+  const claim = opts.claim ?? ((th: string) => claimCertificate(trainingId, th));
   // Their rows into the workbook's Good Samaritan tab, once each (live only; never holds up the emails).
   if (!opts.mailer) await goodSamaritanRecords(trainingId, appendGoodSamaritan).then((n) => { if (n) console.log(`[certificates] ${trainingId}: ${n} Good Samaritan rows added to the sheet`); }, (e) => console.error(`[certificates] Good Samaritan sheet: ${e instanceof Error ? e.message : e}`));
   const t = await certTemplate();
@@ -76,10 +80,13 @@ export async function sendCertificates(trainingId: string, by: string, opts: { o
     if (opts.only && c.th !== opts.only) continue;
     if (c.emailedAt) continue;
     if (!c.email) { out.noEmail++; continue; }
+    if (!(await claim(c.th))) continue; // another sender has it
     try {
       const pdf = await make(c);
-      const m = certEmail(t, { name: c.name, training: c.course, score: `${c.pct}%`, link: pageLink(c), certno: c.gsNo });
-      const r = await mailer(c.email, { subject: m.subject, html: m.html, attachments: [{ name: goodSamaritanFileName(c.name), bytes: pdf }] });
+      const mine = c.reportSaved ? null : await report(c).catch((e) => { console.error(`[certificates] ${c.th} report PDF:`, e instanceof Error ? e.message : e); return null; });
+      const m = certEmail(t, { name: c.name, training: c.training || c.course, score: `${c.pct}%`, link: pageLink(c), certno: c.gsNo, report: mine ? REPORT_LINE : "" });
+      const attachments = [{ name: goodSamaritanFileName(c.name), bytes: pdf }, ...(mine ? [{ name: reportFileName(c.name), bytes: mine }] : [])];
+      const r = await mailer(c.email, { subject: m.subject, html: m.html, attachments });
       await recordCertificate(trainingId, c.th, { emailedAt: new Date().toISOString(), email: c.email, attached: r.attached > 0, by });
       out.sent++;
     } catch (e) {

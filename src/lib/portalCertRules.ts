@@ -35,13 +35,15 @@ export function paidInFull(invoices: InvoiceLite[], refs: string[]): boolean {
 
 /* ---------------- The email ---------------- */
 
-export const CERT_VARS = ["name", "training", "score", "link", "certno"] as const;
+export const CERT_VARS = ["name", "training", "score", "link", "certno", "report"] as const;
 export const CERT_TEMPLATE = {
-  id: "certificate", label: "Certificate email (after the quiz)",
-  subject: "Your certificate · {training}",
-  body: "Dear {name},\n\nCongratulations on passing the quiz with {score}. Your certificate ({certno}) is attached.\n\nYou can also download it any time from your page:\n{link}\n\nThank you for training with Think Health.\n\nWarm regards,\nThink Health Training Team",
-  note: "Sent from learn@thinkhealth.in to each person the moment they pass the quiz (or when they add their email after passing), with their Good Samaritan certificate as a PDF. {certno} is its number (IAGS-SN/…).",
+  id: "certificate", label: "Thank-you email with the certificate (after the training)",
+  subject: "Thank you for attending · {training}",
+  body: "Dear {name},\n\nThank you for attending {training} with Think Health.\n\nYou passed the quiz with {score}. Your Good Samaritan certificate ({certno}) is attached.{report}\n\nYour certificate and your report are on your page any time:\n{link}\n\nWarm regards,\nThink Health Training Team",
+  note: "Sent from learn@thinkhealth.in to each person who passed, when the training ends (or when they add their email after it), with their Good Samaritan certificate as a PDF. {certno} is its number (IAGS-SN/…). {report} adds \" Your quiz report is attached too.\" when they hadn't saved their report themselves (it is then attached).",
 };
+/** {report}: said only when their report goes with the email (owner, 17 Nov). */
+export const REPORT_LINE = " Your quiz report is attached too.";
 export type CertVars = Record<(typeof CERT_VARS)[number], string>;
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -49,7 +51,7 @@ const linkify = (s: string) => s.replace(/https?:\/\/[^\s<]+/g, (u) => `<a href=
 
 export function certEmail(t: { subject: string; body: string }, v: CertVars): { subject: string; html: string; text: string } {
   const text = renderTemplate(t.body, v).trim();
-  const html = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;line-height:1.55">${text.split(/\n{2,}/).map((p) => `<p style="margin:0 0 1em">${linkify(esc(p)).replace(/\n/g, "<br>")}</p>`).join("")}</div>`;
+  const html = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#1f2937;line-height:1.55">${text.split(/\n{2,}/).filter((p) => p.trim()).map((p) => `<p style="margin:0 0 1em">${linkify(esc(p)).replace(/\n/g, "<br>")}</p>`).join("")}</div>`;
   return { subject: renderTemplate(t.subject, v).replace(/\s+/g, " ").trim(), html, text };
 }
 

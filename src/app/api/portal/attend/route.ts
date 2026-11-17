@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
  * Attendance on the day (owner, 13 Nov), no login. The coordinator's fixed attendance QR opens /<number>/attend?k=<key>:
  *  GET ?n=<Training Number>&k=<key>                  — the training, where attendance stands today, and who this phone is
  *  POST { n, k, action: "identify", phone }          — on the list → them (the phone remembers them); else { register: true }
- *  POST { n, k, action: "register", name, phone, email? } — a walk-in joins the list, tagged walk-in
- *  POST { n, k, action: "present" }                  — today's tick for the person this phone remembers
+ *  POST { n, k, action: "register", name, phone, email } — a walk-in joins the list, tagged walk-in (email required, owner 17 Nov)
+ *  POST { n, k, action: "present", email? }          — today's tick for the person this phone remembers (their email first if we have none)
  *  POST { n, k, action: "page" }                     — their own page (th + token) for the person this phone remembers
  *  POST { n, k, action: "forget" }                   — "Not you?": the phone forgets them
  * One QR per training (owner, 16 Nov): from Accept it registers people; on a confirmed training's day it marks attendance;
@@ -52,7 +52,7 @@ async function handlePOST(request: Request) {
       return "error" in r ? json({ error: r.error }, r.status) : json(r);
     }
     if (b?.action === "present") {
-      const r = await attendPresent(b.n, b.k, readAttendCookie(request.headers.get("cookie"), id));
+      const r = await attendPresent(b.n, b.k, readAttendCookie(request.headers.get("cookie"), id), b.email);
       return "error" in r ? json({ error: r.error }, r.status) : json(r);
     }
     return json({ error: "Unknown action" }, 400);

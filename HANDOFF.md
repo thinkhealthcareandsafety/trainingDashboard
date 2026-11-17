@@ -1,6 +1,15 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Session 31 (17 Nov), latest: **live = `9fe6556`** (Overview: person tabs; Daily/Weekly/Monthly/Yearly vs last year with a
+_Session 31, last (local, not pushed): **training over** (owner, 17 Nov). Track gets a 5th step "Training completed" (green,
+`finishedOn` = board Completed / last day ended / last day passed); the coordinator sees a thank-you moment once, then certificates
+(paid only, else "unlock once paid") + View report on top, results, leaderboard (% + time, no re-takes) with Share on WhatsApp, then
+the training report; no QR, no CSV. Email required when people join (coordinator's Add yourself, QR register) and asked before
+Present if missing. Good Samaritan cert + thank-you email go when the training ends (End on the last day; the coordinator's
+results call also catches up), not at the pass; their report PDF (`lib/reportPdf.ts`) is attached unless they saved it
+(`reportSavedAt`, quiz action "saved"); `claimCertificate` stops double sends. Template "certificate" is now the thank-you email
+(new default subject/body with {report}); a copy saved earlier in Templates would override it._
+
+_Session 31 (17 Nov), earlier: **live = `9fe6556`** (Overview: person tabs; Daily/Weekly/Monthly/Yearly vs last year with a
 last-year mark on each bar; Remarks green/red; month-by-month line chart, quotations + invoiced above, conversion below; fits
 1728×958). **First live training checked (16 Nov, CPR/AED/First Aid, read-only with the owner's OK):** 3 certificates; 2 emailed
 **with the PDF attached**; 1 not sent (no email address on file); all 3 rows in the Zoho Sheet Good Samaritan tab (owner confirmed

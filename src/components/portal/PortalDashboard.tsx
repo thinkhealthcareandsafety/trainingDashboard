@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
 import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
@@ -8,7 +9,6 @@ import { type DayWindow, fmtLength, ranMs, sessionMs } from "@/lib/attendanceRul
 import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
 import { portalPrefix } from "@/lib/portalHost";
 import type { QuizResults } from "@/lib/portalTrainings";
-import { passedCsv } from "@/lib/portalCertRules";
 import { useLive, watchChanges } from "@/lib/live";
 import type { QuoteSheet } from "@/lib/trainingManager";
 
@@ -21,7 +21,7 @@ import { QuizReportLauncher } from "./QuizReport";
  */
 type Me = { email: string; name: string };
 type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; quote: QuoteSheet; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
-  dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; attendKey: string; window: DayWindow; attended: number;
+  dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; finishedOn: string | null; attendKey: string; window: DayWindow; attended: number;
   quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null; sessions: { day: string; startedAt: string; endedAt: string | null }[];
   selfPrompt: "self" | "team" | null; me: { th: string; token: string } | null; self: { name: string; phone: string; email: string };
   officialCerts: { th: string; name: string; certNo: string; downloadedAt: string | null }[] | null };
@@ -288,7 +288,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           <p className="mt-1 text-[15.5px] text-ink"><b className="num">{t.registered}</b> registered{t.proposal ? <> of <b className="num">{t.proposal.headcount}</b> attending</> : t.expected ? <> of <b className="num">{t.expected}</b> expected</> : ""}</p>
           {myPage && <a className="mt-1 inline-block text-[14px] font-semibold text-action hover:underline" href={myPage}>Your own page ({t.me!.th})</a>}
           {/* Not on the list (skipped the ask, or a different number): register yourself here (owner, 16 Nov). */}
-          {!t.me && t.proposal && !t.rejected && t.selfPrompt !== "self" && (
+          {!t.me && t.proposal && !t.rejected && !t.finishedOn && t.selfPrompt !== "self" && (
             <button type="button" className="mt-1 inline-block text-[14px] font-semibold text-action hover:underline"
               onClick={() => { setT((x) => ({ ...x, selfPrompt: "self" })); setTimeout(() => document.getElementById(`self-${t.number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" }), 50); }}>
               Attending too? Add yourself
@@ -296,7 +296,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           )}
         </div>
         {/* One way in at a time (owner, 16 Nov): while "get your team registered" is asked, its buttons are the way in. */}
-        {!(confirmed && t.selfPrompt === "team") && <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>}
+        {!(confirmed && t.selfPrompt === "team") && !t.finishedOn && <button type="button" className={(people ? secondaryBtn : primaryBtn).replace(/(^|\s)transition(?=\s|$)/, "$1transition-none")} onClick={() => setPeople((x) => !x)} aria-expanded={people}>{people ? "Done adding" : "Add participants"}</button>}
       </div>
       <div className="mt-5"><Participants t={tool} adding={people} openTab={openTab} meTh={t.me?.th} onCount={(registered) => setT((x) => ({ ...x, registered }))} onLive={setLive} /></div>
     </div>
@@ -463,10 +463,11 @@ function Included({ name, text }: { name: string; text: string }) {
 
 /**
  * Where the training stands (owner, 16 Nov: "remove the stamp, make it something else"): a progress track across the panel.
- * Quotation → Accepted → Confirmed → Training (Completed), each done step with its date, the current one saying who it waits
- * on, the ones ahead in muted; a declined quotation ends the track in red.
+ * Quotation → Accepted → Confirmed → Training → Training completed (owner, 17 Nov: a last step, same date, a green circle),
+ * each done step with its date, the current one saying who it waits on, the ones ahead in muted; a declined quotation ends
+ * the track in red.
  */
-type Step = { label: string; sub: string; state: "done" | "now" | "next" | "stop" };
+type Step = { label: string; sub: string; state: "done" | "now" | "next" | "stop" | "complete" };
 function stepsOf(t: Training): Step[] {
   const day = (iso: string) => new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   const quote: Step = { label: "Quotation", sub: t.date ? day(t.date) : "", state: "done" };
@@ -478,9 +479,10 @@ function stepsOf(t: Training): Step[] {
     t.confirmedAt ? { label: "Confirmed", sub: day(t.confirmedAt), state: "done" }
       : t.proposal ? { label: "Confirmation", sub: t.locked ? "Performa on its way" : "With Think Health", state: "now" }
       : { label: "Confirmation", sub: "", state: "next" },
-    t.completedAt ? { label: "Completed", sub: day(t.completedAt), state: "done" }
+    t.finishedOn ? { label: "Training", sub: first ? day(first) : "", state: "done" }
       : t.confirmedAt ? { label: "Training", sub: t.tbd ? "Date to be confirmed" : first ? day(first) : "", state: "now" }
       : { label: "Training", sub: "", state: "next" },
+    t.finishedOn ? { label: "Training completed", sub: day(t.finishedOn), state: "complete" } : { label: "Training completed", sub: "", state: "next" },
   ];
 }
 
@@ -488,7 +490,7 @@ function Progress({ t }: { t: Training }) {
   const steps = stepsOf(t);
   return (
     // Phones: a vertical track (label and date on one line); from 640px: across the panel.
-    <ol className="mt-5 grid sm:mt-6 sm:grid-cols-[repeat(var(--steps),minmax(0,1fr))]" style={{ "--steps": Math.max(4, steps.length) } as React.CSSProperties} aria-label="Where this training stands">
+    <ol className="mt-5 grid sm:mt-6 sm:grid-cols-[repeat(var(--steps),minmax(0,1fr))]" style={{ "--steps": Math.max(5, steps.length) } as React.CSSProperties} aria-label="Where this training stands">
       {steps.map((st, i) => {
         const next = steps[i + 1];
         const reached = next && next.state !== "next";
@@ -496,7 +498,7 @@ function Progress({ t }: { t: Training }) {
           <li key={st.label} className="flex min-w-0 gap-3 sm:block" aria-current={st.state === "now" ? "step" : undefined}>
             <div className="flex flex-col items-center sm:flex-row">
               <Node state={st.state} />
-              {next && <span className={`my-1 min-h-3 w-[2px] flex-1 rounded-full sm:mx-1.5 sm:my-0 sm:h-[2px] sm:min-h-0 sm:w-auto ${reached ? (next.state === "stop" ? "bg-danger/60" : "bg-navy") : "bg-line"}`} aria-hidden />}
+              {next && <span className={`my-1 min-h-3 w-[2px] flex-1 rounded-full sm:mx-1.5 sm:my-0 sm:h-[2px] sm:min-h-0 sm:w-auto ${reached ? (next.state === "stop" ? "bg-danger/60" : next.state === "complete" ? "bg-ok" : "bg-navy") : "bg-line"}`} aria-hidden />}
             </div>
             <div className={`flex min-w-0 flex-wrap items-baseline gap-x-2 sm:block ${next ? "pb-3 sm:pb-0" : ""}`}>
               <p className={`pt-px text-[14px] leading-tight sm:mt-2.5 sm:pr-2 sm:pt-0 sm:text-[13.5px] ${st.state === "stop" ? "font-bold text-danger" : st.state === "next" ? "font-semibold text-muted" : "font-bold text-ink"}`}>{st.label}</p>
@@ -510,6 +512,11 @@ function Progress({ t }: { t: Training }) {
 }
 
 function Node({ state }: { state: Step["state"] }) {
+  if (state === "complete") return (
+    <span className="grid size-5 shrink-0 place-items-center rounded-full bg-ok text-white shadow-[0_0_0_4px_color-mix(in_srgb,var(--ok)_14%,transparent)]" aria-hidden>
+      <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3l2.3 2.3L9.5 3.8" /></svg>
+    </span>
+  );
   if (state === "done") return (
     <span className="grid size-5 shrink-0 place-items-center rounded-full bg-navy text-white" aria-hidden>
       <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3l2.3 2.3L9.5 3.8" /></svg>
@@ -571,9 +578,23 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
   const detailsBlock = <div className="mt-7 border-t border-line pt-6">{toggle && <div className={folded ? "" : "mb-4"}>{toggle}</div>}{!folded && <ConfirmedDetails t={t} p={p} title={title} />}</div>;
   const peopleHere = <>{t.officialCerts && <div className="mt-7 border-t border-line pt-6"><Certificates t={t} /></div>}<div className="mt-7 border-t border-line pt-6">{people}</div></>;
   const qr = attendKey && onTheDay ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big /> : null;
-  // The report (owner, 16 Nov): once the coordinator ends a day (and isn't running or about to start another), and after it's completed.
+  // Over (owner, 17 Nov): the thank-you moment once, then the certificates and the quiz report first, the results and the
+  // leaderboard, then the training report. No QR any more.
+  if (t.finishedOn) {
+    return (
+      <>
+        <ThanksMoment t={t} title={title} />
+        {t.quiz && t.quiz.state !== "none" ? <Results id={t.id} quiz={t.quiz} done training={title} certs={<FinishedCerts t={t} />} /> : <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training completed</h4>}
+        <div className="mt-7"><TrainingReport t={t} /></div>
+        <div className="mt-7 border-t border-line pt-6">{people}</div>
+        {detailsBlock}
+        <p className="mt-5 text-[14.5px] text-ink-2">Thank you for organising it with us.</p>
+      </>
+    );
+  }
+  // The report (owner, 16 Nov): once the coordinator ends a day of several (and isn't running or about to start another).
   const ended = t.sessions.some((s) => s.endedAt);
-  if (t.completedAt || (ended && t.window.state !== "open" && t.window.state !== "waiting")) {
+  if (ended && t.window.state !== "open" && t.window.state !== "waiting") {
     const w = t.window;
     const meta = w.state === "ended" ? [w.of > 1 ? `Day ${w.dayNo} of ${w.of}` : "", p.location, t.trainers.length ? `With ${t.trainers.join(", ")}` : ""].filter(Boolean) : [];
     return (
@@ -581,10 +602,10 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
         <TrainingReport t={t} />
         {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} report />}
         {/* Ended by mistake: Start again is still there on the day. */}
-        {w.state === "ended" && !t.completedAt && <div className="mt-7"><TodayStrip t={t} meta={meta} onChanged={onChanged} /></div>}
+        {w.state === "ended" && <div className="mt-7"><TodayStrip t={t} meta={meta} onChanged={onChanged} /></div>}
         {peopleHere}
         {detailsBlock}
-        <p className="mt-5 text-[14.5px] text-ink-2">{t.completedAt ? "Thank you for organising it with us." : <>To change anything now, {contact}.</>}</p>
+        <p className="mt-5 text-[14.5px] text-ink-2">To change anything now, {contact}.</p>
       </>
     );
   }
@@ -665,10 +686,10 @@ function SelfPrompt({ t, myPage, onDone, onPeople }: { t: Training; myPage: stri
           <form onSubmit={register} className="mt-4 grid gap-3 sm:grid-cols-3" noValidate>
             <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Your name</span><input className={field} autoComplete="name" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} /></label>
             <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Mobile number</span><input className={`${field} num`} type="tel" inputMode="tel" autoComplete="tel" value={phone} maxLength={16} onChange={(e) => setPhone(e.target.value)} /></label>
-            <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Email <span className="font-normal text-muted">(for your certificate)</span></span><input className={field} type="email" inputMode="email" autoComplete="email" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} /></label>
+            <label className="block"><span className="mb-1.5 block text-[13.5px] font-semibold text-ink-2">Email <span className="font-normal text-muted">(your certificate goes here)</span></span><input className={field} type="email" inputMode="email" autoComplete="email" value={email} maxLength={200} onChange={(e) => setEmail(e.target.value)} required /></label>
             {error && <p className="rounded-xl bg-danger-bg px-4 py-3 text-[14px] text-danger sm:col-span-3" role="alert">{error}</p>}
             <div className="flex flex-wrap items-center gap-2.5 sm:col-span-3">
-              <button className={primaryBtn} disabled={busy}>{busy ? "One moment…" : "Register me"}</button>
+              <button className={primaryBtn} disabled={busy || !email.trim()}>{busy ? "One moment…" : "Register me"}</button>
               <button type="button" className={secondaryBtn} disabled={busy} onClick={() => answer("selfskip")}>Skip</button>
             </div>
           </form>
@@ -703,12 +724,12 @@ function TrainingReport({ t }: { t: Training }) {
   const ran = t.sessions.filter((s) => s.endedAt);
   const total = ranMs(ran);
   const at = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
-  const lastDone = Boolean(t.completedAt) || t.window.state === "after" || (t.window.state === "ended" && t.window.dayNo === t.window.of);
+  const lastDone = Boolean(t.finishedOn) || t.window.state === "after" || (t.window.state === "ended" && t.window.dayNo === t.window.of);
   const of = t.window.state !== "none" ? t.window.of : t.dates.length;
   const figure = "num text-[40px] font-extrabold leading-none tracking-[-0.03em] text-ink sm:text-[48px]";
   return (
     <section className="rounded-xl bg-ground px-5 py-5 sm:px-6" aria-label="Training report">
-      <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">{t.completedAt ? "Training completed" : "Training report"}</h4>
+      <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training report</h4>
       {!lastDone && of > 1 && <p className="num mt-1 text-[14px] text-muted">Day {ran.length} of {of} done. The report grows with each day.</p>}
       <div className="mt-5 flex flex-wrap gap-x-12 gap-y-5">
         {total > 0 && (
@@ -804,7 +825,7 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
   const [error, setError] = useState("");
   const state = t.window.state;
   const run = async (action: "start" | "end") => {
-    if (action === "end" && !window.confirm(`End today's training? Attendance and the quiz close for today.${t.quiz && t.window.state === "open" && t.window.dayNo === t.window.of ? " This is the last day: the right answers show, and everyone who passed the quiz is emailed their certificate." : ""}`)) return;
+    if (action === "end" && !window.confirm(`End today's training? Attendance and the quiz close for today.${t.quiz && t.window.state === "open" && t.window.dayNo === t.window.of ? " This is the last day: the right answers show, and everyone who passed the quiz gets a thank-you email with their Good Samaritan certificate." : ""}`)) return;
     setBusy(true); setError("");
     const r = await act<{ window?: DayWindow }>({ action, id: t.id });
     setBusy(false);
@@ -835,12 +856,14 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
 
 /**
  * The quiz's live results (owner, 13 Nov: "it will start displaying on the coordinator's board"): leaderboard (best tries)
- * and, per question, the picks (first tries). Owner, 14 Nov: tries, each passed person's certificate, the passed list as CSV.
+ * and the report. Owner, 17 Nov: the leaderboard shows each person's % and time (no re-takes); the passed list (CSV) is gone.
+ * `done` (the training is over): the certificates and the quiz report come first, then the figures and the leaderboard,
+ * which the coordinator can share on WhatsApp.
  */
-function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean }) {
+function Results({ id, quiz, report = false, done = false, training = "", certs }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean; done?: boolean; training?: string; certs?: React.ReactNode }) {
   const [r, setR] = useState<QuizResults | null>(null);
-  // A certificate goes the moment its person passes (owner, 16 Nov): keep checking until each one with an email has gone.
-  const sending = Boolean(r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
+  // Once over, the thank-you emails go out: keep checking until each one with an email has gone.
+  const sending = Boolean(done && r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
   useEffect(() => {
     let on = true;
     const load = () => act<QuizResults & { none?: boolean }>({ action: "results", id }).then((j) => { if (on && j.leaderboard) setR(j); });
@@ -849,7 +872,67 @@ function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<T
     const t = setInterval(() => { if (!document.hidden) load(); }, 5000);
     return () => { on = false; clearInterval(t); };
   }, [id, quiz.state, sending]);
-  const sub = "text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted";
+  const list = r?.certificates.list ?? [];
+  const emailed = list.filter((c) => c.emailedAt).length;
+  const noEmail = list.filter((c) => !c.email).length;
+  const board = r && r.leaderboard.length > 0 && (
+    <ol className="mt-3 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
+      {r.leaderboard.map((b) => (
+        <li key={b.th} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 bg-surface px-3.5 py-2.5">
+          <span className={`num text-center text-[15px] font-extrabold ${b.rank === 1 ? "text-navy" : "text-muted"}`}>{b.rank}</span>
+          <span className="min-w-0">
+            <span className="block truncate text-[15px] font-semibold text-ink">{b.name}</span>
+            <span className="num block text-[12.5px] text-muted">{b.th}{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}</span>
+          </span>
+          <span className="text-right">
+            <span className="num block text-[16px] font-extrabold leading-tight text-ink">{b.pct}%</span>
+            <span className="num block text-[12.5px] text-muted">{clockOf(b.seconds)}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+  const figures = r && (
+    <div className="mt-4 grid grid-cols-3 gap-3">
+      {[[`${r.taken} of ${r.present}`, "present have taken it"], [String(r.passed), `passed (${r.passPct}%+)`], [`${r.avgPct}%`, "average best score"]].map(([v, l]) => (
+        <div key={l} className="rounded-xl bg-ground px-3 py-3 text-center">
+          <p className="num text-[22px] font-extrabold leading-none text-ink">{v}</p>
+          <p className="mt-1.5 text-[12.5px] leading-snug text-muted">{l}</p>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (done) {
+    return (
+      <section aria-label="Training completed">
+        <h4 className="text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[28px]">Training completed</h4>
+        <p className="mt-1.5 max-w-[62ch] text-[15px] leading-relaxed text-ink-2">
+          {list.length === 0 ? "Thank you for organising it with us." : <>Everyone who passed gets a thank-you email with their Good Samaritan certificate: <b className="num text-ink">{emailed} of {list.length}</b> sent{noEmail ? <>; <span className="num">{noEmail}</span> {noEmail === 1 ? "has" : "have"} no email yet and can add it on their page</> : ""}.</>}
+        </p>
+        <div className="mt-6 space-y-4">
+          {certs}
+          {r && r.taken > 0 && <QuizReportLauncher title={quiz.title} r={r} label="View report" />}
+        </div>
+        <div className="mt-8 border-t border-line pt-6">
+          <h4 className="text-[18px] font-extrabold tracking-[-0.01em] text-ink">{quiz.title} results</h4>
+          {!r ? <p className="mt-3 text-[14px] text-muted">Loading the results…</p> : figures}
+        </div>
+        {r && r.leaderboard.length > 0 && (
+          <div className="mt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h5 className="text-[17px] font-extrabold tracking-[-0.01em] text-ink">Leaderboard</h5>
+              <a className={`${secondaryBtn} gap-2`} href={`https://wa.me/?text=${encodeURIComponent(boardText(quiz.title, training, r))}`} target="_blank" rel="noopener noreferrer">
+                <svg viewBox="0 0 24 24" className="size-5" aria-hidden>{ICONS.whatsapp}</svg>Share on WhatsApp
+              </a>
+            </div>
+            {board}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="mt-7 border-t border-line pt-6" aria-label="Quiz results">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -858,36 +941,13 @@ function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<T
       </div>
       {!r ? <p className="mt-3 text-[14px] text-muted">Loading the results…</p> : (
         <>
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            {[[`${r.taken} of ${r.present}`, "present have taken it"], [String(r.passed), `passed (${r.passPct}%+)`], [`${r.avgPct}%`, "average best score"]].map(([v, l]) => (
-              <div key={l} className="rounded-xl bg-ground px-3 py-3 text-center">
-                <p className="num text-[22px] font-extrabold leading-none text-ink">{v}</p>
-                <p className="mt-1.5 text-[12.5px] leading-snug text-muted">{l}</p>
-              </div>
-            ))}
-          </div>
+          {figures}
           {r.passed > 0 && (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl bg-ground px-4 py-3">
-              <p className="min-w-0 text-[14px] leading-snug text-ink-2">
-                Certificates: <b className="num text-ink">{r.certificates.list.filter((c) => c.emailedAt).length} of {r.certificates.list.length}</b> emailed, each the moment its person passed{r.certificates.list.some((c) => !c.email) ? "; those without an email can add one on their page" : ""}.
-              </p>
-              <button type="button" className="text-[14px] font-semibold text-action hover:underline" onClick={() => downloadCsv(r)}>Download passed list</button>
-            </div>
+            <p className="mt-4 rounded-xl bg-ground px-4 py-3 text-[14px] leading-snug text-ink-2">
+              <b className="num text-ink">{r.passed}</b> passed so far. When the training ends, each gets a thank-you email with their Good Samaritan certificate.
+            </p>
           )}
-          {r.leaderboard.length === 0 ? <p className="mt-4 text-[14.5px] text-muted">No one has finished yet.</p> : (
-            <ol className="mt-4 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
-              {r.leaderboard.map((b) => (
-                <li key={b.th} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 bg-surface px-3.5 py-2.5">
-                  <span className={`num text-center text-[15px] font-extrabold ${b.rank === 1 ? "text-navy" : "text-muted"}`}>{b.rank}</span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[15px] font-semibold text-ink">{b.name}</span>
-                    <span className="num block text-[12.5px] text-muted">{b.th} · {Math.floor(b.seconds / 60)}m {b.seconds % 60}s · Re-takes: {b.tries - 1}{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}{certNote(r, b.th)}</span>
-                  </span>
-                  <span className="num text-right text-[16px] font-extrabold text-ink">{b.pct}%</span>
-                </li>
-              ))}
-            </ol>
-          )}
+          {r.leaderboard.length === 0 ? <p className="mt-4 text-[14.5px] text-muted">No one has finished yet.</p> : <div className="mt-1">{board}</div>}
           {r.taken > 0 && (
             <div className="mt-4">
               {/* The report, question by question for the whole group (owner, 16 Nov). */}
@@ -896,24 +956,77 @@ function Results({ id, quiz, report = false }: { id: string; quiz: NonNullable<T
           )}
         </>
       )}
-      <p className={`${sub} sr-only`}>Quiz results</p>
     </section>
   );
 }
 
-/** A passed person's certificate, in their row: emailed, or why not yet. */
-function certNote(r: QuizResults, th: string): string {
-  const c = r.certificates.list.find((x) => x.th === th);
-  if (!c) return "";
-  return c.emailedAt ? " · Certificate emailed" : !c.email ? " · Certificate: no email yet" : c.error ? " · Certificate not sent yet" : " · Certificate on its way";
+/** "3m 10s". */
+const clockOf = (s: number) => `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+
+/** The leaderboard as a WhatsApp message (owner, 17 Nov: "the coordinator can share the results of the leaderboard"). */
+function boardText(title: string, training: string, r: QuizResults): string {
+  const rows = r.leaderboard.map((b) => `${b.rank}. ${b.name}: ${b.pct}% in ${clockOf(b.seconds)}${b.badge ? " (First Aid Badge)" : b.passed ? "" : " (not passed)"}`);
+  return [`*${title} results*`, training, "", ...rows, "", `${r.passed} of ${r.taken} passed. Thank you for training with Think Health.`].filter((l, i) => i !== 1 || l).join("\n");
 }
 
-/** The passed list as a CSV file (opens in Excel). */
-function downloadCsv(r: QuizResults) {
-  const url = URL.createObjectURL(new Blob([passedCsv(r.certificates.list)], { type: "text/csv;charset=utf-8" }));
-  const a = Object.assign(document.createElement("a"), { href: url, download: `${r.title} - passed.csv` });
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+/**
+ * The official certificates once the training is over (owner, 17 Nov: "from here only let the coordinator download their
+ * first aid or CPR certificates one by one or zip all, with their names on the certs, file name too"): the list once paid,
+ * else a line that they unlock with the payment.
+ */
+function FinishedCerts({ t }: { t: Training }) {
+  if (t.officialCerts) return <section className="rounded-xl bg-surface p-5 ring-1 ring-line sm:p-6"><Certificates t={t} /></section>;
+  return (
+    <section className="rounded-xl bg-ground px-5 py-4" aria-label="Certificates">
+      <h5 className="text-[17px] font-extrabold tracking-[-0.01em] text-ink">Your team&apos;s certificates</h5>
+      <p className="mt-0.5 text-[14px] leading-relaxed text-muted">They unlock here once the invoice for this training is paid: each person&apos;s certificate with their name on it, one by one or all at once.</p>
+    </section>
+  );
+}
+
+/**
+ * Thank you (owner, 17 Nov: "when training ends, an animation for Thanks for conducting training with ThinkHealth"): once per
+ * training on this browser, for a training that ended in the last two weeks, one at a time. The ring draws, the lines rise
+ * (the welcome's motion); a tap, Esc or 5 seconds closes it. With reduced motion: still, and shorter.
+ */
+let thanking = false;
+function ThanksMoment({ t, title }: { t: Training; title: string }) {
+  const [show, setShow] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const closeRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (thanking || !t.finishedOn) return;
+    const recent = Date.now() - Date.parse(`${t.finishedOn}T00:00:00`) < 14 * 86_400_000;
+    const key = `th.thanks.${t.id}`;
+    try { if (!recent || localStorage.getItem(key)) return; localStorage.setItem(key, new Date().toISOString()); } catch { return; }
+    thanking = true;
+    setShow(true);
+  }, [t.id, t.finishedOn]);
+  useEffect(() => {
+    if (!show) return;
+    const close = () => { setLeaving(true); setTimeout(() => setShow(false), reducedMotion() ? 0 : 420); };
+    const timer = setTimeout(close, reducedMotion() ? 2600 : 5200);
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" || e.key === "Enter") close(); };
+    window.addEventListener("keydown", key);
+    closeRef.current = close;
+    return () => { clearTimeout(timer); window.removeEventListener("keydown", key); };
+  }, [show]);
+  if (!show) return null;
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="Thank you" onClick={() => closeRef.current()} className={`thanks fixed inset-0 z-50 grid cursor-pointer place-items-center bg-navy px-6 text-white ${leaving ? "thanks-out" : ""}`}>
+      <div className="flex max-w-3xl flex-col items-center text-center">
+        <svg viewBox="0 0 96 96" className="size-24 sm:size-28" aria-hidden>
+          <circle cx="48" cy="48" r="44" fill="none" stroke="rgb(255 255 255 / 0.16)" strokeWidth="4" />
+          <circle className="thanks-ring" cx="48" cy="48" r="44" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" transform="rotate(-90 48 48)" />
+          <path className="thanks-tick" d="M30 49.5 42 61.5 66 36" fill="none" stroke="#fff" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <p className="welcome-line mt-8 text-[36px] font-extrabold leading-[1.06] tracking-[-0.03em] sm:text-[56px]" style={{ animationDelay: "650ms" }}>Thank you for conducting the training with Think Health.</p>
+        <p className="welcome-line num mt-5 text-[18px] font-bold text-white/80 sm:text-[22px]" style={{ animationDelay: "1050ms" }}>{title} · {t.attended} of {t.registered} present</p>
+        <p className="welcome-line mt-10 text-[14px] text-white/65" style={{ animationDelay: "1500ms" }}>{t.quiz ? (t.officialCerts ? "Your certificates and the quiz report are ready. " : "The quiz report is ready. ") : ""}Tap anywhere to continue.</p>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 /* ---------------- Stay connected ---------------- */

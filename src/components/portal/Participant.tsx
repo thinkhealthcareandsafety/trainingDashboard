@@ -139,7 +139,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
   const [error, setError] = useState("");
   const [showQuiz, setShowQuiz] = useState(quizOpen);
   const [quiz, setQuiz] = useState<QuizInfo | null>(null);
-  const [report, setReport] = useState(false);
+  const [report, setReport] = useState<false | "view" | "save">(false);
   // The quiz (owner, 13 Nov): checked every 15 s, so "Take the quiz" appears by itself when the coordinator starts.
   useEffect(() => {
     let on = true;
@@ -169,7 +169,8 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
   if (data === undefined) return <div className="min-h-screen bg-ground" aria-busy />;
   if (!data) return <Problem text={error} />;
   const { page, content } = data;
-  if (showQuiz) return <QuizScreen number={number} th={th} token={p} name={page.name} onClose={() => openQuiz(false)} />;
+  if (showQuiz) return <QuizScreen number={number} th={th} token={p} name={page.name} onClose={() => openQuiz(false)} onReport={(save) => { openQuiz(false); lookQuiz(); setReport(save ? "save" : "view"); }} />;
+  const reportSaved = () => { fetch("/api/portal/quiz", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ n: number, th, p, action: "saved" }) }).catch(() => {}); };
   const withVideo = content.programmes.filter((x) => x.video || x.photo);
   const row = "grid grid-cols-[64px_minmax(0,1fr)] gap-4 border-b border-line py-4 last:border-b-0";
   return (
@@ -200,14 +201,14 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
           </div>
         </section>
         {/* The quiz card (owner, 16 Nov: "where is the quiz"): on every CPR / AED / BLS / First Aid training, confirmed or not. */}
-        {quiz && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} onReport={() => setReport(true)} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
+        {quiz && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} onReport={(save) => setReport(save ? "save" : "view")} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
         {page.confirmed && page.dates.length > 0 && <Attendance dates={page.dates} present={page.present ?? []} />}
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen. Show your number, {page.th}, on the day.</p>
         {withVideo.length > 0 && <div className="pb-4"><Programmes list={withVideo} title="Watch before you come" /></div>}
         <div className="h-12" />
       </main>
       <StayConnected social={content.social} />
-      {report && quiz?.result && <MyReport d={{ title: quiz.quiz.title, name: page.name, th: page.th, training: page.training, revealed: quiz.state === "revealed", passPct: quiz.quiz.passPct, questions: quiz.quiz.questions, everyone: (quiz.leaderboard ?? []).map((b) => b.seconds), result: quiz.result }} onClose={() => setReport(false)} />}
+      {report && quiz?.result && <MyReport d={{ title: quiz.quiz.title, name: page.name, th: page.th, training: page.training, revealed: quiz.state === "revealed", passPct: quiz.quiz.passPct, questions: quiz.quiz.questions, everyone: (quiz.leaderboard ?? []).map((b) => b.seconds), result: quiz.result }} autoSave={report === "save"} onSaved={reportSaved} onClose={() => setReport(false)} />}
     </div>
   );
 }
@@ -240,7 +241,7 @@ function Attendance({ dates, present }: { dates: ProposalDate[]; present: string
  * Owner, 14 Nov: after a fail, Try again while it runs; after a pass, the certificate (owner, 16 Nov: emailed the moment they pass,
  * the training, and downloadable here).
  */
-function QuizPanel({ q, onOpen, onReport, certHref }: { q: QuizInfo; onOpen: () => void; onReport: () => void; certHref: string }) {
+function QuizPanel({ q, onOpen, onReport, certHref }: { q: QuizInfo; onOpen: () => void; onReport: (save: boolean) => void; certHref: string }) {
   const r = q.result;
   const c = q.certificate;
   const going = q.startedAt && q.state === "open";
@@ -259,8 +260,9 @@ function QuizPanel({ q, onOpen, onReport, certHref }: { q: QuizInfo; onOpen: () 
       <p className="mt-2 text-[16px] leading-relaxed text-ink-2">{line}</p>
       {c && (
         <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
-          {c.emailedAt ? <>Your certificate was emailed to <b className="break-all text-ink">{c.email}</b>.</>
-            : c.email ? <>Your certificate is on its way to <b className="break-all text-ink">{c.email}</b>.</>
+          {c.emailedAt ? <>Your certificate was emailed to <b className="break-all text-ink">{c.email}</b> with our thanks.</>
+            : c.email && q.state === "revealed" ? <>Your certificate is on its way to <b className="break-all text-ink">{c.email}</b>.</>
+            : c.email ? <>Your certificate goes to <b className="break-all text-ink">{c.email}</b> with a thank-you when the training ends.</>
             : <>Your certificate is ready. To get it by email, open <b className="text-ink">See results</b> and add your email.</>}
         </p>
       )}
@@ -269,7 +271,8 @@ function QuizPanel({ q, onOpen, onReport, certHref }: { q: QuizInfo; onOpen: () 
           {action && <button type="button" className={`${strong ? primaryBtn : secondaryBtn} ${strong ? "h-12 w-full text-[16px]" : ""}`} onClick={onOpen}>{action}</button>}
           {c?.ready && <a className={primaryBtn} href={certHref} download>Download certificate</a>}
           {/* Their own report (owner, 16 Nov), once they've sent their answers. */}
-          {r && !going && <button type="button" className={secondaryBtn} onClick={onReport}>My report</button>}
+          {r && !going && <button type="button" className={secondaryBtn} onClick={() => onReport(false)}>View my report</button>}
+          {r && !going && <button type="button" className={secondaryBtn} onClick={() => onReport(true)}>Download report</button>}
         </div>
       )}
     </section>

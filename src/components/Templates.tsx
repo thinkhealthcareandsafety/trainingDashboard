@@ -91,7 +91,7 @@ function preview(e: Entry, subject: string, body: string, noExpiry: boolean, sav
     return { subject: m.subject, html: textHtml(m.text) };
   }
   if (e.key === "portal:certificate") {
-    const m = certEmail({ subject, body }, { name: "Asha Rao", training: "CPR & AED Training", score: "90%", link: "https://training.thinkhealth.in/Quotation-24-002753/TH012?p=…", certno: "FAT-OD/04-12-2026/TH012" });
+    const m = certEmail({ subject, body }, { name: "Asha Rao", training: "CPR & AED Training", score: "90%", link: "https://training.thinkhealth.in/Quotation-24-002753/TH012?p=…", certno: "IAGS-SN/012", report: " Your quiz report is attached too." });
     return { subject: m.subject, html: m.html };
   }
   if (e.group === "portal") {

@@ -53,6 +53,18 @@ export function quizState(days: string[], today: string, sessions: Session[] = [
 }
 
 /**
+ * The day the training was over (owner, 17 Nov: a last step "Training completed", same date): the board's Completed, else
+ * the last day once its session was ended, else the last day once it has passed. Null while it's still to come or running.
+ */
+export function finishedOn(days: string[], today: string, sessions: Session[] = [], completedAt: string | null = null): string | null {
+  if (completedAt) return completedAt.slice(0, 10);
+  if (!days.length) return null;
+  const last = [...days].sort().at(-1)!;
+  if (sessions.some((s) => s.day === last && s.endedAt)) return last;
+  return today > last ? last : null;
+}
+
+/**
  * How long the training ran (owner, 16 Nov: "training time (how long the training was)"): each ended day's Start → End.
  */
 export const sessionMs = (s: { startedAt: string; endedAt?: string | null }) => (s.endedAt ? Math.max(0, Date.parse(s.endedAt) - Date.parse(s.startedAt)) : 0);

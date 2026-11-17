@@ -76,7 +76,7 @@ async function handlePOST(request: Request) {
       : b?.action === "newattend" ? await newAttendKey(me.email, b.id)
       : b?.action === "start" ? await startTraining(me.email, b.id)
       : b?.action === "end" ? await endTraining(me.email, b.id).then((x) => { if (!("error" in x) && x.certificates) certificatesLater(x.trainingId, me.email); return x; })
-      : b?.action === "results" ? await quizResults(me.email, b.id)
+      : b?.action === "results" ? await quizResults(me.email, b.id).then((x) => { if ("state" in x && x.state === "revealed" && x.certificates.list.some((c) => c.email && !c.emailedAt)) certificatesLater(String(b.id), me.email); return x; })
       : b?.action === "self" ? await selfRegister(me.email, b.id, (b as { person?: unknown }).person)
       : b?.action === "selfskip" ? await selfAnswer(me.email, b.id, "skip")
       : b?.action === "teamdone" ? await selfAnswer(me.email, b.id, "team")

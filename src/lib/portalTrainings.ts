@@ -6,7 +6,7 @@ import { type QuoteSheet, type TrainingQuote, isTrainingOnly, toTrainingQuote } 
 import { booksApi } from "./quotations";
 import { MAX_PEOPLE, type Person, type Proposal, type ProposalDate, type Stamp, TH_ID, cleanEmail, duplicatePhones, fmtProposalDate, indiaToday, readPerson, readProposal, readReason, sameProposal, thId } from "./portalRules";
 import { cleanPhone } from "./trainingManager";
-import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, markable, ranMs, attendanceWindow, currentDates, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
+import { type CurrentDates, type DayWindow, type Mark, type Session, attendanceId, markable, ranMs, attendanceWindow, currentDates, finishedOn, quizState, sessionWindow, presentByDay, presentByPerson, registrationOpen, tickableDay } from "./attendanceRules";
 import { boardScheduleFor } from "./boardDates";
 import type { Quiz } from "./quizCprAed";
 import { type Attempt, type PublicQuiz, type QuestionStats, type Ranked, type Score, analytics, canRetake, leaderboard, topicScores, passedAny, publicQuiz, quizFor, readAnswers, scoreOf } from "./quizRules";
@@ -57,7 +57,9 @@ export type Confirmed = { at: string; by: string; salesorderId: string; number: 
 export type BoardResult = { state: "scheduled" | "skipped" | "failed" | "notlive"; note: string; at: string; value?: string };
 /** How a participant got on the list; "walkin": registered on the day by the attendance QR (owner, 13 Nov); "coordinator": the coordinator themselves (owner, 16 Nov). */
 export type Source = "typed" | "excel" | "qr" | "walkin" | "coordinator";
-type ParticipantDoc = { _id: string; trainingId: string; name: string; phone: string; email?: string; source: Source; token: string; addedAt: string };
+type ParticipantDoc = { _id: string; trainingId: string; name: string; phone: string; email?: string; source: Source; token: string; addedAt: string;
+  /** When they saved their own report as a PDF (owner, 17 Nov: if they didn't, it goes with the thank-you email). */
+  reportSavedAt?: string };
 
 const trainingsCol = async () => (await db()).collection<TrainingDoc>("portalTrainings");
 const peopleCol = async () => (await db()).collection<ParticipantDoc>("portalParticipants");
@@ -162,6 +164,8 @@ export type PortalTraining = {
   rejected: { at: string; reason: string } | null;
   /** The training's days now (after Mark confirmed: the Training board's), the coordinator's when the board moved them, trainers. */
   dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null;
+  /** The day it was over (owner, 17 Nov: the last step "Training completed"): Completed on the board, the last day ended, or passed. */
+  finishedOn: string | null;
   /** The fixed attendance QR's key (confirmed trainings only, else ""); where attendance stands today; how many came. */
   attendKey: string; window: DayWindow; attended: number;
   /** The training's quiz (CPR / AED trainings) and where it stands: open only while a session runs (owner, 13 Nov). */
@@ -209,6 +213,7 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       expected: x.expected, stamp: stampOf(t, x.status, cur.completedAt), proposal: t.proposal ?? null, history: t.history ?? [], joinKey, registered: (await peopleOf(t._id)).length, confirmedAt: t.confirmed?.zohoAt ?? null, locked: Boolean(t.confirmed),
       rejected: t.rejected ? { at: t.rejected.at, reason: t.rejected.reason } : x.status === "declined" && !t.confirmed ? { at: "", reason: "" } : null,
       dates: cur.dates, datesWas: cur.was, tbd: cur.tbd, trainers: cur.trainers, completedAt: cur.completedAt,
+      finishedOn: t.confirmed?.zohoAt ? finishedOn(daysOf(cur), indiaToday(), t.sessions, cur.completedAt) : null,
       attendKey: qrOn ? attendKey : "", window: sessionWindow(daysOf(cur), indiaToday(), t.sessions), attended: presentByPerson(marks).size,
       session: (() => { const ss = (t.sessions ?? []).find((x) => x.day === indiaToday()); return ss ? { startedAt: ss.startedAt, endedAt: ss.endedAt ?? null } : null; })(),
       sessions: (t.sessions ?? []).map((s) => ({ day: s.day, startedAt: s.startedAt, endedAt: s.endedAt ?? null })).sort((a, b) => a.day.localeCompare(b.day)),
@@ -343,6 +348,7 @@ export async function selfRegister(email: string, id: unknown, raw: unknown): Pr
   if (had) return { error: `You're already on the list as ${had._id}.`, status: 409 };
   const person = readPerson(raw);
   if ("error" in person) return { error: person.error, status: 400 };
+  if (!person.email) return { error: needEmail, status: 400 };
   // Their number already on the list (someone typed it): that entry becomes theirs, one person per mobile number.
   const same = have.find((x) => x.phone === person.phone);
   if (same) await (await peopleCol()).updateOne({ _id: same._id }, { $set: { name: person.name, ...(person.email ? { email: person.email } : {}), source: "coordinator" } });
@@ -466,7 +472,9 @@ export const shutText = (w: DayWindow) =>
   : w.state === "ended" ? "Today's training has ended, so attendance is closed. Please speak to your training coordinator."
   : w.state === "after" ? "Attendance for this training has closed." : "The training date isn't set yet. Please speak to your training coordinator.";
 
-export type AttendMe = { th: string; name: string; presentToday: boolean };
+export type AttendMe = { th: string; name: string; presentToday: boolean; hasEmail: boolean };
+/** Owner, 17 Nov: everyone gives an email when they join (the certificate and the thank-you go there). */
+const needEmail = "Add your email: your certificate is sent there after the training.";
 export type AttendInfo = { training: string; customer: string; coordinator: string; dates: ProposalDate[]; window: DayWindow; shut: string; me: AttendMe | null; mode: AttendMode };
 type Cookie = { th: string; token: string } | null;
 
@@ -479,7 +487,7 @@ async function remembered(j: AttendLink, c: Cookie): Promise<ParticipantDoc | nu
 async function meOf(j: AttendLink, p: ParticipantDoc): Promise<AttendMe> {
   const day = modeOf(j) === "present" && markable(j.win) ? j.win.day : "";
   const marked = day ? await (await attendCol()).findOne({ _id: attendanceId(p._id, day) }) : null;
-  return { th: p._id, name: p.name, presentToday: Boolean(marked) };
+  return { th: p._id, name: p.name, presentToday: Boolean(marked), hasEmail: Boolean(p.email) };
 }
 
 export async function attendInfo(number: unknown, key: unknown, c: Cookie): Promise<AttendInfo | null> {
@@ -514,19 +522,26 @@ export async function attendRegister(number: unknown, key: unknown, raw: unknown
   const have = await peopleOf(j.t._id);
   const already = have.find((x) => x.phone === person.phone);
   if (already) return { me: await meOf(j, already), cookie: { th: already._id, token: already.token } };
+  if (!person.email) return { error: needEmail, status: 400 };
   if (have.length >= MAX_PEOPLE) return { error: "This training's list is full. Please speak to your training coordinator.", status: 409 };
   const [doc] = await insertPeople(j.t._id, [person], mode === "present" ? "walkin" : "qr");
   return { me: await meOf(j, doc), cookie: { th: doc._id, token: doc.token } };
 }
 
 /** Present: today's tick, by the person the phone remembers; on the day before Start too (owner, 16 Nov). Marking twice keeps the first time. */
-export async function attendPresent(number: unknown, key: unknown, c: Cookie): Promise<{ th: string; token: string; name: string; already: boolean } | Fail> {
+export async function attendPresent(number: unknown, key: unknown, c: Cookie, emailRaw?: unknown): Promise<{ th: string; token: string; name: string; already: boolean } | Fail> {
   const j = await byAttendLink(number, key);
   if (!j) return badAttendLink;
   const mode = modeOf(j);
   if (mode !== "present" || !markable(j.win)) return refuse(j, mode);
   const p = await remembered(j, c);
   if (!p) return { error: "Type your mobile number first.", status: 401 };
+  // Someone the coordinator typed in without an email gives it here, before Present (owner, 17 Nov).
+  if (!p.email) {
+    const email = cleanEmail(emailRaw);
+    if (!email) return { error: needEmail, status: 400 };
+    await (await peopleCol()).updateOne({ _id: p._id }, { $set: { email } });
+  }
   const _id = attendanceId(p._id, j.win.day);
   const col = await attendCol();
   const had = await col.findOne({ _id });
@@ -592,8 +607,8 @@ export async function endTraining(email: string, id: unknown): Promise<{ window:
   sessions[i] = { ...sessions[i], endedAt: new Date().toISOString(), endedBy: email };
   await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { sessions } });
   const days = daysOf(await datesOf(t));
-  // Certificates go as each person passes (owner, 16 Nov); End sends any that didn't go (a catch-up).
-  return { window: sessionWindow(days, today, sessions), certificates: Boolean(await quizOf(t)), trainingId: t._id };
+  // Owner, 17 Nov: the Good Samaritan certificates and the thank-you go when the training is over (End on its last day).
+  return { window: sessionWindow(days, today, sessions), certificates: Boolean(await quizOf(t)) && quizState(days, today, sessions) === "revealed", trainingId: t._id };
 }
 
 type AttemptDoc = { _id: string; trainingId: string; th: string; name: string; quizId: string; n?: number; answers?: number[]; startedAt: string; finishedAt?: string; points?: number; correct?: number };
@@ -717,6 +732,8 @@ type CertDoc = {
   downloadedAt?: string;
   /** When its row went into the Good Samaritan tab of the certificate workbook (owner, 16 Nov), once. */
   sheetAt?: string;
+  /** A sender claimed it (see claimCertificate). */
+  sendingAt?: string;
 };
 /** The next Good Samaritan number: one atomic step on the counter, so two people passing at once never share one. */
 async function nextGsNo(): Promise<string> {
@@ -727,7 +744,7 @@ const certsCol = async () => (await db()).collection<CertDoc>("portalCertificate
 const certId = (trainingId: string, th: string) => `${trainingId}:${th}`;
 
 /** A passed person's certificate as it prints, and how it stands (emailed, waiting for an email address, failed). */
-export type CertLine = Omit<CertDoc, "_id" | "gsNo"> & { gsNo: string; email: string; token: string; number: string; phone: string; company: string; training: string };
+export type CertLine = Omit<CertDoc, "_id" | "gsNo"> & { gsNo: string; email: string; token: string; number: string; phone: string; company: string; training: string; reportSaved?: boolean };
 
 /** Everyone who passed this training's quiz, with their certificate (made now if new; the FAT-OD number never changes). */
 export async function certificateLines(trainingId: string): Promise<CertLine[]> {
@@ -758,7 +775,7 @@ export async function certificateLines(trainingId: string): Promise<CertLine[]> 
     else if (!had.gsNo) { doc.gsNo = await nextGsNo(); await (await certsCol()).updateOne({ _id: had._id }, { $set: { gsNo: doc.gsNo } }); }
     const { _id: _drop, ...rest } = doc;
     void _drop;
-    out.push({ ...rest, gsNo: doc.gsNo!, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number, phone: p.phone, company: q.customer, training: titleOf(q) });
+    out.push({ ...rest, gsNo: doc.gsNo!, name: p.name, pct: best.pct, badge: best.badge, email: p.email ?? "", token: p.token, number: q.number, phone: p.phone, company: q.customer, training: titleOf(q), reportSaved: Boolean(p.reportSavedAt) });
   }
   return out;
 }
@@ -818,6 +835,56 @@ export async function recordCertificate(trainingId: string, th: string, r: { ema
   await (await certsCol()).updateOne({ _id: certId(trainingId, th) }, { $set: set });
 }
 
+/**
+ * One sender at a time per certificate: the End button, a late email and the coordinator's panel can all ask for the
+ * sending, so each certificate is claimed first (a claim older than 5 minutes is taken as a crash and can be retaken).
+ */
+export async function claimCertificate(trainingId: string, th: string): Promise<boolean> {
+  const now = new Date();
+  const stale = new Date(now.getTime() - 5 * 60_000).toISOString();
+  const r = await (await certsCol()).updateOne(
+    { _id: certId(trainingId, th), emailedAt: { $exists: false }, $or: [{ sendingAt: { $exists: false } }, { sendingAt: { $lt: stale } }] },
+    { $set: { sendingAt: now.toISOString() } },
+  );
+  return r.modifiedCount === 1;
+}
+
+/** They saved their report as a PDF (owner, 17 Nov): then the thank-you email doesn't attach it again. */
+export async function markReportSaved(number: unknown, th: unknown, token: unknown): Promise<{ ok: true } | Fail> {
+  const r = await participantOf(number, th, token);
+  if (!r) return { error: "We couldn't find your page. Use the link from when you joined.", status: 404 };
+  if (!r.p.reportSavedAt) await (await peopleCol()).updateOne({ _id: r.p._id }, { $set: { reportSavedAt: new Date().toISOString() } });
+  return { ok: true };
+}
+
+/** Their report's figures, for the PDF that goes with the thank-you email (their own answers only). */
+export type ReportFacts = {
+  title: string; name: string; th: string; training: string; passPct: number;
+  questions: { text: string; options: { text: string }[]; answer?: number; critical?: boolean; lesson?: string }[];
+  everyone: number[];
+  result: { pct: number; correct: number; total: number; passed: boolean; badge: boolean; rank: number; of: number; seconds: number; answers: number[] };
+};
+export async function reportFacts(trainingId: string, th: string): Promise<ReportFacts | null> {
+  const t = await trainingDoc(trainingId);
+  if (!t) return null;
+  const qz = await quizOf(t);
+  const q = (await quotes(new Set([t._id]))).get(t._id);
+  const p = await (await peopleCol()).findOne({ _id: th });
+  if (!qz || !q || !p || p.trainingId !== t._id) return null;
+  const all = finished(await attemptsOf(t._id));
+  const board = leaderboard(qz.quiz, all);
+  const me = board.find((b) => b.th === th);
+  const latest = all.filter((a) => a.th === th).at(-1);
+  if (!me || !latest) return null;
+  const sc = scoreOf(qz.quiz, latest.answers);
+  return {
+    title: qz.quiz.title, name: p.name, th, training: titleOf(q), passPct: qz.quiz.passPct,
+    questions: publicQuiz(qz.quiz, true).questions,
+    everyone: board.map((b) => b.seconds),
+    result: { pct: sc.pct, correct: sc.correct, total: sc.total, passed: sc.passed, badge: sc.badge, rank: me.rank, of: board.length, seconds: me.seconds, answers: latest.answers },
+  };
+}
+
 /** Their certificate for the download: once they've passed (owner, 16 Nov). */
 export async function participantCertificate(number: unknown, th: unknown, token: unknown): Promise<CertLine | null> {
   const r = await participantOf(number, th, token);
@@ -839,7 +906,8 @@ export async function saveParticipantEmail(number: unknown, th: unknown, token: 
   if (!qz || !passedAny(qz.quiz, triesOf(await attemptsOf(r.t._id), r.p._id).done)) return { error: "The certificate comes once you pass the quiz.", status: 409 };
   await (await peopleCol()).updateOne({ _id: r.p._id }, { $set: { email } });
   const cert = await (await certsCol()).findOne({ _id: certId(r.t._id, r.p._id) });
-  return { email, sendNow: !cert?.emailedAt, trainingId: r.t._id };
+  // Before the training is over it just waits: everyone's goes when it ends (owner, 17 Nov).
+  return { email, sendNow: !cert?.emailedAt && qz.state === "revealed", trainingId: r.t._id };
 }
 
 export type CertStatus = { th: string; name: string; email: string; certNo: string; gsNo: string; day: string; pct: number; badge: boolean; emailedAt: string | null; error: string | null };
