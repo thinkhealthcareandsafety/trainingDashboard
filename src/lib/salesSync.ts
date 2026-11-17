@@ -119,14 +119,18 @@ export async function putSalesDoc(kind: Kind, d: ZDoc): Promise<void> {
 }
 
 /** One sync of the Sales copy. `full`: list everything again (the 9 am / 2 pm checks, "Sync now", or a first fill). */
-export async function syncSales(full: boolean): Promise<{ docs: number; payments: number }> {
+/** `changes`: the live sync's one listing of each kind, shared with the Training board's copy (owner, 17 Nov: live, within the limit). */
+export type SharedChanges = (kind: Kind, cursor: string | undefined) => Promise<ZDoc[]>;
+export const salesCursors = async (): Promise<Partial<Record<Kind, string>>> => (await loadState()).cursors ?? {};
+
+export async function syncSales(full: boolean, changes?: SharedChanges): Promise<{ docs: number; payments: number }> {
   const state = await loadState();
   const docs = await col<SalesRow>("salesDocs");
   const from = since();
   const doFull = full || !state.fullAt || KINDS.some((k) => !state.cursors[k]);
   let changed = 0;
   for (const kind of KINDS) {
-    const rows = doFull ? await listAll(kind, from) : await listChangedSince(kind, from, state.cursors[kind]);
+    const rows = doFull ? await listAll(kind, from) : changes ? await changes(kind, state.cursors[kind]) : await listChangedSince(kind, from, state.cursors[kind]);
     if (!rows.length && !doFull) continue;
     const have = new Map((await docs.find({ kind }, { projection: { lmt: 1 } }).toArray()).map((d) => [d._id, d.lmt]));
     const live = rows.filter((r) => String(r.status) !== "void");

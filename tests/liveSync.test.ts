@@ -29,3 +29,19 @@ test("next sync: a minute after the last one in the day; 9 am on the next sync d
   assert.equal(nextLiveSync(undefined, now), now);
   assert.equal(nextLiveSync(undefined, ist("21:00")), ist("09:00", "2026-11-13"));
 });
+
+test("live sync, owner 17 Nov: one listing per kind serves both copies, each getting what is newer than its own bookmark", async () => {
+  const { sharedChanges } = await import("@/lib/zohoSync");
+  const calls: [string, string | undefined][] = [];
+  const rows = [{ estimate_id: "3", last_modified_time: "2026-11-17T10:03:00+0530" }, { estimate_id: "2", last_modified_time: "2026-11-17T10:02:00+0530" }, { estimate_id: "1", last_modified_time: "2026-11-17T10:01:00+0530" }];
+  const list = async (kind: string, cursor: string | undefined) => { calls.push([kind, cursor]); return rows; };
+  const changes = sharedChanges({ training: { estimates: "2026-11-17T04:32:00.000Z" }, sales: { estimates: "2026-11-17T04:30:30.000Z" } }, list as never);
+  const t = await changes("estimates", "2026-11-17T04:32:00.000Z");
+  const s = await changes("estimates", "2026-11-17T04:30:30.000Z");
+  assert.deepEqual(calls, [["estimates", "2026-11-17T04:30:30.000Z"]]); // one Zoho listing, from the older bookmark
+  assert.deepEqual(t.map((r) => r.estimate_id), ["3"]);
+  assert.deepEqual(s.map((r) => r.estimate_id), ["3", "2", "1"]);
+  const only = sharedChanges({ training: { invoices: "2026-11-17T04:32:00.000Z" }, sales: {} }, list as never);
+  await only("invoices", "2026-11-17T04:32:00.000Z");
+  assert.deepEqual(calls.at(-1), ["invoices", "2026-11-17T04:32:00.000Z"]); // never a full listing because one copy has no bookmark
+});

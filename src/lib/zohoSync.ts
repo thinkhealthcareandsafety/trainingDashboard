@@ -26,6 +26,8 @@ import {
  *   sync runs only while today's calls are on or under the pace line (paceAllowance); none on Sunday; "Sync now" any time.
  * MongoDB is updated as part of each sync, so pages show the new data as soon as it finishes.
  * Zoho calls are counted per day; automatic syncing pauses at 95% of ZOHO_DAILY_LIMIT.
+ * A quick sync costs about 5 calls (owner, 17 Nov): one change listing per kind shared by both copies (sharedChanges),
+ * recent customers, one kind's deletion sweep; the more of the day it fits under the limit, the closer to every minute.
  */
 
 /** AedSmartx board start date (see HANDOFF #48). */
@@ -313,11 +315,29 @@ async function reconcile(state: SyncState, sets: ItemSets, out: DocChange[]): Pr
   return changed;
 }
 
+/**
+ * One listing per kind per sync, for both copies (owner, 17 Nov: "make zoho sync live … if it won't put a wall"). The
+ * Training board's copy and the Sales board's list the same documents (same window, newest change first), each stopping
+ * at its own bookmark; listing once from the older bookmark and handing each copy what's newer than its own saves three
+ * Zoho calls a sync — the minute-by-minute sync then fits more of the day under the daily limit.
+ */
+export function sharedChanges(cursors: { training: Partial<Record<Kind, string>>; sales: Partial<Record<Kind, string>> }, list: (kind: Kind, cursor: string | undefined) => Promise<ZDoc[]> = (k, c) => listChangedSince(k, trainingSince(), c)) {
+  const once = new Map<Kind, Promise<ZDoc[]>>();
+  return (kind: Kind, cursor: string | undefined): Promise<ZDoc[]> => {
+    if (!once.has(kind)) {
+      const t = cursors.training[kind], s = cursors.sales[kind];
+      // The older of the two bookmarks; with only one (the Sales copy then lists everything itself), that one.
+      once.set(kind, list(kind, t && s ? (t < s ? t : s) : t ?? s));
+    }
+    return once.get(kind)!.then((rows) => (cursor ? rows.filter((r) => lmtOf(r) > cursor) : rows));
+  };
+}
+
 /** Between full checks: only documents changed since the last sync (newest change first). */
-async function incremental(state: SyncState, sets: ItemSets, out: DocChange[]): Promise<number> {
+async function incremental(state: SyncState, sets: ItemSets, out: DocChange[], changes?: ReturnType<typeof sharedChanges>): Promise<number> {
   let changed = 0;
   for (const kind of KINDS) {
-    const rows = await listChangedSince(kind, trainingSince(), state.cursors[kind]);
+    const rows = changes ? await changes(kind, state.cursors[kind]) : await listChangedSince(kind, trainingSince(), state.cursors[kind]);
     if (!rows.length) continue;
     changed += await storeDocs(kind, rows, sets, out);
     state.cursors[kind] = rows.map(lmtOf).reduce((a, b) => (b > a ? b : a), state.cursors[kind] ?? "");
@@ -464,8 +484,10 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
       state.usersAt = now;
       changed++;
     }
-    // Documents and payments.
-    changed += fullDue ? await reconcile(state, sets, log.docs!) : await incremental(state, sets, log.docs!);
+    // Documents and payments. A quick sync lists each kind once for both copies (see sharedChanges).
+    const { salesCursors } = await import("./salesSync");
+    const changes = fullDue ? undefined : sharedChanges({ training: { ...state.cursors }, sales: await salesCursors().catch(() => ({})) });
+    changed += fullDue ? await reconcile(state, sets, log.docs!) : await incremental(state, sets, log.docs!, changes);
     // Deletions as fast as changes (owner, 13 Nov): one kind's newest documents each quick sync (the full check covers all).
     if (!fullDue) {
       try {
@@ -478,7 +500,7 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     // The Sales board's own copy (owner, 30 Oct) — on its own, so a problem there never fails the Training board's sync.
     try {
       const { syncSales } = await import("./salesSync");
-      const s = await syncSales(fullDue);
+      const s = await syncSales(fullDue, changes);
       log.sales = s.docs + s.payments || undefined;
     } catch (e) {
       log.salesError = e instanceof Error ? e.message : String(e);
