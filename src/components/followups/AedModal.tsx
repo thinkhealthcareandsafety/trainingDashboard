@@ -391,6 +391,10 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
   // Contacted: calls and emails, until a training date is set (or it's not required).
   const contacting = Boolean(card.outreach?.inProcess && !card.schedule && !card.notRequired);
   const replies = card.outreach?.replies ?? [];
+  // Training phase (owner, 17 Nov): the same emails and call log as Contacted, behind a button.
+  const [log, setLog] = useState(false);
+  useEffect(() => setLog(false), [card.id]);
+  const training = Boolean(card.schedule && card.outreach && !contacting);
 
   const startEdit = () => setDraft({
     name: card.name, aliases: [...card.aliases], emails: card.emails.map((e) => ({ ...e })), phones: card.phones.map((p) => ({ ...p })),
@@ -426,6 +430,8 @@ export function AedCardModal({ card, cards, member, options, onClose }: { card: 
         <div className="space-y-3">
           <AedTrainingSection card={card} member={member} />
           {contacting && <ContactedSection card={card} member={member} onShowReply={() => setReply(true)} />}
+          {training && !log && <button className={`${btn.ghost} w-full`} onClick={() => setLog(true)}>Email and contact log</button>}
+          {training && log && <ContactedSection card={card} member={member} title="Email and contact log" onShowReply={() => setReply(true)} />}
           {!contacting && replies.length > 0 && <div className="rounded-xl border border-line px-3 py-1.5"><RepliesLine card={card} onShow={() => setReply(true)} /></div>}
           <ItemDescriptionSection card={card} cards={cards} member={member} folded={contacting} />
         </div>

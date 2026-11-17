@@ -228,7 +228,7 @@ export function RepliesLine({ card, onShow }: { card: CardView; onShow: () => vo
   );
 }
 
-export function ContactedSection({ card, member, onShowReply }: { card: CardView; member: Member; onShowReply: () => void }) {
+export function ContactedSection({ card, member, onShowReply, title = "Contacted" }: { card: CardView; member: Member; onShowReply: () => void; title?: string }) {
   const { addCardEvents, toast, revertCardEvent } = useStore();
   const o = card.outreach!;
   const ids = [aedCustomerId(card.customerId), card.id]; // customer-wide entries: logged on the customer and this invoice
@@ -305,11 +305,11 @@ export function ContactedSection({ card, member, onShowReply }: { card: CardView
 
   return (
     <Section
-      title="Contacted"
+      title={title}
       aside={
         // "All calls & emails" sits up here: under Send email it wrapped onto a line of its own and the modal scrolled.
         <span className="flex min-w-0 items-center gap-2 text-[12px] text-muted">
-          <span className="truncate">In process · {o.inProcess!.by.split(" ")[0]}, {fmtStamp(o.inProcess!.at)}</span>
+          {o.inProcess && <span className="truncate">In process · {o.inProcess.by.split(" ")[0]}, {fmtStamp(o.inProcess.at)}</span>}
           {(o.calls.length > 0 || o.sent.length > 0) && <button className={`${btn.quiet} !h-7 shrink-0`} onClick={() => setHistory(true)}>All calls &amp; emails</button>}
         </span>
       }
