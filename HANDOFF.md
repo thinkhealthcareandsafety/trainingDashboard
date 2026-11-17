@@ -2,7 +2,7 @@
 
 _Last updated: Tue 17 Nov 2026 (end of session 30). **Live = `d330aac`** on work.thinkhealth.in, training.thinkhealth.in and
 training-dashboard-xfwl.vercel.app (Vercel `-xfwl` success; the owner said to ignore the other Vercel project). After it, **local and
-not pushed**: `9708e52` (a "this year" period for the Overview) and this handoff. Written for the next Claude Code session, and for the
+not pushed**: `9708e52` (a "this year" period for the Overview), this handoff (`2781795`) and `771e157` (`scripts/cdp-shot.mjs`). Written for the next Claude Code session, and for the
 owner (Sumit)._
 
 **Read first:** this block; `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left" item 4 (quiz, certificates, reports);
@@ -10,8 +10,8 @@ owner (Sumit)._
 coordinator", "A participant's own report", "Attendance", "The quiz: its own world").
 
 **Start of the next session (31). Do these first:**
-1. `git fetch`, `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: 2 local commits (`9708e52`
-   + this handoff), nothing behind. Push only when the owner says "push" (`git push origin master`, long timeout), then check Vercel
+1. `git fetch`, `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: 4 local commits (`9708e52`, `2781795`, `771e157`
+   and this note), nothing behind. Push only when the owner says "push" (`git push origin master`, long timeout), then check Vercel
    `-xfwl` via `curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status` and curl the site.
 2. `npm test` (**322** pass) and `npx tsc --noEmit -p tsconfig.json`.
 3. **IMMEDIATE NEXT (owner's last ask, unfinished):** restructure the staff **Overview** (`src/components/OverviewSales.tsx`): "it
