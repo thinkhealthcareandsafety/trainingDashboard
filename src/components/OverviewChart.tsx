@@ -9,7 +9,7 @@ import { type MonthPoint, inrShort } from "@/lib/overviewMath";
  * invoiced (₹) above, conversion (%) below. New clients: later (owner: skip for now). It fills the height it is given.
  */
 
-const PAD = { l: 60, r: 100, t: 8, b: 26, gap: 24 };
+const PAD = { l: 60, r: 100, t: 22, b: 26, gap: 34 };
 
 function nice(max: number): number {
   if (max <= 0) return 1;
@@ -117,11 +117,17 @@ export function OverviewChart({ points }: { points: MonthPoint[] }) {
             {/* direct labels at the ends */}
             {ends.map(({ s, y }) => <text key={s.key} x={PAD.l + plotW + 8} y={y} dy="0.32em" fontSize="13.5" fill="var(--ink-2)">{s.label === "Quotations sent" ? "Quotations" : s.label}</text>)}
             {lastConv && <text x={PAD.l + plotW + 8} y={yC(lastConv.conversion!)} dy="0.32em" fontSize="13.5" fill="var(--ink-2)">Conversion</text>}
-            {/* A dot on every month (owner, 17 Nov: "better if we see data points"); the hovered month's grow. The running month is hollow. */}
+            {/* A dot on every month with its value (owner, 17 Nov: "better if we see data points", "data points and labels"); the hovered month's grow. The running month is hollow. */}
             {series.map((s) => (
               <g key={`pts-${s.key}`}>
                 {s.vals.map((v, i) => v !== null && (
                   <circle key={i} cx={x(i)} cy={s.y(v)} r={hover === i ? 5.5 : 4} fill={partial && i === n - 1 ? "var(--surface)" : s.color} stroke={partial && i === n - 1 ? s.color : "var(--surface)"} strokeWidth="2" />
+                ))}
+                {/* Its value by each dot (owner, 17 Nov: "data points and labels"): quotations and conversion above, invoiced below, so the two money lines never collide. */}
+                {s.vals.map((v, i) => v !== null && (
+                  <text key={`l${i}`} x={x(i)} y={s.y(v) + (s.key === "i" ? 18 : -10)} textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"} fontSize="12" fontWeight="600" fill="var(--ink-2)" stroke="var(--surface)" strokeWidth="3" paintOrder="stroke" className="num">
+                    {s.key === "c" ? `${v}%` : inrShort(v)}
+                  </text>
                 ))}
               </g>
             ))}
