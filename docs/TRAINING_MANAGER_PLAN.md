@@ -1,6 +1,6 @@
 # Training Manager: full plan
 
-## Status (16 Nov 2026, end of session 30): live at `36ca061`; session 30 (quote before Accept, Cc sales@, guided Performa, trainer rule, attendance before Start, PRESENT stamps, progress track, certificates at pass) is committed locally, pushed when the owner says. Next: HANDOFF.md top block
+## Status (17 Nov 2026, end of session 30): live at `d330aac` (quiz, certificates, reports, one QR, live refresh, new staff Overview). Next: HANDOFF.md top block (Overview person tabs first)
 
 | Step | What | State |
 |---|---|---|

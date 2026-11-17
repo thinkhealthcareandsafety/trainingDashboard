@@ -1,80 +1,89 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Mon 16 Nov 2026 (end of session 30). **Live = `a4cfc7f`** (code `36ca061`) until the owner says "push"; session 30's
-commits (`b50b639` … `b2c1bc7`, plus this handoff) are **local, not pushed**. Only `training-dashboard-xfwl` matters on Vercel (owner, 16
-Nov: "ignore the other" project). Written for the next Claude Code session, and for the owner (Sumit)._
+_Last updated: Tue 17 Nov 2026 (end of session 30). **Live = `d330aac`** on work.thinkhealth.in, training.thinkhealth.in and
+training-dashboard-xfwl.vercel.app (Vercel `-xfwl` success; the owner said to ignore the other Vercel project). After it, **local and
+not pushed**: `9708e52` (a "this year" period for the Overview) and this handoff. Written for the next Claude Code session, and for the
+owner (Sumit)._
 
-**Read first:** `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left" (item 4: quiz, retakes, certificates **at pass**).
-The portal's look is in `DESIGN.md` ("Quotation", "Progress track", "Attendance", "The quiz: its own world"); `.impeccable/design.json`
-is older than DESIGN.md (refresh only if asked).
+**Read first:** this block; `docs/TRAINING_MANAGER_PLAN.md` → "Status", "As built", "What's left" item 4 (quiz, certificates, reports);
+`DESIGN.md` (portal look: "Quotation", "Progress track", "One QR per training", "Confirmed panel order…", "Certificates for the
+coordinator", "A participant's own report", "Attendance", "The quiz: its own world").
 
 **Start of the next session (31). Do these first:**
-1. `git fetch`, `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. If session 30 isn't pushed yet, ask
-   the owner before pushing (`git push origin master`, long timeout), then check Vercel (`-xfwl` only) and curl the live site.
-2. `npm test` (**301** should pass) and `npx tsc --noEmit -p tsconfig.json`.
-3. Ask the owner how the **first live CPR/AED training** went (planned "this week" as of 16 Nov): attendance before Start, the quiz
-   card, certificates emailed at pass. Read-only checks (ask before any production read from a script): `portalCertificates`
-   (`emailedAt`, `attached`: did the Zoho Mail attachment upload work? log line "attachment … not uploaded" if not), `portalAttendance`
-   (`how: "self"` marks made before the session's `startedAt`).
-4. Then whatever the owner asks; nothing is queued.
+1. `git fetch`, `git status`, `git log --oneline HEAD..origin/master` and `origin/master..HEAD`. Expected: 2 local commits (`9708e52`
+   + this handoff), nothing behind. Push only when the owner says "push" (`git push origin master`, long timeout), then check Vercel
+   `-xfwl` via `curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status` and curl the site.
+2. `npm test` (**322** pass) and `npx tsc --noEmit -p tsconfig.json`.
+3. **IMMEDIATE NEXT (owner's last ask, unfinished):** restructure the staff **Overview** (`src/components/OverviewSales.tsx`): "it
+   should be salesperson name as **tabs** and the rest reports go under them, not the other way around, like the daily, weekly,
+   monthly, yearly etc". Build:
+   - Tabs at the top: **Company · Sumit · Ashish · Pranjal · Shikha** (remember the choice in localStorage, try/catch).
+   - Under the chosen tab, all at once (no period switcher): **Today** (vs yesterday), **This week** (vs the same days last week),
+     **This month** (vs the same days last month), **This year** (FY so far vs the same days of last FY: `periods("year", …)` is built
+     and tested in `lib/overviewMath.ts`), each a card with Quotations sent ₹ and Invoiced ₹ and ▲/▼ %. Then the **FY so far · day N**
+     block (average a day, today vs average: `yearSoFar`). Keep the "on" date picker (look back at any day) and a **Pick dates** card
+     (custom range vs the days just before).
+   - **Shikha's tab:** only her month and year training goals (`TrainingGoals` in `components/Kpis.tsx`).
+   - Staff dashboard look (tokens `card`, `text-ink`, `bg-surface-2`, `text-low`/`text-high`), both themes; preview with a `(zz)` root
+     layout (see traps) at 1440 wide, dark and light, and a phone; one commit; tell the owner, push on "push".
+4. Then ask the owner how the **first live CPR/AED/First Aid training** went and check, read-only (ask before any production DB read
+   from a script): the Good Samaritan email arrived **with the PDF attached** (`portalCertificates.attached`), and rows appeared in the
+   **Good Samaritan tab** of the master certificate workbook (`portalCertificates.sheetAt`; Vercel logs say "Good Samaritan rows added"
+   or the Zoho Sheet error). Neither has run for real yet.
 
-**Session 30 in short (16 Nov): all local, one commit per item.**
-- `b50b639` **Quote before Accept**: each portal training panel shows the quotation as Zoho has it (`quoteSheet` in
-  `lib/trainingManager.ts`, `TrainingQuote.sheet`, `PortalTraining.quote`): lines without "(I)", qty × rate, GST, subtotal, taxes,
-  total, valid until; **Download PDF** = `GET /api/portal/training?pdf=<id>` (coordinator's session, `quotePdfFor`, `estimatePdf`).
-  Open until they decide, folded after. "Prices never leave here" is reversed (participants still see none).
-- `9ea4787` **Cc sales@ only**: `ALWAYS_CC = ["sales@thinkhealth.in"]`; the Performa email's default Cc = `mergeCc(to, [contact])`.
-- `ff47c3b` **Guided Performa editor**: `piMissing` / `PI_NEED_LABEL` (`lib/performaRules.ts`): red "!" on empty required fields
-  (sales order date, Purchase Order Date, trainers; To / Subject / Message), Mark confirmed / Email points at the first one (scroll,
-  `.need-ring`, focus), a floating "↓ N to fill below / ↑ above" pill (IntersectionObserver); Trainers picker in one row with Trainer
-  Name. Both themes checked.
-- `fc65d56` **Trainer rule**: `zohoTrainer` = the first picked who is one of ours (any position), else Other.
-- Item 5 (Start only on the training date): already enforced, no change.
-- `1210cad` **Attendance before Start + the quiz card** (queue items 6 and 9 merged; owner's answer: "the moment I've started the
-  training the take quiz option should be available … mark their attendance even before the training starts … Wait for the
-  coordinator to start the training"): `markable(window)` (`attendanceRules.ts`) = open or waiting; attend identify / register /
-  present work all day on a training day until End. Participant page: the quiz card shows once confirmed ("Wait for your coordinator
-  to start the training …"), "Take the quiz to get your certificate" at Start (15 s check). Coordinator strip: "People can mark their
-  attendance now. The quiz opens when you start."
-- `51da718` **Attendance mark**: the list's ticks are small navy PRESENT ink stamps (the day on them for multi-day); new marks land
-  (`.tick-stamp`) and the row lights (`.row-light`); "X of Y present" counts up (`CountUp`); the participant's stamp is bigger, with
-  name and time. Reduced motion: none.
-- `c69d7fc` **Progress track replaces the stamps** on Your trainings (owner: "remove the stamp, make it something else"):
-  Quotation → Accepted → Confirmed → Training/Completed, current step says what it waits on; declined ends red; vertical on phones.
-  DESIGN.md "Progress track"; surface brief updated; `.stamp` CSS removed (PRESENT stamps stay).
-- `8cd46c4` Gaps: Templates `{name}` help per email (participant on the certificate email, coordinator on portal / Performa);
-  removing someone warns a quiz-taker gets no certificate; PRODUCT.md and the plan refreshed.
-- `b2c1bc7` **Certificates at pass** (owner: "certificates should be sent on their mail the moment they pass the quiz"):
-  `quizSubmit` returns `passedIn` on a pass; `/api/portal/quiz` calls `certificatesLater(training, "quiz", th)` and strips it;
-  downloadable at once; End is a catch-up; Trainings "Send the rest now" is a retry with no End gate. `certificatesReady`,
-  `staffMaySend`, `staffCertificatesAllowed` and `QuizResults.certificates.ready/staffMay` are gone.
+**Session 30 in short (16–17 Nov): all live up to `d330aac`.** One commit per item, oldest first:
+- Queue: `b50b639` quote before Accept (`quoteSheet`, PDF via `GET /api/portal/training?pdf=`); `9ea4787` Cc sales@ only; `ff47c3b`
+  guided Performa editor (`piMissing`, "!" marks, floating "N to fill"); `fc65d56` trainer rule (first picked who is ours, else Other);
+  `1210cad` attendance before Start + quiz card; `51da718` PRESENT ink stamps / row light / count-up; `c69d7fc` progress track instead
+  of state stamps; `8cd46c4` gap fixes; `b2c1bc7` certificates emailed at pass (not after End).
+- After: `ae797e1` quiz card on every quiz training; `c34b2ba` participants only after Accept; `66cf5df` "50 people" not "pcs";
+  `083b52e` training report after End (training time, present); `6daec13` **portal live refresh** (`/api/portal/changes`, 5 s);
+  `84eb78f` confirmed panel QR-first + the coordinator is asked once to register themselves, then to get the team registered
+  (`selfRegister`/`selfAnswer`, `selfAsk`, `teamAskedAt`); `72eff46` scroll-once fix; `36f05b2` **one QR per training** (attend link
+  from Accept: registers before the day, Present on a confirmed day, closed after; Copy link / WhatsApp; join QR tab gone);
+  `d6adb9a` quiz also on **every First Aid** training; `f86cdde`/`13d5cef` "You" row only for the entry the coordinator added
+  themselves, "Attending too? Add yourself" once; `2e20680` quiz Next waits for a choice (no auto-advance).
+- Reports: (several rejected rounds; the owner wants **visual, plain words, no jargon**) final = `e2808dd` + `3ccfc07`: **Generate the
+  quiz report** → full-screen dashboard: KPI cards, score distribution, by topic, time vs score, 10×3 accuracy heatmap (red→grey→green,
+  number on every tile), hardest first, then **one card per question with its own chart** (donut / split bar / the pictures) and a
+  plain-words line (`insight`). Print / Save as PDF. Leaderboard rows show % and "Re-takes: N", no points.
+- `6d5fbe9` once started, On/At/For + quotation + What's included fold behind "Show training details".
+- Certificates: `3742ea0` participants get the **Good Samaritan certificate** (owner's design `assets/certificates/good-samaritan.pdf`,
+  name over "Your Name here", number **IAGS-SN/001…** from `counters` "iags", atomic, kept per person; the PDF's page box starts 8.58 pt
+  up); `9e21649` **official certificates only for the coordinator, only when fully paid** (`paidInFull`: invoices citing the
+  Performa/quote, none owing, void ignored), per person (marked "Downloaded") or all as a ZIP (`lib/zip.ts`); `976aed4` Good Samaritan
+  rows into the workbook's **Good Samaritan tab** (headers Certificate No | Name | Mobile | Email | Company | Training | Training Date |
+  Location | Score % | TH Number | Issued On; once per certificate, `sheetAt`).
+- `89a9014`/`bdc1ccf`/`697352a` **My report** for participants as a story: persona (CPR Rookie <70 / Certified Lifesaver / Emergency
+  Maestro 100), speed vs everyone's average, 1–2 critical mistakes as learning moments after the reveal (lessons in `quizCprAed.ts`,
+  sent only once revealed; **owner to review the lesson wording**). Owner said **no superpower/kryptonite**.
+- `d330aac` **new staff Overview** from the owner's sketch (to be restructured into person tabs: step 3).
 
-**Known gaps / to watch:**
-- The Zoho Mail **attachment upload** in `sendMail` has never run for real (fallback: the email still carries the download link).
-- The portal sign-in panel still says "Propose a date…": owner said **leave it** (14 Nov).
-- Certificates exist only for trainings with a quiz (CPR / AED / BLS); other programmes still go through Shreya's Fulfillment flow.
-- HANDOFF §1 and §10 below are history (old commit numbers); this top block is current.
+**Owner's rules learned this session:** pass mark stays **70%**, push people to retake (retakes only while the training runs; press End
+once everyone passed). Quiz on CPR / AED / BLS / **First Aid** (not Fire Safety / Stress Management). Reports must be visual and in plain
+words. Don't re-offer: staff session expiry / change-PIN; superpower/kryptonite; "hardest first" on the coordinator's plain question view
+(he later asked for it inside the full report, which has it).
 
-**Owner said no to (don't re-offer):** staff sign-in expiry / change-my-PIN screen. npm audit is 0 vulnerabilities.
+**Known gaps / to watch:** Zoho Mail attachment upload and the Zoho Sheet Good Samaritan append have never run for real. A drop-off
+funnel and time per question can't be done (not recorded). `QuizResults.topics`, `discrimination` are computed but only topics are shown.
+The portal sign-in panel still says "Propose a date…" (owner: leave it). HANDOFF §1 and §10 are history.
 
-**Later (owner: "include it in the plan, no need to apply that right now"):** the passed list into the **master Zoho Sheet** (real
-serials and `FAT-OD/<date>/<n>`, replacing `FAT-OD/<date>/<TH>`); how **Shreya's Fulfillment card** treats portal certificates.
-Older open decisions: drop the Mongo `followUps` / `removedTriggers` collections (permanent); patch updates; PI templates for
-non-training items; a third quotation company; quizzes for First Aid / Fire Safety (need questions + answer keys).
-
-**Owner's side (waiting):** the Gmail App Password for saletotalsupply@gmail.com; the Zia steps in Zoho Flow; GoDaddy auto-renew; a
-GitHub `CRON_SECRET`; making the repo private (their call); delete the test Performa-25-1204 in Zoho. (Login link on
-training.thinkhealth.in: confirmed working, 16 Nov.)
+**Owner's side (waiting):** Gmail App Password for saletotalsupply@gmail.com; Zia steps in Zoho Flow; GoDaddy auto-renew; GitHub
+`CRON_SECRET`; repo private (his call); delete the test Performa-25-1204 in Zoho; review the learning-moment wording.
 
 **Traps learned in session 30:**
-- Headless Chrome's `--screenshot` hangs with `--virtual-time-budget` against `next dev` and fires before client fetches resolve.
-  Use a tiny CDP script (Node 24's built-in WebSocket; launch Chrome with `--remote-debugging-port`, navigate, wait, optionally
-  `Runtime.evaluate` a click/scroll, `Page.captureScreenshot`); `--force-prefers-reduced-motion` shortens the attend redirect to 1.2 s.
-- Staff-dashboard previews need their own root layout: `src/app/(zz)/zz-x/layout.tsx` importing `../../globals.css`, theme from
-  `?t=dark`; portal previews stay `src/app/training/zz-*`. Delete both before committing.
-- Tailwind arbitrary *properties* with `var()` (`sm:[grid-template-columns:…]`) didn't generate; use `sm:grid-cols-[repeat(var(--x),…)]`.
-- No Python on this machine; Bash heredocs with backticks/`${}` inside `node -e` break: write patch scripts to the scratchpad and run them.
-- Traps from session 29 still hold (long `git push`, the fake DB's `find` ignores filters, `outputFileTracingIncludes` for `public/`).
+- Screenshots: headless Chrome `--screenshot` hangs/fires early on `next dev`; use the CDP script (Node 24 WebSocket,
+  `--remote-debugging-port`, navigate, wait, `Runtime.evaluate`, `Page.captureScreenshot`) — keep a copy in the scratchpad.
+  `--force-prefers-reduced-motion` shortens redirects.
+- Staff previews need their own root layout `src/app/(zz)/zz-x/layout.tsx` importing `../../globals.css` (theme via `?t=dark`); portal
+  previews `src/app/training/zz-*`. Delete before committing. Stop `next dev` before `next build` (and kill stray node processes on
+  port 3123 via PowerShell `Get-CimInstance Win32_Process`; a second `next dev` refuses to start while one runs).
+- Turbopack can keep a stale module after a file is rewritten (`… is not a function`): restart `next dev`.
+- No Python here. `node -e '…'` breaks on apostrophes/backticks in the code; write patch scripts to the scratchpad. Files committed with
+  CRLF: normalise (`replace(/\r\n/g, "\n")`) before matching. `\w` inside a JS template literal becomes `w`.
+- Next.js route files may export only route handlers: helpers go in `src/lib`.
+- Tailwind arbitrary properties with `var()` don't generate; use `grid-cols-[repeat(var(--x),…)]`.
+- `gh` isn't installed: Vercel status via the public GitHub API with curl.
 
 **Session 29 in short (14–16 Nov): all live.**
 - Checklist clean. training.thinkhealth.in resolves and serves HTTPS; the owner set `PORTAL_BASE_URL` and `a4cfc7f` (empty commit)
