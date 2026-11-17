@@ -25,6 +25,7 @@
   --sign-red: #c8102e;
   --danger: #b42318;
   --danger-bg: #fdf0ee;
+  --neon: #12d65a; /* owner, 17 Nov: the present tick, a glowing green (not a sign colour) */
   --ok: #1f7a4d; /* owner, 17 Nov: the "Training completed" step, a green circle (not a sign colour) */
   --ok-bg: #e9f6ef;
   --warn: #9a5b00; /* "the quotation is for 40", "same phone twice" */
@@ -83,10 +84,15 @@ input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px var(--surface) inset; -w
 .tick-stamp { animation: tick-stamp 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
 @keyframes row-light { from { background-color: color-mix(in srgb, var(--navy) 11%, var(--surface)); } to { background-color: var(--surface); } }
 .row-light { animation: row-light 1.8s cubic-bezier(0.16, 1, 0.3, 1); }
+/* Present (owner, 17 Nov): a green neon tick, glowing; a new one draws itself in. Passes pop a note top right. */
+.neon-tick { color: var(--neon); filter: drop-shadow(0 0 3px color-mix(in srgb, var(--neon) 70%, transparent)) drop-shadow(0 0 8px color-mix(in srgb, var(--neon) 35%, transparent)); }
+.neon-tick-in path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: draw 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.pass-toast { animation: toast-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(24px) scale(0.98); } to { opacity: 1; transform: none; } }
 /* Thank you (owner, 17 Nov): the ring draws, then the tick; the lines rise with .welcome-line; it fades out when closed. */
 .thanks-ring { stroke-dasharray: 277; stroke-dashoffset: 277; animation: draw 1s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards; }
 .thanks-tick { stroke-dasharray: 62; stroke-dashoffset: 62; animation: draw 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.75s forwards; }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 .thanks { animation: reveal 0.35s ease-out both; }
 .thanks-out { opacity: 0; transition: opacity 0.4s ease-in; }
-@media (prefers-reduced-motion: reduce) { .welcome-line, .portal-reveal, .stamp-present, .tick-stamp, .row-light, .thanks, .thanks-ring, .thanks-tick { animation: none; } .thanks-ring, .thanks-tick { stroke-dashoffset: 0; } .thanks-out { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .welcome-line, .portal-reveal, .stamp-present, .tick-stamp, .row-light, .thanks, .thanks-ring, .thanks-tick, .neon-tick-in path, .pass-toast { animation: none; } .neon-tick-in path { stroke-dashoffset: 0; } .thanks-ring, .thanks-tick { stroke-dashoffset: 0; } .thanks-out { transition: none; } }

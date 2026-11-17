@@ -918,6 +918,8 @@ export type QuizResults = {
   /** The report (owner, 16 Nov): people who opened the quiz, people who sent answers; the quiz's parts. */
   started: number; finished: number; topics: { name: string; count: number }[];
   leaderboard: Ranked[]; questions: QuestionStats[];
+  /** Present but not finished (owner, 17 Nov: name only, no score); `started`: their try is open. */
+  waiting: { th: string; name: string; started: boolean }[];
   /** The passed list with each certificate's state (each is emailed the moment its person passes, owner 16 Nov). */
   certificates: { list: CertStatus[] };
 };
@@ -929,9 +931,16 @@ export async function quizResultsFor(t: TrainingDoc): Promise<QuizResults | null
   const done = finished(tries);
   const board = leaderboard(qz.quiz, done);
   const certs = await certificateLines(t._id);
+  const here = presentByPerson(await marksOf(t._id));
+  // Owner, 17 Nov: present people who haven't finished show on the leaderboard by name, without a score.
+  const people = new Map((await peopleOf(t._id)).map((p) => [p._id, p.name]));
+  const ranked = new Set(board.map((b) => b.th));
+  const opened = new Set(tries.filter((a) => !a.finishedAt).map((a) => a.th));
+  const waiting = [...here.keys()].filter((th) => !ranked.has(th) && people.has(th)).map((th) => ({ th, name: people.get(th)!, started: opened.has(th) })).sort((a, b) => a.name.localeCompare(b.name));
   return {
+    waiting,
     started: new Set(tries.map((a) => a.th)).size, finished: new Set(done.map((a) => a.th)).size, topics: qz.quiz.topics ?? [],
-    title: qz.quiz.title, state: qz.state, taken: board.length, present: presentByPerson(await marksOf(t._id)).size, passed: board.filter((b) => b.passed).length,
+    title: qz.quiz.title, state: qz.state, taken: board.length, present: here.size, passed: board.filter((b) => b.passed).length,
     avgPct: board.length ? Math.round(board.reduce((n, b) => n + b.pct, 0) / board.length) : 0, passPct: qz.quiz.passPct, ranMs: ranMs(t.sessions ?? []), leaderboard: board, questions: analytics(qz.quiz, done),
     certificates: {
       list: certs.map((c) => ({ th: c.th, name: c.name, email: c.email, certNo: c.certNo, gsNo: c.gsNo, day: c.day, pct: c.pct, badge: c.badge, emailedAt: c.emailedAt ?? null, error: c.error || null })),

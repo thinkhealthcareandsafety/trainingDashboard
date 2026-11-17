@@ -14,7 +14,7 @@ import { type Item, accuracyColor, buildReport, fmtSeconds, insight } from "@/li
  * red → grey → green (owner's ask) and every tile carries its number, so colour is never the only cue.
  */
 
-const card = "rounded-xl bg-surface p-4 ring-1 ring-line sm:p-5";
+const card = "rounded-xl bg-surface p-4 ring-1 ring-line sm:p-6";
 const h = "text-[16px] font-extrabold tracking-[-0.01em] text-ink";
 const sub = "mt-0.5 text-[13px] leading-snug text-muted";
 const label = "text-[12px] font-bold uppercase tracking-[0.12em] text-muted";
@@ -119,10 +119,12 @@ function Heatmap({ items, onPick }: { items: Item[]; onPick: (n: number) => void
 function Hardest({ items, onPick }: { items: Item[]; onPick: (n: number) => void }) {
   const sorted = [...items].sort((a, b) => a.rightPct - b.rightPct || a.n - b.n);
   return (
-    <section className={card}>
+    <section className={`${card} flex flex-col`}>
       <h5 className={h}>Hardest first</h5>
       <p className={sub}>Every question by % right, lowest on top</p>
-      <ol className="no-scrollbar mt-3 max-h-[340px] space-y-1.5 overflow-y-auto pr-1">
+      {/* As tall as the heatmap beside it (scrolls only past that); on phones a fixed height. */}
+      <div className="relative mt-3 lg:min-h-[200px] lg:flex-1">
+      <ol className="no-scrollbar max-h-[340px] space-y-1.5 overflow-y-auto pr-1 lg:absolute lg:inset-0 lg:max-h-none">
         {sorted.map((q) => (
           <li key={q.n}>
             <button type="button" onClick={() => onPick(q.n)} className="grid w-full grid-cols-[40px_minmax(0,1fr)_44px] items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-ground">
@@ -133,6 +135,7 @@ function Hardest({ items, onPick }: { items: Item[]; onPick: (n: number) => void
           </li>
         ))}
       </ol>
+      </div>
     </section>
   );
 }
@@ -255,7 +258,7 @@ function Questions({ items, focus }: { items: Item[]; focus: number | null }) {
           </div>
         )}
       </div>
-      <ol className="mt-4 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+      <ol className="mt-4 grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
         {shown.map((q) => <QuestionCard key={q.n} q={q} focus={focus === q.n} />)}
       </ol>
     </section>
@@ -293,20 +296,21 @@ function Report({ title, r, onClose }: { title: string; r: QuizResults; onClose:
           <button type="button" onClick={onClose} className="h-10 rounded-xl bg-navy px-4 text-[14px] font-bold text-white hover:bg-navy-deep">Close</button>
         </div>
       </header>
-      <div ref={body} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-        <div className="mx-auto max-w-7xl space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Owner, 17 Nov: "fit these to the screen, so these reports can have more space": the full width, wider gaps. */}
+      <div ref={body} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8 sm:py-7 2xl:px-12">
+        <div className="space-y-5 2xl:space-y-6">
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi title="Participants" value={<>{k.finished}<span className="text-[18px] font-bold text-muted"> of {k.started}</span></>} note={<>finished · {k.completionPct}% completion</>} />
             <Kpi title="Average score" value={<>{k.avgCorrect}<span className="text-[18px] font-bold text-muted"> / {k.of}</span></>} note={<>{k.avgPct}% on best tries</>} />
             <Kpi title="Pass rate" value={`${k.passPct}%`} note={<>{k.passed} passed ({r.passPct}% or more)</>} />
             <Kpi title="Average time" value={fmtSeconds(k.avgSeconds)} note="to finish, best try" />
           </div>
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-5 lg:grid-cols-3">
             <Histogram data={data.histogram} pass={`${Math.ceil((r.passPct / 100) * k.of)}+ passes`} />
             <Topics data={data.topics} />
             <Scatter dots={data.scatter} passPct={r.passPct} />
           </div>
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <Heatmap items={data.items} onPick={pick} />
             <Hardest items={data.items} onPick={pick} />
           </div>

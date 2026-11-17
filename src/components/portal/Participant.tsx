@@ -6,7 +6,7 @@ import { Programmes, StayConnected } from "./PortalDashboard";
 import { type PortalContent } from "@/lib/portalContent";
 import { type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
 import { portalPrefix } from "@/lib/portalHost";
-import { primaryBtn, secondaryBtn } from "./TrainingTools";
+import { NeonTick, primaryBtn, secondaryBtn } from "./TrainingTools";
 import { QuizScreen } from "./Quiz";
 import { MyReport } from "./ParticipantReport";
 import { useLive, watchChanges } from "@/lib/live";
@@ -213,7 +213,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
   );
 }
 
-/** Their attendance, a row per training day (owner, 13 Nov): a PRESENT stamp on the days they marked, nothing on the others. */
+/** Their attendance, a row per training day (owner, 13 Nov): a green neon tick on the days they marked (owner, 17 Nov), nothing on the others. */
 function Attendance({ dates, present }: { dates: ProposalDate[]; present: string[] }) {
   const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
   return (
@@ -225,9 +225,7 @@ function Attendance({ dates, present }: { dates: ProposalDate[]; present: string
           <div key={d.date} className="flex min-h-16 items-center justify-between gap-4 border-b border-line py-3 last:border-b-0">
             <p className="num text-[16px] font-bold text-ink">{fmtProposalDate({ date: d.date, time: "" })}</p>
             {here ? (
-              <span className="inline-flex rotate-[-4deg] rounded-md border-2 border-navy px-2.5 pb-1 pt-1.5 text-navy shadow-[inset_0_0_0_2px_var(--surface),inset_0_0_0_3.5px_var(--navy)]">
-                <span className="text-[11.5px] font-extrabold uppercase leading-none tracking-[0.14em]">Present</span>
-              </span>
+              <span className="flex items-center gap-2 text-[14px] font-semibold text-ink-2"><NeonTick size={28} /><span className="sr-only">Present</span></span>
             ) : <span className="text-[14px] text-muted">{d.date > today ? "Mark it on the day" : d.date === today ? "Not marked yet" : "Not marked"}</span>}
           </div>
         );

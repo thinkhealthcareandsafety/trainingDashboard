@@ -6,7 +6,7 @@ import { SIGNS, SignTile } from "./SignTiles";
 import { type PortalContent, type Programme, type Social, type SocialKey, youtube } from "@/lib/portalContent";
 import { type Proposal, type ProposalDate, fmtProposalDate } from "@/lib/portalRules";
 import { type DayWindow, fmtLength, ranMs, sessionMs } from "@/lib/attendanceRules";
-import { AttendQr, type Live, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
+import { AttendQr, type Live, NeonTick, Participants, ProposalView, ProposeForm, RejectForm, act, primaryBtn, secondaryBtn } from "./TrainingTools";
 import { portalPrefix } from "@/lib/portalHost";
 import type { QuizResults } from "@/lib/portalTrainings";
 import { useLive, watchChanges } from "@/lib/live";
@@ -622,7 +622,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
           <div className="text-center sm:text-left" aria-live="polite">
             <p className="num text-[64px] font-extrabold leading-none tracking-[-0.03em] text-ink"><CountUp value={live.present} /><span className="text-[28px] font-bold tracking-normal text-muted"> of {live.total}</span></p>
             <p className="mt-2 text-[17px] font-bold text-ink">present today</p>
-            <p className="mt-1.5 max-w-[34ch] text-[14px] leading-relaxed text-muted sm:max-w-none">Show this code in the room. Each person scans it and taps Present; their PRESENT stamps land below by themselves.</p>
+            <p className="mt-1.5 max-w-[34ch] text-[14px] leading-relaxed text-muted sm:max-w-none">Show this code in the room. Each person scans it and taps Present; their ticks appear below by themselves.</p>
           </div>
         </div>
         {t.quiz && t.quiz.state !== "none" && <Results id={t.id} quiz={t.quiz} />}
@@ -862,6 +862,18 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
  */
 function Results({ id, quiz, report = false, done = false, training = "", certs }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean; done?: boolean; training?: string; certs?: React.ReactNode }) {
   const [r, setR] = useState<QuizResults | null>(null);
+  // Owner, 17 Nov: each new pass pops a note top right (name, score, time); the first load only remembers who had passed.
+  const passedSeen = useRef<Set<string> | null>(null);
+  const [toasts, setToasts] = useState<{ th: string; name: string; pct: number; seconds: number; badge: boolean }[]>([]);
+  useEffect(() => {
+    if (!r) return;
+    const now = r.leaderboard.filter((b) => b.passed);
+    if (passedSeen.current) {
+      const fresh = now.filter((b) => !passedSeen.current!.has(b.th));
+      if (fresh.length) setToasts((x) => [...x, ...fresh.map((b) => ({ th: b.th, name: b.name, pct: b.pct, seconds: b.seconds, badge: b.badge }))]);
+    }
+    passedSeen.current = new Set(now.map((b) => b.th));
+  }, [r]);
   // Once over, the thank-you emails go out: keep checking until each one with an email has gone.
   const sending = Boolean(done && r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
   useEffect(() => {
@@ -875,7 +887,8 @@ function Results({ id, quiz, report = false, done = false, training = "", certs 
   const list = r?.certificates.list ?? [];
   const emailed = list.filter((c) => c.emailedAt).length;
   const noEmail = list.filter((c) => !c.email).length;
-  const board = r && r.leaderboard.length > 0 && (
+  const waiting = r?.waiting ?? [];
+  const board = r && (r.leaderboard.length > 0 || waiting.length > 0) && (
     <ol className="mt-3 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
       {r.leaderboard.map((b) => (
         <li key={b.th} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 bg-surface px-3.5 py-2.5">
@@ -888,6 +901,17 @@ function Results({ id, quiz, report = false, done = false, training = "", certs 
             <span className="num block text-[16px] font-extrabold leading-tight text-ink">{b.pct}%</span>
             <span className="num block text-[12.5px] text-muted">{clockOf(b.seconds)}</span>
           </span>
+        </li>
+      ))}
+      {/* Present, no score yet (owner, 17 Nov): name only; they haven't finished or haven't taken it. */}
+      {waiting.map((w) => (
+        <li key={w.th} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 bg-surface px-3.5 py-2.5">
+          <span className="text-center text-[15px] font-extrabold text-line-strong" aria-hidden>–</span>
+          <span className="min-w-0">
+            <span className="block truncate text-[15px] font-semibold text-ink-2">{w.name}</span>
+            <span className="num block text-[12.5px] text-muted">{w.th} · {w.started && quiz.state === "open" ? "Taking it now" : quiz.state === "open" ? "Not taken yet" : "Didn't finish"}</span>
+          </span>
+          <span />
         </li>
       ))}
     </ol>
@@ -903,9 +927,11 @@ function Results({ id, quiz, report = false, done = false, training = "", certs 
     </div>
   );
 
+  const notes = toasts.length > 0 && <PassToasts list={toasts} onDone={(th) => setToasts((x) => x.filter((t) => t.th !== th))} />;
   if (done) {
     return (
       <section aria-label="Training completed">
+        {notes}
         <h4 className="text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[28px]">Training completed</h4>
         <p className="mt-1.5 max-w-[62ch] text-[15px] leading-relaxed text-ink-2">
           {list.length === 0 ? "Thank you for organising it with us." : <>Everyone who passed gets a thank-you email with their Good Samaritan certificate: <b className="num text-ink">{emailed} of {list.length}</b> sent{noEmail ? <>; <span className="num">{noEmail}</span> {noEmail === 1 ? "has" : "have"} no email yet and can add it on their page</> : ""}.</>}
@@ -947,7 +973,8 @@ function Results({ id, quiz, report = false, done = false, training = "", certs 
               <b className="num text-ink">{r.passed}</b> passed so far. When the training ends, each gets a thank-you email with their Good Samaritan certificate.
             </p>
           )}
-          {r.leaderboard.length === 0 ? <p className="mt-4 text-[14.5px] text-muted">No one has finished yet.</p> : <div className="mt-1">{board}</div>}
+          {notes}
+          {r.leaderboard.length === 0 && waiting.length === 0 ? <p className="mt-4 text-[14.5px] text-muted">No one has finished yet.</p> : <div className="mt-1">{board}</div>}
           {r.taken > 0 && (
             <div className="mt-4">
               {/* The report, question by question for the whole group (owner, 16 Nov). */}
@@ -957,6 +984,33 @@ function Results({ id, quiz, report = false, done = false, training = "", certs 
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * A pass, as it happens (owner, 17 Nov: "everytime someone completes the quiz a small notification on the top right … their
+ * name, their score and their time; only if they pass"): white notes stacked top right, each for 7 seconds; tap to close.
+ */
+function PassToasts({ list, onDone }: { list: { th: string; name: string; pct: number; seconds: number; badge: boolean }[]; onDone: (th: string) => void }) {
+  return createPortal(
+    <div className="pointer-events-none fixed right-3 top-3 z-40 flex w-[min(340px,calc(100vw-24px))] flex-col gap-2 sm:right-5 sm:top-5" aria-live="polite">
+      {list.slice(-4).map((t) => <PassToast key={t.th} t={t} onDone={() => onDone(t.th)} />)}
+    </div>,
+    document.body,
+  );
+}
+function PassToast({ t, onDone }: { t: { name: string; pct: number; seconds: number; badge: boolean }; onDone: () => void }) {
+  const done = useRef(onDone);
+  done.current = onDone;
+  useEffect(() => { const id = setTimeout(() => done.current(), 7000); return () => clearTimeout(id); }, []);
+  return (
+    <button type="button" onClick={() => done.current()} className="pass-toast pointer-events-auto flex items-center gap-3 rounded-xl bg-surface px-4 py-3 text-left shadow-[0_10px_30px_-8px_rgb(2_40_60/0.35)] ring-1 ring-line">
+      <NeonTick size={26} />
+      <span className="min-w-0">
+        <span className="block truncate text-[15px] font-extrabold text-ink">{t.name} passed</span>
+        <span className="num block text-[13px] text-ink-2">{t.pct}% in {clockOf(t.seconds)}{t.badge ? " · First Aid Badge" : ""}</span>
+      </span>
+    </button>
   );
 }
 

@@ -230,8 +230,8 @@ export function Participants({ t, adding, onCount, onLive, openTab, meTh }: { t:
                   <span className="flex min-w-0 items-center gap-2"><span className="truncate text-[15px] font-semibold text-ink">{r.name}</span>{r.th === meTh && <span className="shrink-0 rounded-full bg-navy px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] text-white">You</span>}</span>
                   <span className="num block truncate text-[13px] text-muted">{r.phone}{r.email ? ` · ${r.email}` : ""} · {SOURCE[r.source]}{r.duplicate && <b className="ml-1.5 font-bold text-warn">Same phone twice</b>}</span>
                 </span>
-                {/* A mark per training day (owner, 13 Nov): live; the coordinator can tick a day that has come. Owner, 16 Nov: a
-                    present day is a small navy PRESENT ink stamp (the day's date on it when there are several days). */}
+                {/* A mark per training day (owner, 13 Nov): live; the coordinator can tick a day that has come. Owner, 17 Nov: a
+                    present day is a green neon tick (the day's date under it when there are several days), no PRESENT word. */}
                 {att.on && att.days.length > 0 && (
                   <span className="flex shrink-0 gap-1.5">
                     {att.days.map((d) => {
@@ -243,8 +243,9 @@ export function Participants({ t, adding, onCount, onLive, openTab, meTh }: { t:
                           aria-label={here ? `${name}: present. Untick` : can ? `${name}: mark present` : `${name}: opens on the day`} title={att.days.length > 1 ? dayShort(d) : undefined}
                           className={`grid h-9 place-items-center rounded-md transition-none ${att.days.length > 1 ? "w-[56px] sm:w-[60px]" : "w-[66px] sm:w-[76px]"} ${here ? "" : "ring-2 ring-inset ring-line-strong hover:ring-navy/50"} disabled:cursor-default ${!can && !here ? "opacity-40" : ""}`}>
                           {here && (
-                            <span className={`inline-flex rotate-[-5deg] items-center rounded-[5px] border-2 border-navy px-1.5 pb-[3px] pt-[5px] text-navy shadow-[inset_0_0_0_1.5px_var(--surface),inset_0_0_0_3px_var(--navy)] ${fresh.has(`${r.th}:${d}`) ? "tick-stamp" : ""}`} aria-hidden>
-                              <span className="num text-[10.5px] font-extrabold uppercase leading-none tracking-[0.12em]">{att.days.length > 1 ? stampDay(d) : "Present"}</span>
+                            <span className="flex flex-col items-center leading-none" aria-hidden>
+                              <NeonTick size={att.days.length > 1 ? 20 : 26} fresh={fresh.has(`${r.th}:${d}`)} />
+                              {att.days.length > 1 && <span className="num mt-0.5 text-[10px] font-bold text-muted">{stampDay(d)}</span>}
                             </span>
                           )}
                         </button>
@@ -442,5 +443,17 @@ export function RejectForm({ id, onDone, onCancel }: { id: string; onDone: (reas
         <button type="button" className={secondaryBtn} onClick={onCancel} disabled={busy}>Keep it open</button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Present (owner, 17 Nov: "I don't like seeing that PRESENT written, make it just a green neon tick"): a bright green tick with
+ * a soft glow. `fresh`: it just arrived, so it draws itself in.
+ */
+export function NeonTick({ size = 24, fresh = false }: { size?: number; fresh?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className={`neon-tick ${fresh ? "neon-tick-in" : ""}`} aria-hidden>
+      <path d="M4.5 12.8 9.6 17.6 19.5 6.8" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
