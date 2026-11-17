@@ -94,11 +94,15 @@ export function yearSoFar(days: DaySums, person: string, today: string): { day: 
  * side has quotations sent, invoiced, and the conversion (invoiced ÷ quotations, %).
  */
 export type Side = { quoted: number; invoiced: number; conversion: number | null };
-export type VsLastYear = { kind: Exclude<Period, "custom">; now: Side; last: Side; label: string; daysIn: number; daysTotal: number };
+export type VsLastYear = { kind: Exclude<Period, "custom">; now: Side; last: Side; label: string; daysIn: number; daysTotal: number; vsCompany: boolean };
 
 const side = (quoted: number, invoiced: number): Side => ({ quoted, invoiced, conversion: quoted > 0 ? Math.round((invoiced / quoted) * 100) : null });
 
-export function vsLastYear(days: DaySums, person: string, kind: Exclude<Period, "custom">, on: string): VsLastYear {
+/**
+ * `against`: whose last year to compare with. Owner, 17 Nov: a salesperson against the company's last year ("the
+ * salesperson vs the company's, not their own" — they may ask for their own again later).
+ */
+export function vsLastYear(days: DaySums, person: string, kind: Exclude<Period, "custom">, on: string, against: string = person): VsLastYear {
   const d = parse(on);
   const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
   const lastFrom = `${y - 1}-04-01`, lastTo = `${y}-03-31`;
@@ -106,15 +110,15 @@ export function vsLastYear(days: DaySums, person: string, kind: Exclude<Period, 
   const span = periods(kind, on);
   const n = sum(days, person, span.now.from, span.now.to);
   let last: { quoted: number; invoiced: number };
-  if (kind === "year") last = sum(days, person, span.before.from, span.before.to);
+  if (kind === "year") last = sum(days, against, span.before.from, span.before.to);
   else {
-    const t = sum(days, person, lastFrom, lastTo);
+    const t = sum(days, against, lastFrom, lastTo);
     const share = kind === "day" ? 1 / lastDays : kind === "week" ? 7 / lastDays : 1 / 12;
     last = { quoted: Math.round(t.quoted * share), invoiced: Math.round(t.invoiced * share) };
   }
   const daysIn = daysBetween(span.now.from, span.now.to) + 1;
   const daysTotal = kind === "day" ? 1 : kind === "week" ? 7 : kind === "month" ? new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() : daysBetween(`${y}-04-01`, `${y + 1}-03-31`) + 1;
-  return { kind, now: side(n.quoted, n.invoiced), last: side(last.quoted, last.invoiced), label: span.now.label, daysIn, daysTotal };
+  return { kind, now: side(n.quoted, n.invoiced), last: side(last.quoted, last.invoiced), label: span.now.label, daysIn, daysTotal, vsCompany: against !== person && against === "all" };
 }
 
 /**
@@ -123,7 +127,9 @@ export function vsLastYear(days: DaySums, person: string, kind: Exclude<Period, 
  */
 export type Remark = { text: string; tone: "good" | "bad" | "neutral" };
 export function remarks(v: VsLastYear, nowWord: string): Remark[] {
-  const lastWord = { day: "last year’s average day", week: "last year’s average week", month: "last year’s average month", year: "the same days last year" }[v.kind];
+  const lastWord = v.vsCompany
+    ? { day: "the company’s average day last year", week: "the company’s average week last year", month: "the company’s average month last year", year: "the company’s same days last year" }[v.kind]
+    : { day: "last year’s average day", week: "last year’s average week", month: "last year’s average month", year: "the same days last year" }[v.kind];
   const lines: Remark[] = [];
   const say = (what: string, a: number, b: number) => {
     if (!a && !b) return lines.push({ text: `No ${what.toLowerCase()} ${nowWord}, and none last year either.`, tone: "neutral" });

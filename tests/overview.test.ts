@@ -92,3 +92,11 @@ test("monthly: the 12 months up to the day looked at, the last one so far, with 
   assert.deepEqual([m[11].key, m[11].quoted, m[11].conversion, m[11].partial], ["2026-11", 500, 100, true]);
   assert.equal(m[5].conversion, null);
 });
+
+test("a salesperson against the company's last year (owner, 17 Nov)", () => {
+  const days: Record<string, Record<string, [number, number]>> = { "2025-06-01": { all: [365_000, 182_500] }, "2026-11-17": { all: [3000, 1000], sumit: [1500, 600] } };
+  const v = vsLastYear(days, "sumit", "day", "2026-11-17", "all");
+  assert.deepEqual([v.now.quoted, v.last.quoted, v.last.invoiced, v.vsCompany], [1500, 1000, 500, true]);
+  assert.deepEqual(remarks(v, "today")[0], { text: "Quotations: 50% more than the company’s average day last year.", tone: "good" });
+  assert.equal(vsLastYear(days, "sumit", "day", "2026-11-17").vsCompany, false);
+});

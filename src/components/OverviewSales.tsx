@@ -21,6 +21,8 @@ type Tab = (typeof PEOPLE)[number]["key"] | "shikha";
 type Kind = "day" | "week" | "month" | "year";
 const TABS: { key: Tab; label: string }[] = [...PEOPLE.map((p) => ({ key: p.key as Tab, label: p.label })), { key: "shikha", label: "Shikha" }];
 const TAB_KEY = "th.overview.tab";
+/** Owner, 17 Nov: each salesperson is measured against the company's last year, not their own. */
+const VS_COMPANY = true;
 const ROWS: { kind: Kind; title: string; last: string }[] = [
   { kind: "day", title: "Daily", last: "Last year · average day" },
   { kind: "week", title: "Weekly", last: "Last year · average week" },
@@ -88,14 +90,15 @@ const TONE: Record<Remark["tone"], { cls: string; icon: string }> = {
 };
 
 function Row({ days, person, kind, title, lastTitle, on, isToday }: { days: DaySums; person: string; kind: Kind; title: string; lastTitle: string; on: string; isToday: boolean }) {
-  const v = vsLastYear(days, person, kind, on);
+  // A salesperson against the company's last year (owner, 17 Nov). To compare with their own again: drop "all" here.
+  const v = vsLastYear(days, person, kind, on, VS_COMPANY && person !== "all" ? "all" : person);
   const fy = (() => { const d = new Date(`${on}T00:00:00`); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return `FY ${String(y - 1).slice(2)}-${String(y).slice(2)}`; })();
   const hint = kind === "year" ? `${fy}, up to the same date` : `${fy} total ÷ ${kind === "day" ? "its days" : kind === "week" ? "its weeks" : "12"}`;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
       <section className="card grid min-w-0 gap-4 p-4 sm:p-5 md:grid-cols-2" aria-label={title}>
         <SideBox lead={title} title={nowTitle(kind, on, isToday)} sub={kind === "day" ? undefined : v.label} s={v.now} />
-        <SideBox tint title={lastTitle} s={v.last} hint={hint} />
+        <SideBox tint title={v.vsCompany ? lastTitle.replace("Last year", "Company last year") : lastTitle} s={v.last} hint={hint} />
         <div className="grid gap-4 px-1 md:col-span-2 md:grid-cols-2 md:gap-8">
           <Bar label="Quotations" now={v.now.quoted} last={v.last.quoted} />
           <Bar label="Invoiced" now={v.now.invoiced} last={v.last.invoiced} />
