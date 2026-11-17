@@ -20,10 +20,10 @@ type SignInfo = { connected: boolean; canConnect: boolean; signer: { email: stri
 const NA = () => <span className="rounded-md bg-info-bg px-2 py-0.5 text-[12.5px] font-bold tracking-wide text-info">N/A</span>;
 
 /** The neon marks (owner: "TICK OR CROSS NEON"). */
-function Mark({ ok }: { ok: boolean }) {
+function Mark({ ok, small = false }: { ok: boolean; small?: boolean }) {
   const c = ok ? "#12d65a" : "#ff3b5c";
   return (
-    <svg viewBox="0 0 24 24" width="20" height="20" className="shrink-0" style={{ color: c, filter: `drop-shadow(0 0 3px ${c}aa) drop-shadow(0 0 7px ${c}55)` }} aria-label={ok ? "Yes" : "No"} role="img">
+    <svg viewBox="0 0 24 24" width={small ? 15 : 20} height={small ? 15 : 20} className="shrink-0" style={{ color: c, filter: `drop-shadow(0 0 3px ${c}aa) drop-shadow(0 0 7px ${c}55)` }} aria-label={ok ? "Yes" : "No"} role="img">
       {ok ? <path d="M4.5 12.8 9.6 17.6 19.5 6.8" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
         : <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" />}
     </svg>
@@ -92,8 +92,8 @@ export function InvoiceConverter() {
                 </button>
                 {isOpen && (
                   <div className="border-t border-line">
-                    <div className={`hidden ${COLS} gap-3 bg-surface-2/60 px-5 py-2 text-[12px] font-medium text-muted lg:grid`}>
-                      <span>Invoice</span><span className="text-right">Value</span><span>Purchase order</span><span>PO PDF</span><span>E-way bill <span className="text-faint">(over {inr(EWAY_OVER)})</span></span><span>E-way PDF</span><span>Merged &amp; signed</span>
+                    <div className={`hidden ${COLS} gap-x-4 bg-surface-2/60 px-5 py-2 text-[12px] font-medium text-muted lg:grid`}>
+                      <span>Invoice</span><span className="text-right">Value</span><span>Purchase order <span className="text-faint">· number and PDF</span></span><span>E-way bill <span className="text-faint">· over {inr(EWAY_OVER)}</span></span><span>Merged &amp; signed</span>
                     </div>
                     <ul className="divide-y divide-line">
                       {c.invoices.map((i) => <Row key={i.id} i={i} sign={data.sign} onPatch={(p) => patch(i.id, p)} />)}
@@ -109,9 +109,17 @@ export function InvoiceConverter() {
   );
 }
 
-const COLS = "grid-cols-[minmax(0,1.1fr)_100px_minmax(0,1.3fr)_105px_minmax(0,1.15fr)_105px_150px]";
+const COLS = "grid-cols-[170px_120px_minmax(0,1fr)_minmax(0,1fr)_150px]";
 // Written out in full so Tailwind finds it (a class built from a variable isn't generated).
-const COLS_LG = "lg:grid-cols-[minmax(0,1.1fr)_100px_minmax(0,1.3fr)_105px_minmax(0,1.15fr)_105px_150px]";
+const COLS_LG = "lg:grid-cols-[170px_120px_minmax(0,1fr)_minmax(0,1fr)_150px]";
+
+/** The PDF line under a number: attached (tick), or Attach. */
+function Pdf({ has, pending, busy, onPick }: { has: boolean; pending: boolean; busy: boolean; onPick: () => void }) {
+  if (pending) return <p className="mt-0.5 text-[12.5px] text-faint">PDF: reading…</p>;
+  return has ? <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok small />PDF attached</p> : (
+    <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok={false} small />No PDF <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onPick}>{busy ? "Attaching…" : "Attach"}</button></p>
+  );
+}
 
 function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (p: Partial<ConvInvoice>) => void }) {
   const [editing, setEditing] = useState(false);
@@ -163,10 +171,9 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
     return () => clearInterval(t);
   }, [watch]); // eslint-disable-line react-hooks/exhaustive-deps
   const label = "text-[12px] font-medium text-muted lg:hidden";
-  const add = "rounded-lg px-2 py-1 text-[13px] font-semibold text-brand hover:bg-brand-soft disabled:opacity-50";
 
   return (
-    <li className={`grid grid-cols-2 gap-x-3 gap-y-2.5 px-5 py-3 ${COLS_LG} lg:items-center`}>
+    <li className={`grid grid-cols-2 gap-x-4 gap-y-2.5 px-5 py-3 ${COLS_LG} lg:items-center`}>
       <div className="col-span-2 min-w-0 lg:col-span-1">
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
@@ -189,30 +196,18 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
             {!i.poOk && <span className="shrink-0 text-[12.5px] font-semibold text-brand">Add</span>}
           </button>
         )}
-      </div>
-
-      {/* PO PDF */}
-      <div>
-        <p className={label}>PO PDF</p>
-        {i.poPdf ? <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><Mark ok />Attached</span> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
-          <span className="flex items-center gap-1.5"><Mark ok={false} /><button type="button" className={add} disabled={busy === "poPdf"} onClick={() => poFile.current?.click()}>{busy === "poPdf" ? "Attaching…" : "Attach"}</button></span>
-        )}
+        <Pdf has={i.poPdf} pending={i.pending} busy={busy === "poPdf"} onPick={() => poFile.current?.click()} />
         <input ref={poFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("po", e.target.files?.[0]); e.target.value = ""; }} />
       </div>
 
-      {/* E-way bill */}
-      <div className="min-w-0">
+      {/* E-way bill: number and PDF in one cell; N/A up to ₹50,000. */}
+      <div className="col-span-2 min-w-0 lg:col-span-1">
         <p className={label}>E-way bill</p>
         {!i.needsEway ? <NA /> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
-          <span className="flex min-w-0 items-center gap-2"><Mark ok={Boolean(i.eway)} /><span className={`num truncate text-[13.5px] ${i.eway ? "font-semibold text-ink" : "text-ink-2"}`}>{i.eway ?? "No e-way bill"}</span></span>
-        )}
-      </div>
-
-      {/* E-way PDF */}
-      <div>
-        <p className={label}>E-way PDF</p>
-        {!i.needsEway ? <NA /> : i.ewayPdf ? <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><Mark ok />Attached</span> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
-          <span className="flex items-center gap-1.5"><Mark ok={false} /><button type="button" className={add} disabled={busy === "ewayPdf"} onClick={() => ewayFile.current?.click()}>{busy === "ewayPdf" ? "Attaching…" : "Attach"}</button></span>
+          <>
+            <span className="flex min-w-0 items-center gap-2 py-0.5"><Mark ok={Boolean(i.eway)} /><span className={`num truncate text-[13.5px] ${i.eway ? "font-semibold text-ink" : "text-ink-2"}`}>{i.eway ?? "No e-way bill"}</span></span>
+            <Pdf has={i.ewayPdf} pending={false} busy={busy === "ewayPdf"} onPick={() => ewayFile.current?.click()} />
+          </>
         )}
         <input ref={ewayFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("eway", e.target.files?.[0]); e.target.value = ""; }} />
       </div>

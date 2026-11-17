@@ -30,6 +30,9 @@ const wantsDetail = (r: SalesRow) => needsEway(Number(r.row.total) || 0) || Bool
 /** Every customer with their invoices; reads up to READ_BATCH full records from Zoho that aren't known yet. */
 export async function converterData(): Promise<{ customers: ConvCustomer[]; pending: number }> {
   const signs = await signStates();
+  // The customer's name as Zoho has it now (owner, 17 Nov: renamed customers, e.g. "JLL Mumbai" → "Jones Lang LaSalle …"):
+  // invoices keep the name from when they were made, so the current one comes from the customers copy.
+  const names = new Map((await (await db()).collection<{ _id: string; name?: string }>("zohoCustomers").find({}, { projection: { name: 1 } }).toArray()).map((c) => [String(c._id), String(c.name ?? "")]));
   const rows = (await (await sales()).find({ kind: "invoices" }).toArray()).filter((r) => r.kind === "invoices" && String(r.row.status ?? "") !== "void");
   const extras = new Map((await (await extrasCol()).find({}).toArray()).map((e) => [e._id, e]));
   const fresh = (r: SalesRow) => { const e = extras.get(r.id); return e && e.lmt === (r.lmt ?? ""); };
@@ -55,7 +58,7 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
     const po = poState(r.row.cf_purchase_order_number);
     const files = e?.files ?? [];
     return {
-      customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: String(r.row.customer_name ?? ""),
+      customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
       id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""),
       po: po.label, poOk: po.ok, poPdf: files.some(isPoFile),
       eway: e?.eway ?? null, ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),

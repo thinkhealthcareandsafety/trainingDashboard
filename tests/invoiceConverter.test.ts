@@ -43,8 +43,10 @@ test("the converter reads the Sales copy: invoices by customer, the PO from the 
   await docs.insertOne({ _id: "invoices:11", kind: "invoices", id: "11", lmt: "x", date: "2026-11-01", row: { invoice_number: "2026-01-600", date: "2026-11-01", status: "sent", customer_id: "c1", customer_name: "The Grand", total: 22404, cf_purchase_order_number: "PO26-2008-V1" } });
   await docs.insertOne({ _id: "invoices:12", kind: "invoices", id: "12", lmt: "x", date: "2026-11-02", row: { invoice_number: "2026-01-601", date: "2026-11-02", status: "sent", customer_id: "c1", customer_name: "The Grand", total: 30975, cf_purchase_order_number: "Verbal" } });
   await docs.insertOne({ _id: "estimates:9", kind: "estimates", id: "9", lmt: "x", date: "2026-11-02", row: { estimate_number: "Q-1", total: 5 } });
+  await (await db()).collection<{ _id: string; name: string }>("zohoCustomers").insertOne({ _id: "c1", name: "The Grand Hotel, Pune" }); // renamed in Zoho since
   const r = await converterData();
   assert.equal(r.pending, 0);
+  assert.equal(r.customers[0].name, "The Grand Hotel, Pune"); // the name Zoho has now, not the one on the invoices
   assert.equal(r.customers.length, 1);
   assert.deepEqual(r.customers[0].invoices.map((i) => [i.number, i.po, i.poOk, i.needsEway]), [["2026-01-601", "Verbal", false, false], ["2026-01-600", "PO26-2008-V1", true, false]]);
   assert.equal(r.customers[0].missing, 2); // neither has a PO PDF yet
