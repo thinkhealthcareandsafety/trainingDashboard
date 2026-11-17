@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { change, daySums, inrShort, periods, personKey, remarks, sum, vsLastYear, yearSoFar } from "@/lib/overviewMath";
+import { change, daySums, inrShort, periods, personKey, monthly, remarks, sum, vsLastYear, yearSoFar } from "@/lib/overviewMath";
 
 // The new Overview (owner, 16 Nov sketch): quotes sent and invoiced per day, periods against the one before, the FY so far.
 const row = (kind: string, date: string, total: number, sp: string, status = "sent") => ({ _id: `${kind}:${date}:${total}`, kind, date, row: { date, total, salesperson_name: sp, status } });
@@ -65,15 +65,25 @@ test("against last year: today, this week, this month vs last FY's average day /
   assert.equal(vsLastYear({}, "sumit", "day", "2026-11-17").now.conversion, null);
 });
 
-test("remarks: plain lines on what went up or down, the conversion, and time left to catch up", () => {
+test("remarks: short plain lines, green when better, red when it needs to be better, plain otherwise", () => {
   const days: Record<string, Record<string, [number, number]>> = { "2025-06-01": { all: [365_000, 182_500] }, "2026-11-16": { all: [2000, 500] }, "2026-11-17": { all: [1500, 900] } };
   assert.deepEqual(remarks(vsLastYear(days, "all", "day", "2026-11-17"), "today"), [
-    "Quotations sent: ₹1,500 today, 50% more than an average day last year (₹1,000).",
-    "Invoiced: ₹900 today, 80% more than an average day last year (₹500).",
-    "For every ₹100 quoted, ₹60 was invoiced, against ₹50 last year: conversion is better.",
+    { text: "Quotations: 50% more than last year’s average day.", tone: "good" },
+    { text: "Invoiced: 80% more than last year’s average day.", tone: "good" },
+    { text: "Conversion better: 60%, against 50% last year.", tone: "good" },
   ]);
   const w = remarks(vsLastYear(days, "all", "week", "2026-11-17"), "this week");
-  assert.equal(w[0], "Quotations sent: ₹3,500 this week, 50% less than an average week last year (₹7,000).");
-  assert.equal(w.at(-1), "Only 2 of 7 days have gone, so there is still time to catch up.");
-  assert.equal(remarks(vsLastYear({}, "sumit", "day", "2026-11-17"), "today")[0], "No quotations sent today, and an average day last year had none either.");
+  assert.deepEqual(w[0], { text: "Quotations: 50% less than last year’s average week.", tone: "bad" });
+  assert.deepEqual(w.at(-1), { text: "2 of 7 days gone: still time to catch up.", tone: "neutral" });
+  assert.deepEqual(remarks(vsLastYear({}, "sumit", "day", "2026-11-17"), "today")[0], { text: "No quotations today, and none last year either.", tone: "neutral" });
+});
+
+test("monthly: the 12 months up to the day looked at, the last one so far, with conversion", () => {
+  const days: Record<string, Record<string, [number, number]>> = { "2025-12-05": { sumit: [1000, 400] }, "2026-11-03": { sumit: [500, 500] }, "2026-11-20": { sumit: [9999, 0] } };
+  const m = monthly(days, "sumit", "2026-11-17");
+  assert.equal(m.length, 12);
+  assert.equal(m[0].key, "2025-12");
+  assert.deepEqual([m[0].quoted, m[0].invoiced, m[0].conversion, m[0].partial], [1000, 400, 40, false]);
+  assert.deepEqual([m[11].key, m[11].quoted, m[11].conversion, m[11].partial], ["2026-11", 500, 100, true]);
+  assert.equal(m[5].conversion, null);
 });

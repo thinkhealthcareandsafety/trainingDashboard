@@ -117,27 +117,49 @@ export function vsLastYear(days: DaySums, person: string, kind: Exclude<Period, 
   return { kind, now: side(n.quoted, n.invoiced), last: side(last.quoted, last.invoiced), label: span.now.label, daysIn, daysTotal };
 }
 
-/** The story of one row in plain lines (owner: "what was more then, is less now, the conversion is less…"). */
-export function remarks(v: VsLastYear, nowWord: string): string[] {
-  const lastWord = { day: "an average day last year", week: "an average week last year", month: "an average month last year", year: "the same days last year" }[v.kind];
-  const lines: string[] = [];
+/**
+ * The story of one row in short plain lines (owner: "what was more then, is less now, the conversion is less…"), each
+ * marked good (green), needs to be better (red) or neutral.
+ */
+export type Remark = { text: string; tone: "good" | "bad" | "neutral" };
+export function remarks(v: VsLastYear, nowWord: string): Remark[] {
+  const lastWord = { day: "last year’s average day", week: "last year’s average week", month: "last year’s average month", year: "the same days last year" }[v.kind];
+  const lines: Remark[] = [];
   const say = (what: string, a: number, b: number) => {
-    if (!a && !b) return lines.push(`No ${what.toLowerCase()} ${nowWord}, and ${lastWord} had none either.`);
-    if (!a) return lines.push(`No ${what.toLowerCase()} ${nowWord} yet; ${lastWord} had ${inrShort(b)}.`);
-    if (!b) return lines.push(`${what}: ${inrShort(a)} ${nowWord}; ${lastWord} had none.`);
+    if (!a && !b) return lines.push({ text: `No ${what.toLowerCase()} ${nowWord}, and none last year either.`, tone: "neutral" });
+    if (!a) return lines.push({ text: `No ${what.toLowerCase()} ${nowWord} yet (${lastWord}: ${inrShort(b)}).`, tone: "bad" });
+    if (!b) return lines.push({ text: `${what}: ${inrShort(a)}, against none last year.`, tone: "good" });
     const c = change(a, b)!;
-    if (c === 0) return lines.push(`${what}: ${inrShort(a)} ${nowWord}, the same as ${lastWord}.`);
-    lines.push(`${what}: ${inrShort(a)} ${nowWord}, ${Math.abs(c)}% ${c > 0 ? "more" : "less"} than ${lastWord} (${inrShort(b)}).`);
+    if (c === 0) return lines.push({ text: `${what}: the same as ${lastWord}.`, tone: "neutral" });
+    lines.push({ text: `${what}: ${Math.abs(c)}% ${c > 0 ? "more" : "less"} than ${lastWord}.`, tone: c > 0 ? "good" : "bad" });
   };
-  say("Quotations sent", v.now.quoted, v.last.quoted);
+  say("Quotations", v.now.quoted, v.last.quoted);
   say("Invoiced", v.now.invoiced, v.last.invoiced);
   const a = v.now.conversion, b = v.last.conversion;
   if (a !== null && b !== null) {
-    lines.push(a === b ? `For every ₹100 quoted, ₹${a} was invoiced, the same as last year.` : `For every ₹100 quoted, ₹${a} was invoiced, against ₹${b} last year: conversion is ${a > b ? "better" : "worse"}.`);
+    lines.push(a === b
+      ? { text: `Conversion the same as last year: ${a}%.`, tone: "neutral" }
+      : { text: `Conversion ${a > b ? "better" : "worse"}: ${a}%, against ${b}% last year.`, tone: a > b ? "good" : "bad" });
   }
   const behind = v.now.quoted < v.last.quoted || v.now.invoiced < v.last.invoiced;
-  if (behind && v.kind !== "day" && v.kind !== "year" && v.daysIn < v.daysTotal) lines.push(`Only ${v.daysIn} of ${v.daysTotal} days have gone, so there is still time to catch up.`);
+  if (behind && v.kind !== "day" && v.kind !== "year" && v.daysIn < v.daysTotal) lines.push({ text: `${v.daysIn} of ${v.daysTotal} days gone: still time to catch up.`, tone: "neutral" });
   return lines;
+}
+
+/** Month by month for the line chart: the 12 months up to the day looked at (the last one so far). */
+export type MonthPoint = { key: string; label: string; year: number; quoted: number; invoiced: number; conversion: number | null; partial: boolean };
+export function monthly(days: DaySums, person: string, on: string, n = 12): MonthPoint[] {
+  const d = parse(on);
+  const out: MonthPoint[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const first = new Date(d.getFullYear(), d.getMonth() - i, 1);
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    const to = i === 0 ? on : ymdOf(last);
+    const t = sum(days, person, ymdOf(first), to);
+    const s = side(t.quoted, t.invoiced);
+    out.push({ key: ymdOf(first).slice(0, 7), label: first.toLocaleDateString("en-IN", { month: "short" }), year: first.getFullYear(), ...s, partial: i === 0 && to < ymdOf(last) });
+  }
+  return out;
 }
 
 /** The change against the other value, as a signed % (null when there's nothing to compare with). */
