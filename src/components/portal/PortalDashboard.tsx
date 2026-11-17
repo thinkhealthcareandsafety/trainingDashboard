@@ -569,6 +569,8 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
 }
 
 function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people, folded = false, onDetails, detailsOpen = false }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode; folded?: boolean; onDetails?: () => void; detailsOpen?: boolean }) {
+  // Once over, the participant list folds away too (owner, 17 Nov: "hide this too").
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const toggle = onDetails && (folded || detailsOpen) ? (
     <button type="button" onClick={onDetails} aria-expanded={!folded} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-semibold text-action ring-1 ring-inset ring-action/30 transition hover:bg-action/5">
       <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden className={folded ? "" : "rotate-180"}><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -586,7 +588,13 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
         <ThanksMoment t={t} title={title} />
         {t.quiz && t.quiz.state !== "none" ? <Results id={t.id} quiz={t.quiz} done training={title} certs={<FinishedCerts t={t} />} /> : <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training completed</h4>}
         <div className="mt-7"><TrainingReport t={t} /></div>
-        <div className="mt-7 border-t border-line pt-6">{people}</div>
+        <div className="mt-7 border-t border-line pt-6">
+          <button type="button" onClick={() => setPeopleOpen((x) => !x)} aria-expanded={peopleOpen} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-semibold text-action ring-1 ring-inset ring-action/30 transition hover:bg-action/5">
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden className={peopleOpen ? "rotate-180" : ""}><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            {peopleOpen ? "Hide participants" : `Show participants (${t.registered})`}
+          </button>
+          {peopleOpen && <div className="mt-5">{people}</div>}
+        </div>
         {detailsBlock}
         <p className="mt-5 text-[14.5px] text-ink-2">Thank you for organising it with us.</p>
       </>
