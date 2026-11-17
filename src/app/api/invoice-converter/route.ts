@@ -1,23 +1,38 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { canConvertInvoices } from "@/lib/roles";
-import { attachPdf, converterData, setPoNumber } from "@/lib/invoiceConverter";
+import { canConvertInvoices, isAdmin } from "@/lib/roles";
+import { attachPdf, checkInvoiceSign, converterData, setPoNumber, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
+import { connectSign, signInfo } from "@/lib/zohoSign";
 
 export const dynamic = "force-dynamic";
 
 /*
- * The Invoice Converter (owner, 17 Nov): GET — every customer with their invoices, PO and e-way bill state;
- * POST JSON { action: "po", id, value } — the invoice's Purchase Order Number;
- * POST multipart { action: "attach", id, which: "po" | "eway", file } — a PDF attached to the invoice in Zoho.
- * Full access and logistics only.
+ * The Invoice Converter (owner, 17 Nov). Full access and logistics only.
+ *  GET                         — every customer with their invoices (PO, e-way bill, signing), Zoho Sign's connection, your signer details
+ *  GET ?signed=<invoice id>    — the signed PDF (once Zoho Sign says completed)
+ *  POST { action: "po", id, value }                — the invoice's Purchase Order Number
+ *  POST multipart { id, which: "po" | "eway", file } — a PDF attached to the invoice in Zoho
+ *  POST { action: "signer", email, name }          — your email and full name for Zoho Sign (once)
+ *  POST { action: "sign", id }                     — merge the invoice + PO + e-way bill PDFs and open Zoho Sign's signing page
+ *  POST { action: "check", id }                    — how the signing stands
+ *  POST { action: "connectSign", code, clientId?, clientSecret? } — Admin: connect Zoho Sign once
  */
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+const ID = /^\d{6,25}$/;
 
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!canConvertInvoices(me)) return json({ error: "Not for your account" }, 403);
   try {
-    return json(await converterData());
+    const signed = new URL(request.url).searchParams.get("signed");
+    if (signed) {
+      if (!ID.test(signed)) return json({ error: "Unknown invoice" }, 400);
+      const f = await signedInvoicePdf(signed);
+      if (!f) return json({ error: "Not signed yet." }, 409);
+      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store" } });
+    }
+    const [data, sign, signer] = await Promise.all([converterData(), signInfo(), signerOf(me.id)]);
+    return json({ ...data, sign: { connected: Boolean(sign), canConnect: isAdmin(me), signer: signer ? { email: signer.email, name: signer.name } : null } });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Couldn't read the invoices" }, 502);
   }
@@ -33,14 +48,27 @@ export async function POST(request: Request) {
       const id = String(f.get("id") ?? "");
       const which = f.get("which") === "eway" ? "eway" : "po";
       const file = f.get("file");
-      if (!/^\d{6,25}$/.test(id) || !(file instanceof File)) return json({ error: "Pick a PDF for an invoice" }, 400);
+      if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a PDF for an invoice" }, 400);
       return json(await attachPdf(id, which, file));
     }
-    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
     const id = String(b?.id ?? "");
-    if (b?.action !== "po" || !/^\d{6,25}$/.test(id)) return json({ error: "Unknown action" }, 400);
-    return json(await setPoNumber(id, b.value));
+    if (b?.action === "signer") return json(await setSigner(me.id, { email: b.email, name: b.name }));
+    if (b?.action === "connectSign") {
+      if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sign" }, 403);
+      return json(await connectSign({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
+    }
+    if (!ID.test(id)) return json({ error: "Unknown invoice" }, 400);
+    if (b?.action === "po") return json(await setPoNumber(id, b.value));
+    if (b?.action === "check") return json({ status: await checkInvoiceSign(id) });
+    if (b?.action === "sign") {
+      const signer = await signerOf(me.id);
+      if (!signer) return json({ error: "Add your email and full name for Zoho Sign first." }, 409);
+      const host = new URL(request.url).origin;
+      return json(await startInvoiceSign(id, { name: signer.name, email: signer.email }, me.name, host));
+    }
+    return json({ error: "Unknown action" }, 400);
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "Couldn't save it" }, 502);
+    return json({ error: e instanceof Error ? e.message : "Couldn't do that" }, 502);
   }
 }

@@ -29,6 +29,7 @@ const wantsDetail = (r: SalesRow) => needsEway(Number(r.row.total) || 0) || Bool
 
 /** Every customer with their invoices; reads up to READ_BATCH full records from Zoho that aren't known yet. */
 export async function converterData(): Promise<{ customers: ConvCustomer[]; pending: number }> {
+  const signs = await signStates();
   const rows = (await (await sales()).find({ kind: "invoices" }).toArray()).filter((r) => r.kind === "invoices" && String(r.row.status ?? "") !== "void");
   const extras = new Map((await (await extrasCol()).find({}).toArray()).map((e) => [e._id, e]));
   const fresh = (r: SalesRow) => { const e = extras.get(r.id); return e && e.lmt === (r.lmt ?? ""); };
@@ -59,6 +60,7 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       po: po.label, poOk: po.ok, poPdf: files.some(isPoFile),
       eway: e?.eway ?? null, ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
       pending: wantsDetail(r) && !fresh(r),
+      sign: signs.get(r.id)?.status,
     };
   });
   return { customers: groupByCustomer(list), pending: list.filter((i) => i.pending).length };
@@ -89,4 +91,83 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
   await col.replaceOne({ _id: invoiceId }, { lmt: row?.lmt ?? had?.lmt ?? "", eway: had?.eway ?? null, files: [...(had?.files ?? []), name], readAt: had?.readAt ?? new Date().toISOString() }, { upsert: true });
   await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, { $set: { "row.has_attachment": true } });
   return { ok: true };
+}
+
+/* ---------------- Merge and sign (owner, 17 Nov) ---------------- */
+
+/**
+ * "We merge invoice PDF + PO PDF + e-way bill PDF, then we add a sign, date, full name": the invoice PDF from Zoho Books,
+ * then whichever PO and e-way bill attachments the invoice has, as one PDF, sent to Zoho Sign with one signature box,
+ * the signer's full name and the date at the bottom right of the invoice's last page. The signer signs on the dashboard
+ * (Zoho Sign's embedded page); the signed PDF is then downloaded from here (and from Zoho Sign) any time.
+ */
+type SignDoc = { _id: string; requestId: string; actionId: string; status: string; by: string; at: string; signedAt?: string; parts: string[] };
+const signsCol = async () => (await db()).collection<SignDoc>("invoiceSigns");
+type SignerDoc = { _id: string; email: string; name: string };
+const signersCol = async () => (await db()).collection<SignerDoc>("signers");
+
+export async function signerOf(memberId: string): Promise<SignerDoc | null> {
+  return (await signersCol()).findOne({ _id: memberId });
+}
+export async function setSigner(memberId: string, raw: { email?: unknown; name?: unknown }): Promise<SignerDoc> {
+  const email = String(raw.email ?? "").trim().toLowerCase();
+  const name = String(raw.name ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("That email doesn't look right.");
+  if (name.length < 2) throw new Error("Type your full name as it should appear.");
+  const doc = { _id: memberId, email, name };
+  await (await signersCol()).replaceOne({ _id: memberId }, { email, name }, { upsert: true });
+  return doc;
+}
+
+/** Each invoice's signing state, for the page. */
+export async function signStates(): Promise<Map<string, { status: string; at: string; by: string }>> {
+  return new Map((await (await signsCol()).find({}).toArray()).map((s) => [s._id, { status: s.status, at: s.signedAt ?? s.at, by: s.by }]));
+}
+
+export async function startInvoiceSign(invoiceId: string, signer: { name: string; email: string }, by: string, host: string): Promise<{ signUrl: string; parts: string[]; skipped: string[] }> {
+  const { booksFile } = await import("./quotations");
+  const { mergeParts, signSpot } = await import("./pdfMerge");
+  const { startSigning, signUrlAgain } = await import("./zohoSign");
+  // Already waiting for this signer: the same request, a fresh signing page.
+  const had = await (await signsCol()).findOne({ _id: invoiceId });
+  if (had && had.status !== "completed" && had.status !== "declined" && had.status !== "expired") {
+    return { signUrl: await signUrlAgain(had.requestId, had.actionId, host), parts: had.parts, skipped: [] };
+  }
+  const d = await fetchDetail("invoices", invoiceId);
+  const number = String(d.invoice_number ?? invoiceId);
+  const docs = ((d.documents as { document_id?: string; file_name?: string; file_type?: string }[] | undefined) ?? []).filter((x) => x.document_id);
+  const parts: { bytes: Uint8Array; type: string; name: string }[] = [];
+  const inv = await booksFile(`/invoices/${invoiceId}`, { accept: "pdf" });
+  parts.push({ ...inv, name: `Invoice ${number}.pdf` });
+  for (const pick of [docs.find((x) => isPoFile(String(x.file_name ?? ""))), docs.find((x) => isEwayFile(String(x.file_name ?? "")))]) {
+    if (!pick) continue;
+    const f = await booksFile(`/invoices/${invoiceId}/documents/${pick.document_id}`);
+    parts.push({ ...f, name: String(pick.file_name ?? "attachment") });
+  }
+  const merged = await mergeParts(parts, `Invoice ${number}`);
+  const names = parts.map((p) => p.name);
+  const s = await startSigning(merged.bytes, { name: `Invoice ${number} · ${String(d.customer_name ?? "")}`.slice(0, 200), fileName: `Invoice ${number} merged.pdf`, signer, spot: signSpot(merged.signPage), host });
+  await (await signsCol()).replaceOne({ _id: invoiceId }, { requestId: s.requestId, actionId: s.actionId, status: "inprogress", by, at: new Date().toISOString(), parts: names }, { upsert: true });
+  return { signUrl: s.signUrl, parts: names, skipped: merged.skipped };
+}
+
+/** Asks Zoho Sign how the invoice's signing stands (after the signing page closes). */
+export async function checkInvoiceSign(invoiceId: string): Promise<string> {
+  const { signStatus } = await import("./zohoSign");
+  const col = await signsCol();
+  const had = await col.findOne({ _id: invoiceId });
+  if (!had) return "none";
+  if (had.status === "completed") return "completed";
+  const status = await signStatus(had.requestId);
+  if (status && status !== had.status) await col.updateOne({ _id: invoiceId }, { $set: { status, ...(status === "completed" ? { signedAt: new Date().toISOString() } : {}) } });
+  return status || had.status;
+}
+
+/** The signed PDF and a file name for it. */
+export async function signedInvoicePdf(invoiceId: string): Promise<{ bytes: Uint8Array; name: string } | null> {
+  const { signedPdf } = await import("./zohoSign");
+  const had = await (await signsCol()).findOne({ _id: invoiceId });
+  if (!had || (await checkInvoiceSign(invoiceId)) !== "completed") return null;
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  return { bytes: await signedPdf(had.requestId), name: `Invoice ${String(row?.row.invoice_number ?? invoiceId)} signed.pdf` };
 }

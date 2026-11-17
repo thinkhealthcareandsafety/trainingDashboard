@@ -66,6 +66,26 @@ async function books(c: Conn, method: "GET" | "POST" | "PUT" | "DELETE", path: s
   }
 }
 
+/** A file from Zoho Books as bytes (an invoice PDF with ?accept=pdf, an attachment): the Invoice Converter's merge (owner, 17 Nov). */
+export async function booksFile(path: string, params: Record<string, string> = {}): Promise<{ bytes: Uint8Array; type: string }> {
+  const c = await connection();
+  const url = new URL(`${API}${path}`);
+  url.searchParams.set("organization_id", ORG);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessFor(c, attempt > 0)}` }, cache: "no-store" });
+    if (res.status === 401 && attempt === 0) continue;
+    if (!res.ok) throw new Error(`Zoho Books: couldn't download ${path} (${res.status})`);
+    return { bytes: new Uint8Array(await res.arrayBuffer()), type: res.headers.get("content-type") ?? "" };
+  }
+}
+
+/** The Books connection's Self Client (Zoho Sign is connected with a code from the same one). */
+export async function booksClient(): Promise<{ clientId: string; clientSecret: string } | null> {
+  const c = await (await kv()).findOne({ _id: KEY });
+  return c ? { clientId: c.clientId, clientSecret: c.clientSecret } : null;
+}
+
 /** Admin: swap the one-time code for a refresh token, check it can read contacts, save it. */
 export async function connectQuotes(input: { code: string; clientId?: string; clientSecret?: string }, by: string): Promise<QuotesInfo> {
   const clients = clientsToTry(input, await (await kv()).findOne({ _id: KEY }));

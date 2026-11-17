@@ -49,3 +49,32 @@ test("the converter reads the Sales copy: invoices by customer, the PO from the 
   assert.deepEqual(r.customers[0].invoices.map((i) => [i.number, i.po, i.poOk, i.needsEway]), [["2026-01-601", "Verbal", false, false], ["2026-01-600", "PO26-2008-V1", true, false]]);
   assert.equal(r.customers[0].missing, 2); // neither has a PO PDF yet
 });
+
+test("merge: the invoice first, then the PO and the e-way bill; a picture becomes a page; the signature sits on the invoice's last page", async () => {
+  const { PDFDocument } = await import("pdf-lib");
+  const { mergeParts, signSpot } = await import("@/lib/pdfMerge");
+  const pdf = async (pages: number, w = 595, h = 842) => { const d = await PDFDocument.create(); for (let i = 0; i < pages; i++) d.addPage([w, h]); return d.save(); };
+  // A 1×1 PNG.
+  const png = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+  const m = await mergeParts([
+    { bytes: await pdf(2), type: "application/pdf", name: "Invoice.pdf" },
+    { bytes: png, type: "image/png", name: "PO - 1.png" },
+    { bytes: await pdf(1, 612, 792), type: "application/pdf", name: "E-way bill - 1.pdf" },
+    { bytes: new Uint8Array([1, 2, 3]), type: "application/zip", name: "notes.zip" },
+  ], "Invoice 1");
+  const doc = await PDFDocument.load(m.bytes);
+  assert.equal(doc.getPageCount(), 4);
+  assert.equal(m.firstPages, 2);
+  assert.deepEqual(m.signPage, { index: 1, width: 595, height: 842 });
+  assert.deepEqual(m.skipped, ["notes.zip"]);
+  assert.deepEqual(signSpot(m.signPage), { page: 1, x: 385, y: 712 });
+  await assert.rejects(mergeParts([{ bytes: new Uint8Array([1]), type: "text/plain" }]), /Nothing to merge/);
+});
+
+test("signer details: a real email and a full name, saved per person", async () => {
+  const { setSigner, signerOf } = await import("@/lib/invoiceConverter");
+  await assert.rejects(setSigner("m1", { email: "nope", name: "Arti Sirohi" }), /email/);
+  await assert.rejects(setSigner("m1", { email: "a@x.in", name: " " }), /full name/);
+  await setSigner("m1", { email: " Logistics@ThinkHealth.in ", name: "Aarti  Sirohi" });
+  assert.deepEqual(await signerOf("m1"), { _id: "m1", email: "logistics@thinkhealth.in", name: "Aarti Sirohi" });
+});

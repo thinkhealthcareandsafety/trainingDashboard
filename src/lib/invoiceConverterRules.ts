@@ -28,6 +28,8 @@ export type ConvInvoice = {
   eway: string | null; ewayPdf: boolean; needsEway: boolean;
   /** The e-way bill / attachments not read from Zoho yet (filled in a few at a time). */
   pending: boolean;
+  /** Merge and sign (owner, 17 Nov): Zoho Sign's status for this invoice ("inprogress", "completed", …), if started. */
+  sign?: string;
 };
 export type ConvCustomer = { id: string; name: string; invoices: ConvInvoice[]; latest: string; missing: number };
 

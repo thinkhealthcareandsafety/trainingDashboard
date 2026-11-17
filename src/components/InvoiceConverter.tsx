@@ -14,6 +14,11 @@ import { Skeleton } from "./ui";
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const day = (s: string) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "");
 
+type SignInfo = { connected: boolean; canConnect: boolean; signer: { email: string; name: string } | null };
+
+/** Blue N/A (owner, 17 Nov): no e-way bill is needed on an invoice of ₹50,000 or less. */
+const NA = () => <span className="rounded-md bg-info-bg px-2 py-0.5 text-[12.5px] font-bold tracking-wide text-info">N/A</span>;
+
 /** The neon marks (owner: "TICK OR CROSS NEON"). */
 function Mark({ ok }: { ok: boolean }) {
   const c = ok ? "#12d65a" : "#ff3b5c";
@@ -26,7 +31,7 @@ function Mark({ ok }: { ok: boolean }) {
 }
 
 export function InvoiceConverter() {
-  const [data, setData] = useState<{ customers: ConvCustomer[]; pending: number } | null>(null);
+  const [data, setData] = useState<{ customers: ConvCustomer[]; pending: number; sign?: SignInfo } | null>(null);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [onlyMissing, setOnlyMissing] = useState(false);
@@ -69,6 +74,7 @@ export function InvoiceConverter() {
         {data && data.pending > 0 && <span className="text-[13px] text-muted">Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
+      {data?.sign && <SignSetup sign={data.sign} onDone={load} />}
       {!data ? <Skeleton className="h-[420px]" /> : shown.length === 0 ? <p className="card p-6 text-[14px] text-muted">{searching ? "Nothing matches." : "No invoices."}</p> : (
         <div className="space-y-3">
           {shown.map((c) => {
@@ -86,11 +92,11 @@ export function InvoiceConverter() {
                 </button>
                 {isOpen && (
                   <div className="border-t border-line">
-                    <div className="hidden grid-cols-[minmax(0,1.1fr)_110px_minmax(0,1.4fr)_120px_minmax(0,1.2fr)_120px] gap-3 bg-surface-2/60 px-5 py-2 text-[12px] font-medium text-muted lg:grid">
-                      <span>Invoice</span><span className="text-right">Value</span><span>Purchase order</span><span>PO PDF</span><span>E-way bill <span className="text-faint">(over {inr(EWAY_OVER)})</span></span><span>E-way PDF</span>
+                    <div className={`hidden ${COLS} gap-3 bg-surface-2/60 px-5 py-2 text-[12px] font-medium text-muted lg:grid`}>
+                      <span>Invoice</span><span className="text-right">Value</span><span>Purchase order</span><span>PO PDF</span><span>E-way bill <span className="text-faint">(over {inr(EWAY_OVER)})</span></span><span>E-way PDF</span><span>Merged &amp; signed</span>
                     </div>
                     <ul className="divide-y divide-line">
-                      {c.invoices.map((i) => <Row key={i.id} i={i} onPatch={(p) => patch(i.id, p)} />)}
+                      {c.invoices.map((i) => <Row key={i.id} i={i} sign={data.sign} onPatch={(p) => patch(i.id, p)} />)}
                     </ul>
                   </div>
                 )}
@@ -103,10 +109,14 @@ export function InvoiceConverter() {
   );
 }
 
-function Row({ i, onPatch }: { i: ConvInvoice; onPatch: (p: Partial<ConvInvoice>) => void }) {
+const COLS = "grid-cols-[minmax(0,1.1fr)_100px_minmax(0,1.3fr)_105px_minmax(0,1.15fr)_105px_150px]";
+// Written out in full so Tailwind finds it (a class built from a variable isn't generated).
+const COLS_LG = "lg:grid-cols-[minmax(0,1.1fr)_100px_minmax(0,1.3fr)_105px_minmax(0,1.15fr)_105px_150px]";
+
+function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (p: Partial<ConvInvoice>) => void }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
-  const [busy, setBusy] = useState<"" | "po" | "poPdf" | "ewayPdf">("");
+  const [busy, setBusy] = useState<"" | "po" | "poPdf" | "ewayPdf" | "sign">("");
   const [error, setError] = useState("");
   const poFile = useRef<HTMLInputElement>(null);
   const ewayFile = useRef<HTMLInputElement>(null);
@@ -129,11 +139,34 @@ function Row({ i, onPatch }: { i: ConvInvoice; onPatch: (p: Partial<ConvInvoice>
     if (r.error) return setError(r.error);
     onPatch(which === "po" ? { poPdf: true } : { ewayPdf: true });
   };
+  // Opens Zoho Sign's page in a new tab straight away (a tab opened after the wait would be blocked), then checks back
+  // every 5 seconds until it's signed.
+  const startSign = async () => {
+    setBusy("sign"); setError("");
+    const w = window.open("about:blank", "_blank");
+    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sign", id: i.id }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    setBusy("");
+    if (r.error || !r.signUrl) { w?.close(); return setError(r.error ?? "Zoho Sign didn't open"); }
+    if (w) w.location.href = r.signUrl; else window.location.href = r.signUrl;
+    if (r.skipped?.length) setError(`Left out (not a PDF or picture): ${r.skipped.join(", ")}`);
+    onPatch({ sign: "inprogress" });
+    setWatch(Date.now());
+  };
+  const [watch, setWatch] = useState(0);
+  useEffect(() => {
+    if (!watch) return;
+    const t = setInterval(async () => {
+      if (Date.now() - watch > 20 * 60_000) return clearInterval(t);
+      const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check", id: i.id }) }).then((x) => x.json()).catch(() => null);
+      if (r?.status === "completed") { onPatch({ sign: "completed" }); clearInterval(t); }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [watch]); // eslint-disable-line react-hooks/exhaustive-deps
   const label = "text-[12px] font-medium text-muted lg:hidden";
   const add = "rounded-lg px-2 py-1 text-[13px] font-semibold text-brand hover:bg-brand-soft disabled:opacity-50";
 
   return (
-    <li className="grid grid-cols-2 gap-x-3 gap-y-2.5 px-5 py-3 lg:grid-cols-[minmax(0,1.1fr)_110px_minmax(0,1.4fr)_120px_minmax(0,1.2fr)_120px] lg:items-center">
+    <li className={`grid grid-cols-2 gap-x-3 gap-y-2.5 px-5 py-3 ${COLS_LG} lg:items-center`}>
       <div className="col-span-2 min-w-0 lg:col-span-1">
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
@@ -170,7 +203,7 @@ function Row({ i, onPatch }: { i: ConvInvoice; onPatch: (p: Partial<ConvInvoice>
       {/* E-way bill */}
       <div className="min-w-0">
         <p className={label}>E-way bill</p>
-        {!i.needsEway ? <span className="text-[13px] text-faint">Not needed</span> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
+        {!i.needsEway ? <NA /> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
           <span className="flex min-w-0 items-center gap-2"><Mark ok={Boolean(i.eway)} /><span className={`num truncate text-[13.5px] ${i.eway ? "font-semibold text-ink" : "text-ink-2"}`}>{i.eway ?? "No e-way bill"}</span></span>
         )}
       </div>
@@ -178,12 +211,70 @@ function Row({ i, onPatch }: { i: ConvInvoice; onPatch: (p: Partial<ConvInvoice>
       {/* E-way PDF */}
       <div>
         <p className={label}>E-way PDF</p>
-        {!i.needsEway ? <span className="text-[13px] text-faint">—</span> : i.ewayPdf ? <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><Mark ok />Attached</span> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
+        {!i.needsEway ? <NA /> : i.ewayPdf ? <span className="flex items-center gap-1.5 text-[13px] text-ink-2"><Mark ok />Attached</span> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
           <span className="flex items-center gap-1.5"><Mark ok={false} /><button type="button" className={add} disabled={busy === "ewayPdf"} onClick={() => ewayFile.current?.click()}>{busy === "ewayPdf" ? "Attaching…" : "Attach"}</button></span>
         )}
         <input ref={ewayFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("eway", e.target.files?.[0]); e.target.value = ""; }} />
       </div>
+      {/* Merge and sign (owner, 17 Nov): invoice + PO + e-way bill PDFs, one signature, name and date, through Zoho Sign. */}
+      <div className="col-span-2 lg:col-span-1">
+        <p className={label}>Merged &amp; signed</p>
+        {i.sign === "completed" ? (
+          <a className="inline-flex items-center gap-1.5 rounded-lg py-0.5 text-[13px] font-semibold text-brand hover:underline" href={`/api/invoice-converter?signed=${i.id}`}><Mark ok />Download</a>
+        ) : (
+          <button type="button" className="h-8 rounded-lg border border-line px-3 text-[13px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-50" disabled={busy === "sign" || !sign?.connected || !sign?.signer} onClick={startSign}
+            title={!sign?.connected ? "Zoho Sign isn't connected yet" : !sign?.signer ? "Add your email and full name for Zoho Sign above" : "Merge the invoice, PO and e-way bill PDFs and sign once"}>
+            {busy === "sign" ? "Merging…" : i.sign === "inprogress" ? "Sign now" : "Merge & sign"}
+          </button>
+        )}
+        {i.sign === "inprogress" && <p className="mt-1 text-[12px] text-muted">Waiting for your signature</p>}
+      </div>
       {error && <p className="col-span-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
     </li>
+  );
+}
+
+/** Zoho Sign's one-time setup: Admin connects it; each signer gives their email and full name once. */
+function SignSetup({ sign, onDone }: { sign: SignInfo; onDone: () => void }) {
+  const [code, setCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const post = async (body: object) => {
+    setBusy(true); setError("");
+    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    setBusy(false);
+    if (r.error) return setError(r.error);
+    onDone();
+  };
+  const field = "h-9 rounded-lg border border-line bg-surface px-3 text-[13.5px] text-ink";
+  if (sign.connected && sign.signer) return null;
+  return (
+    <section className="card px-5 py-4">
+      {!sign.connected ? (
+        sign.canConnect ? (
+          <>
+            <h3 className="text-[15px] font-semibold text-ink">Connect Zoho Sign (once)</h3>
+            <p className="mt-1 max-w-[80ch] text-[13px] leading-relaxed text-muted">In the Zoho API console (api-console.zoho.in) open the same Self Client as Zoho Books, Generate Code with the scope <span className="num font-semibold text-ink-2">ZohoSign.documents.ALL,ZohoSign.account.READ</span>, signed in as the Zoho user who uses Zoho Sign, and paste the code here.</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input className={`${field} w-80`} placeholder="1000.xxxx…" value={code} onChange={(e) => setCode(e.target.value)} aria-label="Zoho code" />
+              <button type="button" className="h-9 rounded-lg bg-brand px-4 text-[13.5px] font-semibold text-brand-ink disabled:opacity-50" disabled={busy || !code.trim()} onClick={() => post({ action: "connectSign", code })}>{busy ? "Connecting…" : "Connect"}</button>
+            </div>
+          </>
+        ) : <p className="text-[13.5px] text-muted">Merge &amp; sign needs Zoho Sign connected once; Admin or Shikha does it here.</p>
+      ) : (
+        <>
+          <h3 className="text-[15px] font-semibold text-ink">Your details for Zoho Sign (once)</h3>
+          <p className="mt-1 text-[13px] text-muted">Your full name goes on the signed invoice; Zoho Sign needs your email.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input className={`${field} w-56`} placeholder="Full name" value={name} onChange={(e) => setName(e.target.value)} aria-label="Full name" />
+            <input className={`${field} w-64`} type="email" placeholder="you@thinkhealth.in" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email" />
+            <button type="button" className="h-9 rounded-lg bg-brand px-4 text-[13.5px] font-semibold text-brand-ink disabled:opacity-50" disabled={busy || !email.trim() || !name.trim()} onClick={() => post({ action: "signer", email, name })}>{busy ? "Saving…" : "Save"}</button>
+          </div>
+        </>
+      )}
+      {error && <p className="mt-2 rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
+    </section>
   );
 }
