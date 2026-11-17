@@ -9,7 +9,7 @@ import { type MonthPoint, inrShort } from "@/lib/overviewMath";
  * invoiced (₹) above, conversion (%) below. New clients: later (owner: skip for now). It fills the height it is given.
  */
 
-const PAD = { l: 52, r: 86, t: 6, b: 22, gap: 20 };
+const PAD = { l: 60, r: 100, t: 8, b: 26, gap: 24 };
 
 function nice(max: number): number {
   if (max <= 0) return 1;
@@ -75,13 +75,13 @@ export function OverviewChart({ points }: { points: MonthPoint[] }) {
     setHover(Math.max(0, Math.min(n - 1, i)));
   };
   const hp = hover !== null ? points[hover] : null;
-  const step = Math.max(1, Math.ceil(34 / Math.max(plotW / Math.max(n - 1, 1), 1))); // month labels need ~34px each; on a phone, every other one
+  const step = Math.max(1, Math.ceil(40 / Math.max(plotW / Math.max(n - 1, 1), 1))); // month labels need ~34px each; on a phone, every other one
 
   return (
-    <section className="card flex h-full min-h-[200px] min-w-0 flex-col px-5 py-4" aria-label="Month by month">
+    <section className="card flex h-full min-h-[320px] min-w-0 flex-col px-5 py-4" aria-label="Month by month">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1.5">
-        <h3 className="text-[15px] font-semibold text-ink">Month by month <span className="text-[12px] font-normal text-muted">· the last 12 months</span></h3>
-        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-2">
+        <h3 className="text-[18px] font-semibold text-ink">Month by month <span className="text-[14px] font-normal text-muted">· the last 12 months</span></h3>
+        <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px] text-ink-2">
           {series.map((s) => <li key={s.key} className="flex items-center gap-1.5"><span className="h-[3px] w-4 rounded-full" style={{ background: s.color }} />{s.label}{s.key === "c" && <span className="text-muted">(invoiced ÷ quoted)</span>}</li>)}
           {partial && <li className="flex items-center gap-1.5 text-muted"><span className="w-4 border-t-2 border-dashed border-muted" />this month so far</li>}
         </ul>
@@ -93,17 +93,17 @@ export function OverviewChart({ points }: { points: MonthPoint[] }) {
             {[0, 0.5, 1].map((f) => (
               <g key={`m${f}`}>
                 <line x1={PAD.l} x2={PAD.l + plotW} y1={yM(moneyMax * f)} y2={yM(moneyMax * f)} stroke="var(--line)" />
-                <text x={PAD.l - 8} y={yM(moneyMax * f)} dy="0.32em" textAnchor="end" fontSize="11" fill="var(--muted)" className="num">{inrShort(moneyMax * f)}</text>
+                <text x={PAD.l - 8} y={yM(moneyMax * f)} dy="0.32em" textAnchor="end" fontSize="13" fill="var(--muted)" className="num">{inrShort(moneyMax * f)}</text>
               </g>
             ))}
             {[0, 0.5, 1].map((f) => (
               <g key={`c${f}`}>
                 <line x1={PAD.l} x2={PAD.l + plotW} y1={yC(convMax * f)} y2={yC(convMax * f)} stroke="var(--line)" />
-                <text x={PAD.l - 8} y={yC(convMax * f)} dy="0.32em" textAnchor="end" fontSize="11" fill="var(--muted)" className="num">{Math.round(convMax * f)}%</text>
+                <text x={PAD.l - 8} y={yC(convMax * f)} dy="0.32em" textAnchor="end" fontSize="13" fill="var(--muted)" className="num">{Math.round(convMax * f)}%</text>
               </g>
             ))}
             {points.map((p, i) => (i % step === (n - 1) % step || hover === i) && (
-              <text key={p.key} x={x(i)} y={h - 6} textAnchor="middle" fontSize="11" fill={hover === i ? "var(--ink)" : "var(--muted)"}>{p.label}</text>
+              <text key={p.key} x={x(i)} y={h - 6} textAnchor="middle" fontSize="13" fill={hover === i ? "var(--ink)" : "var(--muted)"}>{p.label}</text>
             ))}
             {/* crosshair */}
             {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={top0} y2={bot0 + botH} stroke="var(--line-strong)" />}
@@ -115,8 +115,8 @@ export function OverviewChart({ points }: { points: MonthPoint[] }) {
               </g>
             ))}
             {/* direct labels at the ends */}
-            {ends.map(({ s, y }) => <text key={s.key} x={PAD.l + plotW + 8} y={y} dy="0.32em" fontSize="11.5" fill="var(--ink-2)">{s.label === "Quotations sent" ? "Quotations" : s.label}</text>)}
-            {lastConv && <text x={PAD.l + plotW + 8} y={yC(lastConv.conversion!)} dy="0.32em" fontSize="11.5" fill="var(--ink-2)">Conversion</text>}
+            {ends.map(({ s, y }) => <text key={s.key} x={PAD.l + plotW + 8} y={y} dy="0.32em" fontSize="13.5" fill="var(--ink-2)">{s.label === "Quotations sent" ? "Quotations" : s.label}</text>)}
+            {lastConv && <text x={PAD.l + plotW + 8} y={yC(lastConv.conversion!)} dy="0.32em" fontSize="13.5" fill="var(--ink-2)">Conversion</text>}
             {/* hover dots */}
             {hover !== null && series.map((s) => s.vals[hover] !== null && (
               <circle key={s.key} cx={x(hover)} cy={s.y(s.vals[hover]!)} r="4" fill={s.color} stroke="var(--surface)" strokeWidth="2" />
@@ -125,11 +125,12 @@ export function OverviewChart({ points }: { points: MonthPoint[] }) {
           </svg>
         )}
         {hp && hover !== null && (
-          <div className="pointer-events-none absolute z-10 w-[190px] rounded-xl border border-line bg-surface px-3 py-2.5 text-[12px] shadow-lg" style={{ left: Math.min(Math.max(x(hover) - 95, 0), w - 190), top: 0 }}>
-            <p className="font-semibold text-ink">{hp.label} {hp.year}{hp.partial ? " (so far)" : ""}</p>
+          // Beside the crosshair (right of it on the left half, left of it on the right half), never cut off.
+          <div className="pointer-events-none absolute z-10 w-[250px] rounded-xl border border-line bg-surface px-4 py-3 text-[14px] shadow-lg" style={{ left: Math.max(0, Math.min(x(hover) < w / 2 ? x(hover) + 14 : x(hover) - 264, w - 250)), top: 0 }}>
+            <p className="whitespace-nowrap font-semibold text-ink">{hp.label} {hp.year}{hp.partial ? " (so far)" : ""}</p>
             {series.map((s) => (
-              <p key={s.key} className="num mt-1 flex items-center justify-between gap-3 text-ink-2">
-                <span className="flex items-center gap-1.5"><span className="h-[3px] w-3 rounded-full" style={{ background: s.color }} />{s.label}</span>
+              <p key={s.key} className="num mt-1.5 flex items-center justify-between gap-4 whitespace-nowrap text-ink-2">
+                <span className="flex items-center gap-2"><span className="h-[3px] w-3 rounded-full" style={{ background: s.color }} />{s.label}</span>
                 <span className="font-semibold text-ink">{s.key === "c" ? (hp.conversion === null ? "—" : `${hp.conversion}%`) : inrShort(s.vals[hover] as number)}</span>
               </p>
             ))}

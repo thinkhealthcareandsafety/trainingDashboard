@@ -42,17 +42,17 @@ function nowWord(kind: Kind, on: string, isToday: boolean): string {
 function SideBox({ title, lead, sub, s, tint, hint }: { title: string; lead?: string; sub?: string; s: Side; tint?: boolean; hint?: string }) {
   const cell = (label: string, value: string) => (
     <div className="min-w-0">
-      <p className="text-[11px] font-medium text-muted">{label}</p>
-      <p className="num truncate text-[18px] font-semibold leading-tight tracking-tight text-ink xl:text-[16px] 2xl:text-[18px]">{value}</p>
+      <p className="text-[13.5px] font-medium text-muted">{label}</p>
+      <p className="num mt-0.5 truncate text-[24px] font-semibold leading-tight tracking-tight text-ink sm:text-[28px] 2xl:text-[30px]">{value}</p>
     </div>
   );
   return (
-    <div className={`min-w-0 rounded-xl px-3.5 py-2 ${tint ? "bg-surface-2/70" : "border border-line"}`} title={hint}>
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="truncate text-[12.5px] text-ink-2">{lead && <span className="text-[14px] font-semibold text-ink">{lead} · </span>}<span className="font-semibold">{title}</span></p>
-        {sub && <p className="num shrink-0 text-[11px] text-muted">{sub}</p>}
+    <div className={`min-w-0 rounded-2xl px-5 py-4 ${tint ? "bg-surface-2/70" : "border border-line"}`} title={hint}>
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="truncate text-[15.5px] text-ink-2">{lead && <span className="text-[19px] font-semibold text-ink">{lead} · </span>}<span className="font-semibold">{title}</span></p>
+        {sub && <p className="num shrink-0 text-[13px] text-muted">{sub}</p>}
       </div>
-      <div className="mt-1.5 grid grid-cols-3 gap-2.5">
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-4">
         {cell("Quotations", inrShort(s.quoted))}
         {cell("Invoiced", inrShort(s.invoiced))}
         {cell("Conversion", s.conversion === null ? "—" : `${s.conversion}%`)}
@@ -69,13 +69,13 @@ function Bar({ label, now, last }: { label: string; now: number; last: number })
   const pct = (v: number) => (v / max) * 100;
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2 text-[11.5px]">
+      <div className="flex items-baseline justify-between gap-3 text-[15px]">
         <p className="font-semibold text-ink">{label}</p>
         <p className={`num truncate font-semibold ${up ? "text-low" : "text-high"}`}>{up ? "▲" : "▼"} {inrShort(Math.abs(now - last))} {up ? "more" : "less"}{c !== null && ` · ${Math.abs(c)}%`}</p>
       </div>
-      <div className="relative mt-1.5 h-2 rounded-full bg-line" title={`Last year ${inrShort(last)}`}>
+      <div className="relative mt-2.5 h-3.5 rounded-full bg-line" title={`Last year ${inrShort(last)}`}>
         <span className={`block h-full rounded-full ${up ? "bg-low" : "bg-high"}`} style={{ width: `${now > 0 ? Math.max(2, pct(now)) : 0}%` }} />
-        {last > 0 && <span className="absolute -top-1 h-4 w-[3px] -translate-x-1/2 rounded-full bg-ink ring-2 ring-surface" style={{ left: `${Math.min(pct(last), 99.5)}%` }} aria-hidden />}
+        {last > 0 && <span className="absolute -top-1.5 h-[26px] w-1 -translate-x-1/2 rounded-full bg-ink ring-2 ring-surface" style={{ left: `${Math.min(pct(last), 99.5)}%` }} aria-hidden />}
       </div>
     </div>
   );
@@ -92,19 +92,19 @@ function Row({ days, person, kind, title, lastTitle, on, isToday }: { days: DayS
   const fy = (() => { const d = new Date(`${on}T00:00:00`); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return `FY ${String(y - 1).slice(2)}-${String(y).slice(2)}`; })();
   const hint = kind === "year" ? `${fy}, up to the same date` : `${fy} total ÷ ${kind === "day" ? "its days" : kind === "week" ? "its weeks" : "12"}`;
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_330px] 2xl:grid-cols-[minmax(0,1fr)_390px]">
-      <section className="card grid min-w-0 gap-3 p-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)] xl:items-center" aria-label={title}>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
+      <section className="card grid min-w-0 gap-4 p-4 sm:p-5 md:grid-cols-2" aria-label={title}>
         <SideBox lead={title} title={nowTitle(kind, on, isToday)} sub={kind === "day" ? undefined : v.label} s={v.now} />
         <SideBox tint title={lastTitle} s={v.last} hint={hint} />
-        <div className="grid gap-3 px-1 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1 xl:gap-2.5">
+        <div className="grid gap-4 px-1 md:col-span-2 md:grid-cols-2 md:gap-8">
           <Bar label="Quotations" now={v.now.quoted} last={v.last.quoted} />
           <Bar label="Invoiced" now={v.now.invoiced} last={v.last.invoiced} />
         </div>
       </section>
-      <aside className="card min-w-0 px-4 py-3" aria-label={`${title} remarks`}>
-        <ul className="space-y-1 text-[12px] leading-snug">
+      <aside className="card min-w-0 px-5 py-4 sm:px-6 sm:py-5" aria-label={`${title} remarks`}>
+        <ul className="space-y-2.5 text-[15.5px] leading-snug">
           {remarks(v, nowWord(kind, on, isToday)).map((l) => (
-            <li key={l.text} className={`flex gap-1.5 ${TONE[l.tone].cls}`}><span className="w-2.5 shrink-0 text-[10px] leading-[1.6]" aria-hidden>{TONE[l.tone].icon}</span><span className={l.tone === "neutral" ? "text-ink-2" : ""}>{l.text}</span></li>
+            <li key={l.text} className={`flex gap-2.5 ${TONE[l.tone].cls}`}><span className="w-3.5 shrink-0 text-[13px] leading-[1.6]" aria-hidden>{TONE[l.tone].icon}</span><span className={l.tone === "neutral" ? "text-ink-2" : ""}>{l.text}</span></li>
           ))}
         </ul>
       </aside>
@@ -167,9 +167,9 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
           {board ? <TrainingGoals board={board} now={now} /> : <Skeleton className="m-5 h-[160px]" />}
         </section>
       ) : !days ? <Skeleton className="h-[520px]" /> : (
-        <div ref={fit} className="flex flex-col gap-3" style={height ? { minHeight: height } : undefined}>
+        <div ref={fit} className="flex flex-col gap-4" style={height ? { minHeight: height } : undefined}>
           {ROWS.map((r) => <Row key={r.kind} days={days} person={tab} kind={r.kind} title={r.title} lastTitle={r.last} on={day} isToday={isToday} />)}
-          <div className={height ? "min-h-[200px] flex-1" : "h-[300px]"}><OverviewChart points={points} /></div>
+          <div className={height ? "min-h-[320px] flex-1" : "h-[360px]"}><OverviewChart points={points} /></div>
         </div>
       )}
     </div>
