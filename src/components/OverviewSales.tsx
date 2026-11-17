@@ -71,13 +71,10 @@ function Bar({ label, now, last, nowLabel }: { label: string; now: number; last:
           {up ? "▲" : "▼"} {inrShort(Math.abs(now - last))} {up ? "more" : "less"}{c !== null && ` · ${Math.abs(c)}%`}
         </p>
       </div>
-      <div className="mt-2 space-y-1.5" aria-hidden>
-        {([[nowLabel, now, up ? "bg-low" : "bg-high"], ["Last year", last, "bg-muted/45"]] as const).map(([k, v, cl]) => (
-          <div key={k} className="flex items-center gap-2 text-[11.5px] text-muted">
-            <span className="w-20 shrink-0 truncate">{k}</span>
-            <span className="h-2.5 flex-1 rounded-full bg-line"><span className={`block h-full rounded-full ${cl}`} style={{ width: w(v) }} /></span>
-          </div>
-        ))}
+      {/* One bar: this period only (owner: no last-year bar), scaled to the larger of the two */}
+      <div className="mt-2 flex items-center gap-2 text-[11.5px] text-muted" aria-hidden>
+        <span className="w-20 shrink-0 truncate">{nowLabel}</span>
+        <span className="h-2.5 flex-1 rounded-full bg-line"><span className={`block h-full rounded-full ${up ? "bg-low" : "bg-high"}`} style={{ width: w(now) }} /></span>
       </div>
     </div>
   );
