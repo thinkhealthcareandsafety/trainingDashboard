@@ -21,7 +21,7 @@ import { QuizReportLauncher } from "./QuizReport";
  */
 type Me = { email: string; name: string };
 type Training = { id: string; number: string; customer: string; date: string; lines: { name: string; description: string; qty: number }[]; quote: QuoteSheet; expected: number; stamp: string; proposal: Proposal | null; history: Proposal[]; joinKey: string; registered: number; confirmedAt: string | null; locked: boolean; rejected: { at: string; reason: string } | null;
-  dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; finishedOn: string | null; attendKey: string; window: DayWindow; attended: number;
+  dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null; finishedOn: string | null; closedAt: string | null; attendKey: string; window: DayWindow; attended: number;
   quiz: { title: string; state: "none" | "open" | "closed" | "revealed" } | null; session: { startedAt: string; endedAt: string | null } | null; sessions: { day: string; startedAt: string; endedAt: string | null }[];
   selfPrompt: "self" | "team" | null; me: { th: string; token: string } | null; self: { name: string; phone: string; email: string };
   officialCerts: { th: string; name: string; certNo: string; downloadedAt: string | null }[] | null };
@@ -218,7 +218,16 @@ function Trainings({ list, focus }: { list: Training[]; focus?: string }) {
     <section className="pb-14 pt-9 sm:pb-16 sm:pt-11" aria-labelledby="trainings">
       <h2 id="trainings" className="text-[26px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[32px]">Your trainings</h2>
       {list.length ? (
-        <div className="mt-5 space-y-4">{list.map((t) => <TrainingPanel key={t.id} t={t} focused={t.number === focus} />)}</div>
+        <div className="mt-5 space-y-4">
+          {[...list].sort((a, b) => Number(Boolean(a.closedAt)) - Number(Boolean(b.closedAt))).map((t, i, all) => (
+            <div key={t.id}>
+              {t.closedAt && !all[i - 1]?.closedAt && <p className="mb-3 mt-8 text-[15px] font-bold text-muted">Closed trainings</p>}
+              {/* A new quotation waiting for them (owner, 17 Nov): first, with a star. */}
+              {!t.proposal && !t.rejected && <p className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-navy px-3 py-1 text-[13px] font-bold text-white"><span aria-hidden>⭐</span>New training</p>}
+              <TrainingPanel t={t} focused={t.number === focus} />
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="mt-5 rounded-2xl bg-surface px-6 py-10 text-center ring-1 ring-line">
           <p className="text-[17px] font-bold text-ink">Your trainings will appear here.</p>
@@ -239,6 +248,17 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const [openTab, setOpenTab] = useState<{ tab: "type" | "excel"; n: number } | undefined>(undefined);
   const [attendKey, setAttendKey] = useState(t.attendKey);
   const [live, setLive] = useState<Live>({ present: 0, total: t.registered });
+  // A closed training opens on a click (owner, 17 Nov); the link that named it opens it too.
+  const [expanded, setExpanded] = useState(focused);
+  const closeIt = async () => {
+    if (!t.closedAt) {
+      const r = await act<{ closedAt?: string }>({ action: "close", id: t.id });
+      if (!r.closedAt) return;
+      setT((x) => ({ ...x, closedAt: r.closedAt! }));
+    }
+    setExpanded(false);
+    setTimeout(() => document.getElementById(`training-${t.number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" }), 60);
+  };
   // A fresh copy from the live refresh: taken in, except while they're filling in Accept / Decline (their form stays).
   useEffect(() => {
     if (editing || declining) return;
@@ -302,6 +322,19 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
     </div>
   );
   return (
+    t.closedAt && !expanded ? (
+      // Closed (owner, 17 Nov): one line with the training date and the quotation number; a click opens everything again.
+      <button type="button" id={`training-${t.number}`} onClick={() => setExpanded(true)} className="flex w-full scroll-mt-6 items-center gap-4 rounded-2xl bg-surface px-5 py-4 text-left ring-1 ring-line transition hover:ring-navy/40 sm:px-6">
+        <SignTile sign={sign} size={40} />
+        <span className="min-w-0 flex-1">
+          <span className="num block text-[17px] font-extrabold leading-tight text-ink">{fmtDate(t.finishedOn ?? t.dates[0]?.date ?? t.date)} · {t.number}</span>
+          <span className="mt-0.5 block truncate text-[14px] text-ink-2">{title}{t.customer ? ` · ${t.customer}` : ""}</span>
+        </span>
+        <span className="hidden shrink-0 items-center gap-1.5 text-[13.5px] font-semibold text-ink-2 sm:inline-flex"><span className="grid size-5 place-items-center rounded-full bg-ok text-white" aria-hidden><svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3l2.3 2.3L9.5 3.8" /></svg></span>Completed</span>
+        <svg viewBox="0 0 16 16" width="16" height="16" className="shrink-0 text-action" aria-hidden><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <span className="sr-only">Open</span>
+      </button>
+    ) :
     <article id={`training-${t.number}`} className={`scroll-mt-6 overflow-hidden rounded-2xl bg-surface ring-1 ${focused || onTheDay ? "ring-2 ring-navy" : "ring-line"}`}>
       <div className="border-b border-line p-5 sm:p-7">
         <div className="flex items-start gap-4 sm:gap-5">
@@ -340,7 +373,7 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
             <RejectForm id={t.id} onCancel={() => setDeclining(false)} onDone={(reason) => { setT({ ...t, stamp: "Rejected", rejected: { at: new Date().toISOString(), reason } }); setDeclining(false); setPeople(false); }} />
           </>
         ) : t.proposal && t.confirmedAt ? (
-          <ConfirmedView t={t} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} onChanged={reload} people={peopleBlock} folded={folded} onDetails={() => setDetails((x) => !x)} detailsOpen={started && details} />
+          <ConfirmedView t={t} onCloseTraining={closeIt} p={t.proposal} title={title} live={live} attendKey={attendKey} onNewKey={setAttendKey} onTheDay={onTheDay} onChanged={reload} people={peopleBlock} folded={folded} onDetails={() => setDetails((x) => !x)} detailsOpen={started && details} />
         ) : t.proposal ? (
           <>
             <ProposalView p={t.proposal} history={t.history} expected={t.expected} />
@@ -568,7 +601,7 @@ function ConfirmedDetails({ t, p, title }: { t: Training; p: Proposal; title: st
   );
 }
 
-function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people, folded = false, onDetails, detailsOpen = false }: { t: Training; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode; folded?: boolean; onDetails?: () => void; detailsOpen?: boolean }) {
+function ConfirmedView({ t, onCloseTraining, p, title, live, attendKey, onNewKey, onTheDay, onChanged, people, folded = false, onDetails, detailsOpen = false }: { t: Training; onCloseTraining?: () => void; p: Proposal; title: string; live: Live; attendKey: string; onNewKey: (k: string) => void; onTheDay: boolean; onChanged: () => void; people: React.ReactNode; folded?: boolean; onDetails?: () => void; detailsOpen?: boolean }) {
   // Once over, the participant list folds away too (owner, 17 Nov: "hide this too").
   const [peopleOpen, setPeopleOpen] = useState(false);
   const toggle = onDetails && (folded || detailsOpen) ? (
@@ -586,7 +619,7 @@ function ConfirmedView({ t, p, title, live, attendKey, onNewKey, onTheDay, onCha
     return (
       <>
         <ThanksMoment t={t} title={title} />
-        {t.quiz && t.quiz.state !== "none" ? <Results id={t.id} quiz={t.quiz} done training={title} certs={<FinishedCerts t={t} />} /> : <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training completed</h4>}
+        {t.quiz && t.quiz.state !== "none" ? <Results id={t.id} quiz={t.quiz} done training={title} certs={<FinishedCerts t={t} />} action={onCloseTraining && <CloseTraining closed={Boolean(t.closedAt)} onClick={onCloseTraining} />} /> : <div className="flex flex-wrap items-center justify-between gap-3"><h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training completed</h4>{onCloseTraining && <CloseTraining closed={Boolean(t.closedAt)} onClick={onCloseTraining} />}</div>}
         <div className="mt-7"><TrainingReport t={t} /></div>
         <div className="mt-7 border-t border-line pt-6">
           <button type="button" onClick={() => setPeopleOpen((x) => !x)} aria-expanded={peopleOpen} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13.5px] font-semibold text-action ring-1 ring-inset ring-action/30 transition hover:bg-action/5">
@@ -868,7 +901,7 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
  * `done` (the training is over): the certificates and the quiz report come first, then the figures and the leaderboard,
  * which the coordinator can share on WhatsApp.
  */
-function Results({ id, quiz, report = false, done = false, training = "", certs }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean; done?: boolean; training?: string; certs?: React.ReactNode }) {
+function Results({ id, quiz, report = false, done = false, training = "", certs, action }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean; done?: boolean; training?: string; certs?: React.ReactNode; action?: React.ReactNode }) {
   const [r, setR] = useState<QuizResults | null>(null);
   // Owner, 17 Nov: each new pass pops a note top right (name, score, time); the first load only remembers who had passed.
   const passedSeen = useRef<Set<string> | null>(null);
@@ -940,7 +973,10 @@ function Results({ id, quiz, report = false, done = false, training = "", certs 
     return (
       <section aria-label="Training completed">
         {notes}
-        <h4 className="text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[28px]">Training completed</h4>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[28px]">Training completed</h4>
+          {action}
+        </div>
         <p className="mt-1.5 max-w-[62ch] text-[15px] leading-relaxed text-ink-2">
           {list.length === 0 ? "Thank you for organising it with us." : <>Everyone who passed gets a thank-you email with their Good Samaritan certificate: <b className="num text-ink">{emailed} of {list.length}</b> sent{noEmail ? <>; <span className="num">{noEmail}</span> {noEmail === 1 ? "has" : "have"} no email yet and can add it on their page</> : ""}.</>}
         </p>
@@ -1020,6 +1056,11 @@ function PassToast({ t, onDone }: { t: { name: string; pct: number; seconds: num
       </span>
     </button>
   );
+}
+
+/** Close training (owner, 17 Nov): folds the whole panel to one line; once closed, it just folds it again. */
+function CloseTraining({ closed, onClick }: { closed: boolean; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className={secondaryBtn}>{closed ? "Fold it away" : "Close training"}</button>;
 }
 
 /** "3m 10s". */

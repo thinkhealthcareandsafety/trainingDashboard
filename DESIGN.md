@@ -327,6 +327,8 @@ Present people with no score yet sit under the ranked rows by name only: a line-
 
 The quiz report (full screen) uses the whole width (no max width; 32–48px side padding, 20–24px gaps); Hardest first is as tall as the heatmap beside it and scrolls only past that.
 
+**Close training (owner, 17 Nov):** beside the "Training completed" heading, a secondary **Close training**. It folds the whole panel to one line and moves it under a quiet "Closed trainings" label (15px bold muted) below the open ones: the sign tile at 40px, "16 Nov 2026 · Quotation-24-002819" (17px extra-bold tabular), the training and customer under it, a small `ok` check with "Completed", a chevron. A click opens everything again (certificates downloadable as before); the button then reads **Fold it away**. A new quotation still to decide sits first with a navy pill above its panel: "⭐ New training" (13px bold white).
+
 Leaderboard rows (everywhere, owner 17 Nov): rank, name, TH number and Passed / First Aid Badge / Not passed in muted; on the right the percentage (16px extra-bold) over the time ("3m 11s", 12.5px muted). No re-takes, no points. On the participant's quiz board the score cell reads "90% 4m 14s".
 
 ### Certificates for the coordinator (owner, 16 Nov)

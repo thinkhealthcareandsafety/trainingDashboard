@@ -4,7 +4,7 @@ import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { attendCookieName, attendanceWindow, currentDates, datesFromBoard, presentByDay, readAttendCookie, registrationOpen, tickableDay } from "@/lib/attendanceRules";
 import { indiaToday } from "@/lib/portalRules";
-import { attendIdentify, attendInfo, attendPresent, attendRegister, join, joinInfo, markConfirmed, markZohoConfirmed, newAttendKey, participantPage, participantQuiz, participants, quizStart, removePerson, staffParticipants, staffPortal, startTraining, endTraining, tick, trainingsFor, addPeople } from "@/lib/portalTrainings";
+import { attendIdentify, attendInfo, attendPresent, attendRegister, join, joinInfo, markConfirmed, markZohoConfirmed, newAttendKey, participantPage, participantQuiz, participants, quizStart, removePerson, staffParticipants, staffPortal, startTraining, endTraining, tick, trainingsFor, addPeople, closeTraining } from "@/lib/portalTrainings";
 import { GET as attendGet, POST as attendPost } from "@/app/api/portal/attend/route";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -272,4 +272,19 @@ test("owner, 16 Nov: \"You\" only when they added themselves; their number typed
   assert.ok("list" in list);
   const row = list.list.find((p) => p.th === me.th);
   assert.deepEqual([row?.name, row?.source, list.list.filter((p) => p.phone === "9800000000").length], ["Riya Mehta", "coordinator", 1]);
+});
+
+test("owner, 17 Nov: a training that is over can be closed; it then lists after the open ones", async () => {
+  const today = indiaToday();
+  await seed([today]);
+  await confirm();
+  assert.equal(((await closeTraining(RIYA, "1")) as { status: number }).status, 409); // not over yet
+  await startTraining(RIYA, "1");
+  await endTraining(RIYA, "1");
+  const [t] = await trainingsFor(RIYA);
+  assert.equal(t.finishedOn, today);
+  const c = await closeTraining(RIYA, "1");
+  assert.ok("closedAt" in c);
+  assert.equal((await trainingsFor(RIYA))[0].closedAt, c.closedAt);
+  assert.equal(((await closeTraining("someone@else.com", "1")) as { status: number }).status, 404);
 });

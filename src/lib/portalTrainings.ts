@@ -44,6 +44,8 @@ export type TrainingDoc = {
   sessions?: Session[];
   /** The coordinator was asked once, after Mark confirmed, to register themselves (owner, 16 Nov): when, and their TH (null = skipped). */
   selfAsk?: { at: string; th: string | null };
+  /** The coordinator closed it once it was over (owner, 17 Nov): it folds to one line under the newer ones. */
+  closedAt?: string;
   /** …then to get their team registered: when they answered. */
   teamAskedAt?: string;
 };
@@ -166,6 +168,8 @@ export type PortalTraining = {
   dates: ProposalDate[]; datesWas: ProposalDate[] | null; tbd: boolean; trainers: string[]; completedAt: string | null;
   /** The day it was over (owner, 17 Nov: the last step "Training completed"): Completed on the board, the last day ended, or passed. */
   finishedOn: string | null;
+  /** Closed by the coordinator after it was over: one line, at the bottom, opens on a click. */
+  closedAt: string | null;
   /** The fixed attendance QR's key (confirmed trainings only, else ""); where attendance stands today; how many came. */
   attendKey: string; window: DayWindow; attended: number;
   /** The training's quiz (CPR / AED trainings) and where it stands: open only while a session runs (owner, 13 Nov). */
@@ -214,6 +218,7 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       rejected: t.rejected ? { at: t.rejected.at, reason: t.rejected.reason } : x.status === "declined" && !t.confirmed ? { at: "", reason: "" } : null,
       dates: cur.dates, datesWas: cur.was, tbd: cur.tbd, trainers: cur.trainers, completedAt: cur.completedAt,
       finishedOn: t.confirmed?.zohoAt ? finishedOn(daysOf(cur), indiaToday(), t.sessions, cur.completedAt) : null,
+      closedAt: t.closedAt ?? null,
       attendKey: qrOn ? attendKey : "", window: sessionWindow(daysOf(cur), indiaToday(), t.sessions), attended: presentByPerson(marks).size,
       session: (() => { const ss = (t.sessions ?? []).find((x) => x.day === indiaToday()); return ss ? { startedAt: ss.startedAt, endedAt: ss.endedAt ?? null } : null; })(),
       sessions: (t.sessions ?? []).map((s) => ({ day: s.day, startedAt: s.startedAt, endedAt: s.endedAt ?? null })).sort((a, b) => a.day.localeCompare(b.day)),
@@ -224,7 +229,8 @@ export async function trainingsFor(email: string): Promise<PortalTraining[]> {
       quiz: (() => { const qz = quizFor(x.lines.map((l) => l.name)); return qz ? { title: qz.title, state: quizState(daysOf(cur), indiaToday(), t.sessions) } : null; })(),
     });
   }
-  return out.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
+  // Open ones first (a new training on top), closed ones after (owner, 17 Nov); newest first within each.
+  return out.sort((a, b) => Number(Boolean(a.closedAt)) - Number(Boolean(b.closedAt)) || b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
 }
 
 /** The training, when this coordinator may act on it. */
@@ -356,6 +362,15 @@ export async function selfRegister(email: string, id: unknown, raw: unknown): Pr
   if (!doc) return { error: "This training's list is full.", status: 409 };
   await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { selfAsk: { at: new Date().toISOString(), th: doc._id } } });
   return { th: doc._id, token: doc.token };
+}
+/** Close a training that is over (owner, 17 Nov: "an option to close training … compacts it"). */
+export async function closeTraining(email: string, id: unknown): Promise<{ closedAt: string } | Fail> {
+  const t = await own(email, id);
+  if (!t) return notYours;
+  if (!t.confirmed?.zohoAt || !finishedOn(daysOf(await datesOf(t)), indiaToday(), t.sessions, (await datesOf(t)).completedAt)) return { error: "A training can be closed once it's over.", status: 409 };
+  const closedAt = t.closedAt ?? new Date().toISOString();
+  await (await trainingsCol()).updateOne({ _id: t._id }, { $set: { closedAt } });
+  return { closedAt };
 }
 export async function selfAnswer(email: string, id: unknown, which: "skip" | "team"): Promise<{ ok: true } | Fail> {
   const t = await own(email, id);
