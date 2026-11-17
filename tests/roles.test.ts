@@ -82,6 +82,15 @@ test("Anuj Agarwal (owner, 10 Nov: \"access to everything\"): full access, quote
   assert.deepEqual(boardsFor(anuj), ["training", "sales", "fire", "aed", "fulfil", "logistics"]);
 });
 
+test("Shikha has every permission (owner, 17 Nov): full access and every Admin power; Ashish does not get Admin's", async () => {
+  const { canRevert, hasFullAccess, isAdmin } = await import("@/lib/roles");
+  const shikha = { id: "m7", name: "Shikha Dixit" };
+  assert.equal(hasFullAccess(shikha), true);
+  assert.equal(isAdmin(shikha), true);
+  assert.equal(canRevert(shikha, { by: "Ashish" }), true); // anyone's, like Admin
+  assert.equal(isAdmin({ id: "m2", name: "Ashish Dalal" }), false);
+});
+
 test("the Progress tracker leaves out Admin and Anuj (owner, 10 Nov: \"remove this for him\"); everyone else stays", async () => {
   const { counts, offTracker } = await import("@/lib/progress/model");
   assert.equal(offTracker({ id: "admin", name: "Admin" }), true);

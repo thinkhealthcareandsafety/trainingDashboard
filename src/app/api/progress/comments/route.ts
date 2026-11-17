@@ -1,6 +1,7 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { withBump } from "@/lib/changes";
-import { type Comment, LIMITS, isAdminId, mentionsIn } from "@/lib/progress/model";
+import { type Comment, LIMITS, mentionsIn } from "@/lib/progress/model";
+import { isAdmin } from "@/lib/roles";
 import { commentsCol, fromDoc, newId, notify, requestsCol, team, touch } from "@/lib/progress/server";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +61,7 @@ export async function DELETE(request: Request) {
   const c = await commentsCol();
   const had = await c.findOne({ _id: id });
   if (!had) return Response.json({ ok: true });
-  if (had.byId !== me.id && !isAdminId(me.id)) return Response.json({ error: "Only its author or Admin can remove it" }, { status: 403 });
+  if (had.byId !== me.id && !isAdmin(me)) return Response.json({ error: "Only its author or Admin can remove it" }, { status: 403 });
   await c.updateOne({ _id: id }, { $set: { deletedAt: new Date().toISOString(), text: "" } }); // the words go; "removed" stays in its place
   return Response.json({ ok: true });
 }

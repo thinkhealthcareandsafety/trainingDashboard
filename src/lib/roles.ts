@@ -7,8 +7,8 @@ import type { CardEvent } from "./types";
  *   Arti      Logistics only — everything there (AED delivered / hide, merges, packing, shipping, notes)
  *   Shreya    Fulfillment only — everything there
  *   Pranjal   Sales only — everything there; also sends quotations (owner, 30 Oct)
- *   Ashish, Shikha, Sumit, Nikita   every board, every action
- *   Admin     everything; the only one who clears logs (Clear logs) or deletes log entries
+ *   Ashish, Sumit, Nikita   every board, every action
+ *   Admin, Shikha   everything (owner, 17 Nov: Shikha gets all permissions); the only ones who clear logs or delete log entries
  *   Prashant  no boards, no Follow-ups page "for now" (owner, 5 Nov); Overview, Calendar and Progress tracker stay
  *   Anyone else   Training board
  *
@@ -20,7 +20,8 @@ export type BoardKind = "training" | "sales" | "fire" | "aed" | "fulfil" | "logi
 type Who = { id: string; name: string };
 
 const named = (m: Who, re: RegExp) => re.test(m.name.trim());
-export const isAdmin = (m: Who) => m.id === "admin";
+/** Admin, and Shikha (owner, 17 Nov: "give Shikha all perms"): every Admin power too. */
+export const isAdmin = (m: Who) => m.id === "admin" || named(m, /^shikha\b/i);
 /** Ashish, Shikha, Sumit, Nikita, Anuj (owner, 10 Nov: "access to everything") and Admin: every board, every action. */
 export const hasFullAccess = (m: Who) => isAdmin(m) || named(m, /^(ashish|shikha|sumit|nikita|anuj)\b/i);
 /** Pranjal Nikalje (owner, 30 Oct): the Sales board and Quotations. */

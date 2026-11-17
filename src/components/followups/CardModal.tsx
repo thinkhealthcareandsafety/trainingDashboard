@@ -16,7 +16,7 @@ import { Avatar, IconButton, Segmented, btn, inputCls, selectCls } from "../ui";
 import { DaysPicker } from "./DaysPicker";
 import { StepTracker, trainingSteps } from "./Steps";
 import { celebrate } from "@/lib/confetti";
-import { canRevert } from "@/lib/roles";
+import { canRevert, isAdmin } from "@/lib/roles";
 
 export type BoardOptions = { typeOptions: string[]; sectorOptions: string[]; orgId?: string };
 type Cards = Map<string, CardView>;
@@ -1503,7 +1503,7 @@ export function NotesPanel({ card, member, heading, oneLine, children }: { card:
                   <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{n.text}</div>
                   <div className="mt-1 flex items-center justify-between gap-2 text-[11.5px] text-muted">
                     <span>{n.by} · {noteWhen(n.at)}</span>
-                    {(n.by === member.name || member.id === "admin") && <button className="font-medium hover:text-high" onClick={() => revertCardEvent(n.id, member.name)}>Remove</button>}
+                    {(n.by === member.name || isAdmin(member)) && <button className="font-medium hover:text-high" onClick={() => revertCardEvent(n.id, member.name)}>Remove</button>}
                   </div>
                 </li>
               ))}

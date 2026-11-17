@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Member } from "@/lib/types";
 import { type CardView, KIND_LABEL, cardLabel, FULFIL_LABEL, STAGE_RANK, buildAedBoard, fmtStamp, buildFulfillmentBoard, buildBoard, cardCustomers, cardDue, customerAliases, customerContacts, customerNameKeys, fmtMonth, isCustomerCard, mergeCandidates, peopleOf, zohoNotices } from "@/lib/pipeline";
 import { LOGI_COLUMN_LABEL, buildLogisticsBoard } from "@/lib/logistics";
-import { type BoardKind, boardsFor, hasFullAccess } from "@/lib/roles";
+import { type BoardKind, boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
 import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
@@ -925,7 +925,7 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {member.id === "admin" && <ClearLogs member={member} boardName={BOARD_LABEL[boardKind]} cards={(aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : logiMode ? logiBoard?.cards : salesMode ? salesBoard?.cards : undefined) ?? board.cards} />}
+          {isAdmin(member) && <ClearLogs member={member} boardName={BOARD_LABEL[boardKind]} cards={(aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : logiMode ? logiBoard?.cards : salesMode ? salesBoard?.cards : undefined) ?? board.cards} />}
           <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
             <Avatar name={member.name} />
             <span className="font-medium text-ink">{member.name}</span>

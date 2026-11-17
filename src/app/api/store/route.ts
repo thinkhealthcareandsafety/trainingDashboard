@@ -121,7 +121,7 @@ async function handlePOST(request: Request) {
   if (!me) return unauthorized();
   const body = (await request.json()) as { collection: CollectionName; upserts?: Doc[]; deletes?: string[] };
   if (!COLLECTIONS.includes(body.collection)) return Response.json({ error: "Unknown collection" }, { status: 400 });
-  const admin = me.id === "admin";
+  const admin = isAdmin(me);
   if (body.collection === "members" && !admin) return Response.json({ error: "Only Admin manages members" }, { status: 403 });
   let upserts = (body.upserts ?? []).filter((x) => typeof x?.id === "string");
   let deletes = (body.deletes ?? []).filter((x) => typeof x === "string");
