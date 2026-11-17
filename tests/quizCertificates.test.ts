@@ -106,7 +106,8 @@ test("a fail tries again while the training runs; a pass is final; the thank-you
   assert.ok("leaderboard" in res);
   assert.deepEqual(res.leaderboard.map((b) => [b.name, b.pct, b.tries]), [["Asha Rao", 100, 1], ["Vikram Shah", 80, 2], ["Meera Iyer", 66.7, 2]]);
   assert.deepEqual(res.certificates.list.map((c) => [c.name, c.certNo]), [["Asha Rao", `FAT-OD/${today.split("-").reverse().join("-")}/TH001`], ["Vikram Shah", `FAT-OD/${today.split("-").reverse().join("-")}/TH002`]]);
-  assert.ok(await participantCertificate("QT-1", "TH001", asha)); // the download works as soon as they pass
+  assert.ok(await participantCertificate("QT-1", "TH001", asha)); // made as soon as they pass (it reaches them only by email, owner 17 Nov)
+  assert.equal((await (await import("@/app/api/portal/certificate/route")).GET()).status, 410); // no download from their page
 
   // Vikram gives his email before the end: it just waits (everyone gets theirs when the training ends).
   const early = await saveParticipantEmail("QT-1", "TH002", vikram, "early@grand.com");

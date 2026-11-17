@@ -39,7 +39,7 @@ export const CERT_VARS = ["name", "training", "score", "link", "certno", "report
 export const CERT_TEMPLATE = {
   id: "certificate", label: "Thank-you email with the certificate (after the training)",
   subject: "Thank you for attending · {training}",
-  body: "Dear {name},\n\nThank you for attending {training} with Think Health.\n\nYou passed the quiz with {score}. Your Good Samaritan certificate ({certno}) is attached.{report}\n\nYour certificate and your report are on your page any time:\n{link}\n\nWarm regards,\nThink Health Training Team",
+  body: "Dear {name},\n\nThank you for attending {training} with Think Health.\n\nYou passed the quiz with {score}. Your Good Samaritan certificate ({certno}) is attached.{report}\n\nYour report is on your page any time:\n{link}\n\nWarm regards,\nThink Health Training Team",
   note: "Sent from learn@thinkhealth.in to each person who passed, when the training ends (or when they add their email after it), with their Good Samaritan certificate as a PDF. {certno} is its number (IAGS-SN/…). {report} adds \" Your quiz report is attached too.\" when they hadn't saved their report themselves (it is then attached).",
 };
 /** {report}: said only when their report goes with the email (owner, 17 Nov). */

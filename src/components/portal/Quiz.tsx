@@ -281,13 +281,12 @@ function CertificateCard({ c, over, number, th, token, onSaved }: { c: Certifica
     setEditing(false); setEmail("");
     onSaved();
   };
-  const href = `/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(token)}`;
   const askEmail = !c.emailedAt && (!c.email || editing);
-  // Owner, 17 Nov: it goes by email with a thank-you when the training ends.
-  const text = c.emailedAt ? <>We&apos;ve emailed it to <b>{c.email}</b> with our thanks. You can also download it here.</>
-    : c.email && over ? <>It&apos;s on its way to <b>{c.email}</b>. You can also download it here.</>
-    : c.email ? <>It goes to <b>{c.email}</b> with a thank-you when the training ends. You can also download it here.</>
-    : <>Download it here, or tell us where to email it.</>;
+  // Owner, 17 Nov: it comes only by email, with a thank-you, when the training ends (no download here).
+  const text = c.emailedAt ? <>We&apos;ve emailed it to <b>{c.email}</b> with our thanks.</>
+    : c.email && over ? <>It&apos;s on its way to <b>{c.email}</b>.</>
+    : c.email ? <>It comes by email to <b>{c.email}</b>, with a thank-you, when the training ends.</>
+    : <>It comes by email. Tell us where to send it.</>;
   return (
     <div className="qz-card">
       <h3 className="qz-board-title">Your Good Samaritan certificate</h3>
@@ -301,7 +300,6 @@ function CertificateCard({ c, over, number, th, token, onSaved }: { c: Certifica
       )}
       {error && <p className="qz-error" style={{ marginTop: 10 }} role="alert"><Warn /><span>{error}</span></p>}
       <div className="qz-actions">
-        {c.ready && <a className="qz-btn qz-btn-primary" href={href} download>Download certificate</a>}
         {!c.emailedAt && c.email && !editing && <button type="button" className="qz-btn qz-btn-ghost" onClick={() => setEditing(true)}>Use another email</button>}
       </div>
       {c.certNo && <p className="qz-note tabular">Certificate no. {c.certNo}</p>}

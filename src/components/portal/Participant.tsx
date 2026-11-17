@@ -201,7 +201,7 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
           </div>
         </section>
         {/* The quiz card (owner, 16 Nov: "where is the quiz"): on every CPR / AED / BLS / First Aid training, confirmed or not. */}
-        {quiz && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} onReport={(save) => setReport(save ? "save" : "view")} certHref={`/api/portal/certificate?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`} />}
+        {quiz && <QuizPanel q={quiz} onOpen={() => openQuiz(true)} onReport={(save) => setReport(save ? "save" : "view")} />}
         {page.confirmed && page.dates.length > 0 && <Attendance dates={page.dates} present={page.present ?? []} />}
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen. Show your number, {page.th}, on the day.</p>
         {withVideo.length > 0 && <div className="pb-4"><Programmes list={withVideo} title="Watch before you come" /></div>}
@@ -239,7 +239,7 @@ function Attendance({ dates, present }: { dates: ProposalDate[]; present: string
  * Owner, 14 Nov: after a fail, Try again while it runs; after a pass, the certificate (owner, 16 Nov: emailed the moment they pass,
  * the training, and downloadable here).
  */
-function QuizPanel({ q, onOpen, onReport, certHref }: { q: QuizInfo; onOpen: () => void; onReport: (save: boolean) => void; certHref: string }) {
+function QuizPanel({ q, onOpen, onReport }: { q: QuizInfo; onOpen: () => void; onReport: (save: boolean) => void }) {
   const r = q.result;
   const c = q.certificate;
   const going = q.startedAt && q.state === "open";
@@ -261,13 +261,12 @@ function QuizPanel({ q, onOpen, onReport, certHref }: { q: QuizInfo; onOpen: () 
           {c.emailedAt ? <>Your certificate was emailed to <b className="break-all text-ink">{c.email}</b> with our thanks.</>
             : c.email && q.state === "revealed" ? <>Your certificate is on its way to <b className="break-all text-ink">{c.email}</b>.</>
             : c.email ? <>Your certificate goes to <b className="break-all text-ink">{c.email}</b> with a thank-you when the training ends.</>
-            : <>Your certificate is ready. To get it by email, open <b className="text-ink">See results</b> and add your email.</>}
+            : <>Your certificate comes by email. Open <b className="text-ink">See results</b> and add your email.</>}
         </p>
       )}
       {(action || c?.ready || r) && (
         <div className="mt-4 flex flex-wrap gap-3">
           {action && <button type="button" className={`${strong ? primaryBtn : secondaryBtn} ${strong ? "h-12 w-full text-[16px]" : ""}`} onClick={onOpen}>{action}</button>}
-          {c?.ready && <a className={primaryBtn} href={certHref} download>Download certificate</a>}
           {/* Their own report (owner, 16 Nov), once they've sent their answers. */}
           {r && !going && <button type="button" className={secondaryBtn} onClick={() => onReport(false)}>View my report</button>}
           {r && !going && <button type="button" className={secondaryBtn} onClick={() => onReport(true)}>Download report</button>}
