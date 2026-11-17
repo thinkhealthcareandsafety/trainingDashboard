@@ -88,6 +88,58 @@ export function yearSoFar(days: DaySums, person: string, today: string): { day: 
   };
 }
 
+/*
+ * Against last year (owner, 17 Nov): today / this week / this month as they stand against last financial year's average
+ * day / week / month (its total ÷ its days, ÷ its days/7, ÷ 12); the year so far against the same days of last FY. Each
+ * side has quotations sent, invoiced, and the conversion (invoiced ÷ quotations, %).
+ */
+export type Side = { quoted: number; invoiced: number; conversion: number | null };
+export type VsLastYear = { kind: Exclude<Period, "custom">; now: Side; last: Side; label: string; daysIn: number; daysTotal: number };
+
+const side = (quoted: number, invoiced: number): Side => ({ quoted, invoiced, conversion: quoted > 0 ? Math.round((invoiced / quoted) * 100) : null });
+
+export function vsLastYear(days: DaySums, person: string, kind: Exclude<Period, "custom">, on: string): VsLastYear {
+  const d = parse(on);
+  const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  const lastFrom = `${y - 1}-04-01`, lastTo = `${y}-03-31`;
+  const lastDays = daysBetween(lastFrom, lastTo) + 1;
+  const span = periods(kind, on);
+  const n = sum(days, person, span.now.from, span.now.to);
+  let last: { quoted: number; invoiced: number };
+  if (kind === "year") last = sum(days, person, span.before.from, span.before.to);
+  else {
+    const t = sum(days, person, lastFrom, lastTo);
+    const share = kind === "day" ? 1 / lastDays : kind === "week" ? 7 / lastDays : 1 / 12;
+    last = { quoted: Math.round(t.quoted * share), invoiced: Math.round(t.invoiced * share) };
+  }
+  const daysIn = daysBetween(span.now.from, span.now.to) + 1;
+  const daysTotal = kind === "day" ? 1 : kind === "week" ? 7 : kind === "month" ? new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() : daysBetween(`${y}-04-01`, `${y + 1}-03-31`) + 1;
+  return { kind, now: side(n.quoted, n.invoiced), last: side(last.quoted, last.invoiced), label: span.now.label, daysIn, daysTotal };
+}
+
+/** The story of one row in plain lines (owner: "what was more then, is less now, the conversion is less…"). */
+export function remarks(v: VsLastYear, nowWord: string): string[] {
+  const lastWord = { day: "an average day last year", week: "an average week last year", month: "an average month last year", year: "the same days last year" }[v.kind];
+  const lines: string[] = [];
+  const say = (what: string, a: number, b: number) => {
+    if (!a && !b) return lines.push(`No ${what.toLowerCase()} ${nowWord}, and ${lastWord} had none either.`);
+    if (!a) return lines.push(`No ${what.toLowerCase()} ${nowWord} yet; ${lastWord} had ${inrShort(b)}.`);
+    if (!b) return lines.push(`${what}: ${inrShort(a)} ${nowWord}; ${lastWord} had none.`);
+    const c = change(a, b)!;
+    if (c === 0) return lines.push(`${what}: ${inrShort(a)} ${nowWord}, the same as ${lastWord}.`);
+    lines.push(`${what}: ${inrShort(a)} ${nowWord}, ${Math.abs(c)}% ${c > 0 ? "more" : "less"} than ${lastWord} (${inrShort(b)}).`);
+  };
+  say("Quotations sent", v.now.quoted, v.last.quoted);
+  say("Invoiced", v.now.invoiced, v.last.invoiced);
+  const a = v.now.conversion, b = v.last.conversion;
+  if (a !== null && b !== null) {
+    lines.push(a === b ? `For every ₹100 quoted, ₹${a} was invoiced, the same as last year.` : `For every ₹100 quoted, ₹${a} was invoiced, against ₹${b} last year: conversion is ${a > b ? "better" : "worse"}.`);
+  }
+  const behind = v.now.quoted < v.last.quoted || v.now.invoiced < v.last.invoiced;
+  if (behind && v.kind !== "day" && v.kind !== "year" && v.daysIn < v.daysTotal) lines.push(`Only ${v.daysIn} of ${v.daysTotal} days have gone, so there is still time to catch up.`);
+  return lines;
+}
+
 /** The change against the other value, as a signed % (null when there's nothing to compare with). */
 export const change = (now: number, before: number): number | null => (before > 0 ? Math.round(((now - before) / before) * 100) : null);
 

@@ -1,6 +1,10 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Last updated: Tue 17 Nov 2026 (end of session 30). **Live = `d330aac`** on work.thinkhealth.in, training.thinkhealth.in and
+_Session 31 (17 Nov): **live = `79c0aa7`** (Overview person tabs). Then, local: the Overview rows against last year (Daily / Weekly /
+Monthly / Yearly: this period vs last FY's average day / week / month, the year vs the same days; conversion; two bars; Remarks).
+The FY-so-far block and Pick dates were dropped (owner)._
+
+_Last updated: Tue 17 Nov 2026 (end of session 30). **Was live = `d330aac`** on work.thinkhealth.in, training.thinkhealth.in and
 training-dashboard-xfwl.vercel.app (Vercel `-xfwl` success; the owner said to ignore the other Vercel project). After it, **local and
 not pushed**: `9708e52` (a "this year" period for the Overview), this handoff (`2781795`) and `771e157` (`scripts/cdp-shot.mjs`). Written for the next Claude Code session, and for the
 owner (Sumit)._

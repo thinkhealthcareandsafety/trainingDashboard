@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { change, daySums, inrShort, periods, personKey, sum, yearSoFar } from "@/lib/overviewMath";
+import { change, daySums, inrShort, periods, personKey, remarks, sum, vsLastYear, yearSoFar } from "@/lib/overviewMath";
 
 // The new Overview (owner, 16 Nov sketch): quotes sent and invoiced per day, periods against the one before, the FY so far.
 const row = (kind: string, date: string, total: number, sp: string, status = "sent") => ({ _id: `${kind}:${date}:${total}`, kind, date, row: { date, total, salesperson_name: sp, status } });
@@ -43,4 +43,37 @@ test("this year: the financial year so far against the same days of the last one
   assert.deepEqual([y.now.from, y.now.to, y.before.from, y.before.to], ["2026-04-01", "2026-11-16", "2025-04-01", "2025-11-16"]);
   const jan = periods("year", "2027-01-10");
   assert.deepEqual([jan.now.from, jan.before.from, jan.before.to], ["2026-04-01", "2025-04-01", "2026-01-10"]);
+});
+
+test("against last year: today, this week, this month vs last FY's average day / week / month; the year vs the same days; conversion", () => {
+  // Last FY (Apr 2025 – Mar 2026, 365 days): ₹3,65,000 quoted and ₹1,82,500 invoiced in all → ₹1,000 / ₹500 a day.
+  const days: Record<string, Record<string, [number, number]>> = { "2025-06-01": { all: [365_000, 182_500] }, "2025-11-10": { all: [0, 0] } };
+  days["2026-11-16"] = { all: [2000, 500] };
+  days["2026-11-17"] = { all: [1500, 900] };
+  const day = vsLastYear(days, "all", "day", "2026-11-17");
+  assert.deepEqual(day.now, { quoted: 1500, invoiced: 900, conversion: 60 });
+  assert.deepEqual(day.last, { quoted: 1000, invoiced: 500, conversion: 50 });
+  const week = vsLastYear(days, "all", "week", "2026-11-17"); // Mon 16 – Tue 17
+  assert.deepEqual(week.now, { quoted: 3500, invoiced: 1400, conversion: 40 });
+  assert.deepEqual(week.last, { quoted: 7000, invoiced: 3500, conversion: 50 });
+  assert.equal(week.daysIn, 2);
+  const month = vsLastYear(days, "all", "month", "2026-11-17");
+  assert.deepEqual(month.last, { quoted: Math.round(365_000 / 12), invoiced: Math.round(182_500 / 12), conversion: 50 });
+  assert.equal(month.daysTotal, 30);
+  const year = vsLastYear(days, "all", "year", "2026-11-17"); // 1 Apr – 17 Nov vs 1 Apr – 17 Nov 2025: holds the June row
+  assert.deepEqual(year.last, { quoted: 365_000, invoiced: 182_500, conversion: 50 });
+  assert.equal(vsLastYear({}, "sumit", "day", "2026-11-17").now.conversion, null);
+});
+
+test("remarks: plain lines on what went up or down, the conversion, and time left to catch up", () => {
+  const days: Record<string, Record<string, [number, number]>> = { "2025-06-01": { all: [365_000, 182_500] }, "2026-11-16": { all: [2000, 500] }, "2026-11-17": { all: [1500, 900] } };
+  assert.deepEqual(remarks(vsLastYear(days, "all", "day", "2026-11-17"), "today"), [
+    "Quotations sent: ₹1,500 today, 50% more than an average day last year (₹1,000).",
+    "Invoiced: ₹900 today, 80% more than an average day last year (₹500).",
+    "For every ₹100 quoted, ₹60 was invoiced, against ₹50 last year: conversion is better.",
+  ]);
+  const w = remarks(vsLastYear(days, "all", "week", "2026-11-17"), "this week");
+  assert.equal(w[0], "Quotations sent: ₹3,500 this week, 50% less than an average week last year (₹7,000).");
+  assert.equal(w.at(-1), "Only 2 of 7 days have gone, so there is still time to catch up.");
+  assert.equal(remarks(vsLastYear({}, "sumit", "day", "2026-11-17"), "today")[0], "No quotations sent today, and an average day last year had none either.");
 });
