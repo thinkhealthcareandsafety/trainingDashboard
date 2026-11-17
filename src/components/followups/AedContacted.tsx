@@ -194,6 +194,7 @@ function History({ card, onClose }: { card: CardView; onClose: () => void }) {
   const o = card.outreach!;
   const rows = [
     ...o.calls.map((c, i) => ({ at: c.at, text: `Call ${i + 1} · ${c.to}${c.person ? ` (${c.person})` : ""}`, by: c.by })),
+    ...(o.rejected ?? []).map((c, i) => ({ at: c.at, text: `Rejected call ${i + 1} · ${c.to}${c.person ? ` (${c.person})` : ""}`, by: c.by })),
     ...o.sent.map((m, i) => ({ at: m.at, text: `Email ${i + 1} · ${m.marked ? "sent from Zoho Mail (marked)" : aedMailStep(m.step)}${m.to ? ` · ${m.to}` : ""}`, by: m.by })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
@@ -274,6 +275,13 @@ export function ContactedSection({ card, member, onShowReply, title = "Contacted
     toast({ text: `Call ${o.calls.length + 1} logged · ${current.value}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
   };
 
+  // A call the customer rejected (owner, 17 Nov): its own count, not a call.
+  const logRejected = () => {
+    if (!current) return;
+    const [ev] = addCardEvents([{ cardIds: [card.id, aedCustomerId(card.customerId)], ref: card.customerId, kind: "aed_call_rejected", value: current.value, person: current.person, by: member.name }]);
+    toast({ text: `Rejected call ${(o.rejected?.length ?? 0) + 1} logged · ${current.value}`, actionLabel: "Undo", onAction: () => revertCardEvent(ev.id, member.name) });
+  };
+
   // An email she sent from Zoho Mail herself (owner, 28 Oct 2026): +1 on the count, like a logged call. Nothing is sent.
   const markSent = () => {
     const [ev] = addCardEvents([{ cardIds: [card.id], kind: "aed_email_marked", value: o.email, by: member.name }]);
@@ -310,7 +318,7 @@ export function ContactedSection({ card, member, onShowReply, title = "Contacted
         // "All calls & emails" sits up here: under Send email it wrapped onto a line of its own and the modal scrolled.
         <span className="flex min-w-0 items-center gap-2 text-[12px] text-muted">
           {o.inProcess && <span className="truncate">In process · {o.inProcess.by.split(" ")[0]}, {fmtStamp(o.inProcess.at)}</span>}
-          {(o.calls.length > 0 || o.sent.length > 0) && <button className={`${btn.quiet} !h-7 shrink-0`} onClick={() => setHistory(true)}>All calls &amp; emails</button>}
+          {(o.calls.length > 0 || o.sent.length > 0 || (o.rejected?.length ?? 0) > 0) && <button className={`${btn.quiet} !h-7 shrink-0`} onClick={() => setHistory(true)}>All calls &amp; emails</button>}
         </span>
       }
     >
@@ -319,7 +327,7 @@ export function ContactedSection({ card, member, onShowReply, title = "Contacted
         <div className="flex flex-wrap items-baseline justify-between gap-x-3">
           <span className="text-[12px] font-bold uppercase tracking-wide text-muted">Last contacted</span>
           <span className="text-[12px] text-muted">
-            Calls {chip(String(o.calls.length), "bg-info-bg text-info")}
+            Calls {chip(String(o.calls.length), "bg-info-bg text-info")} · Rejected {chip(String(o.rejected?.length ?? 0), "bg-high-bg text-high")}
             {lastCall && <> · last <span className="num">{fmtStamp(lastCall.at)}</span></>}
           </span>
         </div>
@@ -362,6 +370,7 @@ export function ContactedSection({ card, member, onShowReply, title = "Contacted
             <button className="press inline-flex h-8 items-center justify-center rounded-full bg-info px-3.5 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-40" onClick={logCall} disabled={!current}>
               Log call{current ? ` · ${current.value}` : ""}
             </button>
+            <button className="press inline-flex h-8 items-center justify-center rounded-full border border-high/40 px-3.5 text-[12.5px] font-semibold text-high hover:bg-high-bg disabled:opacity-40" onClick={logRejected} disabled={!current}>Call rejected</button>
             <button className={btn.quiet} onClick={() => setAdding({ person: "", phone: "" })}>+ Add contact</button>
           </div>
         )}

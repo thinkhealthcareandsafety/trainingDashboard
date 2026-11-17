@@ -161,6 +161,8 @@ export interface AedOutreach {
   emailConfirmed: boolean;
   /** This invoice's calls and emails, oldest first. */
   calls: { at: string; by: string; to: string; person?: string }[];
+  /** Calls the customer rejected (owner, 17 Nov), counted apart from the calls. */
+  rejected: { at: string; by: string; to: string; person?: string }[];
   sent: { at: string; by: string; to: string; step: number; messageId?: string; threaded?: boolean; marked?: boolean }[]; // marked = sent from Zoho Mail directly
   /** The last call to this customer, on any of their AED invoices. */
   lastCall?: { at: string; by: string; to: string; person?: string; cardId: string };
@@ -230,6 +232,7 @@ function aedOutreach(card: CardView, inv: AedInvoice, own: CardEvent[], shared: 
     email,
     emailConfirmed: own.some((e) => (e.kind === "aed_confirm_email" || e.kind === "aed_set_email" || e.kind === "aed_email") && same(e.value)),
     calls: own.filter((e) => e.kind === "aed_call").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", person: e.person })),
+    rejected: own.filter((e) => e.kind === "aed_call_rejected").map((e) => ({ at: e.at, by: e.by, to: e.value ?? "", person: e.person })),
     // Emails sent from the dashboard, and the ones she sent from Zoho Mail herself and marked as sent (owner, 28 Oct).
     sent: own.filter((e) => e.kind === "aed_email" || e.kind === "aed_email_marked").map((e) => ({
       at: e.at, by: e.by, to: e.value ?? "", step: e.step ?? 1, messageId: e.messageId, threaded: e.threaded, marked: e.kind === "aed_email_marked" || undefined,
@@ -242,7 +245,7 @@ function aedOutreach(card: CardView, inv: AedInvoice, own: CardEvent[], shared: 
 }
 
 /** Customer-wide Contacted entries (numbers, emails, calls) — grouped by customer name, like aliases. */
-const AED_SHARED = new Set<CardEventKind>(["aed_add_phone", "aed_remove_phone", "aed_set_email", "aed_remove_email", "aed_call"]);
+const AED_SHARED = new Set<CardEventKind>(["aed_add_phone", "aed_remove_phone", "aed_set_email", "aed_remove_email", "aed_call", "aed_call_rejected"]);
 
 /** A set_training_date value: one day, several days ("2026-10-05,2026-10-06,2026-10-09"), or TBD. */
 export const trainingDays = (v?: string): string[] => (!v || v === "TBD" ? [] : v.split(",").filter(Boolean));
@@ -1180,6 +1183,7 @@ export function describeEvent(e: CardEvent, labelOf: (cardId: string) => string)
     case "aed_remove_email": return `Removed email ${v} — not the concerned person`;
     case "aed_confirm_email": return `Checked the email: ${v}`;
     case "aed_call": return `Called ${v}${e.person ? ` (${e.person})` : ""}`;
+    case "aed_call_rejected": return `Call rejected · ${v}${e.person ? ` (${e.person})` : ""}`;
     case "aed_email": return `Email sent to ${v} — ${aedMailStep(e.step ?? 1)}${e.threaded ? ", as a reply in the same thread" : ""}`;
     case "aed_email_marked": return `Marked an email as sent${v ? ` to ${v}` : ""} — sent from Zoho Mail directly`;
     case "set_logistics": {

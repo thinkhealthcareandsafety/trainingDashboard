@@ -205,6 +205,7 @@ function doneTag(e: CardEvent): string | null {
     case "set_delivered": return "Marked AED delivered";
     case "aed_in_process": return "Started contacting the client";
     case "aed_call": return "Called the client";
+    case "aed_call_rejected": return "Called the client (rejected)";
     case "aed_email": case "aed_email_marked": return "Sent the onboarding email";
     case "set_not_required": case "set_resale": case "set_reseller": return "Marked training not required";
     case "fulfil_email": return "Sent the gratitude email";
