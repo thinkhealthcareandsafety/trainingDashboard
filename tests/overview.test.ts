@@ -80,7 +80,12 @@ test("remarks: short plain lines, green when better, red when it needs to be bet
 
 test("monthly: the 12 months up to the day looked at, the last one so far, with conversion", () => {
   const days: Record<string, Record<string, [number, number]>> = { "2025-12-05": { sumit: [1000, 400] }, "2026-11-03": { sumit: [500, 500] }, "2026-11-20": { sumit: [9999, 0] } };
-  const m = monthly(days, "sumit", "2026-11-17");
+  // This FY by default (owner, 17 Nov): April to November.
+  const fy = monthly(days, "sumit", "2026-11-17");
+  assert.deepEqual([fy.length, fy[0].key, fy.at(-1)!.key], [8, "2026-04", "2026-11"]);
+  assert.equal(monthly(days, "sumit", "2026-04-02").length, 1);
+  assert.equal(monthly(days, "sumit", "2027-03-31").length, 12);
+  const m = monthly(days, "sumit", "2026-11-17", 12);
   assert.equal(m.length, 12);
   assert.equal(m[0].key, "2025-12");
   assert.deepEqual([m[0].quoted, m[0].invoiced, m[0].conversion, m[0].partial], [1000, 400, 40, false]);

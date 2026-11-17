@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { type MonthPoint, inrShort } from "@/lib/overviewMath";
 
 /*
- * The Overview's line chart (owner, 17 Nov): quotations sent, invoiced and conversion, month by month for the 12 months up
+ * The Overview's line chart (owner, 17 Nov): quotations sent, invoiced and conversion, month by month this financial year (owner, 17 Nov: "this FY for now"), up
  * to the day looked at. Rupees and % don't share a scale, so it's one chart in two bands on one time axis: quotations and
  * invoiced (₹) above, conversion (%) below. New clients: later (owner: skip for now). It fills the height it is given.
  */
@@ -80,7 +80,7 @@ export function OverviewChart({ points }: { points: MonthPoint[] }) {
   return (
     <section className="card flex h-full min-h-[320px] min-w-0 flex-col px-5 py-4" aria-label="Month by month">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1.5">
-        <h3 className="text-[18px] font-semibold text-ink">Month by month <span className="text-[14px] font-normal text-muted">· the last 12 months</span></h3>
+        <h3 className="text-[18px] font-semibold text-ink">Month by month <span className="text-[14px] font-normal text-muted">· this FY so far</span></h3>
         <ul className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px] text-ink-2">
           {series.map((s) => <li key={s.key} className="flex items-center gap-1.5"><span className="h-[3px] w-4 rounded-full" style={{ background: s.color }} />{s.label}{s.key === "c" && <span className="text-muted">(invoiced ÷ quoted)</span>}</li>)}
           {partial && <li className="flex items-center gap-1.5 text-muted"><span className="w-4 border-t-2 border-dashed border-muted" />this month so far</li>}
@@ -88,7 +88,7 @@ export function OverviewChart({ points }: { points: MonthPoint[] }) {
       </div>
       <div ref={box} className="relative mt-3 min-h-0 flex-1">
         {w > 0 && h > 0 && (
-          <svg width={w} height={h} className="block overflow-visible" role="img" aria-label="Quotations sent, invoiced and conversion for the last 12 months">
+          <svg width={w} height={h} className="block overflow-visible" role="img" aria-label="Quotations sent, invoiced and conversion, month by month this financial year">
             {/* recessive grid and y labels */}
             {[0, 0.5, 1].map((f) => (
               <g key={`m${f}`}>

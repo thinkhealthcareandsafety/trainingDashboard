@@ -146,10 +146,11 @@ export function remarks(v: VsLastYear, nowWord: string): Remark[] {
   return lines;
 }
 
-/** Month by month for the line chart: the 12 months up to the day looked at (the last one so far). */
+/** Month by month for the line chart: this financial year's months up to the day looked at (owner, 17 Nov: "this FY for now"; the last one so far); `n` for a fixed count instead. */
 export type MonthPoint = { key: string; label: string; year: number; quoted: number; invoiced: number; conversion: number | null; partial: boolean };
-export function monthly(days: DaySums, person: string, on: string, n = 12): MonthPoint[] {
+export function monthly(days: DaySums, person: string, on: string, n?: number): MonthPoint[] {
   const d = parse(on);
+  n ??= ((d.getMonth() - 3 + 12) % 12) + 1; // April → 1, March → 12
   const out: MonthPoint[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const first = new Date(d.getFullYear(), d.getMonth() - i, 1);
