@@ -1,6 +1,12 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Session 31 (17 Nov): **live = `79c0aa7`** (Overview person tabs). Then, local: the Overview rows against last year (Daily / Weekly /
+_Session 31 (17 Nov), latest: **live = `9fe6556`** (Overview: person tabs; Daily/Weekly/Monthly/Yearly vs last year with a
+last-year mark on each bar; Remarks green/red; month-by-month line chart, quotations + invoiced above, conversion below; fits
+1728×958). **First live training checked (16 Nov, CPR/AED/First Aid, read-only with the owner's OK):** 3 certificates; 2 emailed
+**with the PDF attached**; 1 not sent (no email address on file); all 3 rows in the Zoho Sheet Good Samaritan tab (owner confirmed
+the sheet). Step 4 below is done._
+
+_Earlier in session 31: **live = `79c0aa7`** (Overview person tabs). Then, local: the Overview rows against last year (Daily / Weekly /
 Monthly / Yearly: this period vs last FY's average day / week / month, the year vs the same days; conversion; two bars; Remarks).
 The FY-so-far block and Pick dates were dropped (owner)._
 
