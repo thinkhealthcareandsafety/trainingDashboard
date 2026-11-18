@@ -11,8 +11,9 @@ test("day sums: sent quotes and real invoices, for the company and each salesper
     row("invoices", "2026-11-16", 2000, "Pranjal Nikalje", "paid"), row("invoices", "2026-11-16", 700, "Pranjal Nikalje", "void"), row("invoices", "2026-11-15", 300, "Someone Else"),
     row("salesorders", "2026-11-16", 9999, "Sumit A Shah"), row("estimates", "2024-01-01", 5, "Sumit A Shah"),
   ], "2025-04-01");
-  assert.deepEqual(d["2026-11-16"], { all: [1500, 2000], sumit: [1000, 0], ashish: [500, 0], pranjal: [0, 2000] });
-  assert.deepEqual(d["2026-11-15"], { all: [0, 300] });
+  // ₹ quoted, ₹ invoiced, how many quotations, how many invoices.
+  assert.deepEqual(d["2026-11-16"], { all: [1500, 2000, 2, 1], sumit: [1000, 0, 1, 0], ashish: [500, 0, 1, 0], pranjal: [0, 2000, 0, 1] });
+  assert.deepEqual(d["2026-11-15"], { all: [0, 300, 0, 1] });
   assert.equal(d["2024-01-01"], undefined);
   assert.equal(personKey("Shikha Dixit"), null);
 });
@@ -116,4 +117,15 @@ test("this FY against last FY day by day: 1 April to the day looked at, last FY 
   assert.deepEqual(r.now.quoted, [100, 100, 120]);
   assert.equal(r.last.quoted[364], 75);
   assert.deepEqual(fyLines(days, "sumit", "2026-04-02").now.quoted, [0, 0]);
+});
+
+test("how many quotations and invoices each day, for both years (always per day, also beside running totals)", async () => {
+  const { fyLines } = await import("@/lib/overviewMath");
+  const days = { "2026-04-01": { all: [100, 50, 3, 1] as [number, number, number, number] }, "2026-04-02": { all: [20, 0, 1, 0] as [number, number, number, number] }, "2025-04-02": { all: [70, 10, 2, 1] as [number, number, number, number] } };
+  const r = fyLines(days, "all", "2026-04-02", true);
+  assert.deepEqual(r.now.quoted, [100, 120]); // running ₹
+  assert.deepEqual(r.now.quotes, [3, 1]); // per day
+  assert.deepEqual(r.now.invoices, [1, 0]);
+  assert.deepEqual(r.last.quotes.slice(0, 3), [0, 2, 0]);
+  assert.equal(r.last.invoices.length, 365);
 });

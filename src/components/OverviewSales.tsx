@@ -213,8 +213,8 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
                     </div>
                   </div>
                   <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="h-[320px]"><OverviewFyChart title="Quotations" now={fy.now.quoted} last={fy.last.quoted} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-1)" running={running} /></div>
-                    <div className="h-[320px]"><OverviewFyChart title="Invoices" now={fy.now.invoiced} last={fy.last.invoiced} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-2)" running={running} /></div>
+                    <div className="h-[320px]"><OverviewFyChart title="Quotations" now={fy.now.quoted} last={fy.last.quoted} nowCount={fy.now.quotes} lastCount={fy.last.quotes} countLabel="Quotations per day" unit={["quotation", "quotations"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-1)" running={running} /></div>
+                    <div className="h-[320px]"><OverviewFyChart title="Invoices" now={fy.now.invoiced} last={fy.last.invoiced} nowCount={fy.now.invoices} lastCount={fy.last.invoices} countLabel="Invoices per day" unit={["invoice", "invoices"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-2)" running={running} /></div>
                   </div>
                 </div>
               )}

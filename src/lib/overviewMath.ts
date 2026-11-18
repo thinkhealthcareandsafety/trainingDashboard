@@ -5,7 +5,8 @@
  * average per day, today against that average. Pure and client-safe; the server sends one sum per day per person.
  */
 
-export type DaySums = Record<string, Record<string, [number, number]>>; // ymd → person → [quoted, invoiced]
+/** ymd → person → [quoted ₹, invoiced ₹, how many quotations, how many invoices] (the counts: owner, 18 Nov). */
+export type DaySums = Record<string, Record<string, [number, number, number?, number?]>>;
 export const PEOPLE = [
   { key: "all", label: "Company" },
   { key: "sumit", label: "Sumit" },
@@ -196,8 +197,9 @@ export function daySums(rows: SalesDayRow[], since: string): DaySums {
     const day0 = (out[day] ??= {});
     for (const who of ["all", personKey(String(r.row.salesperson_name ?? ""))]) {
       if (!who) continue;
-      const v = (day0[who] ??= [0, 0]);
+      const v = (day0[who] ??= [0, 0, 0, 0]);
       v[slot] += value;
+      v[slot + 2] = (v[slot + 2] ?? 0) + 1;
     }
   }
   return out;
@@ -209,22 +211,24 @@ export function daySums(rows: SalesDayRow[], since: string): DaySums {
  * year"; "1st April to current for the latest year, and for last year the whole 365 days"). Day 0 is 1 April; this FY
  * runs to the day looked at, last FY all its days. `running` = the total so far instead of each day's own value.
  */
-export type FyLines = { start: string; lastStart: string; length: number; now: { quoted: number[]; invoiced: number[] }; last: { quoted: number[]; invoiced: number[] } };
+/** `count`: how many quotations / invoices each day (always per day, owner 18 Nov: "number of quotations per day"). */
+type FySeries = { quoted: number[]; invoiced: number[]; quotes: number[]; invoices: number[] };
+export type FyLines = { start: string; lastStart: string; length: number; now: FySeries; last: FySeries };
 export function fyLines(days: DaySums, person: string, on: string, running = false): FyLines {
   const d = parse(on);
   const fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
   const start = `${fy}-04-01`, lastStart = `${fy - 1}-04-01`;
   const length = daysBetween(lastStart, start); // 365 or 366
   const series = (from: string, n: number) => {
-    const quoted: number[] = [], invoiced: number[] = [];
+    const quoted: number[] = [], invoiced: number[] = [], quotes: number[] = [], invoices: number[] = [];
     let q = 0, i = 0;
     for (let k = 0; k < n; k++) {
-      const v = days[add(from, k)]?.[person] ?? [0, 0];
+      const v = days[add(from, k)]?.[person] ?? [0, 0, 0, 0];
       q = running ? q + v[0] : v[0];
       i = running ? i + v[1] : v[1];
-      quoted.push(q); invoiced.push(i);
+      quoted.push(q); invoiced.push(i); quotes.push(v[2] ?? 0); invoices.push(v[3] ?? 0);
     }
-    return { quoted, invoiced };
+    return { quoted, invoiced, quotes, invoices };
   };
   return { start, lastStart, length, now: series(start, Math.min(length, daysBetween(start, on) + 1)), last: series(lastStart, length) };
 }
