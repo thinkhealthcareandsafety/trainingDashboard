@@ -155,9 +155,10 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
   const isToday = day === today;
   const box = "h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-ink";
   const points = useMemo(() => (days && tab !== "shikha" ? monthly(days, tab, day) : []), [days, tab, day]);
-  // Under the Daily row (owner, 18 Nov): this FY against last FY, day by day; each day's value or the running total.
-  const [running, setRunning] = useState(true);
-  const fy = useMemo(() => (days && tab !== "shikha" ? fyLines(days, tab, day, running) : null), [days, tab, day, running]);
+  // Under the Daily row (owner, 18 Nov): this FY against last FY, day by day, as running totals (the "Each day" switch
+  // was removed, owner 18 Nov: "looks pointless").
+  const running = true;
+  const fy = useMemo(() => (days && tab !== "shikha" ? fyLines(days, tab, day, running) : null), [days, tab, day]);
 
   // Fit the screen on a desktop: the rows take what they need, the chart the rest (the page's bottom padding is 56px).
   const fit = useRef<HTMLDivElement>(null);
@@ -204,15 +205,9 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
               <Row days={days} person={tab} kind={r.kind} title={r.title} lastTitle={r.last} on={day} isToday={isToday} />
               {r.kind === "day" && fy && (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[13.5px] text-muted">Day by day since 1 April · this FY against last FY</p>
-                    <div className="flex rounded-xl bg-surface-2 p-1" role="group" aria-label="How the days are drawn">
-                      {[[true, "Running total"], [false, "Each day"]].map(([v, l]) => (
-                        <button key={String(v)} type="button" aria-pressed={running === v} onClick={() => setRunning(v as boolean)} className={`h-8 rounded-lg px-3 text-[13px] font-medium ${running === v ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>{l as string}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid gap-4 lg:grid-cols-2">
+                  <p className="text-[13.5px] text-muted">Day by day since 1 April · this FY against last FY</p>
+                  {/* Invoices under Quotations (owner, 18 Nov) */}
+                  <div className="grid gap-4">
                     <div className="h-[320px]"><OverviewFyChart title="Quotations" now={fy.now.quoted} last={fy.last.quoted} nowCount={fy.now.quotes} lastCount={fy.last.quotes} countLabel="Quotations per day" unit={["quotation", "quotations"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-1)" running={running} /></div>
                     <div className="h-[320px]"><OverviewFyChart title="Invoices" now={fy.now.invoiced} last={fy.last.invoiced} nowCount={fy.now.invoices} lastCount={fy.last.invoices} countLabel="Invoices per day" unit={["invoice", "invoices"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-2)" running={running} /></div>
                   </div>
