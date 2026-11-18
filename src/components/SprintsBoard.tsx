@@ -69,7 +69,7 @@ export function SprintsBoard() {
               </header>
               <ul className="no-scrollbar flex max-h-[calc(100vh-260px)] flex-col gap-2 overflow-y-auto px-2.5 pb-3">
                 {c.cards.length === 0 && <li className="px-1 py-3 text-[12.5px] text-faint">Nothing here</li>}
-                {c.cards.map((card) => <Card key={card.id} card={card} accent={c.color} href={b!.boardUrl} />)}
+                {c.cards.map((card) => <Card key={card.id} card={card} href={b!.boardUrl} />)}
               </ul>
             </section>
           ))}
@@ -79,10 +79,10 @@ export function SprintsBoard() {
   );
 }
 
-function Card({ card, accent, href }: { card: SprintCard; accent: string; href: string }) {
+function Card({ card, href }: { card: SprintCard; href: string }) {
   return (
     <li>
-      <a href={href} target="_blank" rel="noreferrer" className="block rounded-xl border border-line bg-surface px-3 py-2.5 shadow-sm transition hover:border-line-strong" style={{ borderLeft: `3px solid ${accent}` }} title="Open in Zoho Sprints">
+      <a href={href} target="_blank" rel="noreferrer" className="block rounded-xl border border-line bg-surface px-3 py-2.5 shadow-sm transition hover:border-line-strong" title="Open in Zoho Sprints">
         <p className="num text-[11.5px] font-semibold text-faint">{card.no}</p>
         <p className="mt-0.5 text-[13.5px] font-medium leading-snug text-ink">{card.name}</p>
         <div className="mt-2 flex items-center gap-2">
