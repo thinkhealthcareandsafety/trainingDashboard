@@ -100,3 +100,20 @@ test("a salesperson against the company's last year (owner, 17 Nov)", () => {
   assert.deepEqual(remarks(v, "today")[0], { text: "Quotations: 50% more than the company’s average day last year.", tone: "good" });
   assert.equal(vsLastYear(days, "sumit", "day", "2026-11-17").vsCompany, false);
 });
+
+test("this FY against last FY day by day: 1 April to the day looked at, last FY all its days; each day or running", async () => {
+  const { fyLines } = await import("@/lib/overviewMath");
+  const days = { "2026-04-01": { all: [100, 50] as [number, number] }, "2026-04-03": { all: [20, 0] as [number, number] }, "2025-04-01": { all: [70, 10] as [number, number] }, "2026-03-31": { all: [5, 5] as [number, number] } };
+  const l = fyLines(days, "all", "2026-04-03");
+  assert.equal(l.start, "2026-04-01");
+  assert.equal(l.lastStart, "2025-04-01");
+  assert.equal(l.length, 365);
+  assert.deepEqual(l.now.quoted, [100, 0, 20]);
+  assert.equal(l.last.quoted.length, 365);
+  assert.equal(l.last.quoted[0], 70);
+  assert.equal(l.last.invoiced[364], 5); // 31 March
+  const r = fyLines(days, "all", "2026-04-03", true);
+  assert.deepEqual(r.now.quoted, [100, 100, 120]);
+  assert.equal(r.last.quoted[364], 75);
+  assert.deepEqual(fyLines(days, "sumit", "2026-04-02").now.quoted, [0, 0]);
+});

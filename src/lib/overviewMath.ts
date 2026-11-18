@@ -203,3 +203,28 @@ export function daySums(rows: SalesDayRow[], since: string): DaySums {
   return out;
 }
 
+
+/*
+ * This FY against last FY, day by day (owner, 18 Nov: "x axis is days, y axis is value … 2 lines, this FY and last
+ * year"; "1st April to current for the latest year, and for last year the whole 365 days"). Day 0 is 1 April; this FY
+ * runs to the day looked at, last FY all its days. `running` = the total so far instead of each day's own value.
+ */
+export type FyLines = { start: string; lastStart: string; length: number; now: { quoted: number[]; invoiced: number[] }; last: { quoted: number[]; invoiced: number[] } };
+export function fyLines(days: DaySums, person: string, on: string, running = false): FyLines {
+  const d = parse(on);
+  const fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  const start = `${fy}-04-01`, lastStart = `${fy - 1}-04-01`;
+  const length = daysBetween(lastStart, start); // 365 or 366
+  const series = (from: string, n: number) => {
+    const quoted: number[] = [], invoiced: number[] = [];
+    let q = 0, i = 0;
+    for (let k = 0; k < n; k++) {
+      const v = days[add(from, k)]?.[person] ?? [0, 0];
+      q = running ? q + v[0] : v[0];
+      i = running ? i + v[1] : v[1];
+      quoted.push(q); invoiced.push(i);
+    }
+    return { quoted, invoiced };
+  };
+  return { start, lastStart, length, now: series(start, Math.min(length, daysBetween(start, on) + 1)), last: series(lastStart, length) };
+}
