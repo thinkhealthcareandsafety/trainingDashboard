@@ -31,12 +31,16 @@ export type SprintCard = {
   /** For editing (owner, 18 Nov: "whatever we change here changes in Zoho Sprints"): the sprint holding it, its type,
    *  priority, owners' ids and start date. */
   sprintId: string; typeId: string; priorityId: string; ownerIds: string[]; start: string | null;
+  /** Everyone on it (owner, 18 Nov): "z:<Zoho user>" from Zoho Sprints and "m:<member>" kept on the dashboard. */
+  people?: string[];
 };
 /** What a task can be set to: item types, priorities, project users, tags, and the custom fields (label → UDF column). */
 export type SprintsMeta = {
   types: { id: string; name: string }[]; priorities: { id: string; name: string; color: string }[];
   users: { id: string; name: string; email: string }[]; tags: { id: string; name: string; color: string }[];
   fields: { label: string; udf: string }[];
+  /** Everyone who can be assigned (clean names; dashboard members too). */
+  people?: SprintPerson[];
 };
 export type SprintColumn = { id: string; name: string; color: string; cards: SprintCard[] };
 export type SprintView = { id: string; name: string; no: string; start: string | null; end: string | null; backlog?: boolean; upcoming?: boolean; kanban?: boolean; columns: SprintColumn[] };
@@ -125,4 +129,41 @@ export function localDate(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(new Date(iso).getTime() + 5.5 * 3600_000);
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16);
+}
+
+/* ---------------- People (owner, 18 Nov: full, clean names; every dashboard member can be assigned) ---------------- */
+
+const titleWord = (w: string) => (w === w.toUpperCase() || w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w);
+/**
+ * A Zoho Sprints display name made readable: "Sumit Shah Shah" → "Sumit Shah", "PRANJAL DHARMENDRA NIKALJE Nikalje" →
+ * "Pranjal Dharmendra Nikalje", "vaibhav.thinkhealth" → "Vaibhav". A last word repeating an earlier one is dropped.
+ */
+export function cleanName(raw: string): string {
+  let s = String(raw ?? "").trim();
+  if (!s) return "";
+  if (!/\s/.test(s) && /[._@]/.test(s)) s = s.split(/[._@]/)[0];
+  const words = s.split(/\s+/);
+  while (words.length > 1 && words.slice(0, -1).some((w) => w.toLowerCase() === words.at(-1)!.toLowerCase())) words.pop();
+  return words.map(titleWord).join(" ");
+}
+const firstWord = (n: string) => cleanName(n).split(" ")[0]?.toLowerCase() ?? "";
+
+/** Someone a task can be assigned to: `key` is "z:<Zoho user id>" (in Zoho Sprints) or "m:<member id>" (dashboard only). */
+export type SprintPerson = { key: string; name: string; zohoId?: string; memberId?: string };
+/**
+ * Everyone: each Zoho Sprints user under a clean full name, matched to the dashboard member with the same first name;
+ * dashboard members not in Zoho Sprints are added too (their assignments are kept on the dashboard).
+ */
+export function peopleOf(zohoUsers: { id: string; name: string }[], members: { id: string; name: string }[]): SprintPerson[] {
+  const used = new Set<string>();
+  const people: SprintPerson[] = zohoUsers.filter((u) => !/^unassigned$/i.test(u.name)).map((u) => {
+    const m = members.find((x) => !used.has(x.id) && firstWord(x.name) && firstWord(x.name) === firstWord(u.name));
+    if (m) used.add(m.id);
+    const clean = cleanName(u.name);
+    // The fuller of the two names (a member saved as just "Sumit" shows as "Sumit Shah").
+    const name = m && cleanName(m.name).split(" ").length > clean.split(" ").length ? cleanName(m.name) : clean;
+    return { key: `z:${u.id}`, name, zohoId: u.id, ...(m ? { memberId: m.id } : {}) };
+  });
+  for (const m of members) if (!used.has(m.id) && m.name.trim()) people.push({ key: `m:${m.id}`, name: cleanName(m.name), memberId: m.id });
+  return people.sort((a, b) => a.name.localeCompare(b.name));
 }

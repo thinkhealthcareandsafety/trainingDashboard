@@ -12,11 +12,11 @@ import { Skeleton } from "./ui";
  * every 30 s, so changes made in Zoho show here too.
  */
 
-type Data = { connected: boolean; canConnect: boolean; needsReconnect: boolean; scopes: string; board?: Board; error?: string };
+/** `me`: the viewer on the board (a people key); `seesAll`: Sumit, Admin, Shikha, Nikita (others see only their tasks). */
+type Data = { connected: boolean; canConnect: boolean; needsReconnect: boolean; scopes: string; board?: Board & { me?: string; seesAll?: boolean }; error?: string };
 type Task = { name: string; description: string; statusId: string; typeId: string; priorityId: string; start: string; end: string; users: string[]; tags: string[]; udf: Record<string, string> };
 
 const day = (s: string) => new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-const initials = (n: string) => n.split(/[\s.]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("");
 const post = (body: object) => fetch("/api/sprints", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ error: "Couldn't reach the server" }));
 
 function Spinner({ size = 14 }: { size?: number }) {
@@ -126,6 +126,7 @@ export function SprintsBoard() {
           <span className="num text-[12.5px] text-muted">· {total} tasks</span>
         </div>
         {b && <span className="text-[13px] text-muted">{b.project.prefix ? `${b.project.prefix} - ` : ""}{b.project.name}</span>}
+        {b && b.seesAll === false && <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-semibold text-brand">Your tasks</span>}
         <span className="flex-1" />
         {b && <span className="num text-[12.5px] text-faint">Updated {new Date(b.fetchedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</span>}
         <a href={b?.boardUrl ?? "https://sprints.zoho.in/workspace/thinkhealth#P5/board"} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-semibold text-ink hover:bg-surface-2">
@@ -162,9 +163,14 @@ export function SprintsBoard() {
                         <TypeIcon name={typeName(card.typeId)} />
                         <span className="num text-[12.5px] font-medium text-brand">{card.no}</span>
                         <span className="flex-1" />
-                        {card.owners.slice(0, 2).map((o) => <span key={o} className="grid h-5 min-w-5 place-items-center rounded border border-line px-1 text-[9.5px] font-bold text-ink-2" title={o}>{initials(o)}</span>)}
                       </div>
                       <p className="mt-1.5 text-[13.5px] leading-snug text-ink">{card.name}</p>
+                      {card.owners.length > 0 && (
+                        <p className="mt-1.5 flex items-start gap-1.5 text-[12.5px] leading-snug text-ink-2">
+                          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden className="mt-0.5 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.6-2.5 2.6-4 5-4s4.4 1.5 5 4" strokeLinecap="round" /></svg>
+                          <span>{card.owners.join(", ")}</span>
+                        </p>
+                      )}
                       {(card.due || (pr && !/^none$/i.test(pr.name))) && (
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {pr && !/^none$/i.test(pr.name) && <span className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11.5px] text-ink-2"><span className="size-1.5 rounded-full" style={{ background: pr.color }} />{pr.name}</span>}
@@ -185,7 +191,7 @@ export function SprintsBoard() {
         </div>
       )}
       {open && sprint && cols && (
-        <TaskPanel key={open.card?.id ?? `new-${open.statusId ?? ""}`} card={open.card} statusId={open.statusId} sprintId={open.card?.sprintId || sprint.id} cols={cols} meta={meta}
+        <TaskPanel key={open.card?.id ?? `new-${open.statusId ?? ""}`} card={open.card} statusId={open.statusId} sprintId={open.card?.sprintId || sprint.id} cols={cols} meta={meta} me={b?.me}
           onClose={() => setOpen(null)} onSaved={() => { setOpen(null); load(); }} />
       )}
     </div>
@@ -225,14 +231,14 @@ function MultiPick({ label, options, value, onChange }: { label: string; options
 }
 
 /** Create Task / a task opened: every field Zoho's item has here, saved straight to Zoho Sprints. */
-function TaskPanel({ card, statusId, sprintId, cols, meta, onClose, onSaved }: { card?: SprintCard; statusId?: string; sprintId: string; cols: SprintColumn[]; meta: SprintsMeta; onClose: () => void; onSaved: () => void }) {
+function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved }: { card?: SprintCard; statusId?: string; sprintId: string; cols: SprintColumn[]; meta: SprintsMeta; me?: string; onClose: () => void; onSaved: () => void }) {
   const editing = Boolean(card);
   const defType = meta.types.find((t) => /story/i.test(t.name))?.id ?? meta.types[0]?.id ?? "";
   const defPriority = meta.priorities.find((p) => /^none$/i.test(p.name))?.id ?? meta.priorities[0]?.id ?? "";
   const first: Task = useMemo(() => ({
     name: card?.name ?? "", description: "", statusId: card?.statusId ?? statusId ?? cols[0]?.id ?? "", typeId: card?.typeId || defType, priorityId: card?.priorityId || defPriority,
-    start: localDate(card?.start ?? null), end: localDate(card?.due ?? null), users: card?.ownerIds ?? [], tags: [], udf: {},
-  }), [card, statusId, cols, defType, defPriority]);
+    start: localDate(card?.start ?? null), end: localDate(card?.due ?? null), users: card ? card.people ?? card.ownerIds.map((z) => `z:${z}`) : me ? [me] : [], tags: [], udf: {},
+  }), [card, statusId, cols, defType, defPriority, me]);
   const [t, setT] = useState<Task>(first);
   const [loaded, setLoaded] = useState<Task | null>(editing ? null : first);
   const [busy, setBusy] = useState<"" | "save" | "delete">("");
@@ -298,7 +304,7 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, onClose, onSaved }: {
             {meta.fields.map((f) => (
               <div key={f.udf} className={row}><label className={lab} htmlFor={`t-${f.udf}`}>{f.label}</label><input id={`t-${f.udf}`} className={field} value={t.udf[f.udf] ?? ""} onChange={(e) => set("udf", { ...t.udf, [f.udf]: e.target.value })} /></div>
             ))}
-            <div className={row}><span className={lab}>Assign Users</span><MultiPick label="Users" options={meta.users} value={t.users} onChange={(v) => set("users", v)} /></div>
+            <div className={row}><span className={lab}>Assign Users</span><MultiPick label="Users" options={(meta.people ?? []).map((x) => ({ id: x.key, name: x.name }))} value={t.users} onChange={(v) => set("users", v)} /></div>
             <div className={row}><label className={lab} htmlFor="t-status">Status</label><select id="t-status" className={field} value={t.statusId} onChange={(e) => set("statusId", e.target.value)}>{cols.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div className={row}><label className={lab} htmlFor="t-type">Item Type</label><select id="t-type" className={field} value={t.typeId} onChange={(e) => set("typeId", e.target.value)}>{meta.types.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
             <div className={row}><label className={lab} htmlFor="t-pri">Priority</label><select id="t-pri" className={field} value={t.priorityId} onChange={(e) => set("priorityId", e.target.value)}>{meta.priorities.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>

@@ -1,12 +1,13 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { isAdmin } from "@/lib/roles";
-import { connectSprints, createTask, deleteTask, moveTask, sprintsBoard, sprintsInfo, SPRINTS_SCOPES, taskDetail, updateTask, type TaskInput } from "@/lib/zohoSprints";
+import { boardFor, connectSprints, createTask, deleteTask, mayTouch, moveTask, sprintsInfo, SPRINTS_SCOPES, taskDetail, updateTask, type TaskInput } from "@/lib/zohoSprints";
 
 export const dynamic = "force-dynamic";
 
 /*
- * Sprints (owner, 18 Nov): project P5's board, read from and written to Zoho Sprints. Every signed-in member reads and
- * changes tasks ("let user move cards in our sprint too"); only Admin connects.
+ * Sprints (owner, 18 Nov): project P5's board, read from and written to Zoho Sprints. Sumit, Admin, Shikha and Nikita
+ * see and change every task; everyone else sees and changes only the tasks they are on (and creates tasks). Only Admin
+ * connects.
  *  GET                                      — { connected, canConnect, needsReconnect, scopes, board? }
  *  GET ?item=<id>&sprint=<id>               — a task's description, custom fields and tags
  *  POST { action: "connect", code, … }      — Admin: connect Zoho Sprints (again when scopes were added)
@@ -23,13 +24,16 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   const q = new URL(request.url).searchParams;
   if (q.get("item")) {
-    try { return json(await taskDetail(q.get("sprint"), q.get("item"))); } catch (e) { return fail(e, "Couldn't read the task"); }
+    try {
+      if (!(await mayTouch(me, q.get("item")))) return json({ error: "That task isn't yours." }, 403);
+      return json(await taskDetail(q.get("sprint"), q.get("item")));
+    } catch (e) { return fail(e, "Couldn't read the task"); }
   }
   const info = await sprintsInfo();
   const base = { connected: Boolean(info), canConnect: isAdmin(me), needsReconnect: Boolean(info?.needsReconnect), scopes: SPRINTS_SCOPES };
   if (!info) return json(base);
   try {
-    return json({ ...base, board: await sprintsBoard() });
+    return json({ ...base, board: await boardFor(me) });
   } catch (e) {
     return json({ ...base, error: e instanceof Error ? e.message : "Couldn't read Zoho Sprints" }, 502);
   }
@@ -45,6 +49,11 @@ export async function POST(request: Request) {
         if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sprints" }, 403);
         return json(await connectSprints({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
       case "create": return json(await createTask(b.sprint, b.task ?? {}));
+      case "update": case "move": case "delete":
+        if (!(await mayTouch(me, b.item))) return json({ error: "That task isn't yours." }, 403);
+        break;
+    }
+    switch (b?.action) {
       case "update": await updateTask(b.sprint, b.item, b.task ?? {}); return json({ ok: true });
       case "move": await moveTask(b.sprint, b.item, b.status); return json({ ok: true });
       case "delete": await deleteTask(b.sprint, b.item); return json({ ok: true });

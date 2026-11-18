@@ -4,8 +4,9 @@ import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { booksClient } from "./quotations";
 import {
   type SprintsBoard, type SprintsMeta, type SprintView, boardColumns, customFieldsOf, decode, findProject, itemDetailOf, itemModuleOf,
-  pickTeam, prioritiesOf, sprintsOf, tagsOf, typesOf, usersOf, zohoDate,
+  pickTeam, prioritiesOf, sprintsOf, tagsOf, typesOf, usersOf, zohoDate, peopleOf, type SprintPerson,
 } from "./sprintsRules";
+import { isAdmin } from "./roles";
 
 /*
  * Sprints (owner, 18 Nov): project P5 "GT - General Team Tasks" in the "thinkhealth" Zoho Sprints workspace, a Kanban
@@ -177,7 +178,9 @@ async function sprintsMeta({ c, team, p }: Ctx): Promise<SprintsMeta> {
   ]);
   const itemModule = itemModuleOf(modules);
   const fields = itemModule ? customFieldsOf(await get(c, `/team/${team}/settings/customization/modules/${itemModule}/fields/`, { action: "data" }).catch(() => none)) : [];
-  const data: SprintsMeta = { types: typesOf(types), priorities: prioritiesOf(priorities), users: usersOf(users), tags: tagsOf(tags), fields };
+  const members = (await (await db()).collection<{ _id: string; name?: string }>("members").find({}).toArray()).map((m) => ({ id: String(m._id), name: String(m.name ?? "") }));
+  const zohoUsers = usersOf(users);
+  const data: SprintsMeta = { types: typesOf(types), priorities: prioritiesOf(priorities), users: zohoUsers, tags: tagsOf(tags), fields, people: peopleOf(zohoUsers, members) };
   G.__thSprintsMeta = { at: Date.now(), data };
   return data;
 }
@@ -212,6 +215,7 @@ export async function sprintsBoard(): Promise<SprintsBoard> {
     if (k.pages.length) sprints.unshift({ id: k.sprintId || "kanban", name: "Kanban Board", no: "", start: null, end: null, kanban: true, columns: boardColumns(statuses, k.pages, project.prefix) });
   }
   const shown = sprints.filter((v, i) => v.kanban || count(v) > 0 || i === 0);
+  await withPeople(shown, meta);
   const statusCount = decode(statuses.statusIds, statuses.statusJObj, statuses.status_prop).length;
   const diag = `project type ${kind || "?"} · ${sprintsOf(active).length} running sprints · ${statusCount} statuses${kanban}`;
   const data: SprintsBoard = { project: { id: project.id, name: project.name, prefix: project.prefix, no: project.no }, sprints: shown, fetchedAt: new Date().toISOString(), boardUrl: BOARD_URL, diag, meta };
@@ -219,10 +223,59 @@ export async function sprintsBoard(): Promise<SprintsBoard> {
   return data;
 }
 
+/*
+ * People on a task (owner, 18 Nov: "include all the users here too … let it not exist in Zoho Sprints, doesn't matter,
+ * at least I will have visibility whose task it is"): Zoho Sprints' owners ("z:<id>") plus dashboard members who aren't
+ * in Zoho Sprints ("m:<member id>"), kept in `sprintAssign` (_id = item id). Names are the clean ones from peopleOf.
+ */
+type Assign = { _id: string; members: string[] };
+const assignCol = async () => (await db()).collection<Assign>("sprintAssign");
+
+async function withPeople(views: SprintView[], meta: SprintsMeta) {
+  const local = new Map((await (await assignCol()).find({}).toArray()).map((a) => [a._id, a.members ?? []]));
+  const name = new Map((meta.people ?? []).map((p) => [p.key, p.name]));
+  for (const v of views) for (const col of v.columns) for (const card of col.cards) {
+    card.people = [...card.ownerIds.map((z) => `z:${z}`), ...(local.get(card.id) ?? []).map((m) => `m:${m}`)];
+    card.owners = card.people.map((k) => name.get(k) ?? "").filter(Boolean);
+  }
+}
+
+/** Sumit, Admin, Shikha and Nikita see every task; everyone else only theirs (owner, 18 Nov). */
+export const seesAll = (me: { id: string; name: string }) => isAdmin(me) || /^(sumit|nikita)\b/i.test(me.name.trim());
+/** The viewer as a person on the board: their Zoho user when matched, else "m:<member id>". */
+export const personOf = (me: { id: string }, people: SprintPerson[] | undefined) => people?.find((p) => p.memberId === me.id)?.key ?? `m:${me.id}`;
+
+/** The board as this viewer may see it, and who they are on it. */
+export async function boardFor(me: { id: string; name: string }): Promise<SprintsBoard & { me: string; seesAll: boolean }> {
+  const b = await sprintsBoard();
+  const key = personOf(me, b.meta?.people);
+  if (seesAll(me)) return { ...b, me: key, seesAll: true };
+  return { ...b, me: key, seesAll: false, sprints: b.sprints.map((v) => ({ ...v, columns: v.columns.map((c) => ({ ...c, cards: c.cards.filter((x) => x.people?.includes(key)) })) })) };
+}
+/** May this viewer change that task? Everyone who sees all; others only tasks they are on. */
+export async function mayTouch(me: { id: string; name: string }, itemId: unknown): Promise<boolean> {
+  if (seesAll(me)) return true;
+  const b = await sprintsBoard();
+  const key = personOf(me, b.meta?.people);
+  return b.sprints.some((v) => v.columns.some((c) => c.cards.some((x) => x.id === itemId && x.people?.includes(key))));
+}
+
+/** People keys split: Zoho users (written to Zoho Sprints) and dashboard members (kept here). */
+const splitPeople = (keys: unknown) => {
+  const list = Array.isArray(keys) ? keys.map(String) : [];
+  return { zoho: list.filter((k) => /^z:\d{6,25}$/.test(k)).map((k) => k.slice(2)), members: list.filter((k) => /^m:[\w-]{1,80}$/.test(k)).map((k) => k.slice(2)) };
+};
+async function saveLocal(itemId: string, members: string[]) {
+  const col = await assignCol();
+  if (members.length) await col.replaceOne({ _id: itemId }, { members }, { upsert: true });
+  else await col.deleteOne({ _id: itemId });
+}
+
 /* ---------------- Writes (owner, 18 Nov: "anything here goes there") ---------------- */
 
 export type TaskInput = {
   name?: string; description?: string; statusId?: string; typeId?: string; priorityId?: string;
+  /** People keys ("z:<Zoho user>", "m:<member>"); with `was` (the keys before) on an edit. */
   start?: string; end?: string; users?: string[]; tags?: string[]; udf?: Record<string, string>;
 };
 const ID = /^\d{6,25}$/;
@@ -254,10 +307,11 @@ export async function createTask(sprintId: unknown, t: TaskInput): Promise<{ id:
   if (!String(t.name ?? "").trim()) throw new Error("Give the task a name.");
   const x = await ctx();
   const params = taskParams(t, await udfSet(x));
-  const users = ids(t.users);
-  if (users.length) params.users = JSON.stringify(users);
+  const who = splitPeople(t.users);
+  if (who.zoho.length) params.users = JSON.stringify(who.zoho);
   const r = await call(x.c, "POST", `${x.p}/sprints/${s}/item/`, params);
   const id = String(r.addedItemId ?? "");
+  if (id && who.members.length) await saveLocal(id, who.members);
   const tags = ids(t.tags);
   if (id && tags.length) await call(x.c, "POST", `${x.p}/sprints/${s}/item/${id}/tags/`, { action: "associateupdate", reassociate: "true", newtags: JSON.stringify(tags) }).catch((e) => console.error(`[zoho sprints] tags on new item: ${e instanceof Error ? e.message : e}`));
   after();
@@ -271,10 +325,11 @@ export async function updateTask(sprintId: unknown, itemId: unknown, t: TaskInpu
   const x = await ctx();
   const params = taskParams(t, await udfSet(x));
   if (t.users !== undefined) {
-    const now = ids(t.users), was = ids(t.was);
-    const add = now.filter((u) => !was.includes(u)), del = was.filter((u) => !now.includes(u));
+    const now = splitPeople(t.users), was = splitPeople(t.was);
+    const add = now.zoho.filter((u) => !was.zoho.includes(u)), del = was.zoho.filter((u) => !now.zoho.includes(u));
     if (add.length) params.newusers = JSON.stringify(add);
     if (del.length) params.delusers = JSON.stringify(del);
+    await saveLocal(i, now.members);
   }
   if (Object.keys(params).length) await call(x.c, "POST", `${x.p}/sprints/${s}/item/${i}/`, params);
   if (t.tags !== undefined) await call(x.c, "POST", `${x.p}/sprints/${s}/item/${i}/tags/`, { action: "associateupdate", reassociate: "true", newtags: JSON.stringify(ids(t.tags)) });
@@ -292,6 +347,7 @@ export async function deleteTask(sprintId: unknown, itemId: unknown): Promise<vo
   if (!s || !i) throw new Error("Unknown task");
   const x = await ctx();
   await call(x.c, "DELETE", `${x.p}/sprints/${s}/item/${i}/`);
+  await (await assignCol()).deleteOne({ _id: i });
   after();
 }
 

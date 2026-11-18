@@ -63,3 +63,23 @@ test("what a task can be set to (types, priorities, users, tags, custom fields),
   assert.equal(localDate("2026-11-20T04:00:00.000Z"), "2026-11-20T09:30");
   assert.equal(localDate(null), "");
 });
+
+test("people: Zoho's jumbled names cleaned, matched to dashboard members by first name, members not in Zoho added", async () => {
+  const { cleanName, peopleOf } = await import("@/lib/sprintsRules");
+  assert.equal(cleanName("Sumit Shah Shah"), "Sumit Shah");
+  assert.equal(cleanName("PRANJAL DHARMENDRA NIKALJE Nikalje"), "Pranjal Dharmendra Nikalje");
+  assert.equal(cleanName("Priyanka Vasant Adhangale Adhangale"), "Priyanka Vasant Adhangale");
+  assert.equal(cleanName("SHIKHA DIXIT Dixit"), "Shikha Dixit");
+  assert.equal(cleanName("vaibhav.thinkhealth"), "Vaibhav");
+  assert.equal(cleanName("Shreya Gajarmal"), "Shreya Gajarmal");
+  const people = peopleOf(
+    [{ id: "1", name: "Sumit Shah Shah" }, { id: "2", name: "ASHISH DALAL Dalal" }, { id: "3", name: "Unassigned" }, { id: "4", name: "vaibhav.thinkhealth" }],
+    [{ id: "m1", name: "Sumit" }, { id: "m2", name: "Ashish Dalal" }, { id: "m3", name: "Nikita Rao" }],
+  );
+  assert.deepEqual(people, [
+    { key: "z:2", name: "Ashish Dalal", zohoId: "2", memberId: "m2" },
+    { key: "m:m3", name: "Nikita Rao", memberId: "m3" },
+    { key: "z:1", name: "Sumit Shah", zohoId: "1", memberId: "m1" },
+    { key: "z:4", name: "Vaibhav", zohoId: "4" },
+  ]);
+});
