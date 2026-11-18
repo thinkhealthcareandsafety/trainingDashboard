@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
-import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, fillPlan, groupByCustomer, isEwayFile, isPoFile, needsEway, piOf, poFileName, poState } from "./invoiceConverterRules";
+import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, isPoFile, needsEway, piOf, poFileName, poState } from "./invoiceConverterRules";
 
 /*
  * The Invoice Converter's data and its writes to Zoho Books (owner, 17 Nov).
@@ -17,11 +17,10 @@ import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, f
  */
 
 const PO_FIELD = "982417000001000149"; // invoice custom field "Purchase Order Number" (cf_purchase_order_number)
+// Invoice custom field "E-way Bill Number" (cf_e_way_bill_number), made 18 Nov for the converter (owner: what's added
+// here goes into Zoho Books too); hidden on the invoice PDF.
+const EWAY_FIELD = "982417000024432062";
 const READ_BATCH = 20; // full records read per page load; the page asks again while some are pending
-const FILL_BATCH = 8; // Zoho writes per page load when a PI's PO is copied to its other invoices
-// v3: the first copies all failed (wrong Zoho path, then body shape; 18 Nov); a fresh lock forgets those 6-hour skips.
-const FILL_LOCK = "conv_fill_v3";
-const SKIP_MS = 6 * 3600_000; // an invoice Zoho refused a copy for is left alone this long (no retry loop on Zoho's daily limit)
 
 type SalesRow = { _id: string; kind: string; id: string; lmt?: string; date?: string; row: Record<string, unknown> };
 /** `ewayFound`: the e-way bill number read from an attached PDF (Zoho keeps its own e-way bills; this one shows here). */
@@ -57,7 +56,6 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       break; // Zoho busy: try again on the next load
     }
   }
-  const filling = await fillWithinPi(rows, extras, (r) => !wantsDetail(r) || Boolean(fresh(r)));
   const list = rows.map((r) => {
     const total = Number(r.row.total) || 0;
     const e = extras.get(r.id);
@@ -67,101 +65,31 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
       id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""), pi: piOf(r.row.reference_number),
       po: po.label, poOk: po.ok, poPdf: files.some(isPoFile),
-      eway: e?.eway || e?.ewayFound || null, ewayZoho: Boolean(e?.eway), ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
+      eway: e?.eway || String(r.row.cf_e_way_bill_number ?? "").trim() || e?.ewayFound || null, ewayZoho: Boolean(e?.eway), ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
       pending: wantsDetail(r) && !fresh(r),
       sign: signs.get(r.id)?.status,
     };
   });
-  return { customers: groupByCustomer(list), pending: list.filter((i) => i.pending).length + filling };
+  return { customers: groupByCustomer(list), pending: list.filter((i) => i.pending).length };
 }
 
-type FillLock = { _id: string; until?: number; skip?: Record<string, number> };
-const lockCol = async () => (await db()).collection<FillLock>("kv");
-/** One page load copies at a time (two open pages would attach a PDF twice). */
-async function claimFill(): Promise<boolean> {
-  const now = Date.now();
-  try {
-    const r = await (await lockCol()).updateOne({ _id: FILL_LOCK, $or: [{ until: { $exists: false } }, { until: { $lt: now } }] }, { $set: { until: now + 60_000 } }, { upsert: true });
-    return ((r as { modifiedCount?: number }).modifiedCount ?? 0) + ((r as { upsertedCount?: number }).upsertedCount ?? 0) > 0;
-  } catch {
-    return false; // held by another load (the upsert meets the existing lock)
-  }
-}
-
-/** The PO PDF attached to an invoice in Zoho, downloaded (null when it has none, or it isn't a PDF). */
-async function poPdfOf(invoiceId: string): Promise<Uint8Array<ArrayBuffer> | null> {
-  const { booksFile } = await import("./quotations");
-  const d = await fetchDetail("invoices", invoiceId);
-  const doc = ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).find((x) => x.document_id && isPoFile(String(x.file_name ?? "")));
-  if (!doc) return null;
-  const f = await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`);
-  // Only a real PDF is copied ("%PDF-" at the start): an error page or a JSON answer never lands on an invoice.
-  if (new TextDecoder().decode(f.bytes.slice(0, 5)) !== "%PDF-") return null;
-  return new Uint8Array(f.bytes);
+/** One custom field on an invoice in Zoho (Zoho's spec: PUT /invoice/{id}/customfields, body { custom_fields: [...] }). */
+async function setInvoiceField(invoiceId: string, fieldId: string, value: string) {
+  await booksApi("PUT", `/invoice/${invoiceId}/customfields`, {}, { custom_fields: [{ customfield_id: fieldId, value }] });
 }
 
 /**
- * "If the PO is there already for one, the invoices under the same PI all get the same PO too" (owner, 18 Nov): copies
- * a PI's PO number and PO PDF to its other invoices in Zoho, FILL_BATCH writes per page load (the page asks again while
- * some are left). Returns how many copies are still to do.
+ * An e-way bill number typed here, written to the invoice's "E-way Bill Number" field in Zoho and to our copy (Zoho's
+ * own e-way bills still show first). Empty clears it.
  */
-async function fillWithinPi(rows: SalesRow[], extras: Map<string, Extras>, known: (r: SalesRow) => boolean): Promise<number> {
-  const now = Date.now();
-  const lock = await (await lockCol()).findOne({ _id: FILL_LOCK });
-  const skip = Object.fromEntries(Object.entries(lock?.skip ?? {}).filter(([, t]) => t > now));
-  const plan = fillPlan(rows.map((r) => ({ id: r.id, customerId: String(r.row.customer_id ?? ""), pi: piOf(r.row.reference_number), po: r.row.cf_purchase_order_number, poPdf: (extras.get(r.id)?.files ?? []).some(isPoFile), known: known(r) })));
-  for (const n of plan.numbers) n.ids = n.ids.filter((id) => !skip[id]);
-  for (const x of plan.pdfs) x.to = x.to.filter((id) => !skip[id]);
-  let left = plan.numbers.reduce((a, n) => a + n.ids.length, 0) + plan.pdfs.filter((x) => !skip[x.from]).reduce((a, x) => a + x.to.length, 0);
-  if (!left || !(await claimFill())) return left;
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  let budget = FILL_BATCH;
-  const failed = (id: string, err: unknown) => {
-    skip[id] = now + SKIP_MS;
-    left--;
-    console.error(`[invoice-converter] copying the PI's PO to ${byId.get(id)?.row.invoice_number ?? id}: ${err instanceof Error ? err.message : err}`);
-  };
-  try {
-    numbers: for (const n of plan.numbers) {
-      for (const id of n.ids) {
-        if (budget-- <= 0) break numbers;
-        try {
-          await setPoNumber(id, n.value);
-          byId.get(id)!.row.cf_purchase_order_number = n.value;
-          left--;
-        } catch (err) { failed(id, err); }
-      }
-    }
-    for (const x of plan.pdfs) {
-      if (budget <= 0 || skip[x.from] || !x.to.length) continue;
-      budget--;
-      let bytes: Uint8Array<ArrayBuffer> | null = null;
-      try { bytes = await poPdfOf(x.from); } catch (err) { failed(x.from, err); left -= x.to.length - 1; continue; }
-      if (!bytes) { skip[x.from] = now + SKIP_MS; left -= x.to.length; continue; }
-      for (const id of x.to) {
-        if (budget-- <= 0) break;
-        const r = byId.get(id)!;
-        const name = poFileName(String(r.row.invoice_number ?? id));
-        try {
-          const had = await attachOne(id, r.lmt, name, bytes);
-          extras.set(id, { _id: id, lmt: r.lmt ?? had?.lmt ?? "", eway: had?.eway ?? null, ewayFound: had?.ewayFound ?? null, files: [...(had?.files ?? []), name], readAt: had?.readAt ?? new Date().toISOString() });
-          left--;
-        } catch (err) { failed(id, err); }
-      }
-    }
-  } finally {
-    await (await lockCol()).updateOne({ _id: FILL_LOCK }, { $set: { until: 0, skip } });
-  }
-  return Math.max(0, left);
-}
-
-/** An e-way bill number typed here (Zoho's invoices have no field for it; Zoho's own e-way bills still show first). Empty clears it. */
 export async function setEway(invoiceId: string, raw: unknown): Promise<{ eway: string | null }> {
   const typed = String(raw ?? "").trim();
   const eway = typed ? cleanEway(typed) : null;
   if (typed && !eway) throw new Error("An e-way bill number has 12 digits.");
   const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
   if (!row) throw new Error("That invoice isn't in our copy yet. Sync, then try again.");
+  await setInvoiceField(invoiceId, EWAY_FIELD, eway ?? "");
+  await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, eway ? { $set: { "row.cf_e_way_bill_number": eway } } : { $unset: { "row.cf_e_way_bill_number": "" } });
   const col = await extrasCol();
   const had = await col.findOne({ _id: invoiceId });
   await col.replaceOne({ _id: invoiceId }, { lmt: had?.lmt ?? (wantsDetail(row) ? "" : row.lmt ?? ""), eway: had?.eway ?? null, ewayFound: eway, files: had?.files ?? [], readAt: had?.readAt ?? new Date().toISOString() }, { upsert: true });
@@ -172,7 +100,7 @@ export async function setEway(invoiceId: string, raw: unknown): Promise<{ eway: 
 export async function setPoNumber(invoiceId: string, raw: unknown): Promise<{ po: string; ok: boolean }> {
   const value = String(raw ?? "").trim().slice(0, 100);
   // Zoho's spec (invoices.yml, update_custom_fields_in_invoice): singular "invoice", body { custom_fields: [{ customfield_id, value }] }.
-  await booksApi("PUT", `/invoice/${invoiceId}/customfields`, {}, { custom_fields: [{ customfield_id: PO_FIELD, value }] });
+  await setInvoiceField(invoiceId, PO_FIELD, value);
   await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, value ? { $set: { "row.cf_purchase_order_number": value } } : { $unset: { "row.cf_purchase_order_number": "" } });
   const s = poState(value);
   return { po: s.label, ok: s.ok };
@@ -250,7 +178,12 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
   if (which === "eway") {
     const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
     const had = await attachOne(invoiceId, row?.lmt, ewayFileName(String(row?.row.invoice_number ?? invoiceId)), bytes, found);
-    return { ok: true, found, ids: [invoiceId], poIds: [], ...(found && !had?.eway ? { eway: found } : {}) };
+    const fresh = Boolean(found && !had?.eway && !String(row?.row.cf_e_way_bill_number ?? "").trim());
+    // The number read from the PDF goes into Zoho's "E-way Bill Number" too, when the invoice has none yet.
+    if (fresh && found) {
+      try { await setEway(invoiceId, found); } catch (err) { console.error(`[invoice-converter] e-way bill number into Zoho for ${row?.row.invoice_number ?? invoiceId}: ${err instanceof Error ? err.message : err}`); }
+    }
+    return { ok: true, found, ids: [invoiceId], poIds: [], ...(fresh && found ? { eway: found } : {}) };
   }
 
   const group = await samePiInvoices(invoiceId);

@@ -74,7 +74,9 @@ const fireItemIds = async () => new Set((((await (await kv()).findOne({ _id: "zo
 const KEEP = ["estimate_id", "salesorder_id", "invoice_id", "estimate_number", "salesorder_number", "invoice_number", "date", "created_time", "last_modified_time",
   "status", "customer_id", "customer_name", "salesperson_name", "reference_number", "total", "balance", "due_date", "payment_made",
   // The Invoice Converter (owner, 17 Nov): the invoice's Purchase Order Number, and whether it has attachments.
-  "cf_purchase_order_number", "has_attachment"];
+  "cf_purchase_order_number", "has_attachment",
+  // …and its E-way Bill Number field (18 Nov).
+  "cf_e_way_bill_number"];
 /** Lines that come along with a sale rather than being one (travel on a training invoice, freight on an AED). */
 const INCIDENTAL = /travel|conveyance|accommodation|lodging|boarding|freight|shipping|courier|packing|forwarding|transport/i;
 

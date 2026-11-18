@@ -19,6 +19,18 @@ type SignInfo = { connected: boolean; canConnect: boolean; signer: { email: stri
 /** Blue N/A (owner, 17 Nov): no e-way bill is needed on an invoice of ₹50,000 or less. */
 const NA = () => <span className="rounded-md bg-info-bg px-2 py-0.5 text-[12.5px] font-bold tracking-wide text-info">N/A</span>;
 
+/** A small spinning ring shown while something is being written to Zoho Books. */
+function Spinner({ size = 14 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className="shrink-0 animate-spin motion-reduce:animate-[spin_1.6s_linear_infinite]" aria-hidden>
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+      <path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+/** A button's label while busy: the spinner and what it's doing. */
+const Busy = ({ text }: { text: string }) => <span className="inline-flex items-center gap-1.5"><Spinner />{text}</span>;
+
 /** The neon marks (owner: "TICK OR CROSS NEON"). */
 function Mark({ ok, small = false }: { ok: boolean; small?: boolean }) {
   const c = ok ? "#12d65a" : "#ff3b5c";
@@ -72,7 +84,7 @@ export function InvoiceConverter() {
             <button key={String(v)} type="button" onClick={() => setOnlyMissing(v as boolean)} className={`h-8 rounded-lg px-3 text-[13px] font-medium ${onlyMissing === v ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>{l as string}</button>
           ))}
         </div>
-        {data && data.pending > 0 && <span className="text-[13px] text-muted">Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
+        {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
       {data?.sign && <SignSetup sign={data.sign} onDone={load} />}
@@ -146,7 +158,6 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
   const [note, setNote] = useState("");
   const pick = useRef<HTMLInputElement>(null);
   const n = invoices.length;
-  const known = invoices.find((i) => i.poOk)?.po ?? "";
   const allDone = invoices.every((i) => i.poOk && i.po === invoices[0].po && i.poPdf);
   const save = async () => {
     setBusy(true); setError(""); setNote("");
@@ -172,10 +183,10 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
           {allDone && !editing ? (
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-2">
               <Mark ok small /><span>On all {n}</span>
-              <button type="button" className="rounded px-1.5 py-0.5 font-semibold text-brand hover:bg-brand-soft" onClick={() => { setValue(known); setEditing(true); }}>Change</button>
+              <button type="button" className="rounded px-1.5 py-0.5 font-semibold text-brand hover:bg-brand-soft" onClick={() => { setValue(""); setEditing(true); }}>Change</button>
             </span>
           ) : (
-            <button type="button" disabled={editing} className="h-8 rounded-lg bg-brand px-3.5 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={() => { setValue(known); setEditing(true); }}>Add PO for all {n}</button>
+            <button type="button" disabled={editing} className="h-8 rounded-lg bg-brand px-3.5 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={() => { setValue(""); setEditing(true); }}>Add PO for all {n}</button>
           )}
         </div>
         <p className="hidden text-[12.5px] text-muted lg:block">Each invoice has its own</p>
@@ -184,7 +195,7 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
             <input className={`${field} w-48`} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }} placeholder="PO number" autoFocus aria-label={`PO number for all invoices of ${pi}`} />
             <button type="button" className="h-9 max-w-64 truncate rounded-lg border border-line bg-surface px-3 text-[13px] font-semibold text-ink hover:bg-surface-2" onClick={() => pick.current?.click()}>{file ? file.name : "Choose PO PDF"}</button>
             <input ref={pick} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
-            <button type="button" className="h-9 rounded-lg bg-brand px-4 text-[13px] font-semibold text-brand-ink disabled:opacity-50" disabled={busy || (!value.trim() && !file)} onClick={save}>{busy ? "Saving…" : `Save for all ${n}`}</button>
+            <button type="button" className="h-9 rounded-lg bg-brand px-4 text-[13px] font-semibold text-brand-ink disabled:opacity-50" disabled={busy || (!value.trim() && !file)} onClick={save}>{busy ? <Busy text={`Saving to Zoho Books · ${n} invoices…`} /> : `Save for all ${n}`}</button>
             <button type="button" className="h-9 rounded-lg px-2 text-[13px] text-muted hover:text-ink" onClick={() => { setEditing(false); setFile(null); }}>Cancel</button>
             <span className="text-[12.5px] text-muted">Leave the number empty to read it from the PDF.</span>
           </div>
@@ -203,7 +214,7 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
 function Pdf({ has, pending, busy, onPick }: { has: boolean; pending: boolean; busy: boolean; onPick: () => void }) {
   if (pending) return <p className="mt-0.5 text-[12.5px] text-faint">PDF: reading…</p>;
   return has ? <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok small />PDF attached</p> : (
-    <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok={false} small />No PDF <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onPick}>{busy ? "Attaching…" : "Attach"}</button></p>
+    <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok={false} small />No PDF <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onPick}>{busy ? <Busy text="Attaching in Zoho…" /> : "Attach"}</button></p>
   );
 }
 
@@ -213,6 +224,19 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState<"" | "po" | "poPdf" | "eway" | "ewayPdf" | "sign">("");
+  const [merging, setMerging] = useState(false);
+  const downloadMerged = async () => {
+    setMerging(true); setError("");
+    try {
+      const r = await fetch(`/api/invoice-converter?merged=${i.id}`, { cache: "no-store" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setError(j.error ?? "Couldn't make the merged PDF"); return; }
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = url; a.download = `Invoice ${i.number} merged.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { setError("Couldn't reach the server"); } finally { setMerging(false); }
+  };
   const [ewayEdit, setEwayEdit] = useState(false);
   const [ewayValue, setEwayValue] = useState("");
   const saveEway = async () => {
@@ -292,7 +316,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         {editing ? (
           <div className="flex flex-wrap items-center gap-1.5">
             <input className="h-8 w-40 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-ink" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") savePo(); if (e.key === "Escape") setEditing(false); }} placeholder="PO number" autoFocus aria-label="Purchase order number" />
-            <button type="button" className="h-8 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={savePo} disabled={busy === "po"}>{busy === "po" ? "Saving…" : "Save"}</button>
+            <button type="button" className="h-8 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={savePo} disabled={busy === "po"}>{busy === "po" ? <Busy text="Saving…" /> : "Save"}</button>
             <button type="button" className="h-8 rounded-lg px-2 text-[13px] text-muted hover:text-ink" onClick={() => setEditing(false)}>Cancel</button>
           </div>
         ) : (
@@ -314,7 +338,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
             {ewayEdit ? (
               <div className="flex flex-wrap items-center gap-1.5">
                 <input className="h-8 w-40 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-ink" inputMode="numeric" value={ewayValue} onChange={(e) => setEwayValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveEway(); if (e.key === "Escape") setEwayEdit(false); }} placeholder="12-digit number" autoFocus aria-label="E-way bill number" />
-                <button type="button" className="h-8 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={saveEway} disabled={busy === "eway"}>{busy === "eway" ? "Saving…" : "Save"}</button>
+                <button type="button" className="h-8 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={saveEway} disabled={busy === "eway"}>{busy === "eway" ? <Busy text="Saving…" /> : "Save"}</button>
                 <button type="button" className="h-8 rounded-lg px-2 text-[13px] text-muted hover:text-ink" onClick={() => setEwayEdit(false)}>Cancel</button>
               </div>
             ) : i.ewayZoho ? (
@@ -339,12 +363,13 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         ) : (
           <button type="button" className="h-8 rounded-lg border border-line px-3 text-[13px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-50" disabled={busy === "sign" || !sign?.connected || !sign?.signer} onClick={startSign}
             title={!sign?.connected ? "Zoho Sign isn't connected yet" : !sign?.signer ? "Add your email and full name for Zoho Sign above" : "Merge the invoice, PO and e-way bill PDFs and sign once"}>
-            {busy === "sign" ? "Merging…" : i.sign === "inprogress" ? "Sign now" : "Merge & sign"}
+            {busy === "sign" ? <Busy text="Merging…" /> : i.sign === "inprogress" ? "Sign now" : "Merge & sign"}
           </button>
         )}
         {i.sign === "inprogress" && <p className="mt-1 text-[12px] text-muted">Waiting for your signature</p>}
         {/* The merged PDF on its own (owner, 17 Nov: Zoho Sign's plan refuses API sends). */}
-        <a className="mt-1 block text-[12.5px] font-semibold text-brand hover:underline" href={`/api/invoice-converter?merged=${i.id}`}>Merged PDF</a>
+        {/* Fetched here (not a plain link) so the spinner shows while Zoho's files are gathered and merged. */}
+        <button type="button" className="mt-1 block text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={merging} onClick={downloadMerged}>{merging ? <Busy text="Merging the PDFs…" /> : "Merged PDF"}</button>
       </div>
       {error && <p className="col-span-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
     </li>

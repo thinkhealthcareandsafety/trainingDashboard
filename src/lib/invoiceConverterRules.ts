@@ -51,30 +51,6 @@ export function blocksOf(invoices: ConvInvoice[]): ConvBlock[] {
   return out;
 }
 
-/*
- * "If the PO is there already for one, the invoices under the same PI all get the same PO too" (owner, 18 Nov): what to
- * copy within each PI. The number: when the PI's invoices carry exactly one real PO number, every one without it (none,
- * "Verbal") gets it; two different numbers are left for a person. The PDF: when one has a PO PDF, it is copied to those
- * with none, but only once every invoice's attachments are known (`known`), so nothing gets a second copy.
- */
-export type FillItem = { id: string; customerId: string; pi: string | null; po: unknown; poPdf: boolean; known: boolean };
-export type FillPlan = { numbers: { value: string; ids: string[] }[]; pdfs: { from: string; to: string[] }[] };
-export function fillPlan(items: FillItem[]): FillPlan {
-  const groups = new Map<string, FillItem[]>();
-  for (const i of items) if (i.pi) { const k = `${i.customerId}|${i.pi}`; groups.set(k, [...(groups.get(k) ?? []), i]); }
-  const plan: FillPlan = { numbers: [], pdfs: [] };
-  for (const g of groups.values()) {
-    if (g.length < 2) continue;
-    const real = [...new Set(g.map((i) => poState(i.po)).filter((s) => s.ok).map((s) => s.label))];
-    const missing = g.filter((i) => !poState(i.po).ok).map((i) => i.id);
-    if (real.length === 1 && missing.length) plan.numbers.push({ value: real[0], ids: missing });
-    const from = g.find((i) => i.poPdf);
-    const to = g.filter((i) => !i.poPdf).map((i) => i.id);
-    if (from && to.length && g.every((i) => i.known)) plan.pdfs.push({ from: from.id, to });
-  }
-  return plan;
-}
-
 /** An e-way bill number typed in: 12 digits, spaces allowed. */
 export const cleanEway = (raw: unknown): string | null => { const v = String(raw ?? "").replace(/\s+/g, ""); return /^\d{12}$/.test(v) ? v : null; };
 
