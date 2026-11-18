@@ -11,7 +11,7 @@ import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, f
  *  - The e-way bill number and the attachment names are only in an invoice's full record, so those are read from Zoho
  *    a few at a time (invoices over ₹50,000, and any with attachments) and kept in `invoiceExtras` until the invoice
  *    changes.
- *  - Writes: the Purchase Order Number custom field (PUT /invoices/{id}/customfields), and a PDF attached to the invoice
+ *  - Writes: the Purchase Order Number custom field (PUT /invoice/{id}/customfields, singular: Zoho refuses PUT on /invoices/{id}/customfields), and a PDF attached to the invoice
  *    (POST /invoices/{id}/attachment), named "PO - <invoice>.pdf" / "E-way bill - <invoice>.pdf". When the "Purchase
  *    order PDF" custom field exists in Zoho, the PO PDF can move there.
  */
@@ -19,6 +19,8 @@ import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, f
 const PO_FIELD = "982417000001000149"; // invoice custom field "Purchase Order Number" (cf_purchase_order_number)
 const READ_BATCH = 20; // full records read per page load; the page asks again while some are pending
 const FILL_BATCH = 8; // Zoho writes per page load when a PI's PO is copied to its other invoices
+// v2: the first copies all failed on the wrong Zoho path (18 Nov); a fresh lock forgets those 6-hour skips.
+const FILL_LOCK = "conv_fill_v2";
 const SKIP_MS = 6 * 3600_000; // an invoice Zoho refused a copy for is left alone this long (no retry loop on Zoho's daily limit)
 
 type SalesRow = { _id: string; kind: string; id: string; lmt?: string; date?: string; row: Record<string, unknown> };
@@ -79,7 +81,7 @@ const lockCol = async () => (await db()).collection<FillLock>("kv");
 async function claimFill(): Promise<boolean> {
   const now = Date.now();
   try {
-    const r = await (await lockCol()).updateOne({ _id: "conv_fill", $or: [{ until: { $exists: false } }, { until: { $lt: now } }] }, { $set: { until: now + 60_000 } }, { upsert: true });
+    const r = await (await lockCol()).updateOne({ _id: FILL_LOCK, $or: [{ until: { $exists: false } }, { until: { $lt: now } }] }, { $set: { until: now + 60_000 } }, { upsert: true });
     return ((r as { modifiedCount?: number }).modifiedCount ?? 0) + ((r as { upsertedCount?: number }).upsertedCount ?? 0) > 0;
   } catch {
     return false; // held by another load (the upsert meets the existing lock)
@@ -104,7 +106,7 @@ async function poPdfOf(invoiceId: string): Promise<Uint8Array<ArrayBuffer> | nul
  */
 async function fillWithinPi(rows: SalesRow[], extras: Map<string, Extras>, known: (r: SalesRow) => boolean): Promise<number> {
   const now = Date.now();
-  const lock = await (await lockCol()).findOne({ _id: "conv_fill" });
+  const lock = await (await lockCol()).findOne({ _id: FILL_LOCK });
   const skip = Object.fromEntries(Object.entries(lock?.skip ?? {}).filter(([, t]) => t > now));
   const plan = fillPlan(rows.map((r) => ({ id: r.id, customerId: String(r.row.customer_id ?? ""), pi: piOf(r.row.reference_number), po: r.row.cf_purchase_order_number, poPdf: (extras.get(r.id)?.files ?? []).some(isPoFile), known: known(r) })));
   for (const n of plan.numbers) n.ids = n.ids.filter((id) => !skip[id]);
@@ -147,7 +149,7 @@ async function fillWithinPi(rows: SalesRow[], extras: Map<string, Extras>, known
       }
     }
   } finally {
-    await (await lockCol()).updateOne({ _id: "conv_fill" }, { $set: { until: 0, skip } });
+    await (await lockCol()).updateOne({ _id: FILL_LOCK }, { $set: { until: 0, skip } });
   }
   return Math.max(0, left);
 }
@@ -168,7 +170,7 @@ export async function setEway(invoiceId: string, raw: unknown): Promise<{ eway: 
 /** The invoice's Purchase Order Number, written to Zoho and to our copy. */
 export async function setPoNumber(invoiceId: string, raw: unknown): Promise<{ po: string; ok: boolean }> {
   const value = String(raw ?? "").trim().slice(0, 100);
-  await booksApi("PUT", `/invoices/${invoiceId}/customfields`, {}, [{ customfield_id: PO_FIELD, value }]);
+  await booksApi("PUT", `/invoice/${invoiceId}/customfields`, {}, [{ customfield_id: PO_FIELD, value }]); // singular "invoice", as Zoho has it
   await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, value ? { $set: { "row.cf_purchase_order_number": value } } : { $unset: { "row.cf_purchase_order_number": "" } });
   const s = poState(value);
   return { po: s.label, ok: s.ok };
