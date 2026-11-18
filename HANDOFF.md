@@ -1,6 +1,107 @@
 # Handoff — ThinkHealth Training Dashboard
 
-## Start of the next session (32) — read this block first
+## Start of the next session (33) — read this block first
+
+_Written Wed 18 Nov 2026, end of session 32, for the next Claude Code session and the owner (Sumit)._
+
+**State.** **Live = `663e348`** on work.thinkhealth.in, training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel
+`-xfwl` success). Nothing local except this handoff. Push only when the owner says "push" (`git push origin master`, long
+timeout), then check Vercel (`curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status`)
+and curl the sites.
+
+**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master`; `npm test` (**352** pass);
+`npx tsc --noEmit -p tsconfig.json`.
+
+**First thing to build: the daily summary email (owner asked, not started — no code yet).** The report emailed to Sumit must
+become a **summary in the email body, no PDF** (owner: "simple and concise, tells the whole story of our current foot in the
+business"). It replaces the PDF that `bed42f1` sends (keep the schedule, sender and dedupe: `lib/overviewReportSend.ts`,
+`/api/cron/report`, GitHub `overview-report.yml` 13:32/13:50 UTC, Vercel cron `0 14 * * *`, kv `overview_report`, from
+hello@ to sshah@, daily Mon–Sat 7 pm IST, monthly on the month's last day 7 pm; Admin button "Email the report now" on the
+Overview). Owner's picks (AskUserQuestion, 18 Nov):
+- A one-line **headline** first ("Strong quoting day: ₹4.2 L in 12 quotations, 2.1× last year's average day; invoicing below
+  average at ₹1.1 L in 3; ₹80 k collected"), then short sections, ▲/▼ green/red, readable on a phone.
+- **Quotations sent** today: how many, ₹, by person (Sumit / Ashish / Pranjal / others), vs last year's average day
+  (`vsLastYear(days,"all","day",on)`), the biggest one (customer, ₹, who). Data: `salesDocs` kind `estimates` (row:
+  estimate_number, customer_name, total, salesperson_name, status, date; not draft).
+- **Invoiced today**: the same from `salesDocs` kind `invoices` (not draft / void).
+- **Month & FY pace**: month so far vs last year, where the month ends at today's pace, FY so far vs same days last FY
+  (`overviewMath`: vsLastYear month/year).
+- **Payments received** today: Zoho Books `GET /customerpayments?date=YYYY-MM-DD` (`booksApi`, scope is fullaccess): total,
+  how many, top payers.
+- **Total outstanding, receivable and payable**: one call each with `response_option=3`, which returns `page_context.sum_columns
+  {total, balance}` — verified for `GET /invoices?filter_by=Status.Unpaid&response_option=3&per_page=1` (84 invoices, balance
+  ₹60.75 L on 18 Nov); add `Status.Overdue`. Payables: `GET /bills?filter_by=Status.Unpaid&response_option=3` (filter values are
+  in Zoho's bills spec; `response_option` on bills is unverified — fall back to paging and summing `balance`).
+- **Stock in / out** today: in = bills dated today (line items via the bill's detail: item, qty, ₹); out = goods lines of
+  today's invoices (`salesDetails` cache or `fetchDetail`). Optional "low on stock" (items `stock_on_hand` ≤ `reorder_level`).
+  The Zoho Analytics copy also has stock tables (`stockIn`/`stockOut` in `lib/analytics/build.ts`) but refreshes every 6 h.
+- **New customers** today: contacts created today — `GET /contacts?contact_type=customer&sort_column=created_time&per_page=50`
+  (the list carries created_time; check), names.
+- **Trainings**: today's and tomorrow's from `boardTrainings(await getSnapshot())` (`lib/fulfilServer.ts`; BoardTraining
+  dates / trainers / people / customerName / training), like the ticker (`lib/ticker.ts`).
+- **AED renewals**: pads / battery expiring in the next 30 days — `aedData(snap).invoices` → `parseAedLine` (`lib/aedParse.ts`
+  batteryExpiry / padsExpiry) with the customer.
+- **Monthly** version on the last day: the same sections for the month (counts, ₹, by person, payments, stock totals, new
+  customers, trainings held), renewals due next month.
+Build it as pure pieces (`lib/dailySummary.ts`: facts → HTML, tested) plus a server gatherer; one Zoho failure must leave
+that section out with a note, not stop the email. Delete the PDF attachment path (`overviewReport.ts` can go or stay for a
+download link — ask).
+
+**Then ask / check with the owner:**
+1. **Report email works?** Ask if "Email the report now" arrived. Scheduled sends need `CRON_SECRET` in Vercel (and GitHub for
+   the 7:02 pm run; the Vercel 7:30–8:29 pm cron is the fallback).
+2. **Sprints**: Admin must press **Connect Zoho Sprints again** (new scopes `SPRINTS_SCOPES` incl. items CREATE/DELETE and
+   settings.READ) before create / move / edit / delete work. None of the two-way part has run on real data. P5 "GT - General
+   Team Tasks" is a **Kanban** project: its items are found once by number (`multipledetails`), the board's hidden sprint is
+   kept in kv `zoho_sprints.kanbanSprintId`. Ask for a screenshot after connecting.
+3. **Sprints card priority bar**: the impeccable hook flags the 3px coloured left bar (side-tab) on every stop. Kept because
+   the owner asked for a one-to-one copy of Zoho's cards; `impeccable hooks ignore-value` was **denied by the auto-mode
+   classifier**. Ask the owner: keep the bar (then they approve the ignore) or show only the priority label.
+4. **Zoho Sign**: API sends need Zoho Sign credits (bought separately, even on Zoho One). Owner said skip dashboard signing.
+5. **Next.js security notice** on `next dev` / `next build`: upgrading is the owner's call.
+
+**Session 32 in short (18 Nov), all live up to `663e348`:**
+- **Invoice Converter**: invoices of the same PI (invoice `reference_number` = "Performa-25-1214", `piOf`) linked by a line
+  with an arrow, "Add PO for all N" under Purchase order; a PO number / PO PDF saved on one goes to every invoice of the PI.
+  **Writes to Zoho only on Save** (owner) — a page-load auto-copy was built and removed, it never wrote. PO write = `PUT
+  /invoice/{id}/customfields` (singular) with body `{ custom_fields: [{ customfield_id, value }] }` (Zoho's invoices.yml;
+  confirmed: owner's Save for all 4 on Performa-25-931 wrote PO 1000033706 to all four). New Zoho invoice field **"E-way Bill
+  Number"** (`cf_e_way_bill_number`, id `982417000024432062`, hidden on PDF; made with the owner's OK): typed or read from an
+  e-way PDF, written to Zoho. Five equal columns, spinners on every save, the All/Something-missing switch and the Zoho Sign
+  setup box removed.
+- **Sprints** (`/sprints`, its own sidebar item for everyone, not under Reports): the Progress tracker is **hidden entirely**
+  (menu, red count, notices — `useProgressPulse(false)`, "Ask a teammate" — `HIDE_ASK` in CardModal; old links redirect).
+  Zoho Sprints can't be framed (X-Frame-Options DENY), so the board is drawn from its API (`lib/zohoSprints.ts`,
+  `lib/sprintsRules.ts`, `/api/sprints`, `components/SprintsBoard.tsx`, India API `https://sprintsapi.zoho.in/zsapi`): drag a
+  card = status in Zoho; Create Task (name, description, tags, custom fields like Invoice Number / Sales Order Number from
+  Zoho's field list, assignees, status, type, priority, dates); open a card to edit / delete; fits the screen. People: Zoho
+  names cleaned ("Sumit Shah Shah" → "Sumit Shah", `cleanName`) and matched to members by first name (`peopleOf`); members
+  not in Zoho Sprints can be assigned too (kept in Mongo `sprintAssign`); a new task is the creator's; **only Sumit, Admin,
+  Shikha and Nikita see every task**, others see / change only theirs (`seesAll`, `mayTouch`).
+- **Overview**: under the Daily row, Quotations and Invoices line charts (`OverviewFyChart`): x = days from 1 April, this FY
+  to today vs last FY's 365 days, Running total / Each day; dotted lines = how many sent per day (7-day average, own right
+  axis; hover = that day's count). `DaySums` now carries counts: `[₹ quoted, ₹ invoiced, n quotes, n invoices]`.
+- **Report email** (`bed42f1`, to be replaced by the summary above): a PDF per person (`lib/overviewReport.ts`) daily and
+  monthly.
+
+**Traps learned in session 32:**
+- Git Bash rewrites arguments that start with "/" into Windows paths: `export MSYS_NO_PATHCONV=1` before passing API paths.
+- Bash heredocs keep breaking on quotes / `${}` in patch scripts: write them with the Write tool to the scratchpad, run with node.
+  Check regexes afterwards (`\d` became `d` twice).
+- `next dev` exits on its first start after the security notice — start it again (background), then preview.
+- Zoho's official API specs: `https://www.zoho.com/books/api/v3/openapi-all.zip` (unzip; e.g. `invoices.yml`). Zoho Sprints'
+  API docs are a JS bundle: `https://static.zohocdn.com/sprints/zsweb/js/apiDocument.<hash>.js` (hash from the chunk map in
+  `main.v245.js`); entries are `{name, scope, method, url, request…, jsonresp}`; responses are id-keyed arrays + `*_prop` maps.
+- PDFs can't be rendered with pdftoppm here; open them in headless Chrome with `scripts/cdp-shot.mjs file:///…pdf`.
+- Previews that use `PageHeader` / `useSession` need a stand-in (no SessionProvider in `(zz)` layouts).
+
+**Owner's rules learned in session 32:** nothing goes to Zoho unless someone presses Save; the Sprints board is a one-to-one
+copy of Zoho's (no Backlog, "Create Task" for "+ Item"); Sprints is its own sidebar item called "Sprints"; reports by email
+are a plain-words summary, not charts.
+
+---
+
+## Session 32's start block (history)
 
 _Written Wed 18 Nov 2026, end of session 31, for the next Claude Code session and the owner (Sumit)._
 
