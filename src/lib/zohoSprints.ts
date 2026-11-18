@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "./db";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { booksClient } from "./quotations";
-import { type SprintsBoard, type SprintView, boardColumns, findProject, pickTeam, sprintsOf } from "./sprintsRules";
+import { type SprintsBoard, type SprintView, boardColumns, decode, findProject, pickTeam, sprintsOf } from "./sprintsRules";
 
 /*
  * Zoho Sprints on the dashboard (owner, 18 Nov): the board of project P5 in the "thinkhealth" workspace
@@ -106,21 +106,33 @@ export async function sprintsBoard(): Promise<SprintsBoard> {
   const project = findProject(await get(c, `${base}/`, { action: "data", index: "1", range: "100" }), PROJECT_NO);
   if (!project) throw new Error(`Project P${PROJECT_NO} isn't visible to the connected Zoho user.`);
   const p = `${base}/${project.id}`;
-  const [statuses, active] = await Promise.all([
+  // The project's own record says SCRUM or KANBAN and holds its backlog (owner, 18 Nov: the first try found no
+  // running sprint and no backlog items, so every place the items can be is read).
+  const [statuses, details, active, upcoming] = await Promise.all([
     get(c, `${p}/itemstatus/`, { action: "data", index: "1", range: "100" }),
+    get(c, `${p}/`, { action: "details" }).catch(() => ({} as Record<string, unknown>)),
     get(c, `${p}/sprints/`, { action: "data", index: "1", range: "100", type: "[2]" }),
+    get(c, `${p}/sprints/`, { action: "data", index: "1", range: "100", type: "[1]" }),
   ]);
-  const running = sprintsOf(active);
+  const det = decode(details.projectIds, details.projectJObj, details.project_prop)[0];
+  const kind = String(det?.projType_enum ?? det?.projType ?? "");
+  let backlogId = project.backlogId || String(det?.backlogId ?? "");
+  if (!backlogId || backlogId === "-1") backlogId = String((await get(c, `${p}/`, { action: "getbacklog" }).catch(() => ({} as Record<string, unknown>))).backlogId ?? "");
   const sprints: SprintView[] = [];
-  for (const s of running) {
+  const add = async (s: { id: string; name: string; no: string; start: string | null; end: string | null }, extra: Partial<SprintView> = {}) => {
     const items = await allPages(c, `${p}/sprints/${s.id}/item/`, { action: "data" });
-    sprints.push({ ...s, columns: boardColumns(statuses, items, project.prefix) });
-  }
-  if (!sprints.length && project.backlogId) {
-    const items = await allPages(c, `${p}/sprints/${project.backlogId}/item/`, { action: "data" });
-    sprints.push({ id: project.backlogId, name: "Backlog", no: "", start: null, end: null, backlog: true, columns: boardColumns(statuses, items, project.prefix) });
-  }
-  const data: SprintsBoard = { project: { id: project.id, name: project.name, prefix: project.prefix, no: project.no }, sprints, fetchedAt: new Date().toISOString(), boardUrl: BOARD_URL };
+    sprints.push({ ...s, ...extra, columns: boardColumns(statuses, items, project.prefix) });
+  };
+  // Running sprints first (Zoho's board), then the upcoming ones and the backlog as their own tabs.
+  for (const s of sprintsOf(active)) await add(s);
+  for (const s of sprintsOf(upcoming)) await add(s, { upcoming: true });
+  if (backlogId && backlogId !== "-1") await add({ id: backlogId, name: "Backlog", no: "", start: null, end: null }, { backlog: true });
+  const count = (v: SprintView) => v.columns.reduce((n, col) => n + col.cards.length, 0);
+  const shown = sprints.filter((v, k) => count(v) > 0 || (k === 0 && !v.backlog && !v.upcoming));
+  const backlog = sprints.find((v) => v.backlog);
+  const statusCount = decode(statuses.statusIds, statuses.statusJObj, statuses.status_prop).length;
+  const diag = `project type ${kind || "?"} · ${sprintsOf(active).length} running, ${sprintsOf(upcoming).length} upcoming sprints · backlog ${backlog ? `${count(backlog)} items` : "not found"} · ${statusCount} statuses`;
+  const data: SprintsBoard = { project: { id: project.id, name: project.name, prefix: project.prefix, no: project.no }, sprints: shown, fetchedAt: new Date().toISOString(), boardUrl: BOARD_URL, diag };
   G.__thSprintsBoard = { at: Date.now(), data };
   return data;
 }

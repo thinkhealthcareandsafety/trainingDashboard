@@ -39,14 +39,14 @@ export function SprintsBoard() {
         {b && b.sprints.length > 1 && (
           <div className="flex rounded-xl bg-surface-2 p-1">
             {b.sprints.map((s, k) => (
-              <button key={s.id} type="button" onClick={() => setTab(k)} className={`h-8 rounded-lg px-3 text-[13px] font-medium ${k === tab ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>{s.name}</button>
+              <button key={s.id} type="button" onClick={() => setTab(k)} className={`h-8 rounded-lg px-3 text-[13px] font-medium ${k === tab ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>{s.name}{s.upcoming ? <span className="font-normal text-faint"> · upcoming</span> : null}</button>
             ))}
           </div>
         )}
         {sprint && (
           <p className="text-[13.5px] text-ink-2">
             <span className="font-semibold text-ink">{sprint.backlog ? "Backlog" : sprint.name}</span>
-            {sprint.backlog ? " · no sprint is running" : sprint.start && sprint.end ? ` · ${day(sprint.start)} – ${day(sprint.end)}` : ""}
+            {sprint.backlog ? " · not in a sprint" : sprint.upcoming ? " · upcoming" : sprint.start && sprint.end ? ` · ${day(sprint.start)} – ${day(sprint.end)}` : ""}
             {" · "}{sprint.columns.reduce((n, c) => n + c.cards.length, 0)} items
           </p>
         )}
@@ -74,7 +74,14 @@ export function SprintsBoard() {
             </section>
           ))}
         </div>
-      ) : !data.error && <p className="card p-6 text-[14px] text-muted">No sprint is running and the backlog is empty.</p>}
+      ) : !data.error && (
+        <div className="card p-6">
+          <p className="text-[14px] text-muted">Nothing to show: no running or upcoming sprint has items, and the backlog is empty.</p>
+          {/* What Zoho returned, so a mismatch can be fixed (owner, 18 Nov: the first connection showed nothing). */}
+          {b?.diag && <p className="num mt-2 text-[12.5px] text-faint">Zoho Sprints said: {b.diag}</p>}
+        </div>
+      )}
+      {sprint && b?.diag && sprint.columns.every((c) => c.cards.length === 0) && <p className="num text-[12.5px] text-faint">Zoho Sprints said: {b.diag}</p>}
     </div>
   );
 }
