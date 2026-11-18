@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SprintCard, SprintColumn, SprintsBoard as Board, SprintsMeta } from "@/lib/sprintsRules";
 import { localDate } from "@/lib/sprintsRules";
 import { Skeleton } from "./ui";
@@ -36,6 +36,36 @@ function TypeIcon({ name }: { name: string }) {
   return <svg viewBox="0 0 16 16" width="15" height="15" aria-label="Story" className="shrink-0 text-[#16a34a]" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><rect x="3" y="2.5" width="8.5" height="11" rx="1" /><path d="M5.5 5.5h4M5.5 8h4M5.5 10.5h2.5M13 5v8.5H6" /></svg>;
 }
 
+/**
+ * The columns' height that makes the board end at the bottom of the window (owner, 18 Nov: "fit it to screen"; the same
+ * way as the Follow-ups board): no page scroll, each column scrolls on its own.
+ */
+function useFitHeight(deps: unknown[]) {
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [colH, setColH] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    if (!page) return;
+    const fit = () => {
+      const body = page.querySelector<HTMLElement>("[data-col-body]");
+      const main = page.parentElement;
+      if (!body || !main) return;
+      // Space the layout keeps below the page (the bottom tab bar on small screens).
+      const reserve = parseFloat(getComputedStyle(main).paddingBottom);
+      const bottom = page.getBoundingClientRect().bottom + window.scrollY;
+      const next = Math.max(220, Math.floor(body.clientHeight + window.innerHeight - reserve - bottom));
+      setColH((h) => (h === next ? h : next));
+    };
+    fit();
+    const late = setTimeout(fit, 600); // after the page's entry animation
+    const ro = new ResizeObserver(fit);
+    ro.observe(page);
+    window.addEventListener("resize", fit);
+    return () => { clearTimeout(late); ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+  return { pageRef, colH };
+}
+
 export function SprintsBoard() {
   const [data, setData] = useState<Data | null>(null);
   const [failed, setFailed] = useState("");
@@ -46,6 +76,7 @@ export function SprintsBoard() {
   const [over, setOver] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const busyMoves = useRef(0);
+  const { pageRef, colH } = useFitHeight([Boolean(data?.board)]);
 
   const load = () => fetch("/api/sprints", { cache: "no-store" }).then(async (r) => {
     const j = (await r.json().catch(() => null)) as Data | null;
@@ -82,7 +113,7 @@ export function SprintsBoard() {
   const total = (cols ?? []).reduce((n, c) => n + c.cards.length, 0);
 
   return (
-    <div className="space-y-4">
+    <div ref={pageRef} className="space-y-4">
       {data.needsReconnect && data.canConnect && <Connect canConnect scopes={data.scopes} onDone={load} again />}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 rounded-xl bg-surface-2 px-3 py-1.5">
@@ -106,7 +137,7 @@ export function SprintsBoard() {
       {data.error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{data.error}</p>}
       {note && <p className="flex items-center gap-3 rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{note}<button type="button" className="ml-auto font-semibold" onClick={() => setNote("")}>Dismiss</button></p>}
       {sprint && cols ? (
-        <div className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
+        <div className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1">
           {cols.map((c) => (
             <section key={c.id}
               onDragOver={(e) => { if (drag) { e.preventDefault(); setOver(c.id); } }}
@@ -118,7 +149,7 @@ export function SprintsBoard() {
                 <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink">{c.name} <span className="num text-[12px] font-normal text-faint">( {c.cards.length} )</span></h2>
                 <button type="button" onClick={() => setOpen({ statusId: c.id })} className="grid size-7 place-items-center rounded-md border border-line bg-surface text-[16px] leading-none text-muted hover:text-ink" aria-label={`Create a task in ${c.name}`} title={`Create a task in ${c.name}`}>+</button>
               </header>
-              <ul className="no-scrollbar flex max-h-[calc(100vh-250px)] min-h-[120px] flex-col gap-2 overflow-y-auto px-2.5 pb-3">
+              <ul data-col-body style={colH ? { height: colH } : undefined} className={`no-scrollbar flex flex-col gap-2 overflow-y-auto px-2.5 pb-3 ${colH ? "" : "max-h-[calc(100vh-250px)]"}`}>
                 {c.cards.length === 0 && <li className="px-1 py-3 text-[12.5px] text-faint">Drop a task here</li>}
                 {c.cards.map((card) => {
                   const pr = priority(card.priorityId);
