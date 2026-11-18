@@ -28,7 +28,7 @@ test("e-way bills over ₹50,000; our attachment names are told apart", () => {
 
 test("customers newest first, their invoices newest first, and how many still miss something", () => {
   const inv = (customerId: string, number: string, date: string, total: number, poOk: boolean, extra: Partial<{ poPdf: boolean; eway: string | null; ewayPdf: boolean }> = {}) =>
-    ({ customerId, customerName: customerId.toUpperCase(), id: number, number, date, total, status: "sent", pi: null, po: poOk ? "123" : "Verbal", poOk, poPdf: false, eway: null, ewayPdf: false, needsEway: needsEway(total), pending: false, ...extra });
+    ({ customerId, customerName: customerId.toUpperCase(), id: number, number, date, total, status: "sent", pi: null, po: poOk ? "123" : "Verbal", poOk, poPdf: false, eway: null, ewayZoho: false, ewayPdf: false, needsEway: needsEway(total), pending: false, ...extra });
   const g = groupByCustomer([
     inv("a", "1", "2026-10-01", 9000, true, { poPdf: true }),
     inv("b", "2", "2026-11-10", 80000, true, { poPdf: true, eway: "232328638953", ewayPdf: true }),
@@ -114,7 +114,7 @@ test("one PI, many invoices: the PI from the invoice's Reference, linked blocks 
   assert.equal(piOf(" performa 25/1223 part 2"), "Performa-25-1223");
   assert.equal(piOf("Quotation-24-002774"), null);
   assert.equal(piOf(undefined), null);
-  const inv = (id: string, pi: string | null) => ({ id, number: id, date: "", total: 1, status: "sent", pi, po: "No PO", poOk: false, poPdf: false, eway: null, ewayPdf: false, needsEway: false, pending: false });
+  const inv = (id: string, pi: string | null) => ({ id, number: id, date: "", total: 1, status: "sent", pi, po: "No PO", poOk: false, poPdf: false, eway: null, ewayZoho: false, ewayPdf: false, needsEway: false, pending: false });
   // Newest first: the PI's block sits where its newest invoice is; a PI with one invoice stands alone.
   const b = blocksOf([inv("5", "P-1"), inv("4", null), inv("3", "P-1"), inv("2", "P-2"), inv("1", "P-1")]);
   assert.deepEqual(b.map((x) => [x.pi, x.invoices.map((i) => i.id)]), [["P-1", ["5", "3", "1"]], [null, ["4"]], [null, ["2"]]]);
@@ -135,4 +135,33 @@ test("a PO saved on one invoice finds every invoice of the same PI and customer 
   assert.deepEqual(await samePiInvoices("99"), []);
   const r = await converterData();
   assert.equal(r.customers.find((c) => c.id === "c1")!.invoices.find((i) => i.id === "21")!.pi, "Performa-25-1214");
+});
+
+test("a PI's PO already on one invoice is copied to its others: one real number fills the rest, a PDF only once all are known", async () => {
+  const { fillPlan } = await import("@/lib/invoiceConverterRules");
+  const it = (id: string, pi: string | null, po: string, poPdf = false, known = true, customerId = "c1") => ({ id, customerId, pi, po, poPdf, known });
+  // Performa-25-931 from the owner's screen: 525 has 1000033706, the other three have Verbal / nothing.
+  const p = fillPlan([it("547", "P-931", "Verbal"), it("525", "P-931", "1000033706", true), it("370", "P-931", ""), it("369", "P-931", ""), it("400", null, "")]);
+  assert.deepEqual(p.numbers, [{ value: "1000033706", ids: ["547", "370", "369"] }]);
+  assert.deepEqual(p.pdfs, [{ from: "525", to: ["547", "370", "369"] }]);
+  // Two different numbers: left for a person. Attachments not read yet: no PDF copy yet.
+  assert.deepEqual(fillPlan([it("1", "P", "A1"), it("2", "P", "B2"), it("3", "P", "")]).numbers, []);
+  assert.deepEqual(fillPlan([it("1", "P", "A1", true), it("2", "P", "", false, false)]).pdfs, []);
+  // Same PI number at another customer: a separate group.
+  assert.deepEqual(fillPlan([it("1", "P", "A1"), it("2", "P", "", false, true, "c2")]).numbers, []);
+});
+
+test("an e-way bill number typed in: 12 digits, kept here, Zoho's own number still comes first", async () => {
+  const { cleanEway } = await import("@/lib/invoiceConverterRules");
+  const { setEway, converterData } = await import("@/lib/invoiceConverter");
+  assert.equal(cleanEway(" 2323 2863 8953 "), "232328638953");
+  assert.equal(cleanEway("12345"), null);
+  const docs = (await db()).collection<{ _id: string; kind: string; id: string; lmt: string; date: string; row: Record<string, unknown> }>("salesDocs");
+  await docs.insertOne({ _id: "invoices:31", kind: "invoices", id: "31", lmt: "x", date: "2026-11-01", row: { invoice_number: "2026-01-631", date: "2026-11-01", status: "sent", customer_id: "c1", total: 9000 } });
+  await assert.rejects(setEway("31", "123"), /12 digits/);
+  assert.deepEqual(await setEway("31", "2323 2863 8953"), { eway: "232328638953" });
+  const inv = (await converterData()).customers[0].invoices[0];
+  assert.equal(inv.eway, "232328638953");
+  assert.equal(inv.ewayZoho, false);
+  assert.deepEqual(await setEway("31", ""), { eway: null });
 });

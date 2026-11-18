@@ -93,8 +93,8 @@ export function InvoiceConverter() {
                 </button>
                 {isOpen && (
                   <div className="border-t border-line">
-                    <div className={`hidden ${COLS} gap-x-8 bg-surface-2/60 py-2.5 pl-11 pr-5 text-[12px] font-semibold text-muted lg:grid`}>
-                      <span>Invoice</span><span className="text-right">Value</span><span>Purchase order <span className="font-normal text-faint">· number and PDF</span></span><span>E-way bill <span className="font-normal text-faint">· over {inr(EWAY_OVER)}</span></span><span>Merged &amp; signed</span>
+                    <div className={`hidden ${COLS} gap-x-10 bg-surface-2/60 py-2.5 pl-11 pr-5 text-[12px] font-semibold uppercase tracking-[0.06em] text-muted lg:grid`}>
+                      <span>Invoice</span><span>Value</span><span>Purchase order</span><span title={`Needed over ${inr(EWAY_OVER)}`}>E-way bill</span><span>Merged PDF</span>
                     </div>
                     <ul className="divide-y divide-line">
                       {blocksOf(c.invoices).map((b) => b.pi ? (
@@ -114,9 +114,10 @@ export function InvoiceConverter() {
 
 // Columns with a clear gap between them (owner, 18 Nov: the headings shouldn't stick to each other). The left padding
 // (pl-11) leaves room for the line that links invoices of the same PI.
-const COLS = "grid-cols-[150px_110px_minmax(0,1fr)_minmax(0,1fr)_140px]";
+// Five columns of the same width (owner, 18 Nov).
+const COLS = "grid-cols-[repeat(5,minmax(0,1fr))]";
 // Written out in full so Tailwind finds it (a class built from a variable isn't generated).
-const COLS_LG = "lg:grid-cols-[150px_110px_minmax(0,1fr)_minmax(0,1fr)_140px]";
+const COLS_LG = "lg:grid-cols-[repeat(5,minmax(0,1fr))]";
 
 type Patch = (ids: string[], p: Partial<ConvInvoice>) => void;
 
@@ -160,23 +161,26 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
   const field = "h-9 rounded-lg border border-line bg-surface px-3 text-[13.5px] text-ink";
   return (
     <li>
-      <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2 bg-brand-soft/60 py-2.5 pl-11 pr-5">
+      <div className={`relative grid grid-cols-1 items-center gap-x-10 gap-y-2 bg-brand-soft/60 py-2.5 pl-11 pr-5 ${COLS_LG}`}>
         {/* The line starts at this strip; each row carries it on, the last ends it in an arrow. */}
         <span aria-hidden className="absolute bottom-0 left-[19px] top-[26px] w-0.5 bg-brand" />
         <span aria-hidden className="absolute left-[14px] top-[20px] h-3 w-3 rounded-full bg-brand" />
-        <p className="min-w-0 flex-1 text-[13px] text-ink-2">
-          <span className="num font-semibold text-ink">{pi}</span> · {n} invoices from this PI share one purchase order
+        <p className="min-w-0 text-[13px] text-ink-2 lg:col-span-2">
+          <span className="num font-semibold text-ink">{pi}</span> · {n} invoices, one PO
         </p>
-        {allDone && !editing ? (
-          <span className="flex items-center gap-3 text-[13px] text-ink-2">
-            <span className="flex items-center gap-1.5"><Mark ok small />PO <span className="num font-semibold text-ink">{invoices[0].po}</span> and PDF on all {n}</span>
-            <button type="button" className="rounded px-1.5 py-0.5 font-semibold text-brand hover:bg-brand-soft" onClick={() => { setValue(known); setEditing(true); }}>Change</button>
-          </span>
-        ) : !editing && (
-          <button type="button" className="h-8 rounded-lg bg-brand px-3.5 text-[13px] font-semibold text-brand-ink" onClick={() => { setValue(known); setEditing(true); }}>Add PO for all {n}</button>
-        )}
+        <div className="min-w-0">
+          {allDone && !editing ? (
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-2">
+              <Mark ok small /><span>On all {n}</span>
+              <button type="button" className="rounded px-1.5 py-0.5 font-semibold text-brand hover:bg-brand-soft" onClick={() => { setValue(known); setEditing(true); }}>Change</button>
+            </span>
+          ) : (
+            <button type="button" disabled={editing} className="h-8 rounded-lg bg-brand px-3.5 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={() => { setValue(known); setEditing(true); }}>Add PO for all {n}</button>
+          )}
+        </div>
+        <p className="hidden text-[12.5px] text-muted lg:block">Each invoice has its own</p>
         {editing && (
-          <div className="flex w-full flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 lg:col-span-3 lg:col-start-3">
             <input className={`${field} w-48`} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }} placeholder="PO number" autoFocus aria-label={`PO number for all invoices of ${pi}`} />
             <button type="button" className="h-9 max-w-64 truncate rounded-lg border border-line bg-surface px-3 text-[13px] font-semibold text-ink hover:bg-surface-2" onClick={() => pick.current?.click()}>{file ? file.name : "Choose PO PDF"}</button>
             <input ref={pick} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
@@ -185,8 +189,8 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
             <span className="text-[12.5px] text-muted">Leave the number empty to read it from the PDF.</span>
           </div>
         )}
-        {error && <p className="w-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
-        {note && <p className="w-full text-[12.5px] text-muted">{note}</p>}
+        {error && <p className="rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high lg:col-span-3 lg:col-start-3">{error}</p>}
+        {note && <p className="text-[12.5px] text-muted lg:col-span-3 lg:col-start-3">{note}</p>}
       </div>
       <ul className="divide-y divide-line">
         {invoices.map((i, k) => <Row key={i.id} i={i} sign={sign} onPatch={onPatch} link={k === n - 1 ? "last" : "mid"} pi={pi} />)}
@@ -208,7 +212,17 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const onPatch = (p: Partial<ConvInvoice>) => patchIds([i.id], p);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
-  const [busy, setBusy] = useState<"" | "po" | "poPdf" | "ewayPdf" | "sign">("");
+  const [busy, setBusy] = useState<"" | "po" | "poPdf" | "eway" | "ewayPdf" | "sign">("");
+  const [ewayEdit, setEwayEdit] = useState(false);
+  const [ewayValue, setEwayValue] = useState("");
+  const saveEway = async () => {
+    setBusy("eway"); setError("");
+    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "eway", id: i.id, value: ewayValue }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    setBusy("");
+    if (r.error) return setError(r.error);
+    onPatch({ eway: r.eway ?? null });
+    setEwayEdit(false);
+  };
   const [error, setError] = useState("");
   const poFile = useRef<HTMLInputElement>(null);
   const ewayFile = useRef<HTMLInputElement>(null);
@@ -262,7 +276,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const label = "text-[12px] font-medium text-muted lg:hidden";
 
   return (
-    <li className={`relative grid grid-cols-2 gap-x-8 gap-y-2.5 py-3 pl-11 pr-5 ${COLS_LG} lg:items-center`}>
+    <li className={`relative grid grid-cols-2 gap-x-10 gap-y-2.5 py-3 pl-11 pr-5 ${COLS_LG} lg:items-center`}>
       {/* The PI's line: through this invoice's dot, or, on the last one, ending in an arrow at it. */}
       {link === "mid" && <><span aria-hidden className="absolute bottom-0 left-[19px] top-0 w-0.5 bg-brand" /><span aria-hidden className="absolute left-[14px] top-[18px] h-3 w-3 rounded-full border-2 lg:top-[24px] border-brand bg-surface" /></>}
       {link === "last" && <><span aria-hidden className="absolute left-[19px] top-0 h-[16px] w-0.5 bg-brand lg:h-[22px]" /><svg aria-hidden viewBox="0 0 12 10" width="12" height="10" className="absolute left-[14px] top-[15px] text-brand lg:top-[21px]"><path d="M0 0h12L6 10z" fill="currentColor" /></svg></>}
@@ -270,7 +284,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
       </div>
-      <p className="num col-span-2 text-[14px] font-semibold text-ink lg:col-span-1 lg:text-right">{inr(i.total)}</p>
+      <p className="num col-span-2 text-[14px] font-semibold text-ink lg:col-span-1">{inr(i.total)}</p>
 
       {/* Purchase order */}
       <div className="col-span-2 min-w-0 lg:col-span-1">
@@ -297,7 +311,21 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         <p className={label}>E-way bill</p>
         {!i.needsEway ? <NA /> : i.pending ? <span className="text-[13px] text-faint">Reading…</span> : (
           <>
-            <span className="flex min-w-0 items-center gap-2 py-0.5"><Mark ok={Boolean(i.eway)} /><span className={`num truncate text-[13.5px] ${i.eway ? "font-semibold text-ink" : "text-ink-2"}`}>{i.eway ?? "No e-way bill"}</span></span>
+            {ewayEdit ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input className="h-8 w-40 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-ink" inputMode="numeric" value={ewayValue} onChange={(e) => setEwayValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") saveEway(); if (e.key === "Escape") setEwayEdit(false); }} placeholder="12-digit number" autoFocus aria-label="E-way bill number" />
+                <button type="button" className="h-8 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={saveEway} disabled={busy === "eway"}>{busy === "eway" ? "Saving…" : "Save"}</button>
+                <button type="button" className="h-8 rounded-lg px-2 text-[13px] text-muted hover:text-ink" onClick={() => setEwayEdit(false)}>Cancel</button>
+              </div>
+            ) : i.ewayZoho ? (
+              <span className="flex min-w-0 items-center gap-2 py-0.5" title="From Zoho"><Mark ok /><span className="num truncate text-[13.5px] font-semibold text-ink">{i.eway}</span></span>
+            ) : (
+              <button type="button" onClick={() => { setEwayValue(i.eway ?? ""); setEwayEdit(true); }} className="flex min-w-0 items-center gap-2 rounded-lg py-0.5 text-left hover:bg-surface-2" title={i.eway ? "Change the e-way bill number" : "Add the e-way bill number"}>
+                <Mark ok={Boolean(i.eway)} />
+                <span className={`num truncate text-[13.5px] ${i.eway ? "font-semibold text-ink" : "text-ink-2"}`}>{i.eway ?? "No e-way bill"}</span>
+                {!i.eway && <span className="shrink-0 text-[12.5px] font-semibold text-brand">Add</span>}
+              </button>
+            )}
             <Pdf has={i.ewayPdf} pending={false} busy={busy === "ewayPdf"} onPick={() => ewayFile.current?.click()} />
           </>
         )}
@@ -305,7 +333,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
       </div>
       {/* Merge and sign (owner, 17 Nov): invoice + PO + e-way bill PDFs, one signature, name and date, through Zoho Sign. */}
       <div className="col-span-2 lg:col-span-1">
-        <p className={label}>Merged &amp; signed</p>
+        <p className={label}>Merged PDF</p>
         {i.sign === "completed" ? (
           <a className="inline-flex items-center gap-1.5 rounded-lg py-0.5 text-[13px] font-semibold text-brand hover:underline" href={`/api/invoice-converter?signed=${i.id}`}><Mark ok />Download</a>
         ) : (

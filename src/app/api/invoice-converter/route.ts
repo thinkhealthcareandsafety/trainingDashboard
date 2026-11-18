@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
-import { attachPdf, checkInvoiceSign, converterData, mergedInvoicePdf, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
+import { attachPdf, checkInvoiceSign, converterData, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
  *  GET ?merged=<invoice id>    — the invoice + PO + e-way bill PDFs merged, unsigned
  *  POST { action: "po", id, value }                — the Purchase Order Number, on every invoice of the same PI
  *  POST multipart { id, which: "po" | "eway", file, value? } — a PDF attached in Zoho (a PO: to every invoice of the same PI; value = the PO number typed with it)
+ *  POST { action: "eway", id, value }              — an e-way bill number typed in (kept here; Zoho invoices have no field for it)
  *  POST { action: "signer", email, name }          — your email and full name for Zoho Sign (once)
  *  POST { action: "sign", id }                     — merge the invoice + PO + e-way bill PDFs and open Zoho Sign's signing page
  *  POST { action: "check", id }                    — how the signing stands
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
     }
     if (!ID.test(id)) return json({ error: "Unknown invoice" }, 400);
     if (b?.action === "po") return json(await setPoForPi(id, b.value));
+    if (b?.action === "eway") return json(await setEway(id, b.value));
     if (b?.action === "check") return json({ status: await checkInvoiceSign(id) });
     if (b?.action === "sign") {
       const signer = await signerOf(me.id);
