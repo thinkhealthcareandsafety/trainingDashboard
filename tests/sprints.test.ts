@@ -39,3 +39,11 @@ test("the project by its number (the P5 in the board's address), its prefix and 
   const sprints = { next: false, sprint_prop: { canceledBy: 13, canceledOn: 12, completedBy: 11, completedOn: 10, createdBy: 8, createdTime: 9, diffDays: 23, duration: 6, endDate: 5, isOverDue: 22, isRolled: 16, itemMailAlias: 24, projectId: 18, scrumMaster: 3, sequence: 19, sprintId: 20, sprintName: 0, sprintNo: 1, sprintNotesAlias: 25, sprintType: 2, startAfter: 7, startDate: 4, startedOn: 15, userId: 21, workflowId: 14 }, sprintIds: ["2000000006247"], sprintJObj: { "2000000006247": ["Marketing", "4", 1, "2000000000005", "-1", "-1", "14d", "-1", "2000000000005", "2024-05-06T06:31:30.700Z", "-1", "", "-1", "", "2000000006192", "-1", false, "2000000006247", "2000000006193", "3", "2000000006247", "2000000000005", "", -1] }, status: "success" };
   assert.deepEqual(sprintsOf(sprints), [{ id: "2000000006247", name: "Marketing", no: "4", start: null, end: null }]);
 });
+
+test("a Kanban board read item by item (Get multiple item details: other field positions) fills the same columns", () => {
+  const prop = { endDate: 7, description: 3, isNotesAdded: 10, itemNo: 17, ownerId: 31, addedVia: 5, hasCheckList: 23, leftPosition: 15, points: 18, duration: 20, itemName: 1, startAfter: 22, createdTime: 19, isIntegrated: 12, rightPosition: 16, rootItem: 25, isDocsAdded: 11, projPriorityId: 30, isParent: 13, completedDate: 8, itemId: 0, sequence: 2, sprintId: 26, depth: 14, epicId: 24, statusId: 28, createdBy: 4, parentItem: 27, projItemTypeId: 29, startDate: 6, completedBy: 21 };
+  const row = (id: string, name: string, no: string, status: string, owner: string) => { const r: unknown[] = Array(32).fill(""); r[0] = id; r[1] = name; r[2] = no; r[7] = "-1"; r[8] = "-1"; r[17] = no; r[26] = "k1"; r[28] = status; r[31] = [owner]; return r; };
+  const page = { itemIds: ["a", "b"], item_prop: prop, userDisplayName: { u1: "Shreya" }, itemJObj: { a: row("a", "Make ID cards design", "157", "2000000005503", "u1"), b: row("b", "Replay to Zoho Mail", "154", "2000000005499", "u1") } };
+  const cols = boardColumns(statuses, [page], "GT");
+  assert.deepEqual(cols.map((c) => [c.name, c.cards.map((x) => `${x.no} ${x.name} ${x.owners.join(",")}`)]), [["To do", ["GT-I154 Replay to Zoho Mail Shreya"]], ["In progress", []], ["Done", ["GT-I157 Make ID cards design Shreya"]]]);
+});

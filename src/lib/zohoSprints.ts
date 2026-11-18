@@ -22,7 +22,7 @@ const BOARD_URL = process.env.ZOHO_SPRINTS_URL ?? "https://sprints.zoho.in/works
 const KEY = "zoho_sprints";
 const CACHE_MS = 20_000; // the page asks every 30 s; one Zoho read serves everyone looking within 20 s
 
-type Conn = { _id: string; clientId: string; clientSecret: string; refreshToken: string; teamId?: string; token?: { value: string; expiresAt: number }; connectedAt: string; connectedBy: string };
+type Conn = { _id: string; clientId: string; clientSecret: string; refreshToken: string; teamId?: string; kanbanSprintId?: string; token?: { value: string; expiresAt: number }; connectedAt: string; connectedBy: string };
 const kv = async () => (await db()).collection<Conn>("kv");
 
 export async function sprintsInfo(): Promise<{ connectedAt: string; connectedBy: string } | null> {
@@ -95,6 +95,47 @@ async function allPages(c: Conn, path: string, query: Record<string, string>): P
 
 const G = globalThis as { __thSprintsBoard?: { at: number; data: SprintsBoard } };
 
+const idsIn = (page: Record<string, unknown>) => (Array.isArray(page.itemIds) ? page.itemIds.length : 0);
+
+/**
+ * A Kanban board's items. Zoho Sprints' API has no Kanban call, but every item says which sprint holds it, so: the
+ * board's sprint found before (kv, `kanbanSprintId`) is read like any sprint; the first time, items are looked up by
+ * number ("Get multiple item details", GT-I1, GT-I2 … 50 a call, until two calls in a row find none), the sprint that
+ * holds most of them (not the backlog) is remembered, and read. If that read finds nothing, the items found by number
+ * are the board.
+ */
+async function kanbanItems(c: Conn, p: string, backlogId: string): Promise<{ pages: Record<string, unknown>[]; sprintId: string; how: string }> {
+  const read = async (id: string) => allPages(c, `${p}/sprints/${id}/item/`, { action: "data" }).catch(() => [] as Record<string, unknown>[]);
+  if (c.kanbanSprintId) {
+    const pages = await read(c.kanbanSprintId);
+    if (pages.some(idsIn)) return { pages, sprintId: c.kanbanSprintId, how: "board" };
+  }
+  const found: Record<string, unknown>[] = [];
+  let refused = "";
+  for (let from = 1, empty = 0; from <= 3000 && empty < 2; from += 50) {
+    try {
+      const r = await get(c, `${p}/item/`, { action: "multipledetails", itemnoarr: JSON.stringify(Array.from({ length: 50 }, (_, k) => from + k)) });
+      if (idsIn(r)) { found.push(r); empty = 0; } else empty++;
+    } catch (e) {
+      refused = e instanceof Error ? e.message : String(e);
+      break;
+    }
+  }
+  if (refused && !found.length) return { pages: [], sprintId: "", how: `lookup refused (${refused})` };
+  const tally = new Map<string, number>();
+  for (const page of found) for (const it of decode(page.itemIds, page.itemJObj, page.item_prop)) {
+    const s = String(it.sprintId ?? "");
+    if (s && s !== "-1" && s !== backlogId) tally.set(s, (tally.get(s) ?? 0) + 1);
+  }
+  const sprintId = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  if (sprintId) {
+    await (await kv()).updateOne({ _id: KEY }, { $set: { kanbanSprintId: sprintId } });
+    const pages = await read(sprintId);
+    if (pages.some(idsIn)) return { pages, sprintId, how: "found" };
+  }
+  return { pages: found, sprintId, how: `by number (${found.reduce((n, pg) => n + idsIn(pg), 0)} items)` };
+}
+
 /** Project P5's board: the active sprints (or the backlog when none is running), columns = item statuses. */
 export async function sprintsBoard(): Promise<SprintsBoard> {
   if (G.__thSprintsBoard && Date.now() - G.__thSprintsBoard.at < CACHE_MS) return G.__thSprintsBoard.data;
@@ -128,10 +169,17 @@ export async function sprintsBoard(): Promise<SprintsBoard> {
   for (const s of sprintsOf(upcoming)) await add(s, { upcoming: true });
   if (backlogId && backlogId !== "-1") await add({ id: backlogId, name: "Backlog", no: "", start: null, end: null }, { backlog: true });
   const count = (v: SprintView) => v.columns.reduce((n, col) => n + col.cards.length, 0);
-  const shown = sprints.filter((v, k) => count(v) > 0 || (k === 0 && !v.backlog && !v.upcoming));
+  // A Kanban project (owner, 18 Nov: P5 "General Team Tasks" is one) keeps its board outside the sprints and backlog.
+  let kanban = "";
+  if (/kanban/i.test(kind) || sprints.every((v) => count(v) === 0)) {
+    const k = await kanbanItems(c, p, backlogId);
+    kanban = ` · kanban ${k.how}`;
+    if (k.pages.length) sprints.unshift({ id: k.sprintId || "kanban", name: "Kanban Board", no: "", start: null, end: null, kanban: true, columns: boardColumns(statuses, k.pages, project.prefix) });
+  }
+  const shown = sprints.filter((v, k) => v.kanban || count(v) > 0 || (k === 0 && !v.backlog && !v.upcoming));
   const backlog = sprints.find((v) => v.backlog);
   const statusCount = decode(statuses.statusIds, statuses.statusJObj, statuses.status_prop).length;
-  const diag = `project type ${kind || "?"} · ${sprintsOf(active).length} running, ${sprintsOf(upcoming).length} upcoming sprints · backlog ${backlog ? `${count(backlog)} items` : "not found"} · ${statusCount} statuses`;
+  const diag = `project type ${kind || "?"} · ${sprintsOf(active).length} running, ${sprintsOf(upcoming).length} upcoming sprints · backlog ${backlog ? `${count(backlog)} items` : "not found"} · ${statusCount} statuses${kanban}`;
   const data: SprintsBoard = { project: { id: project.id, name: project.name, prefix: project.prefix, no: project.no }, sprints: shown, fetchedAt: new Date().toISOString(), boardUrl: BOARD_URL, diag };
   G.__thSprintsBoard = { at: Date.now(), data };
   return data;

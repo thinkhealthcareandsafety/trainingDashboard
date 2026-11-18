@@ -28,7 +28,7 @@ const dateOf = (v: unknown): string | null => { const s = str(v); return !s || s
 
 export type SprintCard = { id: string; no: string; name: string; statusId: string; owners: string[]; due: string | null; overdue: boolean; sequence: number };
 export type SprintColumn = { id: string; name: string; color: string; cards: SprintCard[] };
-export type SprintView = { id: string; name: string; no: string; start: string | null; end: string | null; backlog?: boolean; upcoming?: boolean; columns: SprintColumn[] };
+export type SprintView = { id: string; name: string; no: string; start: string | null; end: string | null; backlog?: boolean; upcoming?: boolean; kanban?: boolean; columns: SprintColumn[] };
 export type SprintsBoard = { project: { id: string; name: string; prefix: string; no: string }; sprints: SprintView[]; fetchedAt: string; boardUrl: string; /** What Zoho returned, in a line (shown when the board is empty). */ diag?: string };
 
 /** The project whose number is `no` (the "P5" in the board's web address is project number 5). */
