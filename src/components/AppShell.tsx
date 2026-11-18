@@ -28,13 +28,14 @@ const NAV = [
   { href: "/templates", label: "Templates", full: true, icon: <path d="M3.5 5.5h13v9h-13zM3.5 6l6.5 5 6.5-5" /> },
   { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
+  // Sprints (owner, 18 Nov): Zoho Sprints' board, its own item (not under Reports), in the hidden Progress tracker's place. Everyone.
+  { href: "/sprints", label: "Sprints", icon: <><rect x="3" y="3.5" width="14" height="13" rx="2" /><path d="M7.7 3.5v13M12.3 3.5v13M4.8 6.5h1.4M9.3 6.5h1.4M9.3 9h1.4M13.8 6.5h1.4" /></> },
   // Reports (ANALYTICS-PLAN.md): its dashboards are Books money — Training-board members only. Since 26 Oct it also
-  // holds Zoho Sprints (owner, 18 Nov; was the Progress tracker), which is for everyone: their Reports link goes straight there.
+  // held the Progress tracker, now hidden (owner, 18 Nov; Sprints is its own item). Others see Reports only for the Invoice Converter.
   { href: "/reports", label: "Reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
 ];
-// Zoho Sprints (owner, 18 Nov) takes the Progress tracker's place, which is hidden entirely (its page, red count,
-// notices and "Ask a teammate"); nothing of it is deleted.
-const SPRINTS = "/reports/sprints";
+// The Progress tracker is hidden entirely (owner, 18 Nov: its page, red count, notices and "Ask a teammate"); Sprints
+// took its place as its own item. Nothing of the tracker is deleted.
 const CONVERTER = "/reports/invoice-converter";
 
 /**
@@ -369,8 +370,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
   const money = boardsFor(session.member!).includes("training");
   // Quotations also for Pranjal (canQuote); the other "full" pages for full access only.
-  const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" || n.href === "/training-management" ? canQuote(session.member!) : hasFullAccess(session.member!))))).map((n) => (n.href === "/reports" && !money ? { ...n, href: SPRINTS } : n));
-  const onSprints = path.startsWith(SPRINTS);
+  const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" || n.href === "/training-management" ? canQuote(session.member!) : hasFullAccess(session.member!)))))
+    // Not on the Training board: Reports is only the Invoice Converter (logistics), else it isn't shown.
+    .filter((n) => n.href !== "/reports" || money || canConvertInvoices(session.member!)); // /reports forwards them to the Converter
   const onConverter = path.startsWith(CONVERTER);
   return (
     <>
@@ -431,7 +433,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="space-y-0.5">
             {nav.map((n) => {
               const reports = n.label === "Reports";
-              const on = reports ? isOn(n.href) && !onSprints && !onConverter : isOn(n.href);
+              const on = reports ? isOn(n.href) && !onConverter : isOn(n.href);
               return (
                 <div key={n.href}>
                   <Link
@@ -443,23 +445,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Icon>{n.icon}</Icon>
                     <span className="flex-1">{n.label}</span>
                   </Link>
-                  {/* Reports → Zoho Sprints (owner, 18 Nov), where the Progress tracker was. */}
-                  {reports && (
-                    <Link
-                      href={SPRINTS}
-                      // In line with every other item: icons in one column, names in one column (owner, 26 Oct).
-                      className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
-                        onSprints ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
-                      }`}
-                    >
-                      {/* A board with three columns: the sprint board. */}
-                      <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <rect x="3" y="3.5" width="14" height="13" rx="2" /><path d="M7.7 3.5v13M12.3 3.5v13M4.8 6.5h1.4M9.3 6.5h1.4M9.3 9h1.4M13.8 6.5h1.4" />
-                      </svg>
-                      <span className="flex-1">Zoho Sprints</span>
-                    </Link>
-                  )}
-                  {/* Reports → Invoice Converter (owner, 17 Nov), under Zoho Sprints: invoices, POs and e-way bills. */}
+                  {/* Reports → Invoice Converter (owner, 17 Nov): invoices, POs and e-way bills. */}
                   {reports && session.member && canConvertInvoices(session.member) && (
                     <Link
                       href={CONVERTER}

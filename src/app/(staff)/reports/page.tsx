@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/AppShell";
 import { Reports } from "@/components/reports/Reports";
 import { useSession } from "@/lib/session";
-import { boardsFor } from "@/lib/roles";
+import { boardsFor, canConvertInvoices } from "@/lib/roles";
 
 export default function ReportsPage() {
   const { member } = useSession();
   const router = useRouter();
-  // The dashboards are Books money — Training-board members only. Everyone else's Reports is Zoho Sprints (owner, 18 Nov; was the Progress tracker).
+  // The dashboards are Books money — Training-board members only. Everyone else: the Invoice Converter (logistics), else Sprints.
   const money = member ? boardsFor(member).includes("training") : true;
-  useEffect(() => { if (!money) router.replace("/reports/sprints"); }, [money, router]);
+  useEffect(() => { if (!money) router.replace(member && canConvertInvoices(member) ? "/reports/invoice-converter" : "/sprints"); }, [money, router]);
   if (!money) return null;
   return (
     <>
