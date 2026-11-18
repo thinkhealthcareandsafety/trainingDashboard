@@ -1,6 +1,6 @@
 # Training Manager: full plan
 
-## Status (17 Nov 2026, session 31): live at `d330aac`; local, not pushed: "this year" period, Overview person tabs (Company · Sumit · Ashish · Pranjal · Shikha). Next: HANDOFF.md top block step 4 (first live training checks)
+## Status (18 Nov 2026, end of session 31): live at `9c250f3`; local `94893ef` + handoff. Next: HANDOFF.md top block (Zoho Sign plan decision, first real Invoice Converter use)
 
 | Step | What | State |
 |---|---|---|

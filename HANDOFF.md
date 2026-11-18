@@ -1,6 +1,72 @@
 # Handoff — ThinkHealth Training Dashboard
 
-_Session 31, last (local, not pushed): **training over** (owner, 17 Nov). Track gets a 5th step "Training completed" (green,
+## Start of the next session (32) — read this block first
+
+_Written Wed 18 Nov 2026, end of session 31, for the next Claude Code session and the owner (Sumit)._
+
+**State.** **Live = `9c250f3`** on work.thinkhealth.in, training.thinkhealth.in and training-dashboard-xfwl.vercel.app. **Local, not
+pushed:** `94893ef` (Invoice Converter reads the number from an attached PDF; Merged PDF download) and this handoff. Push only when
+the owner says "push" (`git push origin master`, long timeout), then check Vercel `-xfwl`
+(`curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status`) and curl the sites.
+
+**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master` (expect the 2 above); `npm test` (**339** pass);
+`npx tsc --noEmit -p tsconfig.json`.
+
+**First things to do / ask the owner:**
+1. **Zoho Sign is blocked by its plan.** Merge & sign answered *"Zoho Sign: Upgrade Zoho Sign license to send documents via API."*
+   The code is built (`lib/zohoSign.ts`, kv `zoho_sign`, collections `signers`, `invoiceSigns`) but can't send. Ask the owner:
+   (a) upgrade Zoho Sign to a plan with API sends, or (b) sign on the dashboard instead: each signer draws or uploads a signature once,
+   and the merged PDF gets that signature + full name + date at the bottom right of the invoice's last page (`pdfMerge.signSpot`
+   already gives the spot). Until then every row has **Merged PDF** (unsigned, `GET /api/invoice-converter?merged=<id>`).
+2. **Invoice Converter: first real use.** Never run against Zoho for real: the PO write (`PUT /invoices/{id}/customfields`), the
+   attachment upload (`POST /invoices/{id}/attachment`), the attachment download (`GET /invoices/{id}/documents/{document_id}`, used by
+   the merge), and reading text from PDFs on Vercel (`unpdf`). Ask how the first PO / e-way bill attach went; check Vercel logs
+   (`[invoice-converter]`, `[quotations]`) if something failed. PO numbers appear only after the next **full** sync (9 am / 2 pm or
+   Sync now): `salesDocs` started keeping `cf_purchase_order_number` and `has_attachment` today.
+3. **"Purchase order PDF" field.** A colleague is adding it to Zoho invoices. When it exists (`list_custom_fields` entity=invoice),
+   move the PO PDF from a normal attachment ("PO - <invoice>.pdf") into that field.
+4. **Sync cap.** Live sync now costs ~5 Zoho calls a quick sync (`sharedChanges` lists each kind once for both copies). The cap is
+   still 2,500/day (`ZOHO_DAILY_LIMIT`). Ask the owner for "Zoho calls today" from the sidebar Sync log on a busy day before raising it
+   (the limit is shared with Zoho Flow and other connections). Webhooks can't be created by API, so they're not an option for us.
+5. **Next.js security notice.** `next dev` and `next build` print "Your version of Next.js is affected by a known security
+   vulnerability" and stop once (the build had already compiled; retrying passes). Upgrading Next is the owner's call: mention it,
+   don't run anything on your own.
+
+**Session 31 in short (17–18 Nov), all live up to `9c250f3` unless marked local:**
+- **Overview (staff):** person tabs (Company · Sumit · Ashish · Pranjal · Shikha); Daily / Weekly / Monthly / Yearly rows: this period
+  vs last FY's average day / week / month (year: same days); **salespeople vs the company's last year** (`VS_COMPANY` in
+  `OverviewSales.tsx`; owner may ask to go back to their own); conversion; a bar each with a last-year mark; Remarks green/red; bigger
+  type; month-by-month line chart for **this FY**, two bands (₹ above, conversion below), dots with values.
+- **Portal, training over:** 5th step "Training completed" (green); thank-you moment once; certificates (paid only) + View report on
+  top; leaderboard % + time, people with no score listed ("Have not started the quiz"); a note top right for each new pass; neon
+  green tick instead of PRESENT; participants folded; **Close training** folds the panel to one line under "Closed trainings"; a new
+  quotation shows first with "⭐ New training". Quiz report: full width; cards = Average score, Average time, First Aid Badges, Needs
+  another look.
+- **Participants:** email required when joining (asked before Present if missing); Good Samaritan certificate **only by email**, sent
+  with a thank-you when the training ends, their report PDF attached unless they saved it (no download from their page; the old link
+  answers 410).
+- **Staff:** **Shikha has every Admin power** (`isAdmin` by name). AedSmartx: "Email and contact log" in the Training phase, and a
+  **Call rejected** button counted separately (`aed_call_rejected`).
+- **Invoice Converter** (Reports → under Progress tracker; full access + logistics): customers (current Zoho name) → invoices; PO
+  number + PDF in one column, e-way bill number + PDF in one column (blue N/A up to ₹50,000); edit PO here; attach PDFs to the Zoho
+  invoice; Merge & sign (blocked, see 1); **local:** number read from an attached PDF, Merged PDF download.
+- **Sync:** one change listing per kind shared by both copies (~5 calls a quick sync instead of 8).
+- **First live training (16 Nov):** checked; Good Samaritan emails went with the PDF; sheet rows in.
+
+**Traps learned in session 31:**
+- `next dev` exits on its first start after printing the security notice: start it again. Kill stray dev servers via PowerShell
+  `Get-CimInstance Win32_Process` before `next build`.
+- After deleting a `(zz)` / `zz-*` preview, delete `.next/dev/types` or `tsc` fails on the missing route.
+- No Python on this machine. Write edit scripts with the Write tool and run them with node: `node -e '…'` and bash heredocs lose
+  backslashes (`\b`, `\d` became a backspace / plain letters twice this session) — check regexes after any shell edit.
+- Tailwind only sees whole class names: never build `lg:${X}`; write the full class in the source.
+- Production DB reads from scripts are blocked by the auto-mode classifier unless the owner approves that read in the conversation.
+- Zoho Books invoices: PO = custom field `cf_purchase_order_number` (id `982417000001000149`); the e-way bill number is only in the
+  invoice's full record (`ewaybill_number`), not in the list; org id `60016330017`.
+
+---
+
+_Session 31, earlier (later pushed): **training over** (owner, 17 Nov). Track gets a 5th step "Training completed" (green,
 `finishedOn` = board Completed / last day ended / last day passed); the coordinator sees a thank-you moment once, then certificates
 (paid only, else "unlock once paid") + View report on top, results, leaderboard (% + time, no re-takes) with Share on WhatsApp, then
 the training report; no QR, no CSV. Email required when people join (coordinator's Add yourself, QR register) and asked before
