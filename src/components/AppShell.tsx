@@ -29,10 +29,12 @@ const NAV = [
   { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
   { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
   // Reports (ANALYTICS-PLAN.md): its dashboards are Books money — Training-board members only. Since 26 Oct it also
-  // holds the Progress tracker (PROGRESS-TRACKER-PLAN.md), which is for everyone: their Reports link goes straight there.
+  // holds Zoho Sprints (owner, 18 Nov; was the Progress tracker), which is for everyone: their Reports link goes straight there.
   { href: "/reports", label: "Reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
 ];
-const TRACKER = "/reports/progress-tracker";
+// Zoho Sprints (owner, 18 Nov) takes the Progress tracker's place, which is hidden entirely (its page, red count,
+// notices and "Ask a teammate"); nothing of it is deleted.
+const SPRINTS = "/reports/sprints";
 const CONVERTER = "/reports/invoice-converter";
 
 /**
@@ -345,7 +347,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   const router = useRouter();
   const zoho = useZohoSync(Boolean(session.ready && session.member));
-  const progress = useProgressPulse(Boolean(session.ready && session.member));
+  // The Progress tracker is hidden (owner, 18 Nov): no presence beat, so no red count and no notices.
+  const progress = useProgressPulse(false);
   const [logOpen, setLogOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const closeTheme = useCallback(() => setThemeOpen(false), []);
@@ -366,14 +369,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
   const money = boardsFor(session.member!).includes("training");
   // Quotations also for Pranjal (canQuote); the other "full" pages for full access only.
-  const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" || n.href === "/training-management" ? canQuote(session.member!) : hasFullAccess(session.member!))))).map((n) => (n.href === "/reports" && !money ? { ...n, href: TRACKER } : n));
-  const onTracker = path.startsWith(TRACKER);
+  const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" || n.href === "/training-management" ? canQuote(session.member!) : hasFullAccess(session.member!))))).map((n) => (n.href === "/reports" && !money ? { ...n, href: SPRINTS } : n));
+  const onSprints = path.startsWith(SPRINTS);
   const onConverter = path.startsWith(CONVERTER);
-  // Tagged and not answered yet: a red count on Progress tracker until you reply in the request or resolve it (owner, 26 Oct).
-  const trackerBadge = progress.needs > 0 && (
-    <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-high px-1 text-[11px] font-bold leading-none text-white" title={`Tagged in ${progress.needs} ${progress.needs === 1 ? "request" : "requests"} — reply or resolve to clear it`}>{progress.needs}</span>
-  );
-
   return (
     <>
       <Ticker />
@@ -433,7 +431,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="space-y-0.5">
             {nav.map((n) => {
               const reports = n.label === "Reports";
-              const on = reports ? isOn(n.href) && !onTracker && !onConverter : isOn(n.href);
+              const on = reports ? isOn(n.href) && !onSprints && !onConverter : isOn(n.href);
               return (
                 <div key={n.href}>
                   <Link
@@ -445,24 +443,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Icon>{n.icon}</Icon>
                     <span className="flex-1">{n.label}</span>
                   </Link>
-                  {/* Reports → Progress tracker (owner, 26 Oct: "it goes under report, section"). */}
+                  {/* Reports → Zoho Sprints (owner, 18 Nov), where the Progress tracker was. */}
                   {reports && (
                     <Link
-                      href={TRACKER}
+                      href={SPRINTS}
                       // In line with every other item: icons in one column, names in one column (owner, 26 Oct).
                       className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
-                        onTracker ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+                        onSprints ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
                       }`}
                     >
-                      {/* A ticked checklist: what everyone has to do and has done. */}
+                      {/* A board with three columns: the sprint board. */}
                       <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M3 6.2l1.8 1.8 3.2-3.5M3 13.7l1.8 1.8 3.2-3.5M10.5 6.5h6.5M10.5 14h6.5" />
+                        <rect x="3" y="3.5" width="14" height="13" rx="2" /><path d="M7.7 3.5v13M12.3 3.5v13M4.8 6.5h1.4M9.3 6.5h1.4M9.3 9h1.4M13.8 6.5h1.4" />
                       </svg>
-                      <span className="flex-1">Progress tracker</span>
-                      {trackerBadge}
+                      <span className="flex-1">Zoho Sprints</span>
                     </Link>
                   )}
-                  {/* Reports → Invoice Converter (owner, 17 Nov), under Progress tracker: invoices, POs and e-way bills. */}
+                  {/* Reports → Invoice Converter (owner, 17 Nov), under Zoho Sprints: invoices, POs and e-way bills. */}
                   {reports && session.member && canConvertInvoices(session.member) && (
                     <Link
                       href={CONVERTER}

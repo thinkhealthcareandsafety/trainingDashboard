@@ -10,9 +10,9 @@ import { boardsFor } from "@/lib/roles";
 export default function ReportsPage() {
   const { member } = useSession();
   const router = useRouter();
-  // The dashboards are Books money — Training-board members only. Everyone else's Reports is the Progress tracker (D9).
+  // The dashboards are Books money — Training-board members only. Everyone else's Reports is Zoho Sprints (owner, 18 Nov; was the Progress tracker).
   const money = member ? boardsFor(member).includes("training") : true;
-  useEffect(() => { if (!money) router.replace("/reports/progress-tracker"); }, [money, router]);
+  useEffect(() => { if (!money) router.replace("/reports/sprints"); }, [money, router]);
   if (!money) return null;
   return (
     <>

@@ -1684,11 +1684,14 @@ export function Shell({ label, onClose, side, footer, overlay, children }: { lab
   );
 }
 
+const HIDE_ASK = true;
 /**
  * "Ask a teammate" on a card: opens the Progress tracker's request form about this card (PROGRESS-TRACKER-PLAN.md
  * §3.2 — requests start from a task card [S13]). `search` = what finds the card on boards the link can't open directly.
  */
 export function AskLink({ cardId, title, search }: { cardId: string; title: string; search?: string }) {
+  // Hidden with the Progress tracker (owner, 18 Nov). Remove this line to bring it back.
+  if (HIDE_ASK) return null;
   const href = `/reports/progress-tracker?task=${encodeURIComponent(cardId)}&title=${encodeURIComponent(title)}${search ? `&q=${encodeURIComponent(search)}` : ""}`;
   return (
     <Link href={href} className="press grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink" aria-label="Ask a teammate about this card" title="Ask a teammate about this card (Progress tracker)">
