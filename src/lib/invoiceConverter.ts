@@ -19,8 +19,8 @@ import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, f
 const PO_FIELD = "982417000001000149"; // invoice custom field "Purchase Order Number" (cf_purchase_order_number)
 const READ_BATCH = 20; // full records read per page load; the page asks again while some are pending
 const FILL_BATCH = 8; // Zoho writes per page load when a PI's PO is copied to its other invoices
-// v2: the first copies all failed on the wrong Zoho path (18 Nov); a fresh lock forgets those 6-hour skips.
-const FILL_LOCK = "conv_fill_v2";
+// v3: the first copies all failed (wrong Zoho path, then body shape; 18 Nov); a fresh lock forgets those 6-hour skips.
+const FILL_LOCK = "conv_fill_v3";
 const SKIP_MS = 6 * 3600_000; // an invoice Zoho refused a copy for is left alone this long (no retry loop on Zoho's daily limit)
 
 type SalesRow = { _id: string; kind: string; id: string; lmt?: string; date?: string; row: Record<string, unknown> };
@@ -95,7 +95,8 @@ async function poPdfOf(invoiceId: string): Promise<Uint8Array<ArrayBuffer> | nul
   const doc = ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).find((x) => x.document_id && isPoFile(String(x.file_name ?? "")));
   if (!doc) return null;
   const f = await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`);
-  if (!/pdf/i.test(f.type) && !/\.pdf$/i.test(String(doc.file_name))) return null;
+  // Only a real PDF is copied ("%PDF-" at the start): an error page or a JSON answer never lands on an invoice.
+  if (new TextDecoder().decode(f.bytes.slice(0, 5)) !== "%PDF-") return null;
   return new Uint8Array(f.bytes);
 }
 
@@ -170,7 +171,8 @@ export async function setEway(invoiceId: string, raw: unknown): Promise<{ eway: 
 /** The invoice's Purchase Order Number, written to Zoho and to our copy. */
 export async function setPoNumber(invoiceId: string, raw: unknown): Promise<{ po: string; ok: boolean }> {
   const value = String(raw ?? "").trim().slice(0, 100);
-  await booksApi("PUT", `/invoice/${invoiceId}/customfields`, {}, [{ customfield_id: PO_FIELD, value }]); // singular "invoice", as Zoho has it
+  // Zoho's spec (invoices.yml, update_custom_fields_in_invoice): singular "invoice", body { custom_fields: [{ customfield_id, value }] }.
+  await booksApi("PUT", `/invoice/${invoiceId}/customfields`, {}, { custom_fields: [{ customfield_id: PO_FIELD, value }] });
   await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, value ? { $set: { "row.cf_purchase_order_number": value } } : { $unset: { "row.cf_purchase_order_number": "" } });
   const s = poState(value);
   return { po: s.label, ok: s.ok };
