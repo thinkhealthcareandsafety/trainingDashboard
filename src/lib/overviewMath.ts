@@ -232,3 +232,43 @@ export function fyLines(days: DaySums, person: string, on: string, running = fal
   };
   return { start, lastStart, length, now: series(start, Math.min(length, daysBetween(start, on) + 1)), last: series(lastStart, length) };
 }
+
+/**
+ * The story of one FY chart in short lines (owner, 18 Nov: "a short summary for the chart right next to its panel like the
+ * KPIs"): the year so far against last FY by the same day, how many, the average size, the last 30 days, and where the
+ * year ends at this pace. `fy` must be the running totals (fyLines(..., true)).
+ */
+export function fyRemarks(fy: FyLines, slot: "quoted" | "invoiced", unit: [string, string]): Remark[] {
+  const now = fy.now[slot], last = fy.last[slot];
+  const counts = slot === "quoted" ? [fy.now.quotes, fy.last.quotes] : [fy.now.invoices, fy.last.invoices];
+  const n = now.length;
+  if (!n) return [];
+  const many = (k: number) => `${k} ${k === 1 ? unit[0] : unit[1]}`;
+  const lines: Remark[] = [];
+  const compare = (lead: string, a: number, b: number, show: (v: number) => string) => {
+    const c = change(a, b);
+    if (c === null) return lines.push({ text: `${lead ? `${lead} ` : ""}${show(a)}, nothing to compare with last FY.`, tone: "neutral" });
+    if (c === 0) return lines.push({ text: `${lead ? `${lead} ` : ""}${show(a)}, the same as last FY.`, tone: "neutral" });
+    lines.push({ text: `${lead ? `${lead} ` : ""}${show(a)}: ${Math.abs(c)}% ${c > 0 ? "more" : "less"} than last FY by now (${show(b)}).`, tone: c > 0 ? "good" : "bad" });
+  };
+  const total = now[n - 1], lastTotal = last[n - 1] ?? 0;
+  compare("So far", total, lastTotal, inrShort);
+  const k = counts[0].reduce((a, b) => a + b, 0), kLast = counts[1].slice(0, n).reduce((a, b) => a + b, 0);
+  compare("", k, kLast, (v) => many(v));
+  if (k && kLast) {
+    const avg = total / k, avgLast = lastTotal / kLast;
+    const c = change(avg, avgLast)!;
+    lines.push({ text: `Average ${unit[0]} ${inrShort(avg)}, against ${inrShort(avgLast)} last FY.`, tone: c > 0 ? "good" : c < 0 ? "bad" : "neutral" });
+  }
+  if (n > 30) {
+    const recent = total - now[n - 31], recentLast = lastTotal - (last[n - 31] ?? 0);
+    const c = change(recent, recentLast);
+    if (c !== null && c !== 0) lines.push({ text: `Last 30 days ${inrShort(recent)}: ${Math.abs(c)}% ${c > 0 ? "more" : "less"} than the same days last FY.`, tone: c > 0 ? "good" : "bad" });
+  }
+  const fullLast = last[last.length - 1] ?? 0;
+  if (n < fy.length && n >= 14) {
+    const end = (total / n) * fy.length;
+    lines.push({ text: `At this pace the FY ends near ${inrShort(end)} (last FY ${inrShort(fullLast)}).`, tone: fullLast ? (end >= fullLast ? "good" : "bad") : "neutral" });
+  }
+  return lines;
+}

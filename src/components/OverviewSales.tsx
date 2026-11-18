@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { type DaySums, PEOPLE, type Remark, type Side, change, fyLines, inrShort, monthly, remarks, vsLastYear, ymdOf } from "@/lib/overviewMath";
+import { type DaySums, PEOPLE, type Remark, type Side, change, fyLines, fyRemarks, inrShort, monthly, remarks, vsLastYear, ymdOf } from "@/lib/overviewMath";
 import { useLive } from "@/lib/live";
 import { TrainingGoals } from "./Kpis";
 import { OverviewChart } from "./OverviewChart";
@@ -112,13 +112,28 @@ const TONE: Record<Remark["tone"], { cls: string; icon: string }> = {
   neutral: { cls: "text-muted", icon: "•" },
 };
 
+/** The green / red / grey lines in a panel to the right (the rows' remarks, the charts' summaries). */
+function RemarkPanel({ lines, label }: { lines: Remark[]; label: string }) {
+  return (
+    <aside className="card min-w-0 px-5 py-4 sm:px-6 sm:py-5" aria-label={label}>
+      <ul className="space-y-2.5 text-[15.5px] leading-snug">
+        {lines.map((l) => (
+          <li key={l.text} className={`flex gap-2.5 ${TONE[l.tone].cls}`}><span className="w-3.5 shrink-0 text-[13px] leading-[1.6]" aria-hidden>{TONE[l.tone].icon}</span><span className={l.tone === "neutral" ? "text-ink-2" : ""}>{l.text}</span></li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
+/** A row's two columns: the figures, and the panel beside them (same widths for the rows and the charts). */
+const SIDE_GRID = "grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_460px]";
+
 function Row({ days, person, kind, title, lastTitle, on, isToday }: { days: DaySums; person: string; kind: Kind; title: string; lastTitle: string; on: string; isToday: boolean }) {
   // A salesperson against the company's last year (owner, 17 Nov). To compare with their own again: drop "all" here.
   const v = vsLastYear(days, person, kind, on, VS_COMPANY && person !== "all" ? "all" : person);
   const fy = (() => { const d = new Date(`${on}T00:00:00`); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return `FY ${String(y - 1).slice(2)}-${String(y).slice(2)}`; })();
   const hint = kind === "year" ? `${fy}, up to the same date` : `${fy} total ÷ ${kind === "day" ? "its days" : kind === "week" ? "its weeks" : "12"}`;
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
+    <div className={SIDE_GRID}>
       <section className="card grid min-w-0 gap-4 p-4 sm:p-5 md:grid-cols-2" aria-label={title}>
         <SideBox lead={title} title={nowTitle(kind, on, isToday)} sub={kind === "day" ? undefined : v.label} s={v.now} />
         <SideBox tint title={v.vsCompany ? lastTitle.replace("Last year", "Company last year") : lastTitle} s={v.last} hint={hint} />
@@ -127,13 +142,7 @@ function Row({ days, person, kind, title, lastTitle, on, isToday }: { days: DayS
           <Bar label="Invoiced" now={v.now.invoiced} last={v.last.invoiced} />
         </div>
       </section>
-      <aside className="card min-w-0 px-5 py-4 sm:px-6 sm:py-5" aria-label={`${title} remarks`}>
-        <ul className="space-y-2.5 text-[15.5px] leading-snug">
-          {remarks(v, nowWord(kind, on, isToday)).map((l) => (
-            <li key={l.text} className={`flex gap-2.5 ${TONE[l.tone].cls}`}><span className="w-3.5 shrink-0 text-[13px] leading-[1.6]" aria-hidden>{TONE[l.tone].icon}</span><span className={l.tone === "neutral" ? "text-ink-2" : ""}>{l.text}</span></li>
-          ))}
-        </ul>
-      </aside>
+      <RemarkPanel lines={remarks(v, nowWord(kind, on, isToday))} label={`${title} remarks`} />
     </div>
   );
 }
@@ -208,8 +217,15 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
                   <p className="text-[13.5px] text-muted">Day by day since 1 April · this FY against last FY</p>
                   {/* Invoices under Quotations (owner, 18 Nov) */}
                   <div className="grid gap-4">
-                    <div className="h-[320px]"><OverviewFyChart title="Quotations" now={fy.now.quoted} last={fy.last.quoted} nowCount={fy.now.quotes} lastCount={fy.last.quotes} countLabel="Quotations per day" unit={["quotation", "quotations"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-1)" running={running} /></div>
-                    <div className="h-[320px]"><OverviewFyChart title="Invoices" now={fy.now.invoiced} last={fy.last.invoiced} nowCount={fy.now.invoices} lastCount={fy.last.invoices} countLabel="Invoices per day" unit={["invoice", "invoices"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-2)" running={running} /></div>
+                    {/* Each chart with its summary beside it (owner, 18 Nov), like the rows' remarks */}
+                    <div className={SIDE_GRID}>
+                    <div className="h-[320px] min-w-0"><OverviewFyChart title="Quotations" now={fy.now.quoted} last={fy.last.quoted} nowCount={fy.now.quotes} lastCount={fy.last.quotes} countLabel="Quotations per day" unit={["quotation", "quotations"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-1)" running={running} /></div>
+                    <RemarkPanel lines={fyRemarks(fy, "quoted", ["quotation", "quotations"])} label="Quotations this FY, in short" />
+                    </div>
+                    <div className={SIDE_GRID}>
+                    <div className="h-[320px] min-w-0"><OverviewFyChart title="Invoices" now={fy.now.invoiced} last={fy.last.invoiced} nowCount={fy.now.invoices} lastCount={fy.last.invoices} countLabel="Invoices per day" unit={["invoice", "invoices"]} length={fy.length} start={fy.start} lastStart={fy.lastStart} color="var(--series-2)" running={running} /></div>
+                    <RemarkPanel lines={fyRemarks(fy, "invoiced", ["invoice", "invoices"])} label="Invoices this FY, in short" />
+                    </div>
                   </div>
                 </div>
               )}
