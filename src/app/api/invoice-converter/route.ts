@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
-import { attachPdf, checkInvoiceSign, converterData, setPoNumber, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
+import { attachPdf, checkInvoiceSign, converterData, mergedInvoicePdf, setPoNumber, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
  * The Invoice Converter (owner, 17 Nov). Full access and logistics only.
  *  GET                         — every customer with their invoices (PO, e-way bill, signing), Zoho Sign's connection, your signer details
  *  GET ?signed=<invoice id>    — the signed PDF (once Zoho Sign says completed)
+ *  GET ?merged=<invoice id>    — the invoice + PO + e-way bill PDFs merged, unsigned
  *  POST { action: "po", id, value }                — the invoice's Purchase Order Number
  *  POST multipart { id, which: "po" | "eway", file } — a PDF attached to the invoice in Zoho
  *  POST { action: "signer", email, name }          — your email and full name for Zoho Sign (once)
@@ -24,6 +25,12 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   if (!canConvertInvoices(me)) return json({ error: "Not for your account" }, 403);
   try {
+    const merged = new URL(request.url).searchParams.get("merged");
+    if (merged) {
+      if (!ID.test(merged)) return json({ error: "Unknown invoice" }, 400);
+      const f = await mergedInvoicePdf(merged);
+      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store" } });
+    }
     const signed = new URL(request.url).searchParams.get("signed");
     if (signed) {
       if (!ID.test(signed)) return json({ error: "Unknown invoice" }, 400);

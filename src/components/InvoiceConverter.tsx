@@ -145,7 +145,9 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
     const r = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
     setBusy("");
     if (r.error) return setError(r.error);
-    onPatch(which === "po" ? { poPdf: true } : { ewayPdf: true });
+    // The number read from the PDF, filled in (owner, 17 Nov).
+    onPatch(which === "po" ? { poPdf: true, ...(r.po ? { po: r.po, poOk: r.poOk } : {}) } : { ewayPdf: true, ...(r.eway ? { eway: r.eway } : {}) });
+    if (!r.found) setError(which === "po" ? "Attached. No PO number found in the PDF (a scanned copy has no text): type it in." : "Attached. No e-way bill number found in the PDF.");
   };
   // Opens Zoho Sign's page in a new tab straight away (a tab opened after the wait would be blocked), then checks back
   // every 5 seconds until it's signed.
@@ -223,6 +225,8 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
           </button>
         )}
         {i.sign === "inprogress" && <p className="mt-1 text-[12px] text-muted">Waiting for your signature</p>}
+        {/* The merged PDF on its own (owner, 17 Nov: Zoho Sign's plan refuses API sends). */}
+        <a className="mt-1 block text-[12.5px] font-semibold text-brand hover:underline" href={`/api/invoice-converter?merged=${i.id}`}>Merged PDF</a>
       </div>
       {error && <p className="col-span-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
     </li>

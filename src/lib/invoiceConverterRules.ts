@@ -48,3 +48,29 @@ export function groupByCustomer(list: (ConvInvoice & { customerId: string; custo
   for (const c of map.values()) c.invoices.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
   return [...map.values()].sort((a, b) => b.latest.localeCompare(a.latest) || a.name.localeCompare(b.name));
 }
+
+/*
+ * The number from an attached PDF (owner, 17 Nov: "if I add the PDF, it should automatically add the id from the PDF"):
+ * the PO number from a purchase order, the e-way bill number from an e-way bill, read from the PDF's text. A scanned
+ * PDF (only a picture) has no text, so nothing is found and the number is typed as before.
+ */
+const PO_LABEL = /(?:purchase\s*order|p\.?\s*o\.?)\s*(?:no\.?|number|num|#|ref(?:erence)?)?\s*[:#.\-–]?\s*([A-Z0-9][A-Z0-9/\-_.]{2,40})/gi;
+const NOT_PO = /^(date|dated|box|number|no|details|value|amount|order|terms|copy)$/i;
+/** The PO number on a purchase order: the value after "PO No", "P.O. Number", "Purchase Order No" and the like. */
+export function poFromText(text: string): string | null {
+  const t = text.replace(/\s+/g, " ");
+  for (const m of t.matchAll(PO_LABEL)) {
+    const v = m[1].replace(/[.\-_/]+$/, "");
+    if (v.length >= 3 && /\d/.test(v) && !NOT_PO.test(v)) return v;
+  }
+  return null;
+}
+
+/** The e-way bill number: 12 digits, after "E-Way Bill No" / "EWB No" when labelled, else the first 12-digit number. */
+export function ewayFromText(text: string): string | null {
+  const t = text.replace(/\s+/g, " ");
+  const labelled = t.match(/(?:e-?\s*way\s*bill|ewb)\s*(?:no\.?|number|#)?\s*[:#.\-–]?\s*(\d{4}\s?\d{4}\s?\d{4})\b/i);
+  if (labelled) return labelled[1].replace(/\s/g, "");
+  const any = t.match(/(?<!\d)(\d{12})(?!\d)/);
+  return any ? any[1] : null;
+}
