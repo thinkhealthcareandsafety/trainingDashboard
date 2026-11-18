@@ -10,6 +10,12 @@ try, a failed one shows "Couldn't read this from Zoho"). `overviewReportSend.ts`
 (the PDF) and its test are deleted. Monthly stock = bills of the month (count, ₹) only — goods out per month would need ~100+
 detail calls. 356 tests pass. Not yet run against real Zoho: after the push, press "Email the report now" and check the
 email and Vercel logs (`[summary]`).
+Later in session 33: the summary's **first section is AEDs, pads, batteries and cabinets** (`lib/aedStock.ts`, owner): active
+items only (`GET /items` Status.Active, kind from Item Identifier / name via `topicOf`, brand = Zoho Brand), stock on hand
+(`GET /itemdetails` 25 ids a call, unverified — falls back to `GET /items/{id}` → `locations[].location_stock_on_hand`),
+bought = this month's bills' lines, sold = this month's invoices' lines; as a whole, per kind, per brand (cabinets no brand).
+Bill / invoice details are kept in `billDetails` / `salesDetails` until they change; at most 70 read a run (the first run
+may say "N not read yet"). FY charts on the Overview: stacked, no Running total / Each day switch (`76b953f`, live).
 
 _Written Wed 18 Nov 2026, end of session 32, for the next Claude Code session and the owner (Sumit)._
 

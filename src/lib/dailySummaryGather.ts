@@ -1,5 +1,6 @@
 import "server-only";
 import { parseAedLine } from "./aedParse";
+import { type AedItem, type MoveLine, aedKindOf, aedReport, brandOf } from "./aedStock";
 import { db } from "./db";
 import { syncWindowStart, ymd } from "./dates";
 import {
@@ -9,7 +10,7 @@ import {
 import { boardTrainings } from "./fulfilServer";
 import { type SalesDayRow, daySums } from "./overviewMath";
 import { booksApi } from "./quotations";
-import { type ZItem, pool } from "./zoho";
+import { type ZItem, lmtOf, pool } from "./zoho";
 import { aedData, getSnapshot } from "./zohoSync";
 
 /*
@@ -21,6 +22,10 @@ import { aedData, getSnapshot } from "./zohoSync";
  *  - outstanding: GET /invoices Status.Unpaid / Status.Overdue and GET /bills Status.Unpaid with response_option=3 (Zoho
  *    adds the sum of balances), paging and adding up when the sum isn't there;
  *  - stock: in = bills of the day (their lines), out = goods lines of the day's invoices; the month: bills only;
+ *  - AEDs, pads, batteries, cabinets (first section, owner 18 Nov): the active items (GET /items) and their stock on hand
+ *    (GET /itemdetails, 25 at a time), bought = the month's bills' lines, sold = the month's invoices' lines. Each bill /
+ *    invoice is read once and kept (`billDetails`, and the Sales board's `salesDetails`) until it changes; at most
+ *    READ_BUDGET are read a run (newest first), the rest next time;
  *  - new customers: GET /contacts newest first; trainings and AED renewals: the boards (no Zoho call).
  */
 
@@ -73,6 +78,78 @@ function goods(doc: Row, party: string, services: Set<string>): StockLine[] {
     .map((li) => ({ item: String(li.name), qty: Number(li.quantity) || 0, value: Number(li.item_total) || 0, party }));
 }
 
+/** A bill / invoice of the month with what's needed to read its lines. */
+type DocRef = { kind: "bills" | "invoices"; id: string; lmt: string; date: string; party: string };
+type ReadDoc = DocRef & { doc: Row };
+const READ_BUDGET = 70;
+
+/** The documents' full records: kept copies when unchanged, else Zoho (newest first, at most READ_BUDGET); `unread` = the rest. */
+async function readDocs(refs: DocRef[]): Promise<{ docs: ReadDoc[]; unread: number }> {
+  const database = await db();
+  const cols = { invoices: database.collection<{ _id: string; lmt: string; doc: Row }>("salesDetails"), bills: database.collection<{ _id: string; lmt: string; doc: Row }>("billDetails") };
+  const keyOf = (r: DocRef) => `${r.kind}:${r.id}`;
+  const kept = new Map<string, { lmt: string; doc: Row }>();
+  for (const k of ["invoices", "bills"] as const) {
+    const ids = refs.filter((r) => r.kind === k).map(keyOf);
+    if (ids.length) for (const d of await cols[k].find({ _id: { $in: ids } }).toArray()) kept.set(d._id, d);
+  }
+  const docs: ReadDoc[] = [];
+  const toRead: DocRef[] = [];
+  for (const r of refs) {
+    const had = kept.get(keyOf(r));
+    if (had && (had.lmt === r.lmt || !r.lmt)) docs.push({ ...r, doc: had.doc });
+    else toRead.push(r);
+  }
+  toRead.sort((a, b) => b.date.localeCompare(a.date));
+  await pool(toRead.slice(0, READ_BUDGET), 4, async (r) => {
+    try {
+      const doc = (await booksApi("GET", `/${r.kind}/${r.id}`))[r.kind === "bills" ? "bill" : "invoice"] as Row | undefined;
+      if (!doc) return;
+      docs.push({ ...r, doc });
+      await cols[r.kind].replaceOne({ _id: keyOf(r) }, { lmt: r.lmt || lmtOf(doc), doc }, { upsert: true });
+    } catch (e) {
+      console.error(`[summary] reading ${keyOf(r)}: ${msg(e)}`);
+    }
+  });
+  return { docs, unread: refs.length - docs.length };
+}
+
+/** The four kinds' active items with their stock on hand (null when Zoho didn't say). */
+async function aedItems(): Promise<AedItem[]> {
+  const items: AedItem[] = [];
+  for (const r of await pages("/items", "items", { filter_by: "Status.Active" }, 10)) {
+    if (r.status && r.status !== "active") continue;
+    const kind = aedKindOf(String(r.name ?? ""), (r.cf_item_identifier as string | undefined) ?? null, (r.product_type as string | undefined) ?? null);
+    if (!kind) continue;
+    items.push({ id: String(r.item_id), name: String(r.name), kind, brand: brandOf(r.brand as string | undefined, String(r.name)), stock: null, cost: Number(r.purchase_rate) || 0 });
+  }
+  const stockOf = (d: Row): number | null => {
+    if (d.stock_on_hand !== undefined && d.stock_on_hand !== null && d.stock_on_hand !== "") return Number(d.stock_on_hand) || 0;
+    const locs = d.locations as Row[] | undefined;
+    return locs?.length ? locs.reduce((t, l) => t + (Number(l.location_stock_on_hand) || 0), 0) : null;
+  };
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const chunks: AedItem[][] = [];
+  for (let i = 0; i < items.length; i += 25) chunks.push(items.slice(i, i + 25));
+  await pool(chunks, 2, async (chunk) => {
+    try {
+      const j = await booksApi("GET", "/itemdetails", { item_ids: chunk.map((i) => i.id).join(",") });
+      for (const d of (j.items as Row[]) ?? []) { const it = byId.get(String(d.item_id)); if (it) it.stock = stockOf(d); }
+    } catch (e) {
+      console.error(`[summary] itemdetails: ${msg(e)}`);
+    }
+    // One at a time for any the bulk call didn't give.
+    await pool(chunk.filter((i) => i.stock === null), 2, async (it) => {
+      const d = (await booksApi("GET", `/items/${it.id}`).catch(() => ({} as Row))).item as Row | undefined;
+      if (d) it.stock = stockOf(d);
+    });
+  });
+  return items;
+}
+
+/** A document's lines as moves of items. */
+const movesOf = (docs: ReadDoc[]): MoveLine[] => docs.flatMap((d) => ((d.doc.line_items as Row[]) ?? []).filter((li) => li.item_id).map((li) => ({ itemId: String(li.item_id), qty: Number(li.quantity) || 0, value: Number(li.item_total) || 0, date: d.date })));
+
 const toRow = (kind: "estimates" | "invoices", r: Row): SalesDayRow => ({ _id: `${kind}:${String(r[kind === "estimates" ? "estimate_id" : "invoice_id"])}`, kind, date: String(r.date ?? ""), row: r });
 
 export async function gatherSummary(kind: ReportKind, on: string): Promise<SummaryFacts> {
@@ -107,29 +184,34 @@ export async function gatherSummary(kind: ReportKind, on: string): Promise<Summa
 
   const services = await attempt(errors, "items", async () => new Set(((((await (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? []).filter((i) => i.service).map((i) => i.id))));
 
-  const [payments, receivable, overdue, payable, stock, newCustomers, boards] = await Promise.all([
+  // The month's bills and invoices, read once for the stock lines and the AED section.
+  const mFrom = monthStart(on);
+  const monthBills = pages("/bills", "bills", { date_start: mFrom, date_end: on }).then((xs) => xs.filter((x) => !/void|draft/i.test(String(x.status ?? ""))));
+  monthBills.catch(() => undefined); // awaited (and reported) by the sections below
+  const monthDocs = monthBills.catch(() => [] as Row[]).then((bills) => readDocs([
+    ...bills.map((x): DocRef => ({ kind: "bills", id: String(x.bill_id), lmt: lmtOf(x), date: String(x.date ?? "").slice(0, 10), party: String(x.vendor_name ?? "") })),
+    ...rows.filter((r) => r.kind === "invoices").map((r) => ({ r, date: String(r.row.date ?? r.date ?? "").slice(0, 10) }))
+      .filter(({ r, date }) => date >= mFrom && date <= on && !/void|draft/i.test(String(r.row.status ?? "")))
+      .map(({ r, date }): DocRef => ({ kind: "invoices", id: r._id.split(":")[1], lmt: lmtOf(r.row), date, party: String(r.row.customer_name ?? "") })),
+  ]));
+
+  const [aedStock, payments, receivable, overdue, payable, stock, newCustomers, boards] = await Promise.all([
+    attempt(errors, "aedStock", async () => {
+      const [items, , { docs, unread }] = await Promise.all([aedItems(), monthBills, monthDocs]);
+      return { report: aedReport(items, movesOf(docs.filter((d) => d.kind === "bills")), movesOf(docs.filter((d) => d.kind === "invoices")), on), unread };
+    }),
     attempt(errors, "payments", async (): Promise<Payment[]> => (await pages("/customerpayments", "customerpayments", range)).map((p) => ({ customer: String(p.customer_name ?? ""), amount: Number(p.amount) || 0 }))),
     attempt(errors, "receivable", () => owed("/invoices", "Status.Unpaid")),
     attempt(errors, "overdue", () => owed("/invoices", "Status.Overdue")),
     attempt(errors, "payable", () => owed("/bills", "Status.Unpaid")),
     attempt(errors, "stock", async (): Promise<SummaryFacts["stock"]> => {
-      const bills = (await pages("/bills", "bills", range)).filter((b) => !/void|draft/i.test(String(b.status ?? "")));
-      if (kind === "monthly") return { in: [], out: null, bills: { count: bills.length, total: bills.reduce((s, b) => s + (Number(b.total) || 0), 0) } };
+      const bills = await monthBills;
+      if (kind === "monthly") return { in: [], out: null, bills: { count: bills.length, total: bills.reduce((t, x) => t + (Number(x.total) || 0), 0) } };
+      const { docs } = await monthDocs;
       const svc = services ?? new Set<string>();
-      const ins: StockLine[] = [];
-      await pool(bills.slice(0, 15), 4, async (b) => {
-        const d = (await booksApi("GET", `/bills/${String(b.bill_id)}`)).bill as Row | undefined;
-        if (d) ins.push(...goods(d, String(b.vendor_name ?? ""), svc));
-      });
-      let out: StockLine[] | null = null;
-      if (todaysInvoices) {
-        out = [];
-        const sent = todaysInvoices.filter((i) => !/void|draft/i.test(String(i.status ?? ""))).slice(0, 25);
-        await pool(sent, 4, async (i) => {
-          const d = (await booksApi("GET", `/invoices/${String(i.invoice_id)}`)).invoice as Row | undefined;
-          if (d) out!.push(...goods(d, String(i.customer_name ?? ""), svc));
-        });
-      } else errors.stockOut = errors.invoicesToday;
+      const ins = docs.filter((d) => d.kind === "bills" && d.date === on).flatMap((d) => goods(d.doc, d.party, svc));
+      const out = todaysInvoices ? docs.filter((d) => d.kind === "invoices" && d.date === on).flatMap((d) => goods(d.doc, d.party, svc)) : null;
+      if (!out) errors.stockOut = errors.invoicesToday;
       return { in: ins, out };
     }),
     attempt(errors, "customers", async () => {
@@ -167,6 +249,7 @@ export async function gatherSummary(kind: ReportKind, on: string): Promise<Summa
 
   return {
     kind, on, days,
+    aedStock,
     quotes: sales("estimates"),
     invoices: sales("invoices"),
     payments,

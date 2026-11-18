@@ -1,3 +1,4 @@
+import { type AedReport, type Tally } from "./aedStock";
 import { type DaySums, type SalesDayRow, inrShort, personKey, vsLastYear } from "./overviewMath";
 
 /*
@@ -7,6 +8,7 @@ import { type DaySums, type SalesDayRow, inrShort, personKey, vsLastYear } from 
  * into the subject and the HTML. A section whose facts couldn't be read is `null` and shows as a short grey note.
  *
  * Monthly (the month's last day): the same sections for the month so far, renewals due next month.
+ * First section (owner, 18 Nov): AEDs, pads, batteries and cabinets — bought, sold, in stock; as a whole and by brand.
  */
 
 export type ReportKind = "daily" | "monthly";
@@ -32,6 +34,8 @@ export type SummaryFacts = {
   newCustomers: string[] | null;
   trainings: { today: TrainingRow[]; next: TrainingRow[]; nextLabel: string } | null;
   renewals: Renewal[] | null;
+  /** AEDs, pads, batteries, cabinets (aedStock.ts); `unread` = bills / invoices of the month not read yet (counted next time). */
+  aedStock?: { report: AedReport; unread: number } | null;
   /** Why a section is missing: section → reason. */
   errors: Partial<Record<string, string>>;
 };
@@ -185,6 +189,26 @@ const missing = (why: string | undefined) => small(`Couldn't read this from Zoho
 /** A list, the first `max` rows and "and N more". */
 const list = <T,>(xs: T[], max: number, row: (x: T) => string) => xs.slice(0, max).map((x) => line(row(x))).join("") + (xs.length > max ? small(`and ${xs.length - max} more`) : "");
 
+function aedSection(f: SummaryFacts): string {
+  const title = "AEDs, pads, batteries and cabinets";
+  if (!f.aedStock) return section(title, missing(f.errors.aedStock));
+  const { report: r, unread } = f.aedStock;
+  const daily = f.kind === "daily";
+  const moved = (t: Tally, values: boolean) => `sold ${t.sold}${values && t.soldValue ? ` for ${esc(money(t.soldValue))}` : ""} · bought ${t.bought}${values && t.boughtValue ? ` for ${esc(money(t.boughtValue))}` : ""}`;
+  const today = (t: Tally) => (daily && (t.soldToday || t.boughtToday) ? `Today: sold ${t.soldToday}${t.soldTodayValue ? ` (${esc(money(t.soldTodayValue))})` : ""} · bought ${t.boughtToday}${t.boughtTodayValue ? ` (${esc(money(t.boughtTodayValue))})` : ""}` : "");
+  const rows: string[] = [];
+  rows.push(line(`<b>All together</b> ${r.total.stock} in stock${r.total.stockValue ? ` <span style="color:${MUTED}">(${esc(money(r.total.stockValue))} at cost)</span>` : ""}`));
+  rows.push(line(`This month: ${moved(r.total, true)}`, "font-size:14px"));
+  if (today(r.total)) rows.push(line(today(r.total), "font-size:14px"));
+  for (const k of r.kinds) {
+    rows.push(line(`<b>${esc(k.label)}</b> ${k.tally.stock} in stock · ${moved(k.tally, false)}`, "margin-top:10px"));
+    if (today(k.tally)) rows.push(small(today(k.tally)));
+    for (const b of k.brands) rows.push(line(`${esc(b.brand)}: ${b.tally.stock} in stock · ${moved(b.tally, false)}`, `font-size:13px;color:${MUTED};padding-left:10px`));
+  }
+  rows.push(small(`<span style="display:block;margin-top:8px">Sold and bought: ${esc(dayMonth(monthStart(f.on)))} – ${esc(dayMonth(f.on))}, active items only.${unread ? ` ${unread} bills / invoices not read from Zoho yet; they count in the next email.` : ""}${r.stockUnknown ? ` Stock unknown for ${r.stockUnknown} items.` : ""}</span>`));
+  return section(title, rows.join(""));
+}
+
 function salesSection(f: SummaryFacts, docs: SaleDoc[] | null, slot: "quoted" | "invoiced", title: string, noun: string): string {
   if (!docs) return section(title, missing(f.errors[slot]));
   const total = docs.reduce((s, d) => s + d.total, 0);
@@ -303,6 +327,7 @@ export function summaryEmail(f: SummaryFacts): { subject: string; html: string; 
   const html = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.45;color:${INK};max-width:560px;margin:0 auto;padding:4px 2px">
 <div style="font-size:13px;color:${MUTED}">${esc(daily ? longDate(f.on) : monthName(f.on))} · ${daily ? "daily" : "monthly"} summary</div>
 <div style="font-size:19px;font-weight:700;line-height:1.3;margin:6px 0 12px">${esc(head)}.</div>
+${f.aedStock !== undefined ? aedSection(f) : ""}
 ${salesSection(f, f.quotes, "quoted", daily ? "Quotations sent today" : "Quotations sent this month", "quotation")}
 ${salesSection(f, f.invoices, "invoiced", daily ? "Invoiced today" : "Invoiced this month", "invoice")}
 ${paceSection(f)}
