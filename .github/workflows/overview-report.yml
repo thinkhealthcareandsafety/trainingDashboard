@@ -1,0 +1,35 @@
+# The Overview report to Sumit (owner, 18 Nov): daily Mon–Sat at 7 pm IST, and the monthly one on the month's last day.
+# GitHub calls /api/cron/report at ~7:02 pm IST, with a retry at ~7:20 pm; Vercel's daily cron (vercel.json, 7:30–8:29 pm)
+# is the fallback. The route sends only what is due — never before 7 pm, never twice — so extra calls are no-ops.
+#
+# Needs the repository secret CRON_SECRET (the same value as CRON_SECRET in Vercel), like zoho-sync.yml.
+name: Overview report
+
+on:
+  schedule:
+    # UTC. 13:32 UTC = 7:02 pm IST; 13:50 UTC = 7:20 pm IST (the retry). Every day: the route skips Sundays
+    # except a month's last day.
+    - cron: "32,50 13 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: overview-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the report endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::warning::CRON_SECRET is not set in this repository's Actions secrets — skipping (Vercel's cron still sends it)."
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --max-time 180 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://training-dashboard-xfwl.vercel.app/api/cron/report?source=github"
+          echo

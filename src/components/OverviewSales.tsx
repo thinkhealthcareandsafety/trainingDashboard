@@ -8,6 +8,28 @@ import { OverviewChart } from "./OverviewChart";
 import { OverviewFyChart } from "./OverviewFyChart";
 import type { BoardTraining } from "@/lib/types";
 import { Skeleton } from "./ui";
+import { useSession } from "@/lib/session";
+import { isAdmin } from "@/lib/roles";
+
+/** Admin: email today's report to Sumit now (owner, 18 Nov — it also goes by itself at 7 pm). */
+function SendReport() {
+  const [state, setState] = useState<"" | "busy" | "sent" | string>("");
+  const send = async () => {
+    setState("busy");
+    const r = await fetch("/api/cron/report", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "daily" }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    setState(r.error ? r.error : "sent");
+  };
+  return (
+    <span className="flex items-center gap-2 text-[12.5px]">
+      <button type="button" disabled={state === "busy"} onClick={send} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-[13px] font-medium text-ink-2 hover:bg-surface-2 disabled:opacity-60" title="The report also goes to sshah@thinkhealth.in by itself at 7 pm (Mon–Sat), and the monthly one on the month's last day">
+        {state === "busy" && <svg viewBox="0 0 24 24" width="13" height="13" className="animate-spin" aria-hidden><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" /><path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>}
+        {state === "busy" ? "Sending…" : "Email the report now"}
+      </button>
+      {state === "sent" && <span className="text-low">Sent to sshah@thinkhealth.in</span>}
+      {state && state !== "busy" && state !== "sent" && <span className="max-w-[260px] truncate text-high" title={state}>{state}</span>}
+    </span>
+  );
+}
 
 /*
  * The Overview (owner, 16–17 Nov): a tab per person — Company, Sumit, Ashish, Pranjal, Shikha. Under each sales tab, four
@@ -121,6 +143,7 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
   const [error, setError] = useState("");
   const today = ymdOf(now);
   const [tab, setTab] = useState<Tab>("all");
+  const { member } = useSession();
   const [on, setOn] = useState(today);
   const load = () => fetch("/api/overview", { cache: "no-store" }).then((r) => r.json()).then((j) => { if (j.days) { setDays(j.days); setError(""); } else setError(j.error ?? "Couldn't load the figures"); }).catch(() => setError("Couldn't reach the server"));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -163,6 +186,7 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
           <label className="flex items-center gap-1.5 text-[13px] text-muted">
             <span className="hidden md:inline">{tab === "all" ? "All quotations and invoices, against last year ·" : "Against last year ·"}</span> Looking at <input type="date" className={box} value={day} max={today} onChange={(e) => setOn(e.target.value || today)} aria-label="Which day" />
             {!isToday && <button type="button" onClick={() => setOn(today)} className="h-9 rounded-lg px-2.5 text-[13px] font-medium text-ink-2 hover:bg-surface-2">Today</button>}
+            {member && isAdmin(member) && <SendReport />}
           </label>
         )}
       </div>
