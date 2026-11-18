@@ -15,8 +15,48 @@ test("the server refuses his changes on every kind of card", () => {
   for (const id of ["training-1", "aed:1", "sale:1"]) assert.equal(canWriteEvent(prashant, { kind: "add_note", cardIds: [id] }), false, id);
 });
 
-test("everyone else keeps Follow-ups", () => {
-  for (const name of ["Shikha", "Pranjal Nikalje", "Priyanka", "Arti Sirohi", "Shreya", "Someone New"]) assert.equal(hasFollowUps({ id: "x", name }), true, name);
+test("Follow-ups: those with a board in the owner's sheet; a newcomer has none", () => {
+  for (const name of ["Shikha", "Pranjal Nikalje", "Priyanka", "Arti Sirohi", "Shreya", "Vaibhavi Raut"]) assert.equal(hasFollowUps({ id: "x", name }), true, name);
+  for (const name of ["Someone New", "Anushka Rajput", "Sagar Kadam", "Vaibhav Pachpute"]) assert.equal(hasFollowUps({ id: "x", name }), false, name);
+});
+
+test("the owner's sheet (18 Nov): pages and boards per person", async () => {
+  const { accessOf, canSee, boardsFor: boards, overviewSelf, hasFullAccess, isAdmin, homeOf } = await import("@/lib/roles");
+  const row = (name: string) => accessOf({ id: "x", name }).pages.join(" ");
+  const all = "overview quotations trainings items templates followups calendar sprints reports converter";
+  for (const n of ["Sumit A Shah", "Nikita Shah", "Anuj Agarwal", "Jasmeet", "Ashish Dalal", "Shikha Dixit"]) {
+    assert.equal(row(n), all, n);
+    assert.equal(hasFullAccess({ id: "x", name: n }), true, n);
+  }
+  assert.equal(row("Admin"), "calendar sprints"); // by name only someone called Admin; the Admin account is by id:
+  assert.equal(accessOf({ id: "admin", name: "Admin" }).pages.join(" "), all);
+  assert.equal(isAdmin({ id: "x", name: "Jasmeet" }), true); // owner: "give jasmeet all perms, that's me"
+  assert.equal(row("Anushka Rajput"), "calendar sprints");
+  assert.equal(row("Prashant Sawale"), "items calendar sprints");
+  assert.equal(row("Pranjal Nikalje"), "overview quotations items followups calendar sprints");
+  assert.equal(overviewSelf({ id: "x", name: "Pranjal Nikalje" }), "pranjal");
+  assert.equal(overviewSelf({ id: "x", name: "Ashish Dalal" }), null);
+  assert.deepEqual(boards({ id: "x", name: "Pranjal Nikalje" }), ["sales", "fire"]);
+  assert.equal(row("Sagar Kadam"), "calendar sprints");
+  assert.equal(row("Vaibhav Pachpute"), "calendar sprints");
+  assert.equal(row("Priyanka"), "trainings followups calendar sprints");
+  assert.deepEqual(boards({ id: "x", name: "Priyanka" }), ["aed"]);
+  assert.equal(row("Shreya"), "items followups calendar sprints");
+  assert.equal(boards({ id: "x", name: "Shreya" }).length, 6);
+  for (const n of ["Vaibhavi Raut", "Arti Sirohi"]) {
+    assert.equal(row(n), "items followups calendar sprints reports converter", n);
+    assert.deepEqual(boards({ id: "x", name: n }), ["logistics"], n);
+    assert.equal(canSee({ id: "x", name: n }, "quotations"), false, n);
+  }
+  assert.equal(homeOf({ id: "x", name: "Priyanka" }), "/training-management");
+  assert.equal(homeOf({ id: "x", name: "Anushka Rajput" }), "/calendar");
+  assert.equal(homeOf({ id: "x", name: "Ashish Dalal" }), "/");
+});
+
+test("Pranjal's Overview: his own figures, and the company's only before this FY", async () => {
+  const { onlySelf } = await import("@/lib/overviewMath");
+  const days = { "2026-03-31": { all: [9, 9] as [number, number], sumit: [5, 5] as [number, number], pranjal: [1, 1] as [number, number] }, "2026-11-18": { all: [7, 7] as [number, number], ashish: [3, 3] as [number, number], pranjal: [2, 2] as [number, number] } };
+  assert.deepEqual(onlySelf(days, "pranjal", "2026-11-18"), { "2026-03-31": { pranjal: [1, 1], all: [9, 9] }, "2026-11-18": { pranjal: [2, 2] } });
 });
 
 test("every member can change anything on an item, and nothing else in Quotations", async () => {

@@ -9,7 +9,7 @@ import { OverviewFyChart } from "./OverviewFyChart";
 import type { BoardTraining } from "@/lib/types";
 import { Skeleton } from "./ui";
 import { useSession } from "@/lib/session";
-import { isAdmin } from "@/lib/roles";
+import { isAdmin, overviewSelf } from "@/lib/roles";
 
 /** Admin: email today's report to Sumit now (owner, 18 Nov — it also goes by itself at 7 pm). */
 function SendReport() {
@@ -151,14 +151,18 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
   const [days, setDays] = useState<DaySums | null>(null);
   const [error, setError] = useState("");
   const today = ymdOf(now);
-  const [tab, setTab] = useState<Tab>("all");
+  const { member: who } = useSession();
+  // Only their own tab for "1 / Self" (Pranjal, owner's sheet 18 Nov).
+  const self = who ? (overviewSelf(who) as Tab | null) : null;
+  const tabs = self ? TABS.filter((t) => t.key === self) : TABS;
+  const [tab, setTab] = useState<Tab>(self ?? "all");
   const { member } = useSession();
   const [on, setOn] = useState(today);
   const load = () => fetch("/api/overview", { cache: "no-store" }).then((r) => r.json()).then((j) => { if (j.days) { setDays(j.days); setError(""); } else setError(j.error ?? "Couldn't load the figures"); }).catch(() => setError("Couldn't reach the server"));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useLive(load, ["zoho"]); // a quote or invoice made anywhere shows within seconds
   // The tab each person last looked at stays in their browser (a convenience, so it may simply be gone).
-  useEffect(() => { try { const t = localStorage.getItem(TAB_KEY); if (t && TABS.some((x) => x.key === t)) setTab(t as Tab); } catch {} }, []);
+  useEffect(() => { try { const t = localStorage.getItem(TAB_KEY); if (t && tabs.some((x) => x.key === t)) setTab(t as Tab); else if (self) setTab(self); } catch {} }, [self]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (t: Tab) => { setTab(t); try { localStorage.setItem(TAB_KEY, t); } catch {} };
   const day = on > today ? today : on;
   const isToday = day === today;
@@ -188,7 +192,7 @@ export function OverviewSales({ board, now }: { board: BoardTraining[] | null; n
       {/* Who: a tab per person; everything below is theirs */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div role="tablist" aria-label="Whose figures" className="grid w-full grid-cols-5 rounded-xl bg-surface-2 p-1 sm:flex sm:w-auto">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => pick(t.key)} className={`h-9 rounded-lg px-1.5 text-[13px] font-medium transition sm:px-4 ${tab === t.key ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>{t.label}</button>
           ))}
         </div>

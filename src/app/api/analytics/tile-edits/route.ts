@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
+import { canSee, hasFullAccess, isAdmin, reportBoards } from "@/lib/roles";
 import { canRead } from "@/lib/analytics/model";
 import { type Spec, SpecError, checkSpec } from "@/lib/analytics/query";
 import { type TileEdit, builtInTile, cleanEditSpec, readEdit, tileKey } from "@/lib/analytics/tileEdits";
@@ -19,7 +19,7 @@ const col = async () => (await db()).collection<Doc>("reportTileEdits");
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("training")) return Response.json({ edits: [], canEdit: false });
+  if (!canSee(me, "reports")) return Response.json({ edits: [], canEdit: false });
   const edits = (await (await col()).find({}).toArray()).map(readEdit).filter((e): e is TileEdit => Boolean(e));
   return Response.json({ edits, canEdit: hasFullAccess(me) });
 }
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   if (JSON.stringify(body.spec).length > 20_000) return Response.json({ error: "That report is too big to save" }, { status: 400 });
   const spec = cleanEditSpec(body.spec);
   try {
-    if (!canRead(checkSpec(spec), boardsFor(me), isAdmin(me))) return Response.json({ error: "You can't see this data" }, { status: 403 });
+    if (!canRead(checkSpec(spec), reportBoards(me), isAdmin(me))) return Response.json({ error: "You can't see this data" }, { status: 403 });
   } catch (e) {
     return Response.json({ error: e instanceof SpecError ? e.message : "That report can't be saved" }, { status: 400 });
   }

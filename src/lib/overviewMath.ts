@@ -272,3 +272,20 @@ export function fyRemarks(fy: FyLines, slot: "quoted" | "invoiced", unit: [strin
   }
   return lines;
 }
+
+/**
+ * Only their own figures (owner's sheet, 18 Nov: Pranjal's Overview is "1 / Self"): their key every day, and the
+ * company's only before this FY (the "against the company's last year" comparisons need it); nobody else's.
+ */
+export function onlySelf(days: DaySums, self: string, today: string): DaySums {
+  const d = parse(today);
+  const fyStart = `${d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1}-04-01`;
+  const out: DaySums = {};
+  for (const [day, people] of Object.entries(days)) {
+    const keep: DaySums[string] = {};
+    if (people[self]) keep[self] = people[self];
+    if (day < fyStart && people.all) keep.all = people.all;
+    if (Object.keys(keep).length) out[day] = keep;
+  }
+  return out;
+}

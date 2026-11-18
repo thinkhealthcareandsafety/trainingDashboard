@@ -1,5 +1,7 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { canQuote } from "@/lib/roles";
+import { canQuote, canSee } from "@/lib/roles";
+// The Templates page, and those who quote (the quote email reads the wording).
+const mayUse = (me: { id: string; name: string }) => canQuote(me) || canSee(me, "templates");
 import { canEditTemplate, listTemplates, saveTemplate, templateOverrides } from "@/lib/templateStore";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +14,7 @@ const refused = () => Response.json({ error: "Only those who send quotations use
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return refused();
+  if (!mayUse(me)) return refused();
   try {
     if (new URL(request.url).searchParams.has("overrides")) return Response.json({ overrides: await templateOverrides() });
     const templates = (await listTemplates()).map((t) => ({ ...t, canEdit: canEditTemplate(me, t) }));
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return refused();
+  if (!mayUse(me)) return refused();
   const b = (await request.json().catch(() => null)) as { key?: unknown; subject?: unknown; body?: unknown; reset?: unknown } | null;
   if (!b || typeof b.key !== "string") return Response.json({ error: "Which template?" }, { status: 400 });
   try {

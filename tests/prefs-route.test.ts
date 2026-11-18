@@ -5,7 +5,7 @@ import { GET, POST } from "@/app/api/analytics/prefs/route";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 
-const who = { sumit: { id: "sumit", name: "Sumit A Shah" }, ashish: { id: "ashish", name: "Ashish Dalal" }, arti: { id: "arti", name: "Arti Sirohi" } };
+const who = { sumit: { id: "sumit", name: "Sumit A Shah" }, ashish: { id: "ashish", name: "Ashish Dalal" }, shreya: { id: "shreya", name: "Shreya" } };
 type Who = keyof typeof who;
 const call = async (m: Who, method: "GET" | "POST", body?: unknown) => {
   const req = new Request("http://x/api/analytics/prefs", { method, headers: { "x-test-member": JSON.stringify(who[m]), "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -42,5 +42,5 @@ test("save a dashboard's filters, per person; null clears them; views stay", asy
 test("bad saved filters are refused; members without Reports can't save", async () => {
   assert.equal((await call("sumit", "POST", { dash: "sales", saved: { filters: {} } })).s, 400);
   assert.equal((await call("sumit", "POST", { dash: "Sales!", saved: state })).s, 400);
-  assert.equal((await call("arti", "POST", { dash: "sales", saved: state })).s, 403);
+  assert.equal((await call("shreya", "POST", { dash: "sales", saved: state })).s, 403);
 });

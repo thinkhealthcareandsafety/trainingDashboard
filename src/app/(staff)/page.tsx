@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
-import { boardsFor } from "@/lib/roles";
+import { boardsFor, canSee, homeOf } from "@/lib/roles";
+import { useRouter } from "next/navigation";
 import { KpiStrip, type OverviewMode, RangePicker, TrendCard, UPCOMING_DAYS } from "@/components/Kpis";
 import { type OverviewRange, RANGE_KEY, parseRange } from "@/lib/overviewRange";
 import { MiniCalendar } from "@/components/Calendar";
@@ -65,6 +66,10 @@ function UpcomingTrainings({ list, now, aed }: { list: BoardTraining[]; now: Dat
 export default function OverviewPage() {
   const { ready, data, now } = useStore();
   const { member } = useSession();
+  // Not on their account (owner's sheet, 18 Nov): straight to their first page.
+  const router = useRouter();
+  const away = Boolean(member && !canSee(member, "overview"));
+  useEffect(() => { if (member && away) router.replace(homeOf(member)); }, [member, away, router]);
   // Members without the Training board but with AedSmartx (Priyanka) see their own trainings against their own targets (AED_TARGETS), never the team's.
   const boards = member ? boardsFor(member) : ["training"];
   const mode: OverviewMode = !boards.includes("training") && boards.includes("aed") ? "aed" : "team";

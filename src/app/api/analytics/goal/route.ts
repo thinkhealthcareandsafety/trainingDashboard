@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, isAdmin } from "@/lib/roles";
+import { canSee, isAdmin } from "@/lib/roles";
 import { DEFAULT_GOAL, type Goal } from "@/lib/analytics/goal";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ const sane = (n: unknown): n is number => typeof n === "number" && Number.isFini
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
+  if (!canSee(me, "reports")) return Response.json({ error: "You can't see this data" }, { status: 403 });
   return Response.json(await read());
 }
 

@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
+import { canSee, hasFullAccess, isAdmin } from "@/lib/roles";
 import { ALIASES, DASHBOARDS } from "@/lib/analytics/dashboards";
 import { type CustomDash, cleanDashboard, upgrade } from "@/lib/analytics/custom";
 
@@ -34,7 +34,7 @@ const myDoc = (memberId: string) => `my-${memberId.toLowerCase().replace(/[^a-z0
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("training")) return Response.json({ dashboards: [], hidden: [], canEdit: false });
+  if (!canSee(me, "reports")) return Response.json({ dashboards: [], hidden: [], canEdit: false });
   const [docs, hidden] = await Promise.all([(await col()).find({}).limit(200).toArray(), (await kv()).findOne({ _id: HIDDEN })]);
   return Response.json({
     dashboards: docs.filter((d) => (d._id.startsWith("my-") ? d._id === "my-start" || d._id === myDoc(me.id) : d.shared || d.owner === me.id || isAdmin(me)))
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   if (!me) return unauthorized();
   const body = (await request.json().catch(() => ({}))) as { dashboard?: unknown; hide?: unknown; hidden?: unknown };
   const own = (body.dashboard as { id?: unknown } | undefined)?.id === "mine";
-  if (own ? !boardsFor(me).includes("training") : !hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita edit dashboards" }, { status: 403 });
+  if (own ? !canSee(me, "reports") : !hasFullAccess(me)) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit and Nikita edit dashboards" }, { status: 403 });
   const now = new Date().toISOString();
 
   if ("hide" in body) {

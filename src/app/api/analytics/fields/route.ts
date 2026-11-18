@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
+import { canSee, hasFullAccess, isAdmin } from "@/lib/roles";
 import { type CalcField, type CalcFormula, OPS, calcProblem } from "@/lib/analytics/calc";
 import type { Format } from "@/lib/analytics/model";
 import type { Filter } from "@/lib/analytics/query";
@@ -37,7 +37,7 @@ function cleanFormula(x: unknown): CalcFormula | null {
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
+  if (!canSee(me, "reports")) return Response.json({ error: "You can't see this data" }, { status: 403 });
   const dataset = new URL(request.url).searchParams.get("dataset") ?? "";
   if (!dataset) return Response.json({ error: "Which data?" }, { status: 400 });
   const list = (await (await col()).find({ dataset }).toArray()).filter((d) => d.dataset === dataset);

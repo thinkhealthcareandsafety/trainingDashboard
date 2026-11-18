@@ -1,7 +1,9 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { withBump } from "@/lib/changes";
 import { db } from "@/lib/db";
-import { canQuote } from "@/lib/roles";
+import { canQuote, canSee } from "@/lib/roles";
+// The Trainings page, and those who quote (the Performa editor reads and saves here).
+const mayUse = (me: { id: string; name: string }) => canQuote(me) || canSee(me, "trainings");
 import { itemSets, type ZItem } from "@/lib/zoho";
 import { byNewest, isTrainingOnly, readCoordinator, toTrainingQuote } from "@/lib/trainingManager";
 import { certificateLines, markLoginSent, newerQuotes, quoteOf, setCoordinator, staffParticipants, staffPortal, staffQuizResults, trainingDoc } from "@/lib/portalTrainings";
@@ -72,7 +74,7 @@ async function performaGone(id: string, salesorderId: string): Promise<Response>
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return Response.json({ error: "Only those who send quotations see Training Management" }, { status: 403 });
+  if (!mayUse(me)) return Response.json({ error: "Trainings aren't on your account" }, { status: 403 });
   try {
     const params = new URL(request.url).searchParams;
     const people = params.get("people");
@@ -129,7 +131,7 @@ export async function GET(request: Request) {
 async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return Response.json({ error: "Only those who send quotations use Training Management" }, { status: 403 });
+  if (!mayUse(me)) return Response.json({ error: "Trainings aren't on your account" }, { status: 403 });
   const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; name?: unknown; email?: unknown; phone?: unknown; edit?: unknown; send?: unknown; trainers?: unknown; to?: unknown; cc?: unknown; subject?: unknown; text?: unknown } | null;
   const id = String(b?.id ?? "").slice(0, 30);
   if (!/^\d+$/.test(id)) return Response.json({ error: "Unknown training" }, { status: 400 });

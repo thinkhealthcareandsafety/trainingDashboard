@@ -48,7 +48,7 @@ test("save for the team, read back by everyone, Restore original removes it", as
   const spec = { ...kpi.spec, title: "  Revenue (team)  ", from: "2026-04-01", to: "2026-10-31", params: { x: 1 } };
   const saved = await call("sumit", "POST", { dash: tab.id, tile: kpi.id, spec });
   assert.equal(saved.s, 200, JSON.stringify(saved.j));
-  const { j } = await call("rahul", "GET");
+  const { j } = await call("arti", "GET");
   assert.equal(j.edits.length, 1);
   assert.equal(j.canEdit, false);
   assert.equal(j.edits[0].key, tileKey(tab.id, kpi.id));
@@ -67,7 +67,7 @@ test("refused: not a dashboard editor, not a built-in tile, other data, a made-u
   assert.equal((await call("sumit", "POST", { dash: tab.id, tile: kpi.id, spec: { ...kpi.spec, dataset: "quotes" } })).s, 400);
   assert.equal((await call("sumit", "POST", { dash: tab.id, tile: kpi.id, spec: { ...kpi.spec, measures: ["madeUp"] } })).s, 400);
   assert.equal((await call("sumit", "GET")).j.edits.length, 0);
-  assert.deepEqual((await call("arti", "GET")).j, { edits: [], canEdit: false }, "no Training board, no Reports");
+  assert.deepEqual((await call("rahul", "GET")).j, { edits: [], canEdit: false }, "no Reports on his account");
 });
 
 test("a document saved in an old or broken shape doesn't break the list", async () => {

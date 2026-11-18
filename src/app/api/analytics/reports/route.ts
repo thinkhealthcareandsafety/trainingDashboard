@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
+import { hasFullAccess, isAdmin, reportBoards } from "@/lib/roles";
 import { canRead, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, checkSpec } from "@/lib/analytics/query";
 import { isTableKey, registerTables } from "@/lib/analytics/tables";
@@ -21,7 +21,7 @@ const col = async () => (await db()).collection<Saved>("reports");
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  const boards = boardsFor(me);
+  const boards = reportBoards(me);
   const list = await (await col()).find({}).sort({ updatedAt: -1 }).limit(500).toArray();
   // Reports built on a Zoho table need the table list to be known here (else they'd look unreadable and drop out).
   if (list.some((r) => isTableKey(r.spec.dataset))) registerTables(await readCatalog());
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   if (!body.spec) return Response.json({ error: "Nothing to save" }, { status: 400 });
   if (isTableKey(String(body.spec.dataset ?? ""))) registerTables(await readCatalog());
   try {
-    if (!canRead(checkSpec(body.spec), boardsFor(me), isAdmin(me))) return Response.json({ error: "You can't see this data" }, { status: 403 });
+    if (!canRead(checkSpec(body.spec), reportBoards(me), isAdmin(me))) return Response.json({ error: "You can't see this data" }, { status: 403 });
   } catch (e) {
     return Response.json({ error: e instanceof SpecError ? e.message : "That report can't be saved" }, { status: 400 });
   }

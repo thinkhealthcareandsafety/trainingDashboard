@@ -1,16 +1,12 @@
 import type { CardEvent } from "./types";
 
 /*
- * Who may do what — used by the boards (buttons) and by the server (/api/store refuses anything else).
+ * Who may do what — used by the menu, the pages, the boards (buttons) and the server (each API checks the same rule).
  *
- *   Priyanka  AedSmartx only — everything there except marking an AED delivered
- *   Arti      Logistics only — everything there (AED delivered / hide, merges, packing, shipping, notes)
- *   Shreya    Fulfillment only — everything there
- *   Pranjal   Sales only — everything there; also sends quotations (owner, 30 Oct)
- *   Ashish, Sumit, Nikita   every board, every action
- *   Admin, Shikha   everything (owner, 17 Nov: Shikha gets all permissions); the only ones who clear logs or delete log entries
- *   Prashant  no boards, no Follow-ups page "for now" (owner, 5 Nov); Overview, Calendar and Progress tracker stay
- *   Anyone else   Training board
+ * The owner's sheet (18 Nov): a row per person, a column per page — Overview, Quotations, Trainings, Items, Templates,
+ * Follow-ups (which boards), Calendar, Sprints, Reports, Invoice Converter. ACCESS below is that sheet. Admin, Jasmeet
+ * and Shikha also have the Admin powers (clearing logs, connecting Zoho…). Someone not in the sheet gets Calendar and
+ * Sprints until the owner says otherwise.
  *
  * Reverting: your own changes (Admin: anyone's). A revert also reverts the later steps of that flow (cascade.ts), even
  * when someone else made them — the flow must stay in order.
@@ -19,32 +15,72 @@ import type { CardEvent } from "./types";
 export type BoardKind = "training" | "sales" | "fire" | "aed" | "fulfil" | "logistics";
 type Who = { id: string; name: string };
 
-const named = (m: Who, re: RegExp) => re.test(m.name.trim());
-/** Admin, and Shikha (owner, 17 Nov: "give Shikha all perms"): every Admin power too. */
-export const isAdmin = (m: Who) => m.id === "admin" || named(m, /^shikha\b/i);
-/** Ashish, Shikha, Sumit, Nikita, Anuj (owner, 10 Nov: "access to everything") and Admin: every board, every action. */
-export const hasFullAccess = (m: Who) => isAdmin(m) || named(m, /^(ashish|shikha|sumit|nikita|anuj)\b/i);
-/** Pranjal Nikalje (owner, 30 Oct): the Sales board and Quotations. */
-const isSalesOnly = (m: Who) => named(m, /^pranjal\b/i);
-/** Who sends quotations (the Quotations page): everyone with full access, and Pranjal. */
-export const canQuote = (m: Who) => hasFullAccess(m) || isSalesOnly(m);
+export type Page = "overview" | "quotations" | "trainings" | "items" | "templates" | "followups" | "calendar" | "sprints" | "reports" | "converter";
+export const PAGES: { key: Page; label: string }[] = [
+  { key: "overview", label: "Overview" }, { key: "quotations", label: "Quotations" }, { key: "trainings", label: "Trainings" },
+  { key: "items", label: "Items" }, { key: "templates", label: "Templates" }, { key: "followups", label: "Follow-ups" },
+  { key: "calendar", label: "Calendar" }, { key: "sprints", label: "Sprints" }, { key: "reports", label: "Reports" },
+  { key: "converter", label: "Invoice Converter" },
+];
+// "fire": the Fire Safety board (owner, 3 Nov) — the Sales board's deals with Fire Safety items; the same people.
+export const ALL_BOARDS: BoardKind[] = ["training", "sales", "fire", "aed", "fulfil", "logistics"];
+/** A person's pages, their Follow-ups boards, and `overviewSelf`: the Overview with only their own figures. */
+export type Access = { pages: Page[]; boards: BoardKind[]; overviewSelf?: boolean };
+const EVERYTHING: Access = { pages: PAGES.map((p) => p.key), boards: ALL_BOARDS };
+const BASE: Page[] = ["calendar", "sprints"];
+/** The owner's sheet, 18 Nov (first name → access). "1" = the page; Follow-ups "1" = every board, "Sales" / "Aed" / "L" = that board. */
+export const ACCESS: Record<string, Access> = {
+  sumit: EVERYTHING,
+  nikita: EVERYTHING,
+  anuj: EVERYTHING,
+  jasmeet: EVERYTHING, // owner: "give jasmeet all perms for now, that's me"
+  ashish: EVERYTHING,
+  shikha: EVERYTHING,
+  anushka: { pages: BASE, boards: [] },
+  prashant: { pages: ["items", ...BASE], boards: [] },
+  pranjal: { pages: ["overview", "quotations", "items", "followups", ...BASE], boards: ["sales", "fire"], overviewSelf: true },
+  sagar: { pages: BASE, boards: [] },
+  vaibhav: { pages: BASE, boards: [] },
+  priyanka: { pages: ["trainings", "followups", ...BASE], boards: ["aed"] },
+  shreya: { pages: ["items", "followups", ...BASE], boards: ALL_BOARDS },
+  vaibhavi: { pages: ["items", "followups", ...BASE, "reports", "converter"], boards: ["logistics"] },
+  arti: { pages: ["items", "followups", ...BASE, "reports", "converter"], boards: ["logistics"] },
+};
+const NEWCOMER: Access = { pages: BASE, boards: [] };
+const firstName = (m: Who) => m.name.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 
+const named = (m: Who, re: RegExp) => re.test(m.name.trim());
+/** Admin, Shikha (owner, 17 Nov) and Jasmeet (owner, 18 Nov): every Admin power too. */
+export const isAdmin = (m: Who) => m.id === "admin" || named(m, /^(shikha|jasmeet)\b/i);
+/** This person's row of the sheet. */
+export const accessOf = (m: Who): Access => (m.id === "admin" ? EVERYTHING : ACCESS[firstName(m)] ?? NEWCOMER);
+/** May this person open that page? */
+export const canSee = (m: Who, page: Page) => accessOf(m).pages.includes(page);
+/** Every page and every board (the sheet's full rows, and Admin): every action on the boards too. */
+export const hasFullAccess = (m: Who) => isAdmin(m) || accessOf(m) === EVERYTHING;
+/** Who sends quotations (the Quotations page). */
+export const canQuote = (m: Who) => canSee(m, "quotations");
+/** The Overview with only their own figures (Pranjal: "1 / Self") — their key on the Overview, else null. */
+export const overviewSelf = (m: Who): string | null => (accessOf(m).overviewSelf ? firstName(m) : null);
+/** The Reports page's data: every dataset with the Reports page, none without (not tied to the Follow-ups boards). */
+export const reportBoards = (m: Who): BoardKind[] => (canSee(m, "reports") ? ALL_BOARDS : []);
+/** Where someone lands: the Overview, else their first page. */
+export const homeOf = (m: Who): string => {
+  const pages = accessOf(m).pages;
+  const href: Record<Page, string> = { overview: "/", quotations: "/quotations", trainings: "/training-management", items: "/items", templates: "/templates", followups: "/follow-up", calendar: "/calendar", sprints: "/sprints", reports: "/reports", converter: "/reports/invoice-converter" };
+  return href[pages[0] ?? "calendar"];
+};
+
+/** The Follow-ups boards they work on. */
 export function boardsFor(m: Who): BoardKind[] {
-  // "fire": the Fire Safety board (owner, 3 Nov) — the Sales board's deals with Fire Safety items; the same people.
-  if (hasFullAccess(m)) return ["training", "sales", "fire", "aed", "fulfil", "logistics"];
-  if (isSalesOnly(m)) return ["sales", "fire"];
-  if (named(m, /^priyanka\b/i)) return ["aed"];
-  if (named(m, /^arti\b/i)) return ["logistics"];
-  if (named(m, /^shreya\b/i)) return ["fulfil"];
-  if (named(m, /^prashant\b/i)) return [];
-  return ["training"];
+  return accessOf(m).boards;
 }
 
-/** The Invoice Converter (owner, 17 Nov): everyone with full access, and logistics (Arti makes the invoices). */
-export const canConvertInvoices = (m: Who) => hasFullAccess(m) || boardsFor(m).includes("logistics");
+/** The Invoice Converter (owner, 17 Nov; the sheet's "I.C" column). */
+export const canConvertInvoices = (m: Who) => canSee(m, "converter");
 
-/** The Follow-ups page: anyone with at least one board. */
-export const hasFollowUps = (m: Who) => boardsFor(m).length > 0;
+/** The Follow-ups page: the page, with at least one board. */
+export const hasFollowUps = (m: Who) => canSee(m, "followups") && boardsFor(m).length > 0;
 
 /** Marking an AED delivered (and undoing it): everyone who can, except the AedSmartx trainer. */
 export const canMarkDelivered = (m: Who) => hasFullAccess(m) || boardsFor(m).includes("logistics");

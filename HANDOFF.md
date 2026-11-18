@@ -16,6 +16,12 @@ items only (`GET /items` Status.Active, kind from Item Identifier / name via `to
 bought = this month's bills' lines, sold = this month's invoices' lines; as a whole, per kind, per brand (cabinets no brand).
 Bill / invoice details are kept in `billDetails` / `salesDetails` until they change; at most 70 read a run (the first run
 may say "N not read yet"). FY charts on the Overview: stacked, no Running total / Each day switch (`76b953f`, live).
+**Permissions = the owner's sheet (18 Nov)**: `ACCESS` in `lib/roles.ts` (first name → pages + Follow-ups boards; Pranjal's
+Overview "1 / Self" = `overviewSelf`, the API sends only his figures + the company's before this FY via `onlySelf`).
+Menu, pages and APIs use `canSee(m, page)`; Reports' data = `reportBoards` (the Reports column, not the boards). Jasmeet =
+everything + Admin powers (no Jasmeet account yet; Zoho Sprints' thinkhealth.directory is named Jasmeet). Newcomers:
+Calendar + Sprints. Read as: Quotation "—" (Vaibhavi, Arti) = no access; Shreya's Follow-ups "1" = every board. Sign-in is a
+grid of round initials (MembersScreen `PersonTile`).
 
 _Written Wed 18 Nov 2026, end of session 32, for the next Claude Code session and the owner (Sumit)._
 

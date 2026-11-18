@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, isAdmin } from "@/lib/roles";
+import { isAdmin, reportBoards } from "@/lib/roles";
 import { DATASETS, type Row, canRead, datasetOf } from "@/lib/analytics/model";
 import { type Spec, SpecError, runQuery } from "@/lib/analytics/query";
 import { STALE_MS, dataState, datasetRows, refreshAnalyticsData } from "@/lib/analytics/source";
@@ -26,7 +26,7 @@ const istToday = () => new Date(Date.now() + 5.5 * 3600_000).toISOString().slice
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  const boards = boardsFor(me);
+  const boards = reportBoards(me);
   const state = await dataState();
   return Response.json({ datasets: DATASETS.filter((d) => canRead(d, boards, isAdmin(me))).map((d) => d.key), state, today: istToday(), admin: isAdmin(me), columns: state.columns ?? {} });
 }
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   if (!me) return unauthorized();
   const body = (await request.json().catch(() => ({}))) as { specs?: Spec[] };
   const specs = (body.specs ?? []).slice(0, 40);
-  const boards = boardsFor(me);
+  const boards = reportBoards(me);
   const today = istToday();
   // The board is read only when a report needs the trainings (27 Oct: a new server loading everything took > 2 min
   // on the slowed free database). A failure says what failed, instead of a bare 500.

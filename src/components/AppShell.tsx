@@ -14,25 +14,26 @@ import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
 import { AnalyticsConnect } from "./AnalyticsConnect";
 import { ProgressToasts, useProgressPulse } from "./progress/ProgressPulse";
-import { boardsFor, canConvertInvoices, canQuote, hasFullAccess, hasFollowUps, isAdmin } from "@/lib/roles";
+import { type Page, canConvertInvoices, canSee, hasFollowUps, isAdmin } from "@/lib/roles";
 
-const NAV = [
-  { href: "/", label: "Overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
+// Each item shows only with its page in the owner's sheet (roles.ts ACCESS, 18 Nov).
+const NAV: { href: string; label: string; page: Page; icon: React.ReactNode }[] = [
+  { href: "/", label: "Overview", page: "overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
   // Quotations (owner, 28 Oct: "under Overview"): every Zoho customer, one click to send a quotation — the four who sell.
-  { href: "/quotations", label: "Quotations", full: true, icon: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" /> },
+  { href: "/quotations", label: "Quotations", page: "quotations", icon: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" /> },
   // Training Management (owner, 10 Nov): the training-only quotes, under Quotations. Those who quote.
-  { href: "/training-management", label: "Trainings", full: true, icon: <><path d="M10 3.5 3 7l7 3.5L17 7z" /><path d="M6 8.7v3.8c1 1.2 2.4 1.8 4 1.8s3-.6 4-1.8V8.7M17 7v4" /></> },
+  { href: "/training-management", label: "Trainings", page: "trainings", icon: <><path d="M10 3.5 3 7l7 3.5L17 7z" /><path d="M6 8.7v3.8c1 1.2 2.4 1.8 4 1.8s3-.6 4-1.8V8.7M17 7v4" /></> },
   // Items (owner, 4 Nov): its own page right under Quotations. Every member sees it and can change anything on an item (owner, 5 Nov); only starting a quotation stays with those who quote.
-  { href: "/items", label: "Items", full: true, icon: <path d="M3.5 6.5 10 3.5l6.5 3v7L10 16.5l-6.5-3zM3.5 6.5 10 9.5l6.5-3M10 9.5v7" /> },
+  { href: "/items", label: "Items", page: "items", icon: <path d="M3.5 6.5 10 3.5l6.5 3v7L10 16.5l-6.5-3zM3.5 6.5 10 9.5l6.5-3M10 9.5v7" /> },
   // Templates (owner, 10 Nov): the wording of the emails we send. Those who quote.
-  { href: "/templates", label: "Templates", full: true, icon: <path d="M3.5 5.5h13v9h-13zM3.5 6l6.5 5 6.5-5" /> },
-  { href: "/follow-up", label: "Follow-ups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
-  { href: "/calendar", label: "Calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
+  { href: "/templates", label: "Templates", page: "templates", icon: <path d="M3.5 5.5h13v9h-13zM3.5 6l6.5 5 6.5-5" /> },
+  { href: "/follow-up", label: "Follow-ups", page: "followups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
+  { href: "/calendar", label: "Calendar", page: "calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
   // Sprints (owner, 18 Nov): Zoho Sprints' board, its own item (not under Reports), in the hidden Progress tracker's place. Everyone.
-  { href: "/sprints", label: "Sprints", icon: <><rect x="3" y="3.5" width="14" height="13" rx="2" /><path d="M7.7 3.5v13M12.3 3.5v13M4.8 6.5h1.4M9.3 6.5h1.4M9.3 9h1.4M13.8 6.5h1.4" /></> },
-  // Reports (ANALYTICS-PLAN.md): its dashboards are Books money — Training-board members only. Since 26 Oct it also
+  { href: "/sprints", label: "Sprints", page: "sprints", icon: <><rect x="3" y="3.5" width="14" height="13" rx="2" /><path d="M7.7 3.5v13M12.3 3.5v13M4.8 6.5h1.4M9.3 6.5h1.4M9.3 9h1.4M13.8 6.5h1.4" /></> },
+  // Reports (ANALYTICS-PLAN.md): its dashboards are Books money — the sheet's Reports column. Since 26 Oct it also
   // held the Progress tracker, now hidden (owner, 18 Nov; Sprints is its own item). Others see Reports only for the Invoice Converter.
-  { href: "/reports", label: "Reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
+  { href: "/reports", label: "Reports", page: "reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
 ];
 // The Progress tracker is hidden entirely (owner, 18 Nov: its page, red count, notices and "Ask a teammate"); Sprints
 // took its place as its own item. Nothing of the tracker is deleted.
@@ -326,7 +327,7 @@ function useSidebar() {
 function SignInPage({ onSignIn }: { onSignIn: (m: Member, token: string) => void }) {
   return (
     <div className="grid min-h-screen place-items-center px-4 py-10">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-2xl">
         <div className="mb-6 flex items-center justify-center gap-2.5">
           <span className="grid size-9 place-items-center rounded-xl bg-brand text-[14px] font-bold text-brand-ink">TH</span>
           <span className="text-[18px] font-semibold tracking-tight">ThinkHealth Training Dashboard</span>
@@ -368,11 +369,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       />
     );
   }
-  const money = boardsFor(session.member!).includes("training");
-  // Quotations also for Pranjal (canQuote); the other "full" pages for full access only.
-  const nav = NAV.filter((n) => (n.href !== "/follow-up" || hasFollowUps(session.member!)) && (!("full" in n) || (n.href === "/items" || (n.href === "/quotations" || n.href === "/templates" || n.href === "/training-management" ? canQuote(session.member!) : hasFullAccess(session.member!)))))
-    // Not on the Training board: Reports is only the Invoice Converter (logistics), else it isn't shown.
-    .filter((n) => n.href !== "/reports" || money || canConvertInvoices(session.member!)); // /reports forwards them to the Converter
+  const me = session.member!;
+  // The owner's sheet (18 Nov): a page each; Follow-ups needs a board too; Reports also shows for the Invoice Converter alone (/reports forwards there).
+  const nav = NAV.filter((n) => (n.page === "followups" ? hasFollowUps(me) : n.page === "reports" ? canSee(me, "reports") || canConvertInvoices(me) : canSee(me, n.page)));
   const onConverter = path.startsWith(CONVERTER);
   return (
     <>

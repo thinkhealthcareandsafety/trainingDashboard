@@ -44,7 +44,7 @@ test("the sentence, the default format and what can't be saved", () => {
   assert.match(calcProblem({ ...perCustomer, formula: { kind: "combine", a: "calc:p", op: "div", b: "rows" } }) ?? "", /another field/);
 });
 
-const who = { admin: { id: "admin", name: "Admin" }, sumit: { id: "s", name: "Sumit A Shah" }, ashish: { id: "a", name: "Ashish Dalal" }, arti: { id: "t", name: "Arti Sirohi" } };
+const who = { admin: { id: "admin", name: "Admin" }, sumit: { id: "s", name: "Sumit A Shah" }, ashish: { id: "a", name: "Ashish Dalal" }, shreya: { id: "t", name: "Shreya" } };
 const call = async (m: keyof typeof who, method: "GET" | "POST" | "DELETE", body?: unknown, q = "") => {
   const req = new Request(`http://x/api/analytics/fields${q}`, { method, headers: { "x-test-member": JSON.stringify(who[m]), "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const r = await { GET, POST, DELETE }[method](req);
@@ -54,7 +54,7 @@ beforeEach(() => resetFakeDb());
 
 test("the route: the team makes fields, the maker or Admin changes them, names don't repeat", async () => {
   const field = { dataset: "zt:1", name: "Paid total", format: "inr", formula: paid.formula };
-  assert.equal((await call("arti", "POST", { field })).s, 403);
+  assert.equal((await call("shreya", "POST", { field })).s, 403);
   const made = await call("sumit", "POST", { field });
   assert.equal(made.s, 200);
   assert.equal(made.j.field.createdBy, "Sumit A Shah");
@@ -62,7 +62,7 @@ test("the route: the team makes fields, the maker or Admin changes them, names d
   assert.equal((await call("ashish", "POST", { field: { ...field, id: made.j.field.id, name: "Mine now" } })).s, 403);
   assert.equal((await call("admin", "POST", { field: { ...field, id: made.j.field.id, name: "Paid (Admin)" } })).j.field.name, "Paid (Admin)");
   assert.equal((await call("ashish", "GET", undefined, "?dataset=zt:1")).j.fields.length, 1);
-  assert.equal((await call("arti", "GET", undefined, "?dataset=zt:1")).s, 403);
+  assert.equal((await call("shreya", "GET", undefined, "?dataset=zt:1")).s, 403);
   assert.equal((await call("ashish", "GET", undefined, "?dataset=zt:2")).j.fields.length, 0);
   assert.equal((await call("ashish", "DELETE", undefined, `?id=${made.j.field.id}`)).s, 403);
   assert.equal((await call("sumit", "DELETE", undefined, `?id=${made.j.field.id}`)).s, 200);

@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, isAdmin } from "@/lib/roles";
+import { canSee, isAdmin } from "@/lib/roles";
 import { visibleTables } from "@/lib/analytics/tables";
 import { catalogStale, readCatalog, refreshCatalog } from "@/lib/analytics/tablesServer";
 
@@ -17,7 +17,7 @@ export const maxDuration = 120;
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
+  if (!canSee(me, "reports")) return Response.json({ error: "You can't see this data" }, { status: 403 });
   const catalog = await readCatalog();
   if (catalogStale(catalog)) after(() => refreshCatalog().then(() => undefined, () => undefined));
   return Response.json({

@@ -1,6 +1,7 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { withBump } from "@/lib/changes";
-import { canQuote } from "@/lib/roles";
+import { canQuote, canSee } from "@/lib/roles";
+const mayUse = (me: { id: string; name: string }) => canQuote(me) || canSee(me, "trainings") || canSee(me, "templates");
 import { readContent, saveContent, savePhoto } from "@/lib/portalServer";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ const refused = () => Response.json({ error: "Only those who send quotations cha
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return refused();
+  if (!mayUse(me)) return refused();
   try {
     return Response.json({ content: await readContent() });
   } catch (e) {
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return refused();
+  if (!mayUse(me)) return refused();
   try {
     const r = await saveContent(await request.json().catch(() => null), me.name);
     return "error" in r ? Response.json({ error: r.error }, { status: 400 }) : Response.json({ ok: true });
@@ -36,7 +37,7 @@ export async function PUT(request: Request) {
 async function handlePOST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!canQuote(me)) return refused();
+  if (!mayUse(me)) return refused();
   try {
     const b = (await request.json().catch(() => null)) as { photo?: unknown } | null;
     const r = await savePhoto(b?.photo);

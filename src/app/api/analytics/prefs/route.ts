@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, isAdmin } from "@/lib/roles";
+import { canSee, isAdmin } from "@/lib/roles";
 import { type LayoutEntry, cleanLayout } from "@/lib/analytics/layout";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
+  if (!canSee(me, "reports")) return Response.json({ error: "You can't see this data" }, { status: 403 });
   const body = (await request.json().catch(() => ({}))) as { dash?: unknown; views?: unknown; saved?: unknown; layout?: unknown; starting?: unknown; hidden?: unknown };
   const now = new Date().toISOString();
 

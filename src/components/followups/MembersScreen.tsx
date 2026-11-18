@@ -54,6 +54,20 @@ function useMemberNames() {
   return members;
 }
 
+/** A person on the sign-in screen (owner, 18 Nov: "the sign in got too old, display the list like icons"): a big round icon, the name under it. */
+function PersonTile({ name, onClick, admin }: { name: string; onClick: () => void; admin?: boolean }) {
+  const initials = name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+  const first = name.trim().split(/\s+/)[0];
+  return (
+    <button type="button" onClick={onClick} title={name} className="press group flex min-w-0 flex-col items-center gap-2 rounded-2xl px-1.5 py-3 hover:bg-surface-2/70 focus-visible:bg-surface-2/70">
+      <span className={`grid size-14 place-items-center rounded-full text-[17px] font-semibold ring-1 transition group-hover:ring-2 group-hover:ring-brand ${admin ? "bg-ink text-surface ring-ink" : "bg-surface-2 text-ink-2 ring-line"}`} aria-hidden>
+        {admin ? <svg viewBox="0 0 20 20" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"><path d="M10 2.5 4 5v4.5c0 3.6 2.6 6.6 6 7.5 3.4-.9 6-3.9 6-7.5V5l-6-2.5Z" /></svg> : initials}
+      </span>
+      <span className="w-full truncate text-center text-[13.5px] font-medium text-ink">{first}</span>
+    </button>
+  );
+}
+
 export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) => void }) {
   const members = useMemberNames();
   const [who, setWho] = useState<Member | null>(null);
@@ -111,7 +125,7 @@ export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) =
   };
 
   return (
-    <div className="mx-auto w-full max-w-md">
+    <div className={`mx-auto w-full ${who || adding ? "max-w-md" : "max-w-2xl"}`}>
       <div className="card p-6">
         {who ? (
           <form onSubmit={(e) => { e.preventDefault(); void signIn(pin); }}>
@@ -159,33 +173,18 @@ export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) =
           </form>
         ) : (
           <>
-            <h1 className="text-[20px] font-semibold tracking-tight">Sign in</h1>
-            <p className="mt-1 text-[13px] text-muted">Pick your name and enter your PIN. Every change you make is recorded under your name.</p>
-            {sorted.length > 0 ? (
-              <ul className="mt-5 space-y-1.5">
-                {sorted.map((m) => (
-                  <li key={m.id}>
-                    <button
-                      onClick={() => setWho(m)}
-                      className="press flex w-full items-center gap-3 rounded-xl border border-line px-3 py-2.5 text-left text-[14px] font-medium text-ink hover:border-line-strong hover:bg-surface-2/60"
-                    >
-                      <Avatar name={m.name} />
-                      {m.name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-5 text-[13px] text-muted">No members yet — the admin can add the first one.</p>
-            )}
-            <button
-              onClick={() => setWho(ADMIN)}
-              className="press mt-3 flex w-full items-center gap-3 rounded-xl border border-dashed border-line px-3 py-2.5 text-left text-[14px] font-medium text-ink-2 hover:border-line-strong hover:bg-surface-2/60"
-            >
-              <ShieldBadge />
-              Admin
-            </button>
-            <button className={`${btn.ghost} mt-4 w-full`} onClick={() => setAdding(true)}>+ Add new member</button>
+            <h1 className="text-center text-[20px] font-semibold tracking-tight">Who’s signing in?</h1>
+            <p className="mt-1 text-center text-[13px] text-muted">Tap your name, then enter your PIN. Every change you make is recorded under your name.</p>
+            <ul className="mt-5 grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
+              {sorted.map((m) => (
+                <li key={m.id} className="min-w-0"><PersonTile name={m.name} onClick={() => setWho(m)} /></li>
+              ))}
+              <li className="min-w-0"><PersonTile name="Admin" admin onClick={() => setWho(ADMIN)} /></li>
+            </ul>
+            {sorted.length === 0 && <p className="mt-3 text-center text-[13px] text-muted">No members yet — the admin can add the first one.</p>}
+            <div className="mt-4 flex justify-center">
+              <button className={btn.ghost} onClick={() => setAdding(true)}>+ Add new member</button>
+            </div>
           </>
         )}
       </div>

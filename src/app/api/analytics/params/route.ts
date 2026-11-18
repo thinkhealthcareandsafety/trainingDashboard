@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { boardsFor, hasFullAccess, isAdmin } from "@/lib/roles";
+import { canSee, hasFullAccess, isAdmin } from "@/lib/roles";
 import { type Param, type ParamType, cleanValue } from "@/lib/analytics/params";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ const TYPES: ParamType[] = ["number", "text", "date", "list"];
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  if (!boardsFor(me).includes("training")) return Response.json({ error: "You can't see this data" }, { status: 403 });
+  if (!canSee(me, "reports")) return Response.json({ error: "You can't see this data" }, { status: 403 });
   return Response.json({ params: (await (await col()).find({}).toArray()).map(out) });
 }
 
