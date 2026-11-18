@@ -47,3 +47,19 @@ test("a Kanban board read item by item (Get multiple item details: other field p
   const cols = boardColumns(statuses, [page], "GT");
   assert.deepEqual(cols.map((c) => [c.name, c.cards.map((x) => `${x.no} ${x.name} ${x.owners.join(",")}`)]), [["To do", ["GT-I154 Replay to Zoho Mail Shreya"]], ["In progress", []], ["Done", ["GT-I157 Make ID cards design Shreya"]]]);
 });
+
+test("what a task can be set to (types, priorities, users, tags, custom fields), its details, and dates both ways", async () => {
+  const { typesOf, prioritiesOf, usersOf, tagsOf, itemModuleOf, customFieldsOf, itemDetailOf, zohoDate, localDate } = await import("@/lib/sprintsRules");
+  assert.deepEqual(typesOf({ projItemType_prop: { itemTypeId: 0, itemTypeName: 1 }, projItemTypeIds: ["2", "1"], projItemTypeJObj: { "1": ["9", "Task"], "2": ["8", "Story"] } }), [{ id: "2", name: "Story" }, { id: "1", name: "Task" }]);
+  assert.deepEqual(prioritiesOf({ projPriority_prop: { priorityName: 1, colorCode: 4 }, projPriorityIds: ["p"], projPriorityJObj: { p: ["x", "High", true, "", "#ff335c"] } }), [{ id: "p", name: "High", color: "#ff335c" }]);
+  assert.deepEqual(usersOf({ user_prop: { displayName: 0, emailId: 1 }, userIds: ["u"], userJObj: { u: ["vaibhav.thinkhealth", "v@x.in"] } }), [{ id: "u", name: "vaibhav.thinkhealth", email: "v@x.in" }]);
+  assert.deepEqual(tagsOf({ zsTag_prop: { tagId: 0, tagName: 1, colorCode: 2 }, zsTagIds: ["t"], zsTagJObj: { t: ["t", "Development", "#e5484d"] } }), [{ id: "t", name: "Development", color: "#e5484d" }]);
+  assert.equal(itemModuleOf({ custommodule_prop: { moduleName: 0 }, custommoduleIds: ["a", "b"], custommoduleJObj: { a: ["project"], b: ["item"] } }), "b");
+  const fields = { customfield_prop: { fieldName: 0, udfName: 6 }, associatedCFields: ["1", "2", "3"], customfieldJObj: { "1": ["Invoice Number", "", false, 1, false, false, "UDF_CHAR1"], "2": ["Status", "", true, 7, false, false, "STATUS_ID"], "3": ["Sales Order Number", "", false, 1, false, false, "UDF_CHAR2"] } };
+  assert.deepEqual(customFieldsOf(fields), [{ label: "Invoice Number", udf: "UDF_CHAR1" }, { label: "Sales Order Number", udf: "UDF_CHAR2" }]); // Zoho's own fields left out
+  assert.deepEqual(itemDetailOf({ item_prop: { itemName: 0, description: 1, UDF_CHAR1: 2 }, itemIds: ["i"], itemJObj: { i: ["Bank details", "<p>Reply</p>", "2026-01-549"] } }), { description: "<p>Reply</p>", udf: { UDF_CHAR1: "2026-01-549" } });
+  assert.equal(zohoDate("2026-11-20T09:30"), "2026-11-20T09:30:00+05:30");
+  assert.equal(zohoDate(""), "");
+  assert.equal(localDate("2026-11-20T04:00:00.000Z"), "2026-11-20T09:30");
+  assert.equal(localDate(null), "");
+});

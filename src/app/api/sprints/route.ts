@@ -1,21 +1,32 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { isAdmin } from "@/lib/roles";
-import { connectSprints, sprintsBoard, sprintsInfo, SPRINTS_SCOPES } from "@/lib/zohoSprints";
+import { connectSprints, createTask, deleteTask, moveTask, sprintsBoard, sprintsInfo, SPRINTS_SCOPES, taskDetail, updateTask, type TaskInput } from "@/lib/zohoSprints";
 
 export const dynamic = "force-dynamic";
 
 /*
- * Zoho Sprints on the dashboard (owner, 18 Nov). Every signed-in member.
- *  GET                                   — { connected, canConnect, scopes, board? } (board = project P5's active sprints)
- *  POST { action: "connect", code, clientId?, clientSecret? } — Admin: connect Zoho Sprints once
+ * Sprints (owner, 18 Nov): project P5's board, read from and written to Zoho Sprints. Every signed-in member reads and
+ * changes tasks ("let user move cards in our sprint too"); only Admin connects.
+ *  GET                                      — { connected, canConnect, needsReconnect, scopes, board? }
+ *  GET ?item=<id>&sprint=<id>               — a task's description, custom fields and tags
+ *  POST { action: "connect", code, … }      — Admin: connect Zoho Sprints (again when scopes were added)
+ *  POST { action: "create", sprint, task }  — Create Task
+ *  POST { action: "update", sprint, item, task } — a task edited (task.users with task.was = owners before)
+ *  POST { action: "move", sprint, item, status } — a card dragged to another column
+ *  POST { action: "delete", sprint, item }  — a task deleted
  */
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+const fail = (e: unknown, fallback: string) => json({ error: e instanceof Error ? e.message : fallback }, 502);
 
 export async function GET(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
+  const q = new URL(request.url).searchParams;
+  if (q.get("item")) {
+    try { return json(await taskDetail(q.get("sprint"), q.get("item"))); } catch (e) { return fail(e, "Couldn't read the task"); }
+  }
   const info = await sprintsInfo();
-  const base = { connected: Boolean(info), canConnect: isAdmin(me), scopes: SPRINTS_SCOPES };
+  const base = { connected: Boolean(info), canConnect: isAdmin(me), needsReconnect: Boolean(info?.needsReconnect), scopes: SPRINTS_SCOPES };
   if (!info) return json(base);
   try {
     return json({ ...base, board: await sprintsBoard() });
@@ -27,12 +38,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const me = await signedInMember(request);
   if (!me) return unauthorized();
-  const b = (await request.json().catch(() => null)) as { action?: string; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
-  if (b?.action !== "connect") return json({ error: "Unknown action" }, 400);
-  if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sprints" }, 403);
+  const b = (await request.json().catch(() => null)) as { action?: string; code?: unknown; clientId?: unknown; clientSecret?: unknown; sprint?: unknown; item?: unknown; status?: unknown; task?: TaskInput & { was?: string[] } } | null;
   try {
-    return json(await connectSprints({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
+    switch (b?.action) {
+      case "connect":
+        if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sprints" }, 403);
+        return json(await connectSprints({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
+      case "create": return json(await createTask(b.sprint, b.task ?? {}));
+      case "update": await updateTask(b.sprint, b.item, b.task ?? {}); return json({ ok: true });
+      case "move": await moveTask(b.sprint, b.item, b.status); return json({ ok: true });
+      case "delete": await deleteTask(b.sprint, b.item); return json({ ok: true });
+      default: return json({ error: "Unknown action" }, 400);
+    }
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "Couldn't connect Zoho Sprints" }, 502);
+    return fail(e, "Zoho Sprints didn't take that");
   }
 }
