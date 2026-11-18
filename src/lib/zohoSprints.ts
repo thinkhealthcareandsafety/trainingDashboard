@@ -169,17 +169,19 @@ async function ctx(): Promise<Ctx> {
 async function sprintsMeta({ c, team, p }: Ctx): Promise<SprintsMeta> {
   if (G.__thSprintsMeta && Date.now() - G.__thSprintsMeta.at < META_MS) return G.__thSprintsMeta.data;
   const none = {} as Record<string, unknown>;
-  const [types, priorities, users, tags, modules] = await Promise.all([
+  const [types, priorities, users, clients, tags, modules] = await Promise.all([
     get(c, `${p}/itemtype/`, { action: "data", index: "1", range: "50" }).catch(() => none),
     get(c, `${p}/priority/`, { action: "data", index: "1", range: "50" }).catch(() => none),
     get(c, `${p}/users/`, { action: "data", index: "1", range: "200", type: "1" }).catch(() => none),
+    // type 2 = the project's client users (vaibhav.thinkhealth, sagar.thinkhealth… owner, 18 Nov: match them to their accounts)
+    get(c, `${p}/users/`, { action: "data", index: "1", range: "200", type: "2" }).catch(() => none),
     get(c, `/team/${team}/tags/`, { action: "data", index: "1", range: "1000" }).catch(() => none),
     get(c, `/team/${team}/settings/customization/modules/`, { action: "data", index: "1", range: "50" }).catch(() => none),
   ]);
   const itemModule = itemModuleOf(modules);
   const fields = itemModule ? customFieldsOf(await get(c, `/team/${team}/settings/customization/modules/${itemModule}/fields/`, { action: "data" }).catch(() => none)) : [];
   const members = (await (await db()).collection<{ _id: string; name?: string }>("members").find({}).toArray()).map((m) => ({ id: String(m._id), name: String(m.name ?? "") }));
-  const zohoUsers = usersOf(users);
+  const zohoUsers = [...usersOf(users), ...usersOf(clients)].filter((u, i, all) => all.findIndex((x) => x.id === u.id) === i);
   const data: SprintsMeta = { types: typesOf(types), priorities: prioritiesOf(priorities), users: zohoUsers, tags: tagsOf(tags), fields, people: peopleOf(zohoUsers, members) };
   G.__thSprintsMeta = { at: Date.now(), data };
   return data;

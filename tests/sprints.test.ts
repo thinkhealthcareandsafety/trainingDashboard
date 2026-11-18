@@ -82,4 +82,10 @@ test("people: Zoho's jumbled names cleaned, matched to dashboard members by firs
     { key: "z:1", name: "Sumit Shah", zohoId: "1", memberId: "m1" },
     { key: "z:4", name: "Vaibhav", zohoId: "4" },
   ]);
+  // Zoho's client users (owner, 18 Nov): "vaibhav.thinkhealth" is Vaibhav Pachpute, not Vaibhavi; "sagar.thinkhealth" Sagar Kadam.
+  const clients = peopleOf(
+    [{ id: "42097", name: "vaibhav.thinkhealth" }, { id: "42120", name: "sagar.thinkhealth" }],
+    [{ id: "v2", name: "Vaibhavi Raut" }, { id: "v1", name: "Vaibhav Pachpute" }, { id: "s1", name: "Sagar Kadam" }],
+  );
+  assert.deepEqual(clients.filter((p) => p.zohoId).map((p) => [p.zohoId, p.name, p.memberId]), [["42120", "Sagar Kadam", "s1"], ["42097", "Vaibhav Pachpute", "v1"]]);
 });
