@@ -46,7 +46,6 @@ export function InvoiceConverter() {
   const [data, setData] = useState<{ customers: ConvCustomer[]; pending: number; sign?: SignInfo } | null>(null);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
-  const [onlyMissing, setOnlyMissing] = useState(false);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const load = () => fetch("/api/invoice-converter", { cache: "no-store" }).then(async (r) => {
     const j = await r.json().catch(() => ({}));
@@ -70,8 +69,8 @@ export function InvoiceConverter() {
     const s = q.trim().toLowerCase();
     return data.customers
       .map((c) => ({ ...c, invoices: c.invoices.filter((i) => !s || c.name.toLowerCase().includes(s) || i.number.toLowerCase().includes(s) || i.po.toLowerCase().includes(s)) }))
-      .filter((c) => c.invoices.length && (!onlyMissing || c.missing > 0));
-  }, [data, q, onlyMissing]);
+      .filter((c) => c.invoices.length);
+  }, [data, q]);
   const searching = q.trim().length > 0;
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -79,11 +78,6 @@ export function InvoiceConverter() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <input className="h-10 w-full max-w-sm rounded-xl border border-line bg-surface px-3.5 text-[14px] text-ink placeholder:text-faint" placeholder="Search a customer, invoice or PO number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
-        <div className="flex rounded-xl bg-surface-2 p-1">
-          {[[false, "All customers"], [true, "Something missing"]].map(([v, l]) => (
-            <button key={String(v)} type="button" onClick={() => setOnlyMissing(v as boolean)} className={`h-8 rounded-lg px-3 text-[13px] font-medium ${onlyMissing === v ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>{l as string}</button>
-          ))}
-        </div>
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
