@@ -1,12 +1,11 @@
 import "server-only";
 import { db } from "./db";
-import { syncWindowStart, ymd } from "./dates";
-import { type SalesDayRow, daySums } from "./overviewMath";
-import { type ReportKind, overviewReportEmail, overviewReportPdf } from "./overviewReport";
+import { type ReportKind, summaryEmail } from "./dailySummary";
+import { gatherSummary } from "./dailySummaryGather";
 import { sendMail } from "./zohoMail";
 
 /*
- * The Overview report emailed to Sumit (owner, 18 Nov): daily Monday–Saturday at 7 pm India time, and the monthly one on
+ * The summary emailed to Sumit (owner, 18 Nov; the email body only, no PDF since session 33 — dailySummary.ts): daily Monday–Saturday at 7 pm India time, and the monthly one on
  * the month's last day at 7 pm (even a Sunday). Called by the schedulers (GitHub at ~7:02 pm with a retry, Vercel's
  * daily cron at 7:30–8:29 pm as the fallback): it never sends before 7 pm and never twice — the day (and the month) is
  * claimed in kv `overview_report` before sending, and released again if the send fails so the next call retries.
@@ -48,20 +47,10 @@ async function claim(kind: ReportKind, mark: string): Promise<boolean> {
 }
 const release = async (kind: ReportKind, mark: string) => { await (await kv()).updateOne({ _id: KEY, [kind]: mark }, { $unset: { [kind]: "" } }).catch(() => undefined); };
 
-async function figures() {
-  const since = ymd(syncWindowStart(new Date()));
-  const rows = await (await db()).collection<SalesDayRow>("salesDocs").find({ kind: { $in: ["estimates", "invoices"] } }, { projection: { kind: 1, date: 1, "row.date": 1, "row.status": 1, "row.total": 1, "row.salesperson_name": 1 } }).toArray();
-  return daySums(rows, since);
-}
-
-/** Builds and sends one report for the India day `on`. */
+/** Builds and sends one summary for the India day `on`. */
 export async function sendOverviewReport(kind: ReportKind, on: string, to = TO): Promise<void> {
-  const days = await figures();
-  const pdf = await overviewReportPdf(days, on, kind);
-  const mail = overviewReportEmail(days, on, kind);
-  const name = kind === "daily" ? `Think Health daily report ${on}.pdf` : `Think Health monthly report ${on.slice(0, 7)}.pdf`;
-  const r = await sendMail(FROM, { to, subject: mail.subject, html: mail.html, attachments: [{ name, bytes: pdf }] });
-  if (!r.attached) throw new Error("The email went, but Zoho Mail didn't take the PDF");
+  const mail = summaryEmail(await gatherSummary(kind, on));
+  await sendMail(FROM, { to, subject: mail.subject, html: mail.html });
 }
 
 /** The scheduler's call: sends what is due now (or `force` one now, for a test). */

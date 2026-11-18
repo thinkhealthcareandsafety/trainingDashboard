@@ -2,6 +2,15 @@
 
 ## Start of the next session (33) — read this block first
 
+**Session 33 update (18 Nov, local, not pushed):** the daily summary email is built. `lib/dailySummary.ts` (pure: facts →
+subject + HTML, headline, sections; tested in `tests/dailySummary.test.ts`), `lib/dailySummaryGather.ts` (server: salesDocs +
+today's estimates / invoices live from Books, `/customerpayments`, outstanding via `response_option=3` with a paging fallback,
+bills + invoice details for stock, `/contacts` by created_time, boards for trainings and AED renewals; each section in its own
+try, a failed one shows "Couldn't read this from Zoho"). `overviewReportSend.ts` now sends the body only; `overviewReport.ts`
+(the PDF) and its test are deleted. Monthly stock = bills of the month (count, ₹) only — goods out per month would need ~100+
+detail calls. 356 tests pass. Not yet run against real Zoho: after the push, press "Email the report now" and check the
+email and Vercel logs (`[summary]`).
+
 _Written Wed 18 Nov 2026, end of session 32, for the next Claude Code session and the owner (Sumit)._
 
 **State.** **Live = `663e348`** on work.thinkhealth.in, training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel

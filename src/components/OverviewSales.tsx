@@ -21,7 +21,7 @@ function SendReport() {
   };
   return (
     <span className="flex items-center gap-2 text-[12.5px]">
-      <button type="button" disabled={state === "busy"} onClick={send} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-[13px] font-medium text-ink-2 hover:bg-surface-2 disabled:opacity-60" title="The report also goes to sshah@thinkhealth.in by itself at 7 pm (Mon–Sat), and the monthly one on the month's last day">
+      <button type="button" disabled={state === "busy"} onClick={send} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-[13px] font-medium text-ink-2 hover:bg-surface-2 disabled:opacity-60" title="Emails today's summary to sshah@thinkhealth.in now. It also goes by itself at 7 pm (Mon–Sat), and the monthly one on the month's last day">
         {state === "busy" && <svg viewBox="0 0 24 24" width="13" height="13" className="animate-spin" aria-hidden><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" /><path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>}
         {state === "busy" ? "Sending…" : "Email the report now"}
       </button>

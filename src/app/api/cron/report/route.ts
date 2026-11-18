@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /*
- * The Overview report to Sumit (owner, 18 Nov): daily Mon–Sat at 7 pm, monthly on the month's last day.
+ * The summary email to Sumit (owner, 18 Nov; body only since session 33, dailySummary.ts): daily Mon–Sat at 7 pm, monthly on the month's last day.
  *  GET  (Authorization: Bearer $CRON_SECRET)       — the schedulers: GitHub (~7:02 pm, retry ~7:20 pm) and Vercel's daily
  *                                                    cron (7:30–8:29 pm); sends what is due, never before 7 pm, never twice
  *  POST { kind: "daily" | "monthly" } (Admin)       — send one now, as a test (to Sumit, or `to`)
