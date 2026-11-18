@@ -22,8 +22,39 @@ export const ewayFileName = (invoice: string) => `E-way bill - ${invoice}.pdf`;
 export const isPoFile = (name: string) => /^po\b|purchase.?order/i.test(name.trim());
 export const isEwayFile = (name: string) => /e-?way/i.test(name);
 
+/*
+ * One PI (Zoho sales order, "Performa-25-1214") → many invoices (owner, 18 Nov). Zoho puts the PI's number in the
+ * invoice's Reference; invoices of the same PI share its Purchase Order, so they are shown linked and one PO number and
+ * PDF fills them all.
+ */
+/** The PI an invoice was made from, from its Reference ("Performa-25-1223", "performa 25/1223 part 2" → "Performa-25-1223"). */
+export function piOf(reference: unknown): string | null {
+  const m = String(reference ?? "").match(/performa\s*[-_/ ]?\s*(\d{2})\s*[-_/ ]\s*(\d{1,6})(?!\d)/i);
+  return m ? `Performa-${m[1]}-${m[2]}` : null;
+}
+
+/** A customer's invoices as blocks: a PI with two or more invoices is one linked block (`pi` set); the rest stand alone. */
+export type ConvBlock = { pi: string | null; invoices: ConvInvoice[] };
+export function blocksOf(invoices: ConvInvoice[]): ConvBlock[] {
+  const count = new Map<string, number>();
+  for (const i of invoices) if (i.pi) count.set(i.pi, (count.get(i.pi) ?? 0) + 1);
+  const out: ConvBlock[] = [];
+  const at = new Map<string, ConvBlock>();
+  // In list order (newest first): a linked block sits where its newest invoice is.
+  for (const i of invoices) {
+    const pi = i.pi && (count.get(i.pi) ?? 0) > 1 ? i.pi : null;
+    if (!pi) { out.push({ pi: null, invoices: [i] }); continue; }
+    const b = at.get(pi);
+    if (b) b.invoices.push(i);
+    else { const nb = { pi, invoices: [i] }; at.set(pi, nb); out.push(nb); }
+  }
+  return out;
+}
+
 export type ConvInvoice = {
   id: string; number: string; date: string; total: number; status: string;
+  /** The PI it was made from (piOf the Reference), if any. */
+  pi: string | null;
   po: string; poOk: boolean; poPdf: boolean;
   eway: string | null; ewayPdf: boolean; needsEway: boolean;
   /** The e-way bill / attachments not read from Zoho yet (filled in a few at a time). */

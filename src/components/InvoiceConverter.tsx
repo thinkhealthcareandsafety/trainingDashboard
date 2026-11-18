@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
-import { EWAY_OVER } from "@/lib/invoiceConverterRules";
+import { EWAY_OVER, blocksOf } from "@/lib/invoiceConverterRules";
 import { Skeleton } from "./ui";
 
 /*
@@ -48,8 +48,9 @@ export function InvoiceConverter() {
     return () => clearTimeout(t);
   }, [data]);
 
-  const patch = (id: string, p: Partial<ConvInvoice>) => setData((d) => d && {
-    ...d, customers: d.customers.map((c) => ({ ...c, invoices: c.invoices.map((i) => (i.id === id ? { ...i, ...p } : i)) })),
+  // A PO saved on one invoice lands on every invoice of its PI, so a change can touch several rows at once.
+  const patch = (ids: string[], p: Partial<ConvInvoice>) => setData((d) => d && {
+    ...d, customers: d.customers.map((c) => ({ ...c, invoices: c.invoices.map((i) => (ids.includes(i.id) ? { ...i, ...p } : i)) })),
   });
 
   const shown = useMemo(() => {
@@ -92,11 +93,13 @@ export function InvoiceConverter() {
                 </button>
                 {isOpen && (
                   <div className="border-t border-line">
-                    <div className={`hidden ${COLS} gap-x-4 bg-surface-2/60 px-5 py-2 text-[12px] font-medium text-muted lg:grid`}>
-                      <span>Invoice</span><span className="text-right">Value</span><span>Purchase order <span className="text-faint">· number and PDF</span></span><span>E-way bill <span className="text-faint">· over {inr(EWAY_OVER)}</span></span><span>Merged &amp; signed</span>
+                    <div className={`hidden ${COLS} gap-x-8 bg-surface-2/60 py-2.5 pl-11 pr-5 text-[12px] font-semibold text-muted lg:grid`}>
+                      <span>Invoice</span><span className="text-right">Value</span><span>Purchase order <span className="font-normal text-faint">· number and PDF</span></span><span>E-way bill <span className="font-normal text-faint">· over {inr(EWAY_OVER)}</span></span><span>Merged &amp; signed</span>
                     </div>
                     <ul className="divide-y divide-line">
-                      {c.invoices.map((i) => <Row key={i.id} i={i} sign={data.sign} onPatch={(p) => patch(i.id, p)} />)}
+                      {blocksOf(c.invoices).map((b) => b.pi ? (
+                        <Linked key={b.pi} pi={b.pi} invoices={b.invoices} sign={data.sign} onPatch={patch} />
+                      ) : <Row key={b.invoices[0].id} i={b.invoices[0]} sign={data.sign} onPatch={patch} />)}
                     </ul>
                   </div>
                 )}
@@ -109,9 +112,88 @@ export function InvoiceConverter() {
   );
 }
 
-const COLS = "grid-cols-[170px_120px_minmax(0,1fr)_minmax(0,1fr)_150px]";
+// Columns with a clear gap between them (owner, 18 Nov: the headings shouldn't stick to each other). The left padding
+// (pl-11) leaves room for the line that links invoices of the same PI.
+const COLS = "grid-cols-[150px_110px_minmax(0,1fr)_minmax(0,1fr)_140px]";
 // Written out in full so Tailwind finds it (a class built from a variable isn't generated).
-const COLS_LG = "lg:grid-cols-[170px_120px_minmax(0,1fr)_minmax(0,1fr)_150px]";
+const COLS_LG = "lg:grid-cols-[150px_110px_minmax(0,1fr)_minmax(0,1fr)_140px]";
+
+type Patch = (ids: string[], p: Partial<ConvInvoice>) => void;
+
+/** The PDF upload and PO save, shared by a row and a linked block. */
+async function sendPo(id: string, value: string, file?: File | null): Promise<{ error?: string; ids?: string[]; poIds?: string[]; po?: string; poOk?: boolean; ok?: boolean; found?: string | null }> {
+  if (file) {
+    const f = new FormData();
+    f.append("id", id); f.append("which", "po"); f.append("file", file);
+    if (value.trim()) f.append("value", value.trim());
+    return fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+  }
+  const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "po", id, value }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+  return r.error ? r : { ids: r.ids ?? [id], poIds: r.ids ?? [id], po: r.po, poOk: r.ok };
+}
+
+/*
+ * Invoices of the same PI, linked (owner, 18 Nov): a line runs from the block's top down through each invoice and ends
+ * in an arrow at the last one. One button on top adds a single PO number and PO PDF to all of them.
+ */
+function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInvoice[]; sign?: SignInfo; onPatch: Patch }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const pick = useRef<HTMLInputElement>(null);
+  const n = invoices.length;
+  const known = invoices.find((i) => i.poOk)?.po ?? "";
+  const allDone = invoices.every((i) => i.poOk && i.po === invoices[0].po && i.poPdf);
+  const save = async () => {
+    setBusy(true); setError(""); setNote("");
+    const r = await sendPo(invoices[0].id, value, file);
+    setBusy(false);
+    if (r.error) return setError(r.error);
+    if (file && r.ids?.length) onPatch(r.ids, { poPdf: true });
+    if (r.poIds?.length && r.po !== undefined) onPatch(r.poIds, { po: r.po, poOk: Boolean(r.poOk) });
+    if (file && !value.trim() && !r.found) setNote("PDF attached to all. No PO number found in it (a scanned copy has no text): type it in.");
+    setEditing(false); setFile(null);
+  };
+  const field = "h-9 rounded-lg border border-line bg-surface px-3 text-[13.5px] text-ink";
+  return (
+    <li>
+      <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2 bg-brand-soft/60 py-2.5 pl-11 pr-5">
+        {/* The line starts at this strip; each row carries it on, the last ends it in an arrow. */}
+        <span aria-hidden className="absolute bottom-0 left-[19px] top-[26px] w-0.5 bg-brand" />
+        <span aria-hidden className="absolute left-[14px] top-[20px] h-3 w-3 rounded-full bg-brand" />
+        <p className="min-w-0 flex-1 text-[13px] text-ink-2">
+          <span className="num font-semibold text-ink">{pi}</span> · {n} invoices from this PI share one purchase order
+        </p>
+        {allDone && !editing ? (
+          <span className="flex items-center gap-3 text-[13px] text-ink-2">
+            <span className="flex items-center gap-1.5"><Mark ok small />PO <span className="num font-semibold text-ink">{invoices[0].po}</span> and PDF on all {n}</span>
+            <button type="button" className="rounded px-1.5 py-0.5 font-semibold text-brand hover:bg-brand-soft" onClick={() => { setValue(known); setEditing(true); }}>Change</button>
+          </span>
+        ) : !editing && (
+          <button type="button" className="h-8 rounded-lg bg-brand px-3.5 text-[13px] font-semibold text-brand-ink" onClick={() => { setValue(known); setEditing(true); }}>Add PO for all {n}</button>
+        )}
+        {editing && (
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <input className={`${field} w-48`} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }} placeholder="PO number" autoFocus aria-label={`PO number for all invoices of ${pi}`} />
+            <button type="button" className="h-9 max-w-64 truncate rounded-lg border border-line bg-surface px-3 text-[13px] font-semibold text-ink hover:bg-surface-2" onClick={() => pick.current?.click()}>{file ? file.name : "Choose PO PDF"}</button>
+            <input ref={pick} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+            <button type="button" className="h-9 rounded-lg bg-brand px-4 text-[13px] font-semibold text-brand-ink disabled:opacity-50" disabled={busy || (!value.trim() && !file)} onClick={save}>{busy ? "Saving…" : `Save for all ${n}`}</button>
+            <button type="button" className="h-9 rounded-lg px-2 text-[13px] text-muted hover:text-ink" onClick={() => { setEditing(false); setFile(null); }}>Cancel</button>
+            <span className="text-[12.5px] text-muted">Leave the number empty to read it from the PDF.</span>
+          </div>
+        )}
+        {error && <p className="w-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
+        {note && <p className="w-full text-[12.5px] text-muted">{note}</p>}
+      </div>
+      <ul className="divide-y divide-line">
+        {invoices.map((i, k) => <Row key={i.id} i={i} sign={sign} onPatch={onPatch} link={k === n - 1 ? "last" : "mid"} pi={pi} />)}
+      </ul>
+    </li>
+  );
+}
 
 /** The PDF line under a number: attached (tick), or Attach. */
 function Pdf({ has, pending, busy, onPick }: { has: boolean; pending: boolean; busy: boolean; onPick: () => void }) {
@@ -121,7 +203,9 @@ function Pdf({ has, pending, busy, onPick }: { has: boolean; pending: boolean; b
   );
 }
 
-function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (p: Partial<ConvInvoice>) => void }) {
+/** One invoice. In a linked block (`link`) it carries the PI's line on; a PO saved here goes to every invoice of the PI. */
+function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: SignInfo; onPatch: Patch; link?: "mid" | "last"; pi?: string }) {
+  const onPatch = (p: Partial<ConvInvoice>) => patchIds([i.id], p);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState<"" | "po" | "poPdf" | "ewayPdf" | "sign">("");
@@ -131,10 +215,10 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
 
   const savePo = async () => {
     setBusy("po"); setError("");
-    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "po", id: i.id, value }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    const r = await sendPo(i.id, value);
     setBusy("");
     if (r.error) return setError(r.error);
-    onPatch({ po: r.po, poOk: r.ok });
+    patchIds(r.poIds ?? [i.id], { po: r.po ?? value, poOk: Boolean(r.poOk) });
     setEditing(false);
   };
   const attach = async (which: "po" | "eway", file?: File | null) => {
@@ -145,8 +229,11 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
     const r = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
     setBusy("");
     if (r.error) return setError(r.error);
-    // The number read from the PDF, filled in (owner, 17 Nov).
-    onPatch(which === "po" ? { poPdf: true, ...(r.po ? { po: r.po, poOk: r.poOk } : {}) } : { ewayPdf: true, ...(r.eway ? { eway: r.eway } : {}) });
+    // The number read from the PDF, filled in (owner, 17 Nov); a PO PDF lands on every invoice of the PI (18 Nov).
+    if (which === "po") {
+      patchIds(r.ids ?? [i.id], { poPdf: true });
+      if (r.po && r.poIds?.length) patchIds(r.poIds, { po: r.po, poOk: r.poOk });
+    } else onPatch({ ewayPdf: true, ...(r.eway ? { eway: r.eway } : {}) });
     if (!r.found) setError(which === "po" ? "Attached. No PO number found in the PDF (a scanned copy has no text): type it in." : "Attached. No e-way bill number found in the PDF.");
   };
   // Opens Zoho Sign's page in a new tab straight away (a tab opened after the wait would be blocked), then checks back
@@ -175,7 +262,10 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
   const label = "text-[12px] font-medium text-muted lg:hidden";
 
   return (
-    <li className={`grid grid-cols-2 gap-x-4 gap-y-2.5 px-5 py-3 ${COLS_LG} lg:items-center`}>
+    <li className={`relative grid grid-cols-2 gap-x-8 gap-y-2.5 py-3 pl-11 pr-5 ${COLS_LG} lg:items-center`}>
+      {/* The PI's line: through this invoice's dot, or, on the last one, ending in an arrow at it. */}
+      {link === "mid" && <><span aria-hidden className="absolute bottom-0 left-[19px] top-0 w-0.5 bg-brand" /><span aria-hidden className="absolute left-[14px] top-[18px] h-3 w-3 rounded-full border-2 lg:top-[24px] border-brand bg-surface" /></>}
+      {link === "last" && <><span aria-hidden className="absolute left-[19px] top-0 h-[16px] w-0.5 bg-brand lg:h-[22px]" /><svg aria-hidden viewBox="0 0 12 10" width="12" height="10" className="absolute left-[14px] top-[15px] text-brand lg:top-[21px]"><path d="M0 0h12L6 10z" fill="currentColor" /></svg></>}
       <div className="col-span-2 min-w-0 lg:col-span-1">
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
@@ -192,7 +282,7 @@ function Row({ i, sign, onPatch }: { i: ConvInvoice; sign?: SignInfo; onPatch: (
             <button type="button" className="h-8 rounded-lg px-2 text-[13px] text-muted hover:text-ink" onClick={() => setEditing(false)}>Cancel</button>
           </div>
         ) : (
-          <button type="button" onClick={() => { setValue(i.poOk ? i.po : ""); setEditing(true); }} className="flex min-w-0 items-center gap-2 rounded-lg py-0.5 text-left hover:bg-surface-2" title="Change the PO number">
+          <button type="button" onClick={() => { setValue(i.poOk ? i.po : ""); setEditing(true); }} className="flex min-w-0 items-center gap-2 rounded-lg py-0.5 text-left hover:bg-surface-2" title={pi ? `Change the PO number on every invoice of ${pi}` : "Change the PO number"}>
             <Mark ok={i.poOk} />
             <span className={`num truncate text-[13.5px] ${i.poOk ? "font-semibold text-ink" : "text-ink-2"}`}>{i.po}</span>
             {!i.poOk && <span className="shrink-0 text-[12.5px] font-semibold text-brand">Add</span>}

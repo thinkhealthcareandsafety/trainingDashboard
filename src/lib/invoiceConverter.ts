@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
-import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poState } from "./invoiceConverterRules";
+import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, piOf, poFileName, poState } from "./invoiceConverterRules";
 
 /*
  * The Invoice Converter's data and its writes to Zoho Books (owner, 17 Nov).
@@ -60,7 +60,7 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
     const files = e?.files ?? [];
     return {
       customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
-      id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""),
+      id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""), pi: piOf(r.row.reference_number),
       po: po.label, poOk: po.ok, poPdf: files.some(isPoFile),
       eway: e?.eway || e?.ewayFound || null, ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
       pending: wantsDetail(r) && !fresh(r),
@@ -79,7 +79,41 @@ export async function setPoNumber(invoiceId: string, raw: unknown): Promise<{ po
   return { po: s.label, ok: s.ok };
 }
 
-/** A PO or e-way bill PDF attached to the invoice in Zoho, under our name for it. */
+/**
+ * The invoices made from the same PI as this one (same customer, not void), this one first (owner, 18 Nov: "that PO will
+ * be the same for all the invoices that reference that PI"). An invoice with no PI is on its own.
+ */
+export async function samePiInvoices(invoiceId: string): Promise<SalesRow[]> {
+  const rows = (await (await sales()).find({ kind: "invoices" }).toArray()).filter((r) => r.kind === "invoices" && String(r.row.status ?? "") !== "void");
+  const me = rows.find((r) => r.id === invoiceId);
+  if (!me) return [];
+  const pi = piOf(me.row.reference_number);
+  if (!pi) return [me];
+  const cust = String(me.row.customer_id ?? "");
+  return [me, ...rows.filter((r) => r.id !== invoiceId && piOf(r.row.reference_number) === pi && String(r.row.customer_id ?? "") === cust)];
+}
+
+/** The PO number written to every invoice of the same PI; `ids` = the invoices that now carry it. */
+export async function setPoForPi(invoiceId: string, raw: unknown): Promise<{ po: string; ok: boolean; ids: string[] }> {
+  const group = await samePiInvoices(invoiceId);
+  const ids = group.length ? group.map((r) => r.id) : [invoiceId];
+  let s = { po: "", ok: false };
+  for (const id of ids) s = await setPoNumber(id, raw);
+  return { ...s, ids };
+}
+
+/** One PDF attached to one invoice in Zoho under `name`, and noted in our copy at once (the next full read confirms it). */
+async function attachOne(invoiceId: string, lmt: string | undefined, name: string, bytes: Uint8Array<ArrayBuffer>, ewayFound?: string | null) {
+  const form = new FormData();
+  form.append("attachment", new File([bytes], name, { type: "application/pdf" }));
+  await booksApi("POST", `/invoices/${invoiceId}/attachment`, {}, form);
+  const col = await extrasCol();
+  const had = await col.findOne({ _id: invoiceId });
+  await col.replaceOne({ _id: invoiceId }, { lmt: lmt ?? had?.lmt ?? "", eway: had?.eway ?? null, ewayFound: ewayFound ?? had?.ewayFound ?? null, files: [...(had?.files ?? []), name], readAt: had?.readAt ?? new Date().toISOString() }, { upsert: true });
+  await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, { $set: { "row.has_attachment": true } });
+  return had;
+}
+
 /** The PDF's text (empty for a scanned one, or one that can't be read). */
 export async function pdfText(bytes: Uint8Array): Promise<string> {
   try {
@@ -97,29 +131,50 @@ export async function pdfText(bytes: Uint8Array): Promise<string> {
  * automatically add the id from the PDF"): a PO's number goes into the invoice's Purchase Order Number when that has
  * none (or "Verbal"); an e-way bill's number shows here when Zoho has none on the invoice. `found` says what was read.
  */
-export async function attachPdf(invoiceId: string, which: "po" | "eway", file: File): Promise<{ ok: true; found: string | null; po?: string; poOk?: boolean; eway?: string }> {
+export type AttachResult = {
+  ok: true; found: string | null; po?: string; poOk?: boolean; eway?: string;
+  /** The invoices that got the PDF, and those whose PO number was set (a PO goes to every invoice of the same PI). */
+  ids: string[]; poIds: string[];
+};
+/**
+ * A PO PDF goes to every invoice of the same PI that has none yet (owner, 18 Nov), each under its own name
+ * ("PO - <invoice>.pdf"). Its number: `typed` when given (the linked block's "PO for all"), written to all of them;
+ * otherwise the number read from the PDF, written where the invoice has none or "Verbal". An e-way bill is per invoice.
+ */
+export async function attachPdf(invoiceId: string, which: "po" | "eway", file: File, typed?: string): Promise<AttachResult> {
   if (file.size > 10 * 1024 * 1024) throw new Error("The file is over 10 MB.");
   if (!/pdf/i.test(file.type) && !/\.pdf$/i.test(file.name)) throw new Error("Attach a PDF.");
-  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
-  const number = String(row?.row.invoice_number ?? invoiceId);
-  const name = which === "po" ? poFileName(number) : ewayFileName(number);
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const form = new FormData();
-  form.append("attachment", new File([bytes], name, { type: "application/pdf" }));
-  await booksApi("POST", `/invoices/${invoiceId}/attachment`, {}, form);
-  // Known at once here; the next full read from Zoho confirms it.
-  const col = await extrasCol();
-  const had = await col.findOne({ _id: invoiceId });
   const text = await pdfText(bytes);
   const found = which === "po" ? poFromText(text) : ewayFromText(text);
-  const ewayFound = which === "eway" && found ? found : had?.ewayFound ?? null;
-  await col.replaceOne({ _id: invoiceId }, { lmt: row?.lmt ?? had?.lmt ?? "", eway: had?.eway ?? null, ewayFound, files: [...(had?.files ?? []), name], readAt: had?.readAt ?? new Date().toISOString() }, { upsert: true });
-  await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, { $set: { "row.has_attachment": true } });
-  if (which === "po" && found && !poState(row?.row.cf_purchase_order_number).ok) {
-    const set = await setPoNumber(invoiceId, found);
-    return { ok: true, found, po: set.po, poOk: set.ok };
+
+  if (which === "eway") {
+    const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+    const had = await attachOne(invoiceId, row?.lmt, ewayFileName(String(row?.row.invoice_number ?? invoiceId)), bytes, found);
+    return { ok: true, found, ids: [invoiceId], poIds: [], ...(found && !had?.eway ? { eway: found } : {}) };
   }
-  return { ok: true, found, ...(which === "eway" && found && !had?.eway ? { eway: found } : {}) };
+
+  const group = await samePiInvoices(invoiceId);
+  if (!group.length) throw new Error("That invoice isn't in our copy yet. Sync, then try again.");
+  const extras = new Map((await (await extrasCol()).find({ _id: { $in: group.map((r) => r.id) } }).toArray()).map((e) => [e._id, e]));
+  // The one clicked always; the others of its PI only if they have no PO PDF yet (no second copy on an invoice).
+  const targets = group.filter((r, n) => n === 0 || !(extras.get(r.id)?.files ?? []).some(isPoFile));
+  const ids: string[] = [];
+  for (const r of targets) {
+    await attachOne(r.id, r.lmt, poFileName(String(r.row.invoice_number ?? r.id)), bytes);
+    ids.push(r.id);
+  }
+  const value = (typed ?? "").trim();
+  const number = value || found;
+  if (!number) return { ok: true, found, ids, poIds: [] };
+  const poIds: string[] = [];
+  let s = { po: "", ok: false };
+  for (const r of group) {
+    if (!value && poState(r.row.cf_purchase_order_number).ok) continue; // a number read from a PDF never overwrites one typed in Zoho
+    s = await setPoNumber(r.id, number);
+    poIds.push(r.id);
+  }
+  return poIds.length ? { ok: true, found, ids, poIds, po: s.po, poOk: s.ok } : { ok: true, found, ids, poIds };
 }
 
 /* ---------------- Merge and sign (owner, 17 Nov) ---------------- */

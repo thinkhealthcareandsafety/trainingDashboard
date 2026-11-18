@@ -28,7 +28,7 @@ test("e-way bills over ₹50,000; our attachment names are told apart", () => {
 
 test("customers newest first, their invoices newest first, and how many still miss something", () => {
   const inv = (customerId: string, number: string, date: string, total: number, poOk: boolean, extra: Partial<{ poPdf: boolean; eway: string | null; ewayPdf: boolean }> = {}) =>
-    ({ customerId, customerName: customerId.toUpperCase(), id: number, number, date, total, status: "sent", po: poOk ? "123" : "Verbal", poOk, poPdf: false, eway: null, ewayPdf: false, needsEway: needsEway(total), pending: false, ...extra });
+    ({ customerId, customerName: customerId.toUpperCase(), id: number, number, date, total, status: "sent", pi: null, po: poOk ? "123" : "Verbal", poOk, poPdf: false, eway: null, ewayPdf: false, needsEway: needsEway(total), pending: false, ...extra });
   const g = groupByCustomer([
     inv("a", "1", "2026-10-01", 9000, true, { poPdf: true }),
     inv("b", "2", "2026-11-10", 80000, true, { poPdf: true, eway: "232328638953", ewayPdf: true }),
@@ -106,4 +106,33 @@ test("an attached PDF's text is read on the server (unpdf), so its PO number can
   const text = await pdfText(await d.save());
   assert.equal(poFromText(text), "4470300008");
   assert.equal(await pdfText(new Uint8Array([1, 2, 3])), ""); // not a PDF: nothing, no crash
+});
+
+test("one PI, many invoices: the PI from the invoice's Reference, linked blocks where a PI has two or more", async () => {
+  const { piOf, blocksOf } = await import("@/lib/invoiceConverterRules");
+  assert.equal(piOf("Performa-25-1223"), "Performa-25-1223");
+  assert.equal(piOf(" performa 25/1223 part 2"), "Performa-25-1223");
+  assert.equal(piOf("Quotation-24-002774"), null);
+  assert.equal(piOf(undefined), null);
+  const inv = (id: string, pi: string | null) => ({ id, number: id, date: "", total: 1, status: "sent", pi, po: "No PO", poOk: false, poPdf: false, eway: null, ewayPdf: false, needsEway: false, pending: false });
+  // Newest first: the PI's block sits where its newest invoice is; a PI with one invoice stands alone.
+  const b = blocksOf([inv("5", "P-1"), inv("4", null), inv("3", "P-1"), inv("2", "P-2"), inv("1", "P-1")]);
+  assert.deepEqual(b.map((x) => [x.pi, x.invoices.map((i) => i.id)]), [["P-1", ["5", "3", "1"]], [null, ["4"]], [null, ["2"]]]);
+});
+
+test("a PO saved on one invoice finds every invoice of the same PI and customer (not void, not other customers)", async () => {
+  const { samePiInvoices, converterData } = await import("@/lib/invoiceConverter");
+  const docs = (await db()).collection<{ _id: string; kind: string; id: string; lmt: string; date: string; row: Record<string, unknown> }>("salesDocs");
+  const put = (id: string, ref: string, customer = "c1", status = "sent") => docs.insertOne({ _id: `invoices:${id}`, kind: "invoices", id, lmt: "x", date: "2026-11-01", row: { invoice_number: `2026-01-${id}`, date: "2026-11-01", status, customer_id: customer, customer_name: "A", total: 1000, reference_number: ref } });
+  await put("21", "Performa-25-1214");
+  await put("22", "Performa-25-1214");
+  await put("23", "Performa-25-1214", "c1", "void");
+  await put("24", "Performa-25-1214", "c2");
+  await put("25", "Performa-25-1215");
+  await put("26", "");
+  assert.deepEqual((await samePiInvoices("22")).map((r) => r.id), ["22", "21"]);
+  assert.deepEqual((await samePiInvoices("26")).map((r) => r.id), ["26"]);
+  assert.deepEqual(await samePiInvoices("99"), []);
+  const r = await converterData();
+  assert.equal(r.customers.find((c) => c.id === "c1")!.invoices.find((i) => i.id === "21")!.pi, "Performa-25-1214");
 });
