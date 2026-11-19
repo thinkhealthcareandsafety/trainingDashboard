@@ -2,10 +2,13 @@ import "server-only";
 import { db } from "./db";
 import { type ReportKind, summaryEmail } from "./dailySummary";
 import { gatherSummary } from "./dailySummaryGather";
-import { sendMail } from "./zohoMail";
+import { summaryPdf } from "./summaryPdf";
+import { summaryTables } from "./summaryTables";
+import { NOT_ATTACHED, sendMail } from "./zohoMail";
 
 /*
- * The summary emailed to Sumit (owner, 18 Nov; the email body only, no PDF since session 33 — dailySummary.ts): daily Monday–Saturday at 7 pm India time, and the monthly one on
+ * The summary emailed to Sumit (owner, 19 Nov: in tables, as a PDF — summaryTables.ts / summaryPdf.ts; the email carries
+ * the headline only, and the old body (dailySummary.ts) if the PDF can't be attached): daily Monday–Saturday at 7 pm India time, and the monthly one on
  * the month's last day at 7 pm (even a Sunday). Called by the schedulers (GitHub at ~7:02 pm with a retry, Vercel's
  * daily cron at 7:30–8:29 pm as the fallback): it never sends before 7 pm and never twice — the day (and the month) is
  * claimed in kv `overview_report` before sending, and released again if the send fails so the next call retries.
@@ -49,9 +52,27 @@ const release = async (kind: ReportKind, mark: string) => { await (await kv()).u
 
 /** Builds and sends one summary for the India day `on`. */
 export async function sendOverviewReport(kind: ReportKind, on: string, to = TO): Promise<void> {
-  const mail = summaryEmail(await gatherSummary(kind, on));
-  await sendMail(FROM, { to, subject: mail.subject, html: mail.html });
+  const facts = await gatherSummary(kind, on);
+  const mail = summaryEmail(facts);
+  const doc = summaryTables(facts);
+  const name = `${kind === "daily" ? "Daily" : "Monthly"} summary ${kind === "daily" ? on : on.slice(0, 7)}.pdf`;
+  try {
+    await sendMail(FROM, { to, subject: mail.subject, html: pdfBody(doc.kicker, doc.headline), attachments: [{ name, bytes: await summaryPdf(doc) }], needAttachments: true });
+  } catch (e) {
+    if (!(e instanceof Error && e.message.startsWith(NOT_ATTACHED))) throw e;
+    console.error(`[overview report] ${e.message} — sending the summary in the email instead`);
+    await sendMail(FROM, { to, subject: mail.subject, html: mail.html });
+  }
 }
+
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** The email around the PDF: the date, the headline, and where the rest is. */
+export const pdfBody = (kicker: string, headline: string) => `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.45;color:#1c1c1e;max-width:560px">
+<div style="font-size:13px;color:#6e6e73">${escHtml(kicker)}</div>
+<div style="font-size:18px;font-weight:700;line-height:1.3;margin:6px 0 12px">${escHtml(headline)}</div>
+<div>The full summary, in tables, is in the attached PDF.</div>
+<div style="margin-top:14px;font-size:12px;color:#6e6e73">Sent automatically by the Think Health dashboard.</div>
+</div>`;
 
 /** The scheduler's call: sends what is due now (or `force` one now, for a test). */
 export async function runOverviewReports(opts: { at?: Date; force?: ReportKind; to?: string } = {}): Promise<{ sent: ReportKind[]; skipped?: string; error?: string }> {

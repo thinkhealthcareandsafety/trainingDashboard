@@ -8,6 +8,7 @@ import {
   addDays, docsOf, monthStart, nextMonth, nextWorkDay, renewalsDue, trainingsOn,
 } from "./dailySummary";
 import { boardTrainings } from "./fulfilServer";
+import { type GstDoc, gstOf, gstPeriods, gstWindows } from "./gst";
 import { type SalesDayRow, daySums } from "./overviewMath";
 import { booksApi } from "./quotations";
 import { type ZItem, lmtOf, pool } from "./zoho";
@@ -26,6 +27,9 @@ import { aedData, getSnapshot } from "./zohoSync";
  *    (GET /itemdetails, 25 at a time), bought = the month's bills' lines, sold = the month's invoices' lines. Each bill /
  *    invoice is read once and kept (`billDetails`, and the Sales board's `salesDetails`) until it changes; at most
  *    READ_BUDGET are read a run (newest first), the rest next time;
+ *  - GST (owner, 19 Nov): the taxes of every invoice and bill since 1 April (or the week's Monday, if earlier), from the same
+ *    kept records (and the Training board's own copies) — so the first runs read the year's documents from Zoho a
+ *    READ_BUDGET at a time, this month's first;
  *  - new customers: GET /contacts newest first; trainings and AED renewals: the boards (no Zoho call).
  */
 
@@ -83,15 +87,24 @@ type DocRef = { kind: "bills" | "invoices"; id: string; lmt: string; date: strin
 type ReadDoc = DocRef & { doc: Row };
 const READ_BUDGET = 70;
 
-/** The documents' full records: kept copies when unchanged, else Zoho (newest first, at most READ_BUDGET); `unread` = the rest. */
-async function readDocs(refs: DocRef[]): Promise<{ docs: ReadDoc[]; unread: number }> {
+/** The documents' full records: kept copies when unchanged, else Zoho (this month's first, then newest first, at most READ_BUDGET); `unread` = the rest. */
+async function readDocs(refs: DocRef[], monthFrom: string): Promise<{ docs: ReadDoc[]; unread: number }> {
   const database = await db();
   const cols = { invoices: database.collection<{ _id: string; lmt: string; doc: Row }>("salesDetails"), bills: database.collection<{ _id: string; lmt: string; doc: Row }>("billDetails") };
   const keyOf = (r: DocRef) => `${r.kind}:${r.id}`;
+  const lmtNow = new Map(refs.map((r) => [keyOf(r), r.lmt]));
   const kept = new Map<string, { lmt: string; doc: Row }>();
   for (const k of ["invoices", "bills"] as const) {
     const ids = refs.filter((r) => r.kind === k).map(keyOf);
     if (ids.length) for (const d of await cols[k].find({ _id: { $in: ids } }).toArray()) kept.set(d._id, d);
+  }
+  // The Training board's copies of its invoices (zohoDocs, same keys) count too — no Zoho call for those.
+  const invoiceIds = refs.filter((r) => r.kind === "invoices" && kept.get(keyOf(r))?.lmt !== r.lmt).map(keyOf);
+  if (invoiceIds.length) {
+    for (const d of await database.collection<{ _id: string; lmt?: string; doc?: Row }>("zohoDocs").find({ _id: { $in: invoiceIds } }, { projection: { lmt: 1, doc: 1 } }).toArray()) {
+      const lmt = d.doc ? lmtOf(d.doc) || d.lmt || "" : "";
+      if (d.doc && (!kept.has(d._id) || lmt === lmtNow.get(d._id))) kept.set(d._id, { lmt, doc: d.doc });
+    }
   }
   const docs: ReadDoc[] = [];
   const toRead: DocRef[] = [];
@@ -100,7 +113,7 @@ async function readDocs(refs: DocRef[]): Promise<{ docs: ReadDoc[]; unread: numb
     if (had && (had.lmt === r.lmt || !r.lmt)) docs.push({ ...r, doc: had.doc });
     else toRead.push(r);
   }
-  toRead.sort((a, b) => b.date.localeCompare(a.date));
+  toRead.sort((a, b) => Number(b.date >= monthFrom) - Number(a.date >= monthFrom) || b.date.localeCompare(a.date));
   await pool(toRead.slice(0, READ_BUDGET), 4, async (r) => {
     try {
       const doc = (await booksApi("GET", `/${r.kind}/${r.id}`))[r.kind === "bills" ? "bill" : "invoice"] as Row | undefined;
@@ -184,21 +197,38 @@ export async function gatherSummary(kind: ReportKind, on: string): Promise<Summa
 
   const services = await attempt(errors, "items", async () => new Set(((((await (await db()).collection<{ _id: string; items?: ZItem[] }>("kv").findOne({ _id: "zoho_items" }))?.items) ?? []).filter((i) => i.service).map((i) => i.id))));
 
-  // The month's bills and invoices, read once for the stock lines and the AED section.
+  // The bills and invoices since the GST summary's first day (1 April), read once: the stock lines and the AED section
+  // use the month's, the GST summary all of them.
   const mFrom = monthStart(on);
-  const monthBills = pages("/bills", "bills", { date_start: mFrom, date_end: on }).then((xs) => xs.filter((x) => !/void|draft/i.test(String(x.status ?? ""))));
-  monthBills.catch(() => undefined); // awaited (and reported) by the sections below
-  const monthDocs = monthBills.catch(() => [] as Row[]).then((bills) => readDocs([
-    ...bills.map((x): DocRef => ({ kind: "bills", id: String(x.bill_id), lmt: lmtOf(x), date: String(x.date ?? "").slice(0, 10), party: String(x.vendor_name ?? "") })),
-    ...rows.filter((r) => r.kind === "invoices").map((r) => ({ r, date: String(r.row.date ?? r.date ?? "").slice(0, 10) }))
-      .filter(({ r, date }) => date >= mFrom && date <= on && !/void|draft/i.test(String(r.row.status ?? "")))
-      .map(({ r, date }): DocRef => ({ kind: "invoices", id: r._id.split(":")[1], lmt: lmtOf(r.row), date, party: String(r.row.customer_name ?? "") })),
-  ]));
+  const windows = gstWindows(kind, on);
+  const gFrom = windows.reduce((m, w) => (w.from < m ? w.from : m), mFrom);
+  const yearBills = pages("/bills", "bills", { date_start: gFrom, date_end: on }, 10).then((xs) => xs.filter((x) => !/void|draft/i.test(String(x.status ?? ""))));
+  yearBills.catch(() => undefined); // awaited (and reported) by the sections below
+  const monthBills = yearBills.then((xs) => xs.filter((x) => String(x.date ?? "").slice(0, 10) >= mFrom));
+  monthBills.catch(() => undefined);
+  const invoiceRefs = rows.filter((r) => r.kind === "invoices").map((r) => ({ r, date: String(r.row.date ?? r.date ?? "").slice(0, 10) }))
+    .filter(({ r, date }) => date >= gFrom && date <= on && !/void|draft/i.test(String(r.row.status ?? "")))
+    .map(({ r, date }): DocRef => ({ kind: "invoices", id: r._id.split(":")[1], lmt: lmtOf(r.row), date, party: String(r.row.customer_name ?? "") }));
+  const yearDocs = yearBills.catch(() => [] as Row[]).then(async (bills) => {
+    const refs = [...bills.map((x): DocRef => ({ kind: "bills", id: String(x.bill_id), lmt: lmtOf(x), date: String(x.date ?? "").slice(0, 10), party: String(x.vendor_name ?? "") })), ...invoiceRefs];
+    return { ...(await readDocs(refs, mFrom)), refs };
+  });
+  const monthDocs = yearDocs.then(({ docs, refs }) => {
+    const mine = docs.filter((d) => d.date >= mFrom);
+    return { docs: mine, unread: refs.filter((r) => r.date >= mFrom).length - mine.length };
+  });
 
-  const [aedStock, payments, receivable, overdue, payable, stock, newCustomers, boards] = await Promise.all([
+  const [aedStock, gst, payments, receivable, overdue, payable, stock, newCustomers, boards] = await Promise.all([
     attempt(errors, "aedStock", async () => {
       const [items, , { docs, unread }] = await Promise.all([aedItems(), monthBills, monthDocs]);
       return { report: aedReport(items, movesOf(docs.filter((d) => d.kind === "bills")), movesOf(docs.filter((d) => d.kind === "invoices")), on), unread };
+    }),
+    attempt(errors, "gst", async () => {
+      await yearBills; // a bills failure is this section's note
+      if (!copyOk) throw new Error(errors.invoiced ?? "the invoices couldn't be read");
+      const { docs, unread } = await yearDocs;
+      const of = (k: DocRef["kind"]): GstDoc[] => docs.filter((d) => d.kind === k).map((d) => ({ date: d.date, split: gstOf(d.doc) }));
+      return { periods: gstPeriods(of("invoices"), of("bills"), windows, on), unread };
     }),
     attempt(errors, "payments", async (): Promise<Payment[]> => (await pages("/customerpayments", "customerpayments", range)).map((p) => ({ customer: String(p.customer_name ?? ""), amount: Number(p.amount) || 0 }))),
     attempt(errors, "receivable", () => owed("/invoices", "Status.Unpaid")),
@@ -250,6 +280,7 @@ export async function gatherSummary(kind: ReportKind, on: string): Promise<Summa
   return {
     kind, on, days,
     aedStock,
+    gst,
     quotes: sales("estimates"),
     invoices: sales("invoices"),
     payments,

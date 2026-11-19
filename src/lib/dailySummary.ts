@@ -1,4 +1,5 @@
 import { type AedReport, type Tally } from "./aedStock";
+import { type GstPeriod } from "./gst";
 import { type DaySums, type SalesDayRow, inrShort, personKey, vsLastYear } from "./overviewMath";
 
 /*
@@ -36,6 +37,8 @@ export type SummaryFacts = {
   renewals: Renewal[] | null;
   /** AEDs, pads, batteries, cabinets (aedStock.ts); `unread` = bills / invoices of the month not read yet (counted next time). */
   aedStock?: { report: AedReport; unread: number } | null;
+  /** GST on sales (invoices) and purchases (bills) for today / this week / this FY (gst.ts); `unread` = documents not read from Zoho yet. */
+  gst?: { periods: GstPeriod[]; unread: number } | null;
   /** Why a section is missing: section → reason. */
   errors: Partial<Record<string, string>>;
 };
@@ -250,6 +253,19 @@ function paceSection(f: SummaryFacts): string {
   return section("Month and year pace", rows.join(""));
 }
 
+/** GST (the fallback email when the PDF can't be attached): CGST / SGST / IGST for sales, purchases and the difference. */
+function gstSection(f: SummaryFacts): string {
+  if (f.gst === undefined) return "";
+  if (!f.gst) return section("GST summary", missing(f.errors.gst));
+  const r = (v: number) => `${v < 0 ? "-" : ""}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
+  const td = (s: string, extra = "") => `<td style="padding:3px 6px;text-align:right;${extra}">${s}</td>`;
+  const rows = f.gst.periods.map((p) => `<tr><td colspan="5" style="padding:8px 0 2px;font-weight:700">${esc(p.label)}</td></tr>` +
+    ([["Sales", p.sales, ""], ["Purchases", p.purchases, ""], ["Sales − purchases", p.net, "font-weight:700"]] as const)
+      .map(([label, x, s]) => `<tr><td style="padding:3px 6px 3px 0;${s}">${label}</td>${td(r(x.cgst), s)}${td(r(x.sgst), s)}${td(r(x.igst), s)}${td(r(x.total), s)}</tr>`).join("")).join("");
+  const head = `<tr style="color:${MUTED};font-size:12px"><td></td>${["CGST", "SGST", "IGST", "Total"].map((h) => td(h)).join("")}</tr>`;
+  return section("GST summary", `<table style="border-collapse:collapse;font-size:14px;width:100%">${head}${rows}</table>` + (f.gst.unread ? small(`${f.gst.unread} invoices / bills since 1 April not read from Zoho yet.`) : ""));
+}
+
 function paymentsSection(f: SummaryFacts): string {
   const title = f.kind === "daily" ? "Payments received" : "Payments received this month";
   if (!f.payments) return section(title, missing(f.errors.payments));
@@ -331,6 +347,7 @@ ${f.aedStock !== undefined ? aedSection(f) : ""}
 ${salesSection(f, f.quotes, "quoted", daily ? "Quotations sent today" : "Quotations sent this month", "quotation")}
 ${salesSection(f, f.invoices, "invoiced", daily ? "Invoiced today" : "Invoiced this month", "invoice")}
 ${paceSection(f)}
+${gstSection(f)}
 ${paymentsSection(f)}
 ${outstandingSection(f)}
 ${stockSection(f)}

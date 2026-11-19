@@ -93,7 +93,10 @@ async function accessFor(m: Mailbox, force = false): Promise<string> {
  * Sends an HTML email from the mailbox. With `replyTo` (Zoho Mail's id of an email sent before) it goes as a reply in
  * that thread; if Zoho can't reply to it, it goes as a new email with the same subject. Returns the new email's id.
  */
-export async function sendMail(from: string, mail: { to: string; subject: string; html: string; replyTo?: string; attachments?: { name: string; bytes: Uint8Array }[] }): Promise<{ messageId?: string; threaded: boolean; attached: number }> {
+/** sendMail's refusal when `needAttachments` and a file didn't upload. */
+export const NOT_ATTACHED = "An attachment couldn't be uploaded";
+
+export async function sendMail(from: string, mail: { to: string; subject: string; html: string; replyTo?: string; attachments?: { name: string; bytes: Uint8Array }[]; /** Don't send when an attachment didn't upload (the caller sends something else). */ needAttachments?: boolean }): Promise<{ messageId?: string; threaded: boolean; attached: number }> {
   const m = await (await kv()).findOne({ _id: keyOf(from) });
   if (!m) throw new Error(`Zoho Mail isn't connected for ${from} yet — Admin connects it once`);
   type Res = { status?: { code?: number; description?: string }; data?: { messageId?: string | number; moreInfo?: string } };
@@ -115,6 +118,7 @@ export async function sendMail(from: string, mail: { to: string; subject: string
       console.warn(`[zoho mail] attachment ${a.name} not uploaded:`, e instanceof Error ? e.message : e);
     }
   }
+  if (mail.needAttachments && files.length < (mail.attachments?.length ?? 0)) throw new Error(`${NOT_ATTACHED} (${(mail.attachments?.length ?? 0) - files.length} of ${mail.attachments?.length})`);
   const send = async (reply: boolean) => {
     const body = JSON.stringify({ fromAddress: m.address, toAddress: mail.to, subject: mail.subject, content: mail.html, mailFormat: "html", ...(files.length ? { attachments: files } : {}), ...(reply ? { action: "reply" } : {}) });
     const path = `/accounts/${m.accountId}/messages${reply ? `/${mail.replyTo}` : ""}`;
