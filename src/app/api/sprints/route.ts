@@ -48,7 +48,7 @@ export async function POST(request: Request) {
       case "connect":
         if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sprints" }, 403);
         return json(await connectSprints({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
-      case "create": return json(await createTask(b.sprint, b.task ?? {}));
+      case "create": return json(await createTask(b.sprint, b.task ?? {}, me));
       case "update": case "move": case "delete":
         if (!(await mayTouch(me, b.item))) return json({ error: "That task isn't yours." }, 403);
         break;

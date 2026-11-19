@@ -90,6 +90,20 @@ test("people: Zoho's jumbled names cleaned, matched to dashboard members by firs
   assert.deepEqual(clients.filter((p) => p.zohoId).map((p) => [p.zohoId, p.name, p.memberId]), [["42120", "Sagar Kadam", "s1"], ["42097", "Vaibhav Pachpute", "v1"]]);
 });
 
+test("people without a Zoho Sprints user are written as hello@ (the stand-in), and the dashboard keeps the real person", async () => {
+  const { zohoOwners, taskPeople, peopleOf } = await import("@/lib/sprintsRules");
+  const HELLO = "6925";
+  assert.deepEqual(zohoOwners(["15001"], [], HELLO), { owners: ["15001"], standIn: false }); // Ashish: his own user
+  assert.deepEqual(zohoOwners([], ["anushka"], HELLO), { owners: [HELLO], standIn: true }); // Anushka: hello@
+  assert.deepEqual(zohoOwners(["15001"], ["anushka"], HELLO), { owners: ["15001", HELLO], standIn: true });
+  assert.deepEqual(zohoOwners([HELLO], ["anushka"], HELLO), { owners: [HELLO], standIn: false }); // Priyanka picked herself
+  assert.deepEqual(zohoOwners([], ["anushka"], undefined), { owners: [], standIn: false }); // no hello@ user in Zoho
+  const people = peopleOf([{ id: HELLO, name: "Priyanka" }], [{ id: "anushka", name: "Anushka Rajput" }]);
+  // On the card: Anushka, not the stand-in; Priyanka only when she's really on it.
+  assert.deepEqual(taskPeople([HELLO], ["anushka"], people, HELLO), ["m:anushka"]);
+  assert.deepEqual(taskPeople([HELLO], ["anushka"], people), [`z:${HELLO}`, "m:anushka"]);
+});
+
 test("a task given to a member before their account matched a Zoho user follows them; an edit then makes them an owner in Zoho", async () => {
   const { peopleOf, taskPeople, ownerChanges } = await import("@/lib/sprintsRules");
   const people = peopleOf([{ id: "77", name: "Jasmeet" }, { id: "1", name: "Sumit Shah" }], [{ id: "j1", name: "Jasmeet singh" }, { id: "n1", name: "Nikita Rao" }]);

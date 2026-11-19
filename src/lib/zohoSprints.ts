@@ -4,7 +4,7 @@ import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { booksClient } from "./quotations";
 import {
   type SprintsBoard, type SprintsMeta, type SprintView, boardColumns, customFieldsOf, decode, findProject, itemDetailOf, itemModuleOf,
-  pickTeam, prioritiesOf, sprintsOf, tagsOf, typesOf, usersOf, zohoDate, peopleOf, taskPeople, ownerChanges, type SprintPerson,
+  pickTeam, prioritiesOf, sprintsOf, tagsOf, typesOf, usersOf, zohoDate, peopleOf, taskPeople, ownerChanges, zohoOwners, STAND_IN_EMAIL, type SprintPerson,
 } from "./sprintsRules";
 import { isAdmin } from "./roles";
 
@@ -181,10 +181,10 @@ async function sprintsMeta({ c, team, p }: Ctx): Promise<SprintsMeta> {
   const itemModule = itemModuleOf(modules);
   const fields = itemModule ? customFieldsOf(await get(c, `/team/${team}/settings/customization/modules/${itemModule}/fields/`, { action: "data" }).catch(() => none)) : [];
   const members = (await (await db()).collection<{ _id: string; name?: string }>("members").find({}).toArray()).map((m) => ({ id: String(m._id), name: String(m.name ?? "") }));
-  // thinkhealth.directory is Jasmeet's Zoho login (owner, 18 Nov: "jasmeet … that's me"), matched to a Jasmeet account.
-  const zohoUsers = [...usersOf(users), ...usersOf(clients)].filter((u, i, all) => all.findIndex((x) => x.id === u.id) === i)
-    .map((u) => (/^thinkhealth\.directory@/i.test(u.email ?? "") ? { ...u, name: "Jasmeet" } : u));
-  const data: SprintsMeta = { types: typesOf(types), priorities: prioritiesOf(priorities), users: zohoUsers, tags: tagsOf(tags), fields, people: peopleOf(zohoUsers, members) };
+  // Jasmeet has no Zoho Sprints user (owner, 19 Nov — no longer thinkhealth.directory): hello@ stands in, like the others without one.
+  const zohoUsers = [...usersOf(users), ...usersOf(clients)].filter((u, i, all) => all.findIndex((x) => x.id === u.id) === i);
+  const standIn = zohoUsers.find((u) => (u.email ?? "").toLowerCase() === STAND_IN_EMAIL)?.id;
+  const data: SprintsMeta = { types: typesOf(types), priorities: prioritiesOf(priorities), users: zohoUsers, tags: tagsOf(tags), fields, people: peopleOf(zohoUsers, members), standIn };
   G.__thSprintsMeta = { at: Date.now(), data };
   return data;
 }
@@ -232,14 +232,17 @@ export async function sprintsBoard(): Promise<SprintsBoard> {
  * at least I will have visibility whose task it is"): Zoho Sprints' owners ("z:<id>") plus dashboard members who aren't
  * in Zoho Sprints ("m:<member id>"), kept in `sprintAssign` (_id = item id). Names are the clean ones from peopleOf.
  */
-type Assign = { _id: string; members: string[] };
+/** `standIn`: hello@ was added in Zoho only for these members (zohoOwners). */
+type Assign = { _id: string; members: string[]; standIn?: boolean };
 const assignCol = async () => (await db()).collection<Assign>("sprintAssign");
 
 async function withPeople(views: SprintView[], meta: SprintsMeta) {
-  const local = new Map((await (await assignCol()).find({}).toArray()).map((a) => [a._id, a.members ?? []]));
+  const assigned = await (await assignCol()).find({}).toArray();
+  const local = new Map(assigned.map((a) => [a._id, a.members ?? []]));
+  const standIn = new Set(assigned.filter((a) => a.standIn).map((a) => a._id));
   const name = new Map((meta.people ?? []).map((p) => [p.key, p.name]));
   for (const v of views) for (const col of v.columns) for (const card of col.cards) {
-    card.people = taskPeople(card.ownerIds, local.get(card.id) ?? [], meta.people ?? []);
+    card.people = taskPeople(card.ownerIds, local.get(card.id) ?? [], meta.people ?? [], standIn.has(card.id) ? meta.standIn : undefined);
     card.owners = card.people.map((k) => name.get(k) ?? "").filter(Boolean);
   }
 }
@@ -269,9 +272,9 @@ const splitPeople = (keys: unknown) => {
   const list = Array.isArray(keys) ? keys.map(String) : [];
   return { zoho: list.filter((k) => /^z:\d{6,25}$/.test(k)).map((k) => k.slice(2)), members: list.filter((k) => /^m:[\w-]{1,80}$/.test(k)).map((k) => k.slice(2)) };
 };
-async function saveLocal(itemId: string, members: string[]) {
+async function saveLocal(itemId: string, members: string[], standIn = false) {
   const col = await assignCol();
-  if (members.length) await col.replaceOne({ _id: itemId }, { members }, { upsert: true });
+  if (members.length) await col.replaceOne({ _id: itemId }, { members, ...(standIn ? { standIn } : {}) }, { upsert: true });
   else await col.deleteOne({ _id: itemId });
 }
 
@@ -304,18 +307,23 @@ function taskParams(t: TaskInput, allowedUdf: Set<string>): Record<string, strin
 const after = () => { G.__thSprintsBoard = undefined; };
 const udfSet = async (x: Ctx) => new Set((await sprintsMeta(x)).fields.map((f) => f.udf));
 
-/** Create Task: a new item on the board's sprint (the Kanban board's), with its tags. */
-export async function createTask(sprintId: unknown, t: TaskInput): Promise<{ id: string; no: string }> {
+/**
+ * Create Task: a new item on the board's sprint (the Kanban board's), with its tags. Nobody picked → whoever creates it
+ * (owner, 19 Nov: "depends who is creating" — their own Zoho user, or hello@ for those without one).
+ */
+export async function createTask(sprintId: unknown, t: TaskInput, by?: { id: string }): Promise<{ id: string; no: string }> {
   const s = okId(sprintId);
   if (!s) throw new Error("No board to add the task to.");
   if (!String(t.name ?? "").trim()) throw new Error("Give the task a name.");
   const x = await ctx();
   const params = taskParams(t, await udfSet(x));
-  const who = splitPeople(t.users);
-  if (who.zoho.length) params.users = JSON.stringify(who.zoho);
+  const meta = await sprintsMeta(x);
+  const who = splitPeople(Array.isArray(t.users) && t.users.length ? t.users : by ? [personOf(by, meta.people)] : []);
+  const o = zohoOwners(who.zoho, who.members, meta.standIn);
+  if (o.owners.length) params.users = JSON.stringify(o.owners);
   const r = await call(x.c, "POST", `${x.p}/sprints/${s}/item/`, params);
   const id = String(r.addedItemId ?? "");
-  if (id && who.members.length) await saveLocal(id, who.members);
+  if (id && who.members.length) await saveLocal(id, who.members, o.standIn);
   const tags = ids(t.tags);
   if (id && tags.length) await call(x.c, "POST", `${x.p}/sprints/${s}/item/${id}/tags/`, { action: "associateupdate", reassociate: "true", newtags: JSON.stringify(tags) }).catch((e) => console.error(`[zoho sprints] tags on new item: ${e instanceof Error ? e.message : e}`));
   after();
@@ -331,14 +339,20 @@ export async function updateTask(sprintId: unknown, itemId: unknown, t: TaskInpu
   if (t.users !== undefined) {
     const now = splitPeople(t.users), was = splitPeople(t.was);
     // Members given this task before their account matched a Zoho user (taskPeople): kept → made owners in Zoho now.
-    const people = (await sprintsMeta(x)).people ?? [];
-    const stored = (await (await assignCol()).findOne({ _id: i }))?.members ?? [];
+    const meta = await sprintsMeta(x);
+    const people = meta.people ?? [];
+    const doc = await (await assignCol()).findOne({ _id: i });
+    const stored = doc?.members ?? [];
     const owners = G.__thSprintsBoard?.data.sprints.flatMap((v) => v.columns.flatMap((c) => c.cards)).find((c) => c.id === i)?.ownerIds ?? [];
     const carried = new Set(stored.map((m) => people.find((p) => p.memberId === m)?.zohoId ?? "").filter((z) => z && !owners.includes(z)));
-    const { add, del } = ownerChanges(now.zoho, was.zoho, carried);
+    // hello@ for those without a Zoho user: in Zoho before (if we added it) and now (if still needed).
+    const si = meta.standIn;
+    const wasZoho = doc?.standIn && si && !was.zoho.includes(si) ? [...was.zoho, si] : was.zoho;
+    const o = zohoOwners(now.zoho, now.members, si);
+    const { add, del } = ownerChanges(o.owners, wasZoho, carried);
     if (add.length) params.newusers = JSON.stringify(add);
     if (del.length) params.delusers = JSON.stringify(del);
-    await saveLocal(i, now.members);
+    await saveLocal(i, now.members, o.standIn);
   }
   if (Object.keys(params).length) await call(x.c, "POST", `${x.p}/sprints/${s}/item/${i}/`, params);
   if (t.tags !== undefined) await call(x.c, "POST", `${x.p}/sprints/${s}/item/${i}/tags/`, { action: "associateupdate", reassociate: "true", newtags: JSON.stringify(ids(t.tags)) });

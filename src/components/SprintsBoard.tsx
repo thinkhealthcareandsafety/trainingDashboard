@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SprintCard, SprintColumn, SprintsBoard as Board, SprintsMeta } from "@/lib/sprintsRules";
 import { localDate } from "@/lib/sprintsRules";
-import { Skeleton } from "./ui";
+import { Avatar, Skeleton, btn } from "./ui";
 
 /*
  * Sprints (owner, 18 Nov: "a working Zoho Sprints connected to our Sprints, whatever we change here changes in Zoho
@@ -17,6 +17,9 @@ type Data = { connected: boolean; canConnect: boolean; needsReconnect: boolean; 
 type Task = { name: string; description: string; statusId: string; typeId: string; priorityId: string; start: string; end: string; users: string[]; tags: string[]; udf: Record<string, string> };
 
 const day = (s: string) => new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+/** A finished column: its cards are never overdue. */
+const doneCol = (name: string) => /done|complete|closed|resolved/i.test(name);
+const firstName = (n: string) => n.trim().split(/\s+/)[0] ?? n;
 const post = (body: object) => fetch("/api/sprints", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ error: "Couldn't reach the server" }));
 
 function Spinner({ size = 14 }: { size?: number }) {
@@ -115,25 +118,23 @@ export function SprintsBoard() {
   return (
     <div ref={pageRef} className="space-y-4">
       {data.needsReconnect && data.canConnect && <Connect canConnect scopes={data.scopes} onDone={load} again />}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2 rounded-xl bg-surface-2 px-3 py-1.5">
-          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.5" className="text-ink-2"><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex min-w-0 items-baseline gap-2">
           {b && b.sprints.length > 1 ? (
-            <select value={tab} onChange={(e) => setTab(Number(e.target.value))} className="bg-transparent text-[14px] font-semibold text-ink" aria-label="Board">
+            <select value={tab} onChange={(e) => setTab(Number(e.target.value))} className="select-chevron bg-transparent pr-6 text-[15px] font-semibold text-ink" aria-label="Board">
               {b.sprints.map((s, k) => <option key={s.id} value={k}>{s.name}</option>)}
             </select>
-          ) : <span className="text-[14px] font-semibold text-ink">{sprint?.name ?? "Board"}</span>}
-          <span className="num text-[12.5px] text-muted">· {total} tasks</span>
+          ) : <span className="text-[15px] font-semibold text-ink">{b?.project.name ?? sprint?.name ?? "Board"}</span>}
+          <span className="num text-[13px] text-muted">{total} tasks</span>
         </div>
-        {b && <span className="text-[13px] text-muted">{b.project.prefix ? `${b.project.prefix} - ` : ""}{b.project.name}</span>}
-        {b && b.seesAll === false && <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[12px] font-semibold text-brand">Your tasks</span>}
+        {b && b.seesAll === false && <span className="rounded-full bg-brand-soft px-2.5 py-0.5 text-[12px] font-semibold text-brand">Only your tasks</span>}
         <span className="flex-1" />
-        {b && <span className="num text-[12.5px] text-faint">Updated {new Date(b.fetchedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</span>}
-        <a href={b?.boardUrl ?? "https://sprints.zoho.in/workspace/thinkhealth#P5/board"} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-semibold text-ink hover:bg-surface-2">
+        {b && <span className="num hidden text-[12.5px] text-faint sm:inline">Updated {new Date(b.fetchedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</span>}
+        <a href={b?.boardUrl ?? "https://sprints.zoho.in/workspace/thinkhealth#P5/board"} target="_blank" rel="noreferrer" className={btn.ghost}>
           Open in Zoho Sprints
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h7v7M13 3 4 12" /></svg>
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h7v7M13 3 4 12" /></svg>
         </a>
-        {sprint && <button type="button" onClick={() => setOpen({})} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#16a34a] px-4 text-[13.5px] font-semibold text-white hover:bg-[#15803d]">+ Create Task</button>}
+        {sprint && <button type="button" onClick={() => setOpen({})} className={btn.primary}>+ New task</button>}
       </div>
       {data.error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{data.error}</p>}
       {note && <p className="flex items-center gap-3 rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{note}<button type="button" className="ml-auto font-semibold" onClick={() => setNote("")}>Dismiss</button></p>}
@@ -144,37 +145,43 @@ export function SprintsBoard() {
               onDragOver={(e) => { if (drag) { e.preventDefault(); setOver(c.id); } }}
               onDragLeave={() => setOver((o) => (o === c.id ? null : o))}
               onDrop={(e) => { e.preventDefault(); setOver(null); const card = cols.flatMap((x) => x.cards).find((x) => x.id === drag); setDrag(null); if (card) move(card, c.id); }}
-              className={`flex w-[290px] shrink-0 flex-col rounded-2xl bg-surface-2/70 transition lg:w-auto lg:min-w-[250px] lg:flex-1 ${over === c.id ? "ring-2 ring-brand" : ""}`}>
-              <header className="flex items-center gap-2 px-3.5 pb-2 pt-3">
-                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden><path d="M8 1.5l1.9 4 4.4.5-3.3 3 .9 4.4L8 11.2l-3.9 2.2.9-4.4-3.3-3 4.4-.5z" fill={c.color} /></svg>
-                <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink">{c.name} <span className="num text-[12px] font-normal text-faint">( {c.cards.length} )</span></h2>
-                <button type="button" onClick={() => setOpen({ statusId: c.id })} className="grid size-7 place-items-center rounded-md border border-line bg-surface text-[16px] leading-none text-muted hover:text-ink" aria-label={`Create a task in ${c.name}`} title={`Create a task in ${c.name}`}>+</button>
+              className={`flex w-[290px] shrink-0 flex-col rounded-2xl border border-line/70 bg-surface-2/50 transition lg:w-auto lg:min-w-[250px] lg:flex-1 ${over === c.id ? "border-brand bg-brand-soft/40" : ""}`}>
+              <header className="flex items-center gap-2 px-3.5 pb-2.5 pt-3">
+                <span className="size-2 shrink-0 rounded-full" style={{ background: c.color }} aria-hidden />
+                <h2 className="min-w-0 truncate text-[13.5px] font-semibold text-ink">{c.name}</h2>
+                <span className="num rounded-full bg-surface px-2 py-px text-[11.5px] font-semibold text-muted ring-1 ring-line">{c.cards.length}</span>
+                <span className="flex-1" />
+                <button type="button" onClick={() => setOpen({ statusId: c.id })} className="press grid size-7 place-items-center rounded-full text-muted hover:bg-surface hover:text-ink" aria-label={`New task in ${c.name}`} title={`New task in ${c.name}`}>
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 3.5v9M3.5 8h9" /></svg>
+                </button>
               </header>
               <ul data-col-body style={colH ? { height: colH } : undefined} className={`no-scrollbar flex flex-col gap-2 overflow-y-auto px-2.5 pb-3 ${colH ? "" : "max-h-[calc(100vh-250px)]"}`}>
-                {c.cards.length === 0 && <li className="px-1 py-3 text-[12.5px] text-faint">Drop a task here</li>}
+                {c.cards.length === 0 && <li className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-[12.5px] text-faint">Drop a task here</li>}
                 {c.cards.map((card) => {
                   const pr = priority(card.priorityId);
+                  const hasPr = Boolean(pr && !/^none$/i.test(pr.name));
+                  const done = doneCol(c.name);
                   return (
                     <li key={card.id} draggable onDragStart={(e) => { setDrag(card.id); e.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { setDrag(null); setOver(null); }}
                       onClick={() => setOpen({ card })}
-                      className={`cursor-grab rounded-xl border border-line bg-surface px-3 py-2.5 shadow-sm transition hover:border-line-strong active:cursor-grabbing ${drag === card.id ? "opacity-40" : ""}`}
-                      style={{ borderLeft: `3px solid ${pr && !/^none$/i.test(pr.name) ? pr.color : "var(--line-strong)"}` }}>
+                      className={`group cursor-grab rounded-xl border border-line bg-surface p-3 transition hover:border-line-strong hover:shadow-[0_2px_8px_rgb(0_0_0/0.08)] active:cursor-grabbing ${drag === card.id ? "opacity-40" : ""}`}>
                       <div className="flex items-center gap-1.5">
                         <TypeIcon name={typeName(card.typeId)} />
-                        <span className="num text-[12.5px] font-medium text-brand">{card.no}</span>
+                        <span className="num text-[12px] font-medium text-muted">{card.no}</span>
                         <span className="flex-1" />
+                        {hasPr && <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-ink-2"><span className="size-1.5 rounded-full" style={{ background: pr!.color }} />{pr!.name}</span>}
                       </div>
-                      <p className="mt-1.5 text-[13.5px] leading-snug text-ink">{card.name}</p>
-                      {card.owners.length > 0 && (
-                        <p className="mt-1.5 flex items-start gap-1.5 text-[12.5px] leading-snug text-ink-2">
-                          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden className="mt-0.5 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.6-2.5 2.6-4 5-4s4.4 1.5 5 4" strokeLinecap="round" /></svg>
-                          <span>{card.owners.join(", ")}</span>
-                        </p>
-                      )}
-                      {(card.due || (pr && !/^none$/i.test(pr.name))) && (
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                          {pr && !/^none$/i.test(pr.name) && <span className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[11.5px] text-ink-2"><span className="size-1.5 rounded-full" style={{ background: pr.color }} />{pr.name}</span>}
-                          {card.due && <span className={`num rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold ${card.overdue ? "bg-high-bg text-high" : "bg-surface-2 text-muted"}`}>Due {day(card.due)}</span>}
+                      <p className={`mt-1.5 line-clamp-3 text-[13.5px] font-medium leading-snug ${done ? "text-ink-2" : "text-ink"}`}>{card.name}</p>
+                      {(card.owners.length > 0 || card.due) && (
+                        <div className="mt-2.5 flex items-center gap-2">
+                          {card.owners.length > 0 && (
+                            <span className="flex min-w-0 items-center gap-1.5" title={card.owners.join(", ")}>
+                              <span className="flex shrink-0 -space-x-1.5">{card.owners.slice(0, 3).map((o) => <Avatar key={o} name={o} />)}</span>
+                              <span className="truncate text-[12px] text-ink-2">{card.owners.length === 1 ? firstName(card.owners[0]) : card.owners.length <= 3 ? card.owners.map(firstName).join(", ") : `${firstName(card.owners[0])} +${card.owners.length - 1}`}</span>
+                            </span>
+                          )}
+                          <span className="flex-1" />
+                          {card.due && <span className={`num shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-medium ${card.overdue && !done ? "bg-high-bg text-high" : "bg-surface-2 text-muted"}`}>{day(card.due)}</span>}
                         </div>
                       )}
                     </li>
@@ -289,10 +296,10 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved 
   const field = "h-10 w-full rounded-lg border border-line bg-surface px-3 text-[13.5px] text-ink";
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
-      <aside className="modal-in flex h-full w-full max-w-[640px] flex-col bg-surface shadow-pop" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={editing ? card!.name : "Create Task"}>
+      <aside className="modal-in flex h-full w-full max-w-[640px] flex-col bg-surface shadow-pop" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={editing ? card!.name : "New task"}>
         <header className="flex items-center gap-3 border-b border-line px-6 py-4">
           {editing && <span className="num rounded-md border border-line px-2 py-0.5 text-[12.5px] font-semibold text-ink-2">{card!.no}</span>}
-          <h2 className="min-w-0 flex-1 truncate text-[18px] font-semibold text-ink">{editing ? "Task" : "Create Task"}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-[18px] font-semibold text-ink">{editing ? "Task" : "New task"}</h2>
           <button type="button" onClick={onClose} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink" aria-label="Close">✕</button>
         </header>
         {!loaded ? <div className="flex flex-1 items-center justify-center gap-2 text-[13px] text-muted"><Spinner />Reading the task from Zoho Sprints…</div> : (
@@ -319,10 +326,10 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved 
               <button type="button" disabled={busy !== ""} onClick={remove} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-high px-3 font-semibold text-white disabled:opacity-60">{busy === "delete" ? <><Spinner />Deleting…</> : "Delete"}</button>
               <button type="button" onClick={() => setSure(false)} className="h-9 rounded-lg px-2 text-muted hover:text-ink">Keep</button>
             </span>
-          ) : <button type="button" onClick={() => setSure(true)} className="h-9 rounded-lg px-3 text-[13px] font-semibold text-high hover:bg-high-bg">Delete</button>)}
+          ) : <button type="button" onClick={() => setSure(true)} className={btn.danger}>Delete</button>)}
           <span className="flex-1" />
-          <button type="button" onClick={onClose} className="h-9 rounded-lg border border-line px-4 text-[13.5px] font-medium text-ink hover:bg-surface-2">Cancel</button>
-          <button type="button" disabled={busy !== "" || !loaded} onClick={save} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#16a34a] px-5 text-[13.5px] font-semibold text-white hover:bg-[#15803d] disabled:opacity-60">
+          <button type="button" onClick={onClose} className={btn.ghost}>Cancel</button>
+          <button type="button" disabled={busy !== "" || !loaded} onClick={save} className={btn.primary}>
             {busy === "save" ? <><Spinner />Saving to Zoho Sprints…</> : editing ? "Save" : "Create"}
           </button>
         </footer>

@@ -41,6 +41,8 @@ export type SprintsMeta = {
   fields: { label: string; udf: string }[];
   /** Everyone who can be assigned (clean names; dashboard members too). */
   people?: SprintPerson[];
+  /** The Zoho user who stands in for people without one of their own (hello@thinkhealth.in — STAND_IN_EMAIL). */
+  standIn?: string;
 };
 export type SprintColumn = { id: string; name: string; color: string; cards: SprintCard[] };
 export type SprintView = { id: string; name: string; no: string; start: string | null; end: string | null; backlog?: boolean; upcoming?: boolean; kanban?: boolean; columns: SprintColumn[] };
@@ -172,9 +174,20 @@ export function peopleOf(zohoUsers: { id: string; name: string }[], members: { i
  * A task's people: Zoho's owners, then those kept on the dashboard. A member given a task before their account was matched
  * to a Zoho user (Jasmeet, 19 Nov) counts as that user — the same person, one key.
  */
-export function taskPeople(ownerIds: string[], local: string[], people: SprintPerson[]): string[] {
+export function taskPeople(ownerIds: string[], local: string[], people: SprintPerson[], hide?: string): string[] {
   const zohoOf = new Map(people.filter((p) => p.memberId && p.zohoId).map((p) => [p.memberId!, p.key]));
-  return [...new Set([...ownerIds.map((z) => `z:${z}`), ...local.map((m) => zohoOf.get(m) ?? `m:${m}`)])];
+  return [...new Set([...ownerIds.filter((z) => z !== hide).map((z) => `z:${z}`), ...local.map((m) => zohoOf.get(m) ?? `m:${m}`)])];
+}
+
+/**
+ * Owner (19 Nov): someone with no Zoho Sprints user of their own (Anuj, Anushka, Prashant, Vaibhavi, Jasmeet) is written to
+ * Zoho as hello@thinkhealth.in — the dashboard keeps the real person (sprintAssign). `standIn` = it was added only for them,
+ * so the dashboard doesn't show that user (Priyanka's) on the card; picking her yourself keeps her.
+ */
+export const STAND_IN_EMAIL = "hello@thinkhealth.in";
+export function zohoOwners(zoho: string[], members: string[], standIn: string | undefined): { owners: string[]; standIn: boolean } {
+  const need = Boolean(standIn && members.length && !zoho.includes(standIn));
+  return { owners: need ? [...zoho, standIn!] : zoho, standIn: need };
 }
 
 /**
