@@ -20,7 +20,7 @@ import { aedData, getSnapshot } from "./zohoSync";
  * plus one per bill and per invoice of the day for the stock lines:
  *  - quotations / invoices: the Sales copy (`salesDocs`) for every past day, today's read straight from Zoho (fresh at 7 pm);
  *  - payments: GET /customerpayments (date, or date_start / date_end for the month);
- *  - outstanding: GET /invoices Status.Unpaid / Status.Overdue and GET /bills Status.Unpaid with response_option=3 (Zoho
+ *  - outstanding: GET /invoices Status.Unpaid / Status.OverDue (Zoho's spelling; "Overdue" is refused) and GET /bills Status.Unpaid with response_option=3 (Zoho
  *    adds the sum of balances), paging and adding up when the sum isn't there;
  *  - stock: in = bills of the day (their lines), out = goods lines of the day's invoices; the month: bills only;
  *  - AEDs, pads, batteries, cabinets (first section, owner 18 Nov): the active items (GET /items) and their stock on hand
@@ -232,7 +232,7 @@ export async function gatherSummary(kind: ReportKind, on: string): Promise<Summa
     }),
     attempt(errors, "payments", async (): Promise<Payment[]> => (await pages("/customerpayments", "customerpayments", range)).map((p) => ({ customer: String(p.customer_name ?? ""), amount: Number(p.amount) || 0 }))),
     attempt(errors, "receivable", () => owed("/invoices", "Status.Unpaid")),
-    attempt(errors, "overdue", () => owed("/invoices", "Status.Overdue")),
+    attempt(errors, "overdue", () => owed("/invoices", "Status.OverDue")),
     attempt(errors, "payable", () => owed("/bills", "Status.Unpaid")),
     attempt(errors, "stock", async (): Promise<SummaryFacts["stock"]> => {
       const bills = await monthBills;
