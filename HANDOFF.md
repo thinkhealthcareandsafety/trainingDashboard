@@ -1,27 +1,75 @@
 # Handoff — ThinkHealth Training Dashboard
 
-## Start of the next session (33) — read this block first
+## Start of the next session (34) — read this block first
 
-**Session 33 update (18 Nov, local, not pushed):** the daily summary email is built. `lib/dailySummary.ts` (pure: facts →
-subject + HTML, headline, sections; tested in `tests/dailySummary.test.ts`), `lib/dailySummaryGather.ts` (server: salesDocs +
-today's estimates / invoices live from Books, `/customerpayments`, outstanding via `response_option=3` with a paging fallback,
-bills + invoice details for stock, `/contacts` by created_time, boards for trainings and AED renewals; each section in its own
-try, a failed one shows "Couldn't read this from Zoho"). `overviewReportSend.ts` now sends the body only; `overviewReport.ts`
-(the PDF) and its test are deleted. Monthly stock = bills of the month (count, ₹) only — goods out per month would need ~100+
-detail calls. 356 tests pass. Not yet run against real Zoho: after the push, press "Email the report now" and check the
-email and Vercel logs (`[summary]`).
-Later in session 33: the summary's **first section is AEDs, pads, batteries and cabinets** (`lib/aedStock.ts`, owner): active
-items only (`GET /items` Status.Active, kind from Item Identifier / name via `topicOf`, brand = Zoho Brand), stock on hand
-(`GET /itemdetails` 25 ids a call, unverified — falls back to `GET /items/{id}` → `locations[].location_stock_on_hand`),
-bought = this month's bills' lines, sold = this month's invoices' lines; as a whole, per kind, per brand (cabinets no brand).
-Bill / invoice details are kept in `billDetails` / `salesDetails` until they change; at most 70 read a run (the first run
-may say "N not read yet"). FY charts on the Overview: stacked, no Running total / Each day switch (`76b953f`, live).
-**Permissions = the owner's sheet (18 Nov)**: `ACCESS` in `lib/roles.ts` (first name → pages + Follow-ups boards; Pranjal's
-Overview "1 / Self" = `overviewSelf`, the API sends only his figures + the company's before this FY via `onlySelf`).
-Menu, pages and APIs use `canSee(m, page)`; Reports' data = `reportBoards` (the Reports column, not the boards). Jasmeet =
-everything + Admin powers (no Jasmeet account yet; Zoho Sprints' thinkhealth.directory is named Jasmeet). Newcomers:
-Calendar + Sprints. Read as: Quotation "—" (Vaibhavi, Arti) = no access; Shreya's Follow-ups "1" = every board. Sign-in is a
-grid of round initials (MembersScreen `PersonTile`).
+_Written Thu 19 Nov 2026, end of session 33, for the next Claude Code session and the owner (Sumit)._
+
+**State.** **Live = `4049c85`** on work.thinkhealth.in, training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel
+`-xfwl` success, sites 200). Nothing local except this handoff. Push only when the owner says "push": run `git push origin
+master` from the **Bash tool** (PowerShell can't reach the GitHub login: "terminal prompts disabled"), then check Vercel
+(`curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status`) and curl the sites.
+
+**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master`; `npm test` (**362** pass);
+`npx tsc --noEmit -p tsconfig.json`.
+
+**First: ask the owner (one AskUserQuestion round).**
+1. **Summary email arrived?** Nothing of it has run on real Zoho. Ask if "Email the report now" (Overview, Admin) or the 7 pm send
+   came, and whether any section says "Couldn't read this from Zoho (…)". If one does, read Vercel logs for `[summary]`. Unverified
+   on real Zoho: `GET /itemdetails` (25 ids a call; falls back to `GET /items/{id}`), `response_option=3` on `/bills`,
+   `/customerpayments` with `date_start` / `date_end`, `/contacts` sorted by `created_time`. The first send can read up to 70
+   bills / invoices (kept in `billDetails` / `salesDetails`), so it may say "N not read yet".
+2. **Permissions — three guesses to confirm** (owner's sheet, 18 Nov): Quotation "—" for Vaibhavi and Arti was read as **no
+   access** (or view-only?); Shreya's Follow-ups "1" = **every board** (before: Fulfillment only); Arti and Vaibhavi's Reports "1"
+   = **all Reports dashboards** incl. company sales (not just the Invoice Converter). Change only `ACCESS` in `lib/roles.ts`.
+3. **Jasmeet's account.** Jasmeet (the developer, "that's me") has every page + Admin powers by name, but no member account
+   yet: they add one on the sign-in screen ("+ Add new member", admin PIN). Then Zoho Sprints' `thinkhealth.directory` tasks
+   (named "Jasmeet" in `sprintsMeta`) become theirs; I172 is on Admin.
+4. Still open from before: **Sprints card priority bar** (impeccable flags the 3px left bar; keep it → owner approves
+   `impeccable hooks ignore-value`, or show only the label); **Next.js security notice** (upgrade is the owner's call).
+
+**Session 33 in short (18–19 Nov), all live:**
+- **Daily summary email** replaces the PDF (`lib/dailySummary.ts` pure facts → subject + HTML; `lib/dailySummaryGather.ts`
+  server; `lib/overviewReportSend.ts` sends the body only; `overviewReport.ts` deleted). Same schedule (Mon–Sat 7 pm IST, monthly
+  on the month's last day), sender hello@ → sshah@, kv `overview_report` dedupe, "Email the report now". Headline line, then:
+  **AEDs, pads, batteries and cabinets** (first, `lib/aedStock.ts`: active items only, kind via `topicOf` + "cabinet" in the
+  name, Zoho Brand; in stock + value at cost, sold / bought this month and today; as a whole, per kind, per brand, cabinets no
+  brand), quotations and invoiced (count, ₹, by person, vs last year's average day, biggest), month and FY pace, payments,
+  outstanding both ways, stock in/out, new customers, today's / tomorrow's trainings, AED renewals in 30 days. One Zoho failure
+  leaves only that section out with a note. Today's estimates / invoices are read live from Books at send time.
+- **Overview**: FY charts stacked (Invoices under Quotations), no Running total / Each day switch; a **summary panel beside each
+  chart** like the rows' remarks (`fyRemarks` in `overviewMath.ts`: so far vs last FY by now, count, average size, last 30 days,
+  pace to year end).
+- **Sprints people**: Zoho Sprints' **client users** (project users `type=2`: vaibhav.thinkhealth, sagar.thinkhealth,
+  thinkhealth.directory) are read too, so their tasks show under Vaibhav Pachpute / Sagar Kadam (first-name match; Vaibhavi is
+  separate). **38 tasks** titled "Anushka - …" / "Prashant - …" got that person in `sprintAssign` (dashboard-side, nothing
+  written to Zoho; script was one-off, in the session scratchpad).
+- **Permissions = the owner's sheet**: `ACCESS` in `lib/roles.ts` (first name → pages + Follow-ups boards). Full: Sumit, Nikita,
+  Anuj, Jasmeet, Ashish, Shikha (+ Admin by id). Pranjal: Overview **self only** (`overviewSelf`; `/api/overview` sends his key
+  + the company's before this FY via `onlySelf`), Quotations, Items, Follow-ups Sales + Fire. Priyanka: Trainings, Follow-ups
+  AedSmartx. Shreya: Items, Follow-ups every board. Arti, Vaibhavi: Items, Follow-ups Logistics, Reports, Invoice Converter.
+  Prashant: Items. Everyone: Calendar, Sprints. Newcomers: Calendar + Sprints only. Menu / pages / APIs use `canSee(m, page)`;
+  Reports' data = `reportBoards` (the Reports column, not the boards); no-Overview people land on `homeOf(m)`. Admin powers:
+  Admin, Shikha, Jasmeet (`isAdmin`).
+- **Sign-in**: a grid of round initials + first names (`PersonTile` in `MembersScreen.tsx`), Admin with a shield.
+- **Zoho calls** (kv `zoho_calls:<day>`): 631 on 18 Nov, ~1,200–1,400 on busy days, against the 2,500 cap. The count covers the
+  board's sync only, not the quotations connection (summary email, quotations, Invoice Converter) nor Zoho Flow.
+
+**Traps learned in session 33:**
+- PowerShell here-strings break commit messages that contain quotes: write the message to a scratchpad file, `git commit -F`.
+- Node patch scripts run from the **repo root** (relative paths); PowerShell's cwd drifts after `cd` in Bash — `Set-Location` first.
+- Owner-asked live reads / one-off jobs: a scratchpad loader (`register` hook: `@/` → src, extensionless → `.ts`,
+  `server-only` → empty, env from `.env.local`) runs `src/lib/*.ts` against the real DB and Zoho. Production reads were allowed
+  when the owner asked for the data; dry-run before any write.
+- Zoho Sprints: workspace users (`/team/{t}/users/`) need a scope we don't have (401); project users `type=1` = members,
+  `type=2` = client users, `type=4` errors.
+- `inrShort` rounds ≥ ₹10 L to one decimal (₹60.75 L shows as ₹60.8 L).
+
+**Owner's rules learned in session 33:** the report is the email body only, plain words, ▲/▼ green/red, readable on a phone;
+the AED / pads / battery / cabinet section comes first; permissions follow the owner's sheet exactly (ask when a mark is unclear).
+
+---
+
+## Session 33's start block (history)
 
 _Written Wed 18 Nov 2026, end of session 32, for the next Claude Code session and the owner (Sumit)._
 
