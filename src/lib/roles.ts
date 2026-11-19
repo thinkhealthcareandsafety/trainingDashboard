@@ -24,8 +24,8 @@ export const PAGES: { key: Page; label: string }[] = [
 ];
 // "fire": the Fire Safety board (owner, 3 Nov) — the Sales board's deals with Fire Safety items; the same people.
 export const ALL_BOARDS: BoardKind[] = ["training", "sales", "fire", "aed", "fulfil", "logistics"];
-/** A person's pages, their Follow-ups boards, and `overviewSelf`: the Overview with only their own figures. */
-export type Access = { pages: Page[]; boards: BoardKind[]; overviewSelf?: boolean };
+/** A person's pages, their Follow-ups boards, `overviewSelf`: the Overview with only their own figures, and `viewOnly`: pages they may look at but not change. */
+export type Access = { pages: Page[]; boards: BoardKind[]; overviewSelf?: boolean; viewOnly?: Page[] };
 const EVERYTHING: Access = { pages: PAGES.map((p) => p.key), boards: ALL_BOARDS };
 const BASE: Page[] = ["calendar", "sprints"];
 /** The owner's sheet, 18 Nov (first name → access). "1" = the page; Follow-ups "1" = every board, "Sales" / "Aed" / "L" = that board. */
@@ -43,8 +43,9 @@ export const ACCESS: Record<string, Access> = {
   vaibhav: { pages: BASE, boards: [] },
   priyanka: { pages: ["trainings", "followups", ...BASE], boards: ["aed"] },
   shreya: { pages: ["items", "followups", ...BASE], boards: ALL_BOARDS },
-  vaibhavi: { pages: ["items", "followups", ...BASE, "reports", "converter"], boards: ["logistics"] },
-  arti: { pages: ["items", "followups", ...BASE, "reports", "converter"], boards: ["logistics"] },
+  // Quotations "—" = view only (owner, 19 Nov): the customers and their quotations, no new, copied or edited ones.
+  vaibhavi: { pages: ["items", "quotations", "followups", ...BASE, "reports", "converter"], boards: ["logistics"], viewOnly: ["quotations"] },
+  arti: { pages: ["items", "quotations", "followups", ...BASE, "reports", "converter"], boards: ["logistics"], viewOnly: ["quotations"] },
 };
 const NEWCOMER: Access = { pages: BASE, boards: [] };
 const firstName = (m: Who) => m.name.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
@@ -58,8 +59,10 @@ export const accessOf = (m: Who): Access => (m.id === "admin" ? EVERYTHING : ACC
 export const canSee = (m: Who, page: Page) => accessOf(m).pages.includes(page);
 /** Every page and every board (the sheet's full rows, and Admin): every action on the boards too. */
 export const hasFullAccess = (m: Who) => isAdmin(m) || accessOf(m) === EVERYTHING;
-/** Who sends quotations (the Quotations page). */
-export const canQuote = (m: Who) => canSee(m, "quotations");
+/** They may open that page but not change anything on it. */
+export const viewOnlyOn = (m: Who, page: Page) => Boolean(accessOf(m).viewOnly?.includes(page));
+/** Who makes and sends quotations (the Quotations page, not view only). */
+export const canQuote = (m: Who) => canSee(m, "quotations") && !viewOnlyOn(m, "quotations");
 /** The Overview with only their own figures (Pranjal: "1 / Self") — their key on the Overview, else null. */
 export const overviewSelf = (m: Who): string | null => (accessOf(m).overviewSelf ? firstName(m) : null);
 /** The Reports page's data: every dataset with the Reports page, none without (not tied to the Follow-ups boards). */

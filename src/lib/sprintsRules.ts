@@ -167,3 +167,20 @@ export function peopleOf(zohoUsers: { id: string; name: string }[], members: { i
   for (const m of members) if (!used.has(m.id) && m.name.trim()) people.push({ key: `m:${m.id}`, name: cleanName(m.name), memberId: m.id });
   return people.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * A task's people: Zoho's owners, then those kept on the dashboard. A member given a task before their account was matched
+ * to a Zoho user (Jasmeet, 19 Nov) counts as that user — the same person, one key.
+ */
+export function taskPeople(ownerIds: string[], local: string[], people: SprintPerson[]): string[] {
+  const zohoOf = new Map(people.filter((p) => p.memberId && p.zohoId).map((p) => [p.memberId!, p.key]));
+  return [...new Set([...ownerIds.map((z) => `z:${z}`), ...local.map((m) => zohoOf.get(m) ?? `m:${m}`)])];
+}
+
+/**
+ * Zoho owners to add / remove on an edit. `carried`: Zoho users shown only through a dashboard-side assignment (taskPeople) —
+ * not owners in Zoho yet, so kept ones are added there now, and removed ones need nothing sent to Zoho.
+ */
+export function ownerChanges(now: string[], was: string[], carried: Set<string>): { add: string[]; del: string[] } {
+  return { add: now.filter((u) => !was.includes(u) || carried.has(u)), del: was.filter((u) => !now.includes(u) && !carried.has(u)) };
+}

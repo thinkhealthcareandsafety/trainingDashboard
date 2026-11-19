@@ -4,7 +4,7 @@ import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { booksClient } from "./quotations";
 import {
   type SprintsBoard, type SprintsMeta, type SprintView, boardColumns, customFieldsOf, decode, findProject, itemDetailOf, itemModuleOf,
-  pickTeam, prioritiesOf, sprintsOf, tagsOf, typesOf, usersOf, zohoDate, peopleOf, type SprintPerson,
+  pickTeam, prioritiesOf, sprintsOf, tagsOf, typesOf, usersOf, zohoDate, peopleOf, taskPeople, ownerChanges, type SprintPerson,
 } from "./sprintsRules";
 import { isAdmin } from "./roles";
 
@@ -239,7 +239,7 @@ async function withPeople(views: SprintView[], meta: SprintsMeta) {
   const local = new Map((await (await assignCol()).find({}).toArray()).map((a) => [a._id, a.members ?? []]));
   const name = new Map((meta.people ?? []).map((p) => [p.key, p.name]));
   for (const v of views) for (const col of v.columns) for (const card of col.cards) {
-    card.people = [...card.ownerIds.map((z) => `z:${z}`), ...(local.get(card.id) ?? []).map((m) => `m:${m}`)];
+    card.people = taskPeople(card.ownerIds, local.get(card.id) ?? [], meta.people ?? []);
     card.owners = card.people.map((k) => name.get(k) ?? "").filter(Boolean);
   }
 }
@@ -330,7 +330,12 @@ export async function updateTask(sprintId: unknown, itemId: unknown, t: TaskInpu
   const params = taskParams(t, await udfSet(x));
   if (t.users !== undefined) {
     const now = splitPeople(t.users), was = splitPeople(t.was);
-    const add = now.zoho.filter((u) => !was.zoho.includes(u)), del = was.zoho.filter((u) => !now.zoho.includes(u));
+    // Members given this task before their account matched a Zoho user (taskPeople): kept → made owners in Zoho now.
+    const people = (await sprintsMeta(x)).people ?? [];
+    const stored = (await (await assignCol()).findOne({ _id: i }))?.members ?? [];
+    const owners = G.__thSprintsBoard?.data.sprints.flatMap((v) => v.columns.flatMap((c) => c.cards)).find((c) => c.id === i)?.ownerIds ?? [];
+    const carried = new Set(stored.map((m) => people.find((p) => p.memberId === m)?.zohoId ?? "").filter((z) => z && !owners.includes(z)));
+    const { add, del } = ownerChanges(now.zoho, was.zoho, carried);
     if (add.length) params.newusers = JSON.stringify(add);
     if (del.length) params.delusers = JSON.stringify(del);
     await saveLocal(i, now.members);

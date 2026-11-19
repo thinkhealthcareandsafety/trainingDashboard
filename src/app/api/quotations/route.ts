@@ -3,7 +3,7 @@ import { withBump } from "@/lib/changes";
 import { deletedIds, forgetZohoDoc, goneInZoho } from "@/lib/writeThrough";
 import { docsGone } from "@/lib/portalCleanup";
 import { db } from "@/lib/db";
-import { canQuote, isAdmin } from "@/lib/roles";
+import { canQuote, canSee, isAdmin } from "@/lib/roles";
 import { readAll } from "@/lib/cachedRead";
 import { copyTables } from "@/lib/analytics/source";
 import { day, demandByItem, money, nameKey, onHandByItem } from "@/lib/analytics/build";
@@ -207,7 +207,9 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   const q = new URL(request.url).searchParams;
   // Every member can use the Items page (owner, 5 Nov): the list, one item, its pictures, and WorkDrive's folder for Add PDF. Customers, quotations and everything else stay with the people who quote.
-  if (!canQuote(me) && !q.has("items") && !q.has("item") && !q.has("image") && !q.has("wd")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita, Anuj and Pranjal send quotations" }, { status: 403 });
+  // View only (Arti, Vaibhavi — owner, 19 Nov): the customer list, one quotation and its PDF; nothing that starts or sends one.
+  const looking = canSee(me, "quotations") && !["customer", "email", "zia", "ts", "tsPdf"].some((k) => q.has(k));
+  if (!canQuote(me) && !looking && !q.has("items") && !q.has("item") && !q.has("image") && !q.has("wd")) return Response.json({ error: "Only Admin, Ashish, Shikha, Sumit, Nikita, Anuj and Pranjal send quotations" }, { status: 403 });
   try {
     if (q.get("items")) {
       // The stock tables are read once per Analytics refresh and already hold Quote Items, so "demand" costs no extra reads.

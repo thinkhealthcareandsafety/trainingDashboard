@@ -89,3 +89,15 @@ test("people: Zoho's jumbled names cleaned, matched to dashboard members by firs
   );
   assert.deepEqual(clients.filter((p) => p.zohoId).map((p) => [p.zohoId, p.name, p.memberId]), [["42120", "Sagar Kadam", "s1"], ["42097", "Vaibhav Pachpute", "v1"]]);
 });
+
+test("a task given to a member before their account matched a Zoho user follows them; an edit then makes them an owner in Zoho", async () => {
+  const { peopleOf, taskPeople, ownerChanges } = await import("@/lib/sprintsRules");
+  const people = peopleOf([{ id: "77", name: "Jasmeet" }, { id: "1", name: "Sumit Shah" }], [{ id: "j1", name: "Jasmeet singh" }, { id: "n1", name: "Nikita Rao" }]);
+  assert.equal(people.find((p) => p.key === "z:77")?.memberId, "j1");
+  assert.deepEqual(taskPeople(["1"], ["j1", "n1"], people), ["z:1", "z:77", "m:n1"]);
+  assert.deepEqual(taskPeople(["77"], ["j1"], people), ["z:77"]); // both: once
+  // Jasmeet shown through the dashboard (carried): kept → added in Zoho; removed → nothing sent to Zoho.
+  assert.deepEqual(ownerChanges(["1", "77"], ["1", "77"], new Set(["77"])), { add: ["77"], del: [] });
+  assert.deepEqual(ownerChanges(["1"], ["1", "77"], new Set(["77"])), { add: [], del: [] });
+  assert.deepEqual(ownerChanges(["77"], ["1"], new Set()), { add: ["77"], del: ["1"] });
+});

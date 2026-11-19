@@ -116,6 +116,8 @@ let itemsOnce: Promise<Item[]> | null = null; // the item list, once per page lo
 const loadItems = () => (itemsOnce ??= fetch("/api/quotations?items=1").then((r) => r.json()).then((j: { items?: Item[] }) => j.items ?? []).catch(() => { itemsOnce = null; return []; }));
 
 export function Quotations() {
+  const { member } = useSession();
+  const viewOnly = Boolean(member && !mayQuote(member)); // Arti, Vaibhavi: look, don't send (owner, 19 Nov)
   const [q, setQ] = useState("");
   const [sector, setSector] = useState("");
   const [type, setType] = useState("");
@@ -174,7 +176,7 @@ export function Quotations() {
           {SORTS.map(([v, w]) => <option key={v} value={v}>{w}</option>)}
         </select>
         {connectedLine(res, () => setConnecting(true))}
-        <button className={btn.primary} onClick={() => setStarting(true)} disabled={!res?.connected}>+ New quotation</button>
+        {!viewOnly && <button className={btn.primary} onClick={() => setStarting(true)} disabled={!res?.connected}>+ New quotation</button>}
       </div>
 
       <div className="card mt-4 overflow-hidden">
@@ -190,7 +192,7 @@ export function Quotations() {
           </thead>
           <tbody className={`divide-y divide-line ${loading ? "opacity-60" : ""}`}>
             {res?.customers.map((c) => (
-              <tr key={c.id} className={`hover:bg-surface-2/60 ${res.connected ? "cursor-pointer" : ""}`} onClick={(e) => { if (!res.connected || (e.target as Element).closest("a, button, input")) return; if (c.lastQuote?.id) setViewing({ c, id: c.lastQuote.id }); else setQuoting({ c, fresh: false }); }}>
+              <tr key={c.id} className={`hover:bg-surface-2/60 ${res.connected ? "cursor-pointer" : ""}`} onClick={(e) => { if (!res.connected || (e.target as Element).closest("a, button, input")) return; if (c.lastQuote?.id) setViewing({ c, id: c.lastQuote.id }); else if (!viewOnly) setQuoting({ c, fresh: false }); }}>
                 <td className="px-4 py-2.5">
                   <div className="font-medium text-ink">{c.name}</div>
                   <div className="text-[13px] text-muted">{[c.type, c.sector].filter(Boolean).join(" · ") || "—"}</div>
@@ -204,7 +206,8 @@ export function Quotations() {
                 </td>
                 <td className="hidden px-4 py-2.5 text-ink-2 xl:table-cell">{c.lastInvoice ? <>{fmtDay(c.lastInvoice)}<div className="text-[13px] text-muted">{ago(c.lastInvoice)}</div></> : <span className="text-faint">never</span>}</td>
                 <td className="px-4 py-2.5 text-right">
-                  <button className={btn.primary} onClick={() => setQuoting({ c, fresh: false })} disabled={!res.connected} title={res.connected ? `Make a quotation for ${c.name}` : "Zoho Books isn't connected for quotations yet"}>Quote</button>
+                  {viewOnly ? c.lastQuote?.id && <button className={btn.ghost} onClick={() => setViewing({ c, id: c.lastQuote!.id! })} disabled={!res.connected}>View</button>
+                    : <button className={btn.primary} onClick={() => setQuoting({ c, fresh: false })} disabled={!res.connected} title={res.connected ? `Make a quotation for ${c.name}` : "Zoho Books isn't connected for quotations yet"}>Quote</button>}
                 </td>
               </tr>
             ))}
@@ -226,7 +229,7 @@ export function Quotations() {
         </div>
       )}
       {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh={quoting.fresh} fromId={quoting.fromId} mode={quoting.mode} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setTick((t) => t + 1); }} />, document.body)}
-      {viewing && <QuoteView customer={viewing.c} id={viewing.id} onClose={() => setViewing(null)} onNew={(mode) => { const c = viewing.c, id = viewing.id; setViewing(null); setQuoting(mode === "fresh" ? { c, fresh: true } : { c, fresh: false, fromId: id, mode }); }} />}
+      {viewing && <QuoteView customer={viewing.c} id={viewing.id} viewOnly={viewOnly} onClose={() => setViewing(null)} onNew={(mode) => { const c = viewing.c, id = viewing.id; setViewing(null); setQuoting(mode === "fresh" ? { c, fresh: true } : { c, fresh: false, fromId: id, mode }); }} />}
       {starting && res && createPortal(<NewQuote res={res} onPick={(c) => { setStarting(false); setQuoting({ c, fresh: true }); }} onClose={() => setStarting(false)} />, document.body)}
       {connecting && res && createPortal(<ConnectBooks scopes={res.scopes} onClose={(ok) => { setConnecting(false); if (ok) setTick((t) => t + 1); }} />, document.body)}
     </div>
@@ -1722,7 +1725,7 @@ type QuoteViewData = {
   training: boolean;
   error?: string;
 };
-function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: string; onClose: () => void; onNew: (mode: "copy" | "revise" | "fresh") => void }) {
+function QuoteView({ customer, id, viewOnly = false, onClose, onNew }: { customer: Customer; id: string; viewOnly?: boolean; onClose: () => void; onNew: (mode: "copy" | "revise" | "fresh") => void }) {
   const [q, setQ] = useState<QuoteViewData | null>(null);
   const [choosing, setChoosing] = useState(false);
   const loadView = () => fetch(`/api/quotations?view=${id}`).then((r) => r.json()).then((j: QuoteViewData & { gone?: boolean }) => setQ((had) => (j.gone ? j : had && !had.error && j.error ? had : j))).catch(() => setQ((had) => had ?? ({ error: "Couldn't reach the server" } as QuoteViewData)));
@@ -1774,7 +1777,7 @@ function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: s
             </div>
             <section className={`${card} min-w-0`}>
               <p className={label}>{draft ? "Not sent yet" : "Sent details"}</p>
-              {draft && <p className="mt-1.5 text-[14px] text-muted">It&apos;s a draft in Zoho Books. Edit it to check the items, then save and email it.</p>}
+              {draft && <p className="mt-1.5 text-[14px] text-muted">It&apos;s a draft in Zoho Books.{!viewOnly && " Edit it to check the items, then save and email it."}</p>}
               {q.emails.map((m, i) => (
                 <div key={i} className="mt-3 rounded-xl border border-line bg-surface p-3 text-[14px]">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3"><b className="text-ink">{m.subject}</b><span className="text-[13px] text-muted">{when(m.at)} · {m.by}</span></div>
@@ -1793,8 +1796,8 @@ function QuoteView({ customer, id, onClose, onNew }: { customer: Customer; id: s
           <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-wrap items-center gap-2 border-t border-line bg-surface px-6 py-4">
             <a className={btn.ghost} href={`/api/quotations?${new URLSearchParams({ pdf: q.id, name: q.number })}`} download>⬇ Download PDF</a>
             <a className={btn.ghost} href={q.url} target="_blank" rel="noreferrer">Open in Zoho Books</a>
-            {draft && <button className={btn.ghost} onClick={() => onNew("revise")}>Edit draft and email…</button>}
-            <button className={`${btn.primary} ml-auto`} onClick={() => setChoosing(true)}>New quotation for this customer</button>
+            {draft && !viewOnly && <button className={btn.ghost} onClick={() => onNew("revise")}>Edit draft and email…</button>}
+            {!viewOnly && <button className={`${btn.primary} ml-auto`} onClick={() => setChoosing(true)}>New quotation for this customer</button>}
           </div>
           {/* The three kinds of new quotation (owner, 11 Nov): a pop-up in the middle of the screen, over the quotation. */}
           <Modal open={choosing} onClose={() => setChoosing(false)} title={`New quotation for ${customer.name}`}>

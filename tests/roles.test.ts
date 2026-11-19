@@ -44,10 +44,14 @@ test("the owner's sheet (18 Nov): pages and boards per person", async () => {
   assert.equal(row("Shreya"), "items followups calendar sprints");
   assert.equal(boards({ id: "x", name: "Shreya" }).length, 6);
   for (const n of ["Vaibhavi Raut", "Arti Sirohi"]) {
-    assert.equal(row(n), "items followups calendar sprints reports converter", n);
+    assert.equal(row(n), "items quotations followups calendar sprints reports converter", n);
     assert.deepEqual(boards({ id: "x", name: n }), ["logistics"], n);
-    assert.equal(canSee({ id: "x", name: n }, "quotations"), false, n);
+    // Quotations "—" = view only (owner, 19 Nov): the page, not quoting.
+    assert.equal(canSee({ id: "x", name: n }, "quotations"), true, n);
+    assert.equal(canQuote({ id: "x", name: n }), false, n);
+    assert.equal(homeOf({ id: "x", name: n }), "/items", n);
   }
+  assert.equal(canQuote({ id: "x", name: "Pranjal Nikalje" }), true);
   assert.equal(homeOf({ id: "x", name: "Priyanka" }), "/training-management");
   assert.equal(homeOf({ id: "x", name: "Anushka Rajput" }), "/calendar");
   assert.equal(homeOf({ id: "x", name: "Ashish Dalal" }), "/");
@@ -65,8 +69,11 @@ test("every member can change anything on an item, and nothing else in Quotation
   for (const m of [prashant, { id: "a", name: "Arti Sirohi" }, { id: "b", name: "Someone New" }]) {
     assert.equal((await ask("items=1", m)).status, 200);
     assert.equal((await ask("wd=1", m)).status, 200);
-    for (const q of ["q=&page=0", "customer=1", "email=1", "pdf=1", "ts=1", "zia=QT-1"]) assert.equal((await ask(q, m)).status, 403, q);
+    for (const q of ["customer=1", "email=1", "email=1&customer=2", "ts=1", "tsPdf=1", "zia=QT-1"]) assert.equal((await ask(q, m)).status, 403, q);
   }
+  // View only (Arti, Vaibhavi): the list (and one quotation, its PDF — those go on to Zoho, so not here); others get none.
+  assert.notEqual((await ask("q=&page=0", { id: "v", name: "Vaibhavi Raut" })).status, 403);
+  for (const q of ["q=&page=0", "view=1", "pdf=1"]) assert.equal((await ask(q)).status, 403, q);
   process.env.VERCEL_ENV = "production";
   const form = new FormData();
   form.set("brochure", "1");
