@@ -1,6 +1,46 @@
 # Handoff — ThinkHealth Training Dashboard
 
-## Start of the next session (34) — read this block first
+## Start of the next session (35) — read this block first
+
+_Written Thu 19 Nov 2026, during session 34, for the next Claude Code session and the owner (Sumit)._
+
+**State.** **Live = `f3e081c`** (pushed 19 Nov). Push only when the owner says "push": `git push origin master` from the
+**Bash tool**, then check Vercel (`curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status`)
+and curl the three sites.
+
+**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master`; `npm test` (**369** pass);
+`npx tsc --noEmit -p tsconfig.json`.
+
+**First: ask the owner.**
+1. **Did the PDF summary arrive** (7 pm, or "Email the report now")? The email is now the date + headline with the summary as a
+   PDF of tables (`summaryTables.ts` → `summaryPdf.ts`, pdf-lib, Helvetica so "Rs" not ₹). If the PDF can't be attached,
+   `sendMail(… needAttachments)` throws `NOT_ATTACHED` and the old HTML body (`summaryEmail`) goes instead — check Vercel logs for
+   `[overview report]` / `[summary]`. Never run on real Zoho yet.
+2. **GST year fill.** GST = every invoice's / bill's `taxes` since 1 April (`gst.ts`, rate from the tax name "CGST9"), read once
+   and kept in `salesDetails` / `billDetails` (zohoDocs reused). 469 FY invoices, ~120 kept on 19 Nov + most bills unread →
+   70 a run (this month's first), so the year figure is low for ~a week and the PDF says "N not read yet". Offered the owner a
+   one-off fill (~600 reads, ~10 min, ≤60/min for Zoho's 100/min limit, writes only our copies); no answer yet — ask.
+
+**Session 34 in short (19 Nov), all live:**
+- Owner's answers: summary email (body version) arrived, every section fine on real Zoho. **Arti / Vaibhavi: Quotations view
+  only** (`viewOnly` in `ACCESS`; `canQuote` = page and not view only; the server lets them read the list, `view`, `pdf` only).
+  Shreya every board, Arti / Vaibhavi all Reports — confirmed as built. Jasmeet's account exists ("Jasmeet singh", owvnq0x6),
+  first-name matched to Zoho Sprints' thinkhealth.directory user; a task given to a member before the match now follows them
+  (`taskPeople`) and an edit keeping them makes them a Zoho owner (`ownerChanges`).
+- **Summary = PDF of tables** (owner: "PDF only"): AEDs, quotations / invoices (by person, biggest), pace, **GST**, payments,
+  outstanding, stock, new customers, trainings, renewals. Tables: border, column lines, shaded head and totals, a short table
+  (≤14 rows) kept on one page, a section's heading kept with its first table, footer + page number on every page.
+- **GST summary** (owner's layout, side by side): a table for **this month** and one for **this FY** (in the daily summary too);
+  rows IGST 5/18/28, CGST 2.5/9/14, SGST 2.5/9/14 (+ any other rate), Total = IGST + CGST + SGST; columns Purchase (bills),
+  Sale (invoices, not draft / void), Total = sale − purchase. Credit notes not taken off.
+
+**Traps learned in session 34:** Node's type-stripping test runner rejects constructor parameter properties (`private x`);
+bash heredocs with backticks / `${}` break — write node patch scripts with the Write tool; scratch test files can live in the
+scratchpad and run with `--import ./tests/register.mjs` (`@/` resolves to src).
+
+---
+
+## Session 34's start block (history)
 
 _Written Thu 19 Nov 2026, end of session 33, for the next Claude Code session and the owner (Sumit)._
 
