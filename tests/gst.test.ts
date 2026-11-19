@@ -16,11 +16,11 @@ test("a document's GST by tax and rate from Zoho's taxes (UTGST as SGST); a fore
 
 test("the rows: the owner's nine (IGST 5 / 18 / 28, CGST and SGST 2.5 / 9 / 14), any other rate after its tax's", async () => {
   const { gstRows, gstPeriods, gstWindows } = await import("@/lib/gst");
-  const periods = gstPeriods([{ date: "2026-11-19", split: { "IGST 12": 120, "CGST 9": 9 } }], [], gstWindows("daily", "2026-11-19"), "2026-11-19");
+  const periods = gstPeriods([{ date: "2026-11-19", split: { "IGST 12": 120, "CGST 9": 9 } }], [], gstWindows("2026-11-19"), "2026-11-19");
   assert.deepEqual(gstRows(periods).map((r) => r.key), ["IGST 5", "IGST 12", "IGST 18", "IGST 28", "CGST 2.5", "CGST 9", "CGST 14", "SGST 2.5", "SGST 9", "SGST 14"]);
 });
 
-test("the periods: today, the week from Monday, the FY from 1 April (monthly: the month and the FY)", async () => {
+test("the periods: this month and the FY from 1 April, daily and monthly alike; the week's Monday", async () => {
   const { weekStart, fyStartOf, gstWindows } = await import("@/lib/gst");
   assert.equal(weekStart("2026-11-19"), "2026-11-16"); // Thursday → Monday
   assert.equal(weekStart("2026-11-16"), "2026-11-16");
@@ -28,8 +28,8 @@ test("the periods: today, the week from Monday, the FY from 1 April (monthly: th
   assert.equal(fyStartOf("2026-11-19"), "2026-04-01");
   assert.equal(fyStartOf("2027-02-10"), "2026-04-01");
   assert.equal(fyStartOf("2026-04-01"), "2026-04-01");
-  assert.deepEqual(gstWindows("daily", "2026-11-19").map((w) => w.from), ["2026-11-19", "2026-11-16", "2026-04-01"]);
-  assert.deepEqual(gstWindows("monthly", "2026-11-30").map((w) => w.from), ["2026-11-01", "2026-04-01"]);
+  assert.deepEqual(gstWindows("2026-11-19").map((w) => [w.label, w.from]), [["This month (November 2026)", "2026-11-01"], ["This year (FY 26-27, since 1 April)", "2026-04-01"]]);
+  assert.deepEqual(gstWindows("2027-01-05").map((w) => w.from), ["2027-01-01", "2026-04-01"]);
 });
 
 test("each period adds up its invoices and bills by rate, and sale minus purchase", async () => {
@@ -37,10 +37,9 @@ test("each period adds up its invoices and bills by rate, and sale minus purchas
   const s = (date: string, split: Record<string, number>) => ({ date, split });
   const sales = [s("2026-11-19", { "CGST 9": 900, "SGST 9": 900 }), s("2026-11-17", { "IGST 18": 1800 }), s("2026-06-01", { "CGST 9": 100, "SGST 9": 100 }), s("2026-03-31", { "CGST 9": 5000, "SGST 9": 5000 })];
   const buys = [s("2026-11-19", { "CGST 9": 450, "SGST 9": 450 }), s("2026-05-05", { "IGST 18": 3600 })];
-  const [today, week, year] = gstPeriods(sales, buys, gstWindows("daily", "2026-11-19"), "2026-11-19");
-  assert.deepEqual(today.sales, { byRate: { "CGST 9": 900, "SGST 9": 900 }, total: 1800, count: 1 });
-  assert.deepEqual(today.net, { byRate: { "CGST 9": 450, "SGST 9": 450 }, total: 900, count: 0 });
-  assert.deepEqual(week.sales, { byRate: { "CGST 9": 900, "SGST 9": 900, "IGST 18": 1800 }, total: 3600, count: 2 });
+  const [month, year] = gstPeriods(sales, buys, gstWindows("2026-11-19"), "2026-11-19");
+  assert.deepEqual(month.sales, { byRate: { "CGST 9": 900, "SGST 9": 900, "IGST 18": 1800 }, total: 3600, count: 2 });
+  assert.deepEqual(month.net, { byRate: { "CGST 9": 450, "SGST 9": 450, "IGST 18": 1800 }, total: 2700, count: 0 });
   assert.deepEqual(year.sales, { byRate: { "CGST 9": 1000, "SGST 9": 1000, "IGST 18": 1800 }, total: 3800, count: 3 }); // last FY's left out
   assert.deepEqual(year.purchases.total, 4500);
   assert.deepEqual(year.net, { byRate: { "CGST 9": 550, "SGST 9": 550, "IGST 18": -1800 }, total: -700, count: 0 });
@@ -48,7 +47,7 @@ test("each period adds up its invoices and bills by rate, and sale minus purchas
 
 async function facts() {
   const { gstPeriods, gstWindows } = await import("@/lib/gst");
-  const periods = gstPeriods([{ date: "2026-11-18", split: { "CGST 9": 9000, "SGST 9": 9000 } }], [{ date: "2026-11-02", split: { "IGST 18": 12000 } }], gstWindows("daily", "2026-11-18"), "2026-11-18");
+  const periods = gstPeriods([{ date: "2026-11-18", split: { "CGST 9": 9000, "SGST 9": 9000 } }], [{ date: "2026-11-02", split: { "IGST 18": 12000 } }], gstWindows("2026-11-18"), "2026-11-18");
   return {
     kind: "daily" as const, on: "2026-11-18", days: {},
     quotes: [{ number: "QT-1", customer: "Acme Hotels", total: 300000, person: "Sumit A Shah", date: "2026-11-18" }],
@@ -71,12 +70,12 @@ test("the summary as tables: every section in order, a GST table per period, a m
   assert.equal(d.kicker, "Daily summary · Wed, 18 Nov, 2026");
   assert.deepEqual(d.sections.map((s) => s.title), ["Quotations and invoices today", "Month and year pace", "GST summary", "Payments received today", "Total outstanding", "Stock in and out today", "New customers", "Trainings", "AED renewals due in 30 days"]);
   const tables = d.sections[2].blocks.filter((b) => "table" in b).map((b) => ("table" in b ? b.table : null)!);
-  assert.equal(tables.length, 3); // today, this week, this year
+  assert.equal(tables.length, 2); // this month, this year
   const text = (t: (typeof tables)[number]) => t.rows.map((r) => r.cells.map((c) => (typeof c === "string" ? c : c.text)));
-  assert.deepEqual(tables[0].columns.map((c) => c.head), ["Today", "Purchase (0 bills)", "Sale (1 invoice)", "Total (sale - purchase)"]);
+  assert.deepEqual(tables[0].columns.map((c) => c.head), ["This month (November 2026)", "Purchase (1 bill)", "Sale (1 invoice)", "Total (sale - purchase)"]);
   assert.deepEqual(text(tables[0]).map((r) => r[0]), ["IGST 5%", "IGST 18%", "IGST 28%", "CGST 2.5%", "CGST 9%", "CGST 14%", "SGST 2.5%", "SGST 9%", "SGST 14%", "Total (IGST + CGST + SGST)"]);
   assert.deepEqual(text(tables[0])[4], ["CGST 9%", "₹0", "₹9,000", "₹9,000"]);
-  const year = text(tables[2]);
+  const year = text(tables[1]);
   assert.deepEqual(year[1], ["IGST 18%", "₹12,000", "₹0", "-₹12,000"]); // November's IGST bill
   assert.deepEqual(year[9], ["Total (IGST + CGST + SGST)", "₹12,000", "₹18,000", "₹6,000"]);
   const noteOf = (i: number) => d.sections[i].blocks.find((b) => "note" in b);

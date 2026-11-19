@@ -27,7 +27,7 @@ import { aedData, getSnapshot } from "./zohoSync";
  *    (GET /itemdetails, 25 at a time), bought = the month's bills' lines, sold = the month's invoices' lines. Each bill /
  *    invoice is read once and kept (`billDetails`, and the Sales board's `salesDetails`) until it changes; at most
  *    READ_BUDGET are read a run (newest first), the rest next time;
- *  - GST (owner, 19 Nov): the taxes of every invoice and bill since 1 April (or the week's Monday, if earlier), from the same
+ *  - GST (owner, 19 Nov): the taxes of every invoice and bill since 1 April (this month's and this FY's), from the same
  *    kept records (and the Training board's own copies) — so the first runs read the year's documents from Zoho a
  *    READ_BUDGET at a time, this month's first;
  *  - new customers: GET /contacts newest first; trainings and AED renewals: the boards (no Zoho call).
@@ -200,7 +200,7 @@ export async function gatherSummary(kind: ReportKind, on: string): Promise<Summa
   // The bills and invoices since the GST summary's first day (1 April), read once: the stock lines and the AED section
   // use the month's, the GST summary all of them.
   const mFrom = monthStart(on);
-  const windows = gstWindows(kind, on);
+  const windows = gstWindows(on);
   const gFrom = windows.reduce((m, w) => (w.from < m ? w.from : m), mFrom);
   const yearBills = pages("/bills", "bills", { date_start: gFrom, date_end: on }, 10).then((xs) => xs.filter((x) => !/void|draft/i.test(String(x.status ?? ""))));
   yearBills.catch(() => undefined); // awaited (and reported) by the sections below

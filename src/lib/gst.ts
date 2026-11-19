@@ -1,9 +1,10 @@
 /*
  * GST summary (owner, 19 Nov: "CGST, SGST, IGST value for our sales, purchases and total — from invoices and bills —
- * daily, weekly and yearly; it increases daily"). A table per period, a row per tax and rate (IGST 5 / 18 / 28 %,
+ * daily, weekly and yearly; it increases daily" — then: "only monthly and yearly; it goes in the daily one too, the month
+ * and year values just update"). A table per period, a row per tax and rate (IGST 5 / 18 / 28 %,
  * CGST 2.5 / 9 / 14 %, SGST 2.5 / 9 / 14 %, then Total = IGST + CGST + SGST), columns Purchase (bills), Sale (invoices,
- * not drafts / void) and Total = sale minus purchase. Today, the week from Monday, the FY from 1 April; the monthly
- * summary: the month and the FY. Pure: the server passes each document's date and its Zoho record.
+ * not drafts / void) and Total = sale minus purchase. This month so far and the FY from 1 April, in the daily and the
+ * monthly summary alike. Pure: the server passes each document's date and its Zoho record.
  */
 
 export type GstTax = "IGST" | "CGST" | "SGST";
@@ -65,12 +66,14 @@ export function weekStart(on: string): string {
 /** 1 April of `on`'s financial year. */
 export const fyStartOf = (on: string) => `${Number(on.slice(5, 7)) >= 4 ? on.slice(0, 4) : Number(on.slice(0, 4)) - 1}-04-01`;
 
-/** The periods a summary shows: daily → today, this week, this FY; monthly → this month, this FY. */
-export function gstWindows(kind: "daily" | "monthly", on: string): { label: string; from: string }[] {
+/** The periods every summary shows (daily and monthly): this month so far, this FY so far. */
+export function gstWindows(on: string): { label: string; from: string }[] {
   const fy = fyStartOf(on);
-  const fyLabel = `This year (FY ${fy.slice(2, 4)}-${String(Number(fy.slice(0, 4)) + 1).slice(2)}, since 1 April)`;
-  if (kind === "monthly") return [{ label: "This month", from: `${on.slice(0, 7)}-01` }, { label: fyLabel, from: fy }];
-  return [{ label: "Today", from: on }, { label: "This week (from Monday)", from: weekStart(on) }, { label: fyLabel, from: fy }];
+  const month = new Date(`${on}T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  return [
+    { label: `This month (${month})`, from: `${on.slice(0, 7)}-01` },
+    { label: `This year (FY ${fy.slice(2, 4)}-${String(Number(fy.slice(0, 4)) + 1).slice(2)}, since 1 April)`, from: fy },
+  ];
 }
 
 function add(docs: GstDoc[], from: string, to: string): GstRow {

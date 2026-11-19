@@ -54,7 +54,7 @@ function aed(f: SummaryFacts): Section {
     rows.push({ cells: [k.label, ...cells(k.tally)], bold: true });
     for (const b of k.brands) rows.push({ cells: [b.brand, ...cells(b.tally)], indent: true });
   }
-  const columns: Column[] = [{ head: "", width: 1.5 }, { head: "In stock", right: true, width: 0.75 }, { head: "Value at cost", right: true }, { head: "Sold this month", right: true, width: 1.3 }, { head: "Bought this month", right: true, width: 1.35 }, ...(daily ? [{ head: "Sold today", right: true, width: 1.2 }, { head: "Bought today", right: true, width: 1.2 }] : [])];
+  const columns: Column[] = [{ head: "Kind / brand", width: 1.5 }, { head: "In stock", right: true, width: 0.75 }, { head: "Value at cost", right: true }, { head: "Sold this month", right: true, width: 1.3 }, { head: "Bought this month", right: true, width: 1.35 }, ...(daily ? [{ head: "Sold today", right: true, width: 1.2 }, { head: "Bought today", right: true, width: 1.2 }] : [])];
   const extra = [unread ? `${unread} bills / invoices not read from Zoho yet; they count next time.` : "", r.stockUnknown ? `Stock unknown for ${r.stockUnknown} items.` : ""].filter(Boolean).join(" ");
   return { title, blocks: [{ table: { columns, rows } }, { note: `Sold and bought: ${dayMonth(monthStart(f.on))} – ${dayMonth(f.on)} (count · value), active items only.${extra ? ` ${extra}` : ""}` }] };
 }
@@ -71,7 +71,7 @@ function sales(f: SummaryFacts): Section {
     return { cells: [label, String(docs.length), money(total), avg[slot] > 0 ? money(avg[slot]) : "-", change(total, avg[slot])] };
   };
   blocks.push({ table: {
-    columns: [{ head: "", width: 1.6 }, { head: "How many", right: true }, { head: "Amount", right: true }, { head: `Last year's average ${unit}`, right: true, width: 1.5 }, { head: "Against it", right: true }],
+    columns: [{ head: daily ? "Today" : "This month", width: 1.6 }, { head: "How many", right: true }, { head: "Amount", right: true }, { head: `Last year's average ${unit}`, right: true, width: 1.5 }, { head: "Against it", right: true }],
     rows: [row("Quotations sent", f.quotes, "quoted"), row("Invoiced", f.invoices, "invoiced")],
   } });
   // By person: Sumit / Ashish / Pranjal / others.
@@ -82,9 +82,9 @@ function sales(f: SummaryFacts): Section {
     columns: [{ head: "By person", width: 1.6 }, { head: "Quotations", right: true }, { head: "Quoted", right: true }, { head: "Invoices", right: true }, { head: "Invoiced", right: true }],
     rows: byPerson.map((x) => ({ cells: [x.p, String(x.q.length), x.q.length ? money(sum(x.q, (d) => d.total)) : "-", String(x.i.length), x.i.length ? money(sum(x.i, (d) => d.total)) : "-"] })),
   } });
-  const biggest = ([["Biggest quotation", f.quotes?.[0]], ["Biggest invoice", f.invoices?.[0]]] as const).filter(([, d]) => d);
+  const biggest = ([["Quotation", f.quotes?.[0]], ["Invoice", f.invoices?.[0]]] as const).filter(([, d]) => d);
   if (biggest.length) blocks.push({ table: {
-    columns: [{ head: "", width: 1.6 }, { head: "Customer", width: 2.6 }, { head: "Amount", right: true }, { head: "By" }, { head: "Number" }],
+    columns: [{ head: "Biggest", width: 1.6 }, { head: "Customer", width: 2.6 }, { head: "Amount", right: true }, { head: "By" }, { head: "Number" }],
     rows: biggest.map(([label, d]) => ({ cells: [label, d!.customer, money(d!.total), first(d!.person) || "-", d!.number || "-"] })),
   } });
   return { title, blocks };
@@ -146,7 +146,7 @@ function outstanding(f: SummaryFacts): Section {
   ];
   if (f.receivable?.overdue) rows.push({ cells: ["of which overdue", { text: money(f.receivable.overdue.balance), tone: f.receivable.overdue.balance > 0 ? "down" : undefined }, `${f.receivable.overdue.count} invoices`], indent: true });
   rows.push({ cells: ["We owe suppliers", ...(f.payable ? [money(f.payable.balance), `${f.payable.count} bills`] : no(f.errors.payable))], bold: true });
-  return { title: "Total outstanding", blocks: [{ table: { columns: [{ head: "", width: 2 }, { head: "Amount", right: true }, { head: "On", right: true }], rows } }] };
+  return { title: "Total outstanding", blocks: [{ table: { columns: [{ head: "Outstanding", width: 2 }, { head: "Amount", right: true }, { head: "On", right: true }], rows } }] };
 }
 
 function stock(f: SummaryFacts): Section {
@@ -171,12 +171,10 @@ function customers(f: SummaryFacts): Section {
   const title = f.kind === "daily" ? "New customers" : "New customers this month";
   if (!f.newCustomers) return { title, blocks: [note(f.errors.customers)] };
   if (!f.newCustomers.length) return { title, blocks: [{ text: "None added." }] };
-  // Two names a row, so a long list stays short.
   const names = f.newCustomers.slice(0, 30);
-  const rows: TableRow[] = [];
-  for (let i = 0; i < names.length; i += 2) rows.push({ cells: [names[i], names[i + 1] ?? ""] });
-  if (f.newCustomers.length > names.length) rows.push({ cells: [{ text: `and ${f.newCustomers.length - names.length} more`, muted: true }, ""] });
-  return { title, blocks: [{ text: `${f.newCustomers.length} added.` }, { table: { columns: [{ head: "Customer" }, { head: "" }], rows } }] };
+  const rows: TableRow[] = names.map((n, i) => ({ cells: [String(i + 1), n] }));
+  if (f.newCustomers.length > names.length) rows.push({ cells: ["", { text: `and ${f.newCustomers.length - names.length} more`, muted: true }] });
+  return { title, blocks: [{ table: { columns: [{ head: "#", width: 0.35, right: true }, { head: `Customer (${f.newCustomers.length} added)`, width: 6 }], rows } }] };
 }
 
 function trainings(f: SummaryFacts): Section {

@@ -9,7 +9,9 @@ import { type Cell, type Column, type SummaryDoc, type Table, type TableRow } fr
 const A4 = { w: 595.28, h: 841.89 };
 const L = 36, R = A4.w - 36, TOP = A4.h - 40, BOTTOM = 46;
 const W = R - L;
-const INK = rgb(0.11, 0.11, 0.12), MUTED = rgb(0.43, 0.43, 0.45), RULE = rgb(0.88, 0.88, 0.9), BAND = rgb(0.955, 0.958, 0.965), GROUP = rgb(0.92, 0.94, 0.97);
+const INK = rgb(0.11, 0.11, 0.12), MUTED = rgb(0.43, 0.43, 0.45), RULE = rgb(0.88, 0.88, 0.9), GROUP = rgb(0.92, 0.94, 0.97);
+// Tables (owner, 19 Nov: "neat and clean, well defined tables"): a border, column lines, a shaded heading and totals.
+const EDGE = rgb(0.7, 0.71, 0.74), HEAD = rgb(0.925, 0.93, 0.94), TOTAL = rgb(0.965, 0.968, 0.975), HEAD_INK = rgb(0.25, 0.25, 0.28);
 const GREEN = rgb(0.08, 0.5, 0.24), RED = rgb(0.85, 0.18, 0.13), BRAND = rgb(0.75, 0.11, 0.13);
 const ROW_H = 15, HEAD_H = 16, PAD = 5;
 
@@ -79,29 +81,47 @@ function widths(cols: Column[]): number[] {
   return cols.map((c) => ((c.width ?? 1) / total) * W);
 }
 
+/** A row's lines: the table's left and right edges, and (unless it spans the table) a line between columns. */
+function rowLines(w: Writer, ws: number[], h: number, columns: boolean) {
+  const top = w.y, bottom = w.y - h;
+  for (const x of [L, R]) w.page.drawLine({ start: { x, y: top }, end: { x, y: bottom }, thickness: 0.8, color: EDGE });
+  if (columns) {
+    let x = L;
+    for (const cw of ws.slice(0, -1)) { x += cw; w.page.drawLine({ start: { x, y: top }, end: { x, y: bottom }, thickness: 0.5, color: RULE }); }
+  }
+}
+
 function tableHead(w: Writer, t: Table, ws: number[]) {
-  w.page.drawRectangle({ x: L, y: w.y - HEAD_H, width: W, height: HEAD_H, color: BAND });
+  w.page.drawRectangle({ x: L, y: w.y - HEAD_H, width: W, height: HEAD_H, color: HEAD });
+  w.page.drawLine({ start: { x: L, y: w.y }, end: { x: R, y: w.y }, thickness: 0.8, color: EDGE });
+  rowLines(w, ws, HEAD_H, true);
   let x = L;
   t.columns.forEach((c, i) => {
     const s = fit(pdfText(c.head), w.f.bold, 7.5, ws[i] - 2 * PAD);
     const tx = c.right ? x + ws[i] - PAD - w.f.bold.widthOfTextAtSize(s, 7.5) : x + PAD;
-    w.page.drawText(s, { x: tx, y: w.y - HEAD_H + 5.5, size: 7.5, font: w.f.bold, color: MUTED });
+    w.page.drawText(s, { x: tx, y: w.y - HEAD_H + 5.5, size: 7.5, font: w.f.bold, color: HEAD_INK });
     x += ws[i];
   });
   w.y -= HEAD_H;
+  w.page.drawLine({ start: { x: L, y: w.y }, end: { x: R, y: w.y }, thickness: 0.8, color: EDGE });
 }
 
 function arrow(p: PDFPage, x: number, y: number, up: boolean) {
   p.drawSvgPath(up ? "M0,0 L6,0 L3,-5.5 Z" : "M0,-5.5 L6,-5.5 L3,0 Z", { x, y: y + 0.5, color: up ? GREEN : RED, borderWidth: 0 });
 }
 
-function tableRow(w: Writer, t: Table, ws: number[], r: TableRow) {
+function tableRow(w: Writer, t: Table, ws: number[], r: TableRow, last: boolean) {
+  const bottomLine = () => w.page.drawLine({ start: { x: L, y: w.y }, end: { x: R, y: w.y }, thickness: last ? 0.8 : 0.5, color: last ? EDGE : RULE });
   if (r.group) {
     w.page.drawRectangle({ x: L, y: w.y - ROW_H, width: W, height: ROW_H, color: GROUP });
+    rowLines(w, ws, ROW_H, false);
     w.page.drawText(fit(pdfText(cellOf(r.cells[0]).text), w.f.bold, 8.5, W - 2 * PAD), { x: L + PAD, y: w.y - ROW_H + 4.5, size: 8.5, font: w.f.bold, color: INK });
     w.y -= ROW_H;
+    bottomLine();
     return;
   }
+  if (r.bold) w.page.drawRectangle({ x: L, y: w.y - ROW_H, width: W, height: ROW_H, color: TOTAL });
+  rowLines(w, ws, ROW_H, true);
   let x = L;
   r.cells.forEach((raw, i) => {
     const c = cellOf(raw);
@@ -119,7 +139,7 @@ function tableRow(w: Writer, t: Table, ws: number[], r: TableRow) {
     x += ws[i];
   });
   w.y -= ROW_H;
-  w.page.drawLine({ start: { x: L, y: w.y }, end: { x: R, y: w.y }, thickness: 0.5, color: RULE });
+  bottomLine();
 }
 
 function table(w: Writer, t: Table) {
@@ -131,10 +151,15 @@ function table(w: Writer, t: Table) {
     // A heading row keeps its rows with it (a GST period, a training day).
     let after = 0;
     if (r.group) while (after < 3 && t.rows[i + 1 + after] && !t.rows[i + 1 + after].group) after++;
-    if (w.need(ROW_H * (1 + after))) tableHead(w, t, ws);
-    tableRow(w, t, ws, r);
+    if (w.y - ROW_H * (1 + after) < BOTTOM) {
+      // Close the table on this page, carry on under its heading on the next.
+      w.page.drawLine({ start: { x: L, y: w.y }, end: { x: R, y: w.y }, thickness: 0.8, color: EDGE });
+      w.newPage();
+      tableHead(w, t, ws);
+    }
+    tableRow(w, t, ws, r, i === t.rows.length - 1);
   });
-  w.y -= 8;
+  w.y -= 10;
 }
 
 function paragraph(w: Writer, s: string, size: number, font: PDFFont, color = INK, gap = 3) {
