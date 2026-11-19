@@ -1,5 +1,5 @@
 import { type AedReport, type Tally } from "./aedStock";
-import { type GstPeriod } from "./gst";
+import { type GstPeriod, gstRows } from "./gst";
 import { type DaySums, type SalesDayRow, inrShort, personKey, vsLastYear } from "./overviewMath";
 
 /*
@@ -259,11 +259,12 @@ function gstSection(f: SummaryFacts): string {
   if (!f.gst) return section("GST summary", missing(f.errors.gst));
   const r = (v: number) => `${v < 0 ? "-" : ""}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
   const td = (s: string, extra = "") => `<td style="padding:3px 6px;text-align:right;${extra}">${s}</td>`;
-  const rows = f.gst.periods.map((p) => `<tr><td colspan="5" style="padding:8px 0 2px;font-weight:700">${esc(p.label)}</td></tr>` +
-    ([["Sales", p.sales, ""], ["Purchases", p.purchases, ""], ["Sales − purchases", p.net, "font-weight:700"]] as const)
-      .map(([label, x, s]) => `<tr><td style="padding:3px 6px 3px 0;${s}">${label}</td>${td(r(x.cgst), s)}${td(r(x.sgst), s)}${td(r(x.igst), s)}${td(r(x.total), s)}</tr>`).join("")).join("");
-  const head = `<tr style="color:${MUTED};font-size:12px"><td></td>${["CGST", "SGST", "IGST", "Total"].map((h) => td(h)).join("")}</tr>`;
-  return section("GST summary", `<table style="border-collapse:collapse;font-size:14px;width:100%">${head}${rows}</table>` + (f.gst.unread ? small(`${f.gst.unread} invoices / bills since 1 April not read from Zoho yet.`) : ""));
+  const lines = gstRows(f.gst.periods);
+  const head = `<tr style="color:${MUTED};font-size:12px"><td></td>${["Purchase", "Sale", "Total"].map((h) => td(h)).join("")}</tr>`;
+  const rows = f.gst.periods.map((p) => `<tr><td colspan="4" style="padding:8px 0 2px;font-weight:700">${esc(p.label)}</td></tr>${head}` +
+    lines.map((l) => `<tr><td style="padding:3px 6px 3px 0">${l.tax} ${l.rate}%</td>${td(r(p.purchases.byRate[l.key] ?? 0))}${td(r(p.sales.byRate[l.key] ?? 0))}${td(r(p.net.byRate[l.key] ?? 0))}</tr>`).join("") +
+    `<tr style="font-weight:700"><td style="padding:3px 6px 3px 0">Total</td>${td(r(p.purchases.total))}${td(r(p.sales.total))}${td(r(p.net.total))}</tr>`).join("");
+  return section("GST summary", `<table style="border-collapse:collapse;font-size:14px;width:100%">${rows}</table>` + small(`Total = sale minus purchase.${f.gst.unread ? ` ${f.gst.unread} invoices / bills since 1 April not read from Zoho yet.` : ""}`));
 }
 
 function paymentsSection(f: SummaryFacts): string {

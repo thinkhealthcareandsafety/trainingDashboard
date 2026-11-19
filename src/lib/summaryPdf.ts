@@ -124,7 +124,8 @@ function tableRow(w: Writer, t: Table, ws: number[], r: TableRow) {
 
 function table(w: Writer, t: Table) {
   const ws = widths(t.columns);
-  w.need(HEAD_H + ROW_H * Math.min(3, t.rows.length));
+  // A short table (a GST period's) stays on one page; a long one starts with at least three rows.
+  w.need(HEAD_H + ROW_H * (t.rows.length <= 14 ? t.rows.length : 3));
   tableHead(w, t, ws);
   t.rows.forEach((r, i) => {
     // A heading row keeps its rows with it (a GST period, a training day).
@@ -160,7 +161,9 @@ export async function summaryPdf(d: SummaryDoc): Promise<Uint8Array> {
   w.y -= 8;
 
   for (const s of d.sections) {
-    w.need(26 + HEAD_H + ROW_H * 2);
+    // The heading goes with its first table (as much of it as table() keeps together).
+    const firstTable = s.blocks.map((b) => ("table" in b ? b.table : null)).find(Boolean);
+    w.need(26 + 30 + (firstTable ? HEAD_H + ROW_H * (firstTable.rows.length <= 14 ? firstTable.rows.length : 3) : 0));
     w.page.drawLine({ start: { x: L, y: w.y }, end: { x: R, y: w.y }, thickness: 1, color: RULE });
     w.y -= 15;
     w.text(s.title.toUpperCase(), L, w.y, 9, f.bold, MUTED);

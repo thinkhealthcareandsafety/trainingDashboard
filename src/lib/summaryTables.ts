@@ -1,6 +1,6 @@
 import { type Tally } from "./aedStock";
 import { type SaleDoc, type SummaryFacts, type TrainingRow, byItem, headline, monthStart } from "./dailySummary";
-import { type GstRow } from "./gst";
+import { gstRows } from "./gst";
 import { inrShort, personKey, vsLastYear } from "./overviewMath";
 
 /*
@@ -113,15 +113,14 @@ function gst(f: SummaryFacts): Section | null {
   const title = "GST summary";
   if (f.gst === undefined) return null;
   if (!f.gst) return { title, blocks: [note(f.errors.gst)] };
-  const cells = (r: GstRow): Cell[] => [rupees(r.cgst), rupees(r.sgst), rupees(r.igst), rupees(r.total)];
-  const rows: TableRow[] = [];
-  for (const p of f.gst.periods) {
-    rows.push({ cells: [p.label, "", "", "", ""], group: true });
-    rows.push({ cells: [`Sales (${p.sales.count} invoice${p.sales.count === 1 ? "" : "s"})`, ...cells(p.sales)] });
-    rows.push({ cells: [`Purchases (${p.purchases.count} bill${p.purchases.count === 1 ? "" : "s"})`, ...cells(p.purchases)] });
-    rows.push({ cells: ["Sales minus purchases", ...cells(p.net)], bold: true });
-  }
-  const blocks: Block[] = [{ table: { columns: [{ head: "", width: 2.2 }, { head: "CGST", right: true }, { head: "SGST", right: true }, { head: "IGST", right: true }, { head: "Total GST", right: true }], rows } }];
+  // A table per period (owner, 19 Nov): a row per tax and rate, then Total; Purchase, Sale, and Total = sale minus purchase.
+  const lines = gstRows(f.gst.periods);
+  const blocks: Block[] = f.gst.periods.map((p) => {
+    const rows: TableRow[] = lines.map((l) => ({ cells: [`${l.tax} ${l.rate}%`, rupees(p.purchases.byRate[l.key] ?? 0), rupees(p.sales.byRate[l.key] ?? 0), rupees(p.net.byRate[l.key] ?? 0)] }));
+    rows.push({ cells: ["Total (IGST + CGST + SGST)", rupees(p.purchases.total), rupees(p.sales.total), rupees(p.net.total)], bold: true });
+    const bills = `${p.purchases.count} bill${p.purchases.count === 1 ? "" : "s"}`, invoices = `${p.sales.count} invoice${p.sales.count === 1 ? "" : "s"}`;
+    return { table: { columns: [{ head: p.label, width: 1.8 }, { head: `Purchase (${bills})`, right: true }, { head: `Sale (${invoices})`, right: true }, { head: "Total (sale - purchase)", right: true }], rows } };
+  });
   blocks.push({ note: `From the invoices and bills in Zoho Books (not drafts or void); credit notes not taken off.${f.gst.unread ? ` ${f.gst.unread} invoices / bills since 1 April not read from Zoho yet — the figures grow as they are read over the next runs.` : ""}` });
   return { title, blocks };
 }
