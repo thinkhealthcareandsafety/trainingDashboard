@@ -4,7 +4,7 @@ import { getSnapshot } from "@/lib/zohoSync";
 import { boardsNow } from "@/lib/fulfilServer";
 import { buildFulfillmentBoard } from "@/lib/pipeline";
 import { buildLogisticsBoard } from "@/lib/logistics";
-import { ENTRY_DONE_FROM, seesWholeCalendar } from "@/lib/roles";
+import { ENTRY_DONE_FROM, hasFullAccess } from "@/lib/roles";
 import { type Comment, type PtRequest, offTracker, teamDay } from "@/lib/progress/model";
 import { commentsCol, fromDoc, requestsCol, team } from "@/lib/progress/server";
 import { DONE_DAYS, buildDone, buildTodos } from "@/lib/progress/todos";
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   const names = new Map<string, string>();
   for (const cards of [board.cards, aedBoard!.cards, ful.cards, logi.cards]) for (const c of cards.values()) if (!names.has(c.id)) names.set(c.id, c.certLocation || c.name);
   const done = buildDone(members, events, (id) => names.get(id), reqs, now, cal);
-  const all = seesWholeCalendar(me);
+  const all = hasFullAccess(me); // the to-do tracker: full access sees everyone's (the calendar is everyone's for all, 20 Nov)
   // No to-do list for Admin (owner, 3 Nov: "remove the tracker for admin") — Admin still sees everyone's.
   const people = (all ? members : members.filter((m) => m.id === me.id)).filter((m) => !offTracker(m)); // nor for Anuj (10 Nov)
   const theirs = (who: string) => people.some((p) => p.id === who);

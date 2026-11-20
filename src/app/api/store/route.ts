@@ -3,7 +3,7 @@ import { withBump } from "@/lib/changes";
 import { COLLECTIONS, db, mongoConfigured, type CollectionName } from "@/lib/db";
 import { readAll } from "@/lib/cachedRead";
 import { memberIdOf, signedInMember, unauthorized } from "@/lib/auth";
-import { SERVER_KINDS, canRevert, canSeeEntry, canWriteEvent, goodTrainingDate, isAdmin, missingCertFields } from "@/lib/roles";
+import { SERVER_KINDS, canEditEntry, canRevert, canSeeEntry, canWriteEvent, goodTrainingDate, isAdmin, missingCertFields } from "@/lib/roles";
 import { cascadeOf } from "@/lib/cascade";
 import { boardsNow } from "@/lib/fulfilServer";
 import { getSnapshot } from "@/lib/zohoSync";
@@ -97,8 +97,8 @@ async function zohoCardsNow(needed: boolean): Promise<Set<string> | null> {
 }
 
 /**
- * Calendar entries: a new one is stamped with who made it; an existing one may be changed or deleted only by someone who
- * may see it (made it, is in it, or sees the whole calendar) — and keeps who made it.
+ * Calendar entries: a new one is stamped with who made it; an existing one may be changed or deleted only by whoever made it,
+ * is in it, or has full access (everyone sees it, owner 20 Nov) — and keeps who made it.
  */
 async function guardEntries(upserts: Doc[], deletes: string[], me: { id: string; name: string }): Promise<{ upserts: Doc[]; deletes: string[] }> {
   const col = (await db()).collection<Doc & { _id: string }>("entries");
@@ -108,9 +108,9 @@ async function guardEntries(upserts: Doc[], deletes: string[], me: { id: string;
     upserts: upserts.flatMap((doc) => {
       const had = existing.get(doc.id);
       if (!had) return [{ ...doc, createdBy: me.name }];
-      return canSeeEntry(me, had as unknown as CalendarEntry) ? [{ ...doc, createdBy: had.createdBy ?? me.name }] : [];
+      return canEditEntry(me, had as unknown as CalendarEntry) ? [{ ...doc, createdBy: had.createdBy ?? me.name }] : [];
     }),
-    deletes: deletes.filter((id) => { const had = existing.get(id); return !had || canSeeEntry(me, had as unknown as CalendarEntry); }),
+    deletes: deletes.filter((id) => { const had = existing.get(id); return !had || canEditEntry(me, had as unknown as CalendarEntry); }),
   };
 }
 

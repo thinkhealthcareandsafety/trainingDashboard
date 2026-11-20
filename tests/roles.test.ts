@@ -149,3 +149,14 @@ test("the Progress tracker leaves out Admin and Anuj (owner, 10 Nov: \"remove th
   const presence = team.map((m) => ({ id: m.id, lastSeen: seen, seenAt: seen, at: seen }));
   assert.equal(counts(team, presence as never, [], now).active <= 1, true);
 });
+
+test("calendar (owner, 20 Nov): everyone sees everyone's schedule; only the maker, the people in it or full access change an entry", async () => {
+  const { canEditEntry, canSeeEntry, canSeeTraining } = await import("@/lib/roles");
+  const prashant = { id: "p1", name: "Prashant" };
+  const meeting = { createdBy: "Arti", people: ["Arti", "Pranjal"] };
+  assert.equal(canSeeEntry(prashant, meeting), true);
+  assert.equal(canSeeTraining(prashant, { board: "training", trainers: ["Priyanka"] }), true);
+  assert.equal(canEditEntry(prashant, meeting), false);
+  assert.equal(canEditEntry({ id: "x", name: "Pranjal" }, meeting), true);
+  assert.equal(canEditEntry({ id: "admin", name: "Admin" }, meeting), true);
+});

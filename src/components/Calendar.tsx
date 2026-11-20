@@ -8,7 +8,7 @@ import { addDays, daysBetween, fmtDate, parseYmd, startOfDay, ymd } from "@/lib/
 import { type CardView, TRAINERS, busyTrainers, salespersonLabel, cardDue, daysValue, fmtDays, fulfilCardId, orderTrainers } from "@/lib/pipeline";
 import { newId, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
-import { boardsFor, canSeeTraining, entryOverdue, isAdmin, ownsEntry, ownsTraining, seesWholeCalendar } from "@/lib/roles";
+import { boardsFor, canEditEntry, canSeeTraining, entryOverdue, isAdmin, ownsEntry, ownsTraining, seesWholeCalendar } from "@/lib/roles";
 import { WhatsAppSetup } from "./WhatsAppSetup";
 import { Combobox, IconButton, Segmented, btn, inputCls } from "./ui";
 import {
@@ -850,6 +850,8 @@ function EntryForm({ date, member, type, entry, tabs, onClose }: { date: string;
   const [customer, setCustomer] = useState(entry?.linkedCustomer ?? "");
   const [notes, setNotes] = useState(entry?.description ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Everyone sees everyone's entries (owner, 20 Nov); only its maker, the people in it and full access change it.
+  const canEdit = !entry || canEditEntry(member, entry);
   const timed = type === "meeting" || !allDay;
   const valid = Boolean(title.trim() && d && (!timed || (start && (!end || end > start))) && (everyone || people.length));
   const save = () => {
@@ -888,18 +890,19 @@ function EntryForm({ date, member, type, entry, tabs, onClose }: { date: string;
       onClose={onClose}
       width={720}
       footer={<>
-        {entry && (confirmDelete ? (
+        {!canEdit && <span className="mr-auto text-[13px] text-muted">Only {entry?.createdBy ?? "its maker"}, the people in it, or Admin can change this.</span>}
+        {canEdit && entry && (confirmDelete ? (
           <span className="mr-auto inline-flex items-center gap-1 text-[13px] text-ink-2">
             Delete this {TYPE_LABEL[type].toLowerCase()}?
             <button className={btn.danger} onClick={() => { deleteEntry(entry.id); onClose(); }}>Delete</button>
             <button className={btn.quiet} onClick={() => setConfirmDelete(false)}>Keep</button>
           </span>
         ) : <button className={`${btn.danger} mr-auto`} onClick={() => setConfirmDelete(true)}>Delete</button>)}
-        {entry && !confirmDelete && (entry.doneAt
+        {canEdit && entry && !confirmDelete && (entry.doneAt
           ? <button className={btn.ghost} onClick={() => markDone(false)} title={`Done${entry.doneBy ? ` · ${entry.doneBy}` : ""}`}>✓ Done · Reopen</button>
           : <button className={btn.ghost} onClick={() => markDone(true)}>Mark done</button>)}
-        <button className={btn.ghost} onClick={onClose}>Cancel</button>
-        <button className={btn.primary} disabled={!valid} onClick={save}>{entry ? "Save changes" : `Add ${TYPE_LABEL[type].toLowerCase()}`}</button>
+        <button className={btn.ghost} onClick={onClose}>{canEdit ? "Cancel" : "Close"}</button>
+        {canEdit && <button className={btn.primary} disabled={!valid} onClick={save}>{entry ? "Save changes" : `Add ${TYPE_LABEL[type].toLowerCase()}`}</button>}
       </>}
     >
       <div className="px-6 pb-3">{tabs}</div>

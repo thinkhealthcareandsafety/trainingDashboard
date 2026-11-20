@@ -123,11 +123,11 @@ export function canWriteEvent(m: Who, e: Pick<CardEvent, "kind" | "cardIds">): b
 export const canRevert = (m: Who, e: Pick<CardEvent, "by"> & { kind?: CardEvent["kind"] }) => !(e.kind && SERVER_KINDS.has(e.kind)) && (isAdmin(m) || e.by === m.name);
 
 /*
- * Calendar (owner, 19 Oct): each member sees their own calendar — the trainings they give or scheduled, and the
- * meetings / events they made or are in; Admin, Shikha, Sumit and Ashish see everyone's. Priyanka gives every AedSmartx
- * training, so she sees all of those.
+ * Calendar: everyone sees everyone's trainings, meetings and events (owner, 20 Nov: "let all users see the calendar for
+ * everyone … everyone can see everyone's schedule"; before, 19 Oct, only their own unless full access). Changing or
+ * deleting an entry stays with whoever made it, the people in it, and full access (canEditEntry).
  */
-export const seesWholeCalendar = hasFullAccess;
+export const seesWholeCalendar = (_m?: Who) => true;
 const samePerson = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 type EntryWho = { createdBy?: string; people?: string[]; everyone?: boolean };
 type TrainingWho = { board: "training" | "aed"; trainers: string[]; scheduledBy?: string };
@@ -136,6 +136,8 @@ export const inEntry = (m: Who, e: EntryWho) => Boolean(e.everyone || e.people?.
 /** A meeting / event is this member's: they made it or are in it. */
 export const ownsEntry = (m: Who, e: EntryWho) => inEntry(m, e) || Boolean(e.createdBy && samePerson(e.createdBy, m.name));
 export const canSeeEntry = (m: Who, e: EntryWho) => seesWholeCalendar(m) || ownsEntry(m, e);
+/** May change or delete a meeting / event: made it, is in it, or full access (seeing it is no longer enough). */
+export const canEditEntry = (m: Who, e: EntryWho) => hasFullAccess(m) || ownsEntry(m, e);
 /**
  * Meetings / events are marked done (owner, 3 Nov — Shikha's to-do while they aren't). Only those from the day this
  * started count, so older entries don't all turn red.
@@ -146,7 +148,8 @@ export const entryOverdue = (e: { date: string; doneAt?: string; demo?: boolean 
 export const givesTraining = (m: Who, t: TrainingWho) => (t.board === "aed" && named(m, /^priyanka\b/i)) || t.trainers.some((n) => samePerson(n, m.name));
 /** A training is this member's: they give it, or set its date. */
 export const ownsTraining = (m: Who, t: TrainingWho) => givesTraining(m, t) || Boolean(t.scheduledBy && samePerson(t.scheduledBy, m.name));
-export const canSeeTraining = (m: Who, t: TrainingWho) => (seesWholeCalendar(m) && boardsFor(m).includes(t.board === "aed" ? "aed" : "training")) || ownsTraining(m, t);
+/** Every training is on everyone's calendar (owner, 20 Nov); opening one off your boards says so and links to the board. */
+export const canSeeTraining = (m: Who, t: TrainingWho) => seesWholeCalendar(m) || ownsTraining(m, t);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
