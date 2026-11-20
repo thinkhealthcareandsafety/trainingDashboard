@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "./db";
 import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { booksClient } from "./quotations";
+import type { SignBox } from "./pdfMerge";
 
 /*
  * Zoho Sign (owner, 17 Nov: "now we have Zoho Sign … we merge invoice PDF + PO PDF + e-way bill PDF, then we add a sign,
@@ -41,7 +42,7 @@ async function conn(): Promise<Conn> {
 }
 
 /** One Zoho Sign call: JSON back (or raw bytes with `raw`). `data` goes as the form field Zoho Sign expects. */
-async function sign(c: Conn, method: "GET" | "POST", path: string, opts: { data?: unknown; file?: { bytes: Uint8Array; name: string }; query?: Record<string, string>; raw?: boolean } = {}): Promise<Record<string, unknown> & { bytes?: Uint8Array }> {
+async function sign(c: Conn, method: "GET" | "POST" | "PUT", path: string, opts: { data?: unknown; file?: { bytes: Uint8Array; name: string }; query?: Record<string, string>; raw?: boolean } = {}): Promise<Record<string, unknown> & { bytes?: Uint8Array }> {
   const url = new URL(`${SIGN_API}${path}`);
   for (const [k, v] of Object.entries(opts.query ?? {})) url.searchParams.set(k, v);
   let body: FormData | undefined;
@@ -105,6 +106,42 @@ export async function startSigning(pdf: Uint8Array, opts: { name: string; fileNa
   });
   const tok = await sign(c, "POST", `/requests/${requestId}/actions/${actionId}/embedtoken`, { query: { host: opts.host } });
   return { requestId, actionId, signUrl: String(tok.sign_url ?? "") };
+}
+
+/** Zoho Sign's own web page for a request (a draft opens ready to edit and send). */
+export const signWebUrl = (requestId: string) => `${new URL(SIGN_API).origin}/zs#/request/new/${requestId}`;
+
+/** The Zoho Sign account's user, as the draft's signer when the person has no signer details of their own. */
+async function accountUser(c: Conn): Promise<{ name: string; email: string }> {
+  const u = ((await sign(c, "GET", "/accounts")).accounts as { users?: { first_name?: string; last_name?: string; user_email?: string }[] } | undefined)?.users?.[0];
+  if (!u?.user_email) throw new Error("Zoho Sign didn't say who its user is.");
+  const first = String(u.first_name ?? "").trim(), last = String(u.last_name ?? "").trim();
+  return { name: !last || first.toLowerCase().endsWith(last.toLowerCase()) ? first || last : `${first} ${last}`, email: u.user_email };
+}
+
+/**
+ * Merge and draft (owner, 20 Nov: "only Merge and Draft … just don't send, I can send it myself"): the PDF as a Zoho
+ * Sign DRAFT with the signature, full name and date boxes placed — never submitted, so no API credits are used (only
+ * sending through the API needs them; drafts were checked on the Zoho One plan, 20 Nov). The owner opens it in Zoho
+ * Sign and signs / sends it there.
+ */
+export async function createDraft(pdf: Uint8Array, opts: { name: string; fileName: string; signer?: { name: string; email: string } | null; boxes: SignBox[] }): Promise<{ requestId: string; url: string }> {
+  const c = await conn();
+  const who = opts.signer ?? (await accountUser(c));
+  const action = { action_type: "SIGN", recipient_name: who.name, recipient_email: who.email, signing_order: 0, verify_recipient: false };
+  const made = await sign(c, "POST", "/requests", { file: { bytes: pdf, name: opts.fileName }, data: { requests: { request_name: opts.name, is_sequential: true, expiration_days: 15, email_reminders: false, actions: [action] } } });
+  const req = made.requests as { request_id: string; actions: { action_id: string }[]; document_ids: { document_id: string }[] };
+  const documentId = req.document_ids[0].document_id;
+  // Date as the owner writes it: 18/11/2026.
+  const fields = opts.boxes.map((b) => ({
+    field_type_name: b.type, field_name: b.label, field_label: b.label, document_id: documentId, page_no: b.page,
+    x_coord: b.x, y_coord: b.y, abs_width: b.w, abs_height: b.h, is_mandatory: true, ...(b.type === "Date" ? { date_format: "dd/MM/yyyy" } : {}),
+  }));
+  // The boxes on the draft (PUT, not submit): if Zoho refuses them the draft is still there to place them by hand.
+  await sign(c, "PUT", `/requests/${req.request_id}`, {
+    data: { requests: { actions: [{ ...action, action_id: req.actions[0].action_id, fields }] } },
+  }).catch((e: Error) => console.error(`[zoho sign] boxes on draft ${req.request_id}: ${e.message}`));
+  return { requestId: req.request_id, url: signWebUrl(req.request_id) };
 }
 
 /** A fresh signing page for a request still waiting (the first one may have been closed). */

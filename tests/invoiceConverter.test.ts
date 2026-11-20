@@ -73,6 +73,29 @@ test("merge: the invoice first, then the PO and the e-way bill; a picture become
   await assert.rejects(mergeParts([{ bytes: new Uint8Array([1]), type: "text/plain" }]), /Nothing to merge/);
 });
 
+test("merge & draft: signature, date and name sit left of 'Authorized Signature' on the invoice's page, not the T&C page", async () => {
+  const { PDFDocument, StandardFonts } = await import("pdf-lib");
+  const { findSignLabel, signBoxes } = await import("@/lib/pdfMerge");
+  const d = await PDFDocument.create();
+  const font = await d.embedFont(StandardFonts.Helvetica);
+  d.addPage([595.42, 841.69]);
+  const p2 = d.addPage([595.42, 841.69]);
+  p2.drawText("Authorized Signature", { x: 412.9, y: 117.9, size: 8, font });
+  d.addPage([595.42, 841.69]).drawText("VENDOR-CUSTOMER TERMS & CONDITIONS", { x: 45.6, y: 767.9, size: 8, font });
+  const label = await findSignLabel(await d.save(), 3);
+  assert.equal(label?.page, 1);
+  assert.ok(Math.abs((label?.x ?? 0) - 412.9) < 0.5 && Math.abs((label?.y ?? 0) - 117.9) < 0.5);
+  const boxes = signBoxes(label);
+  assert.deepEqual(boxes.map((b) => b.type), ["Signature", "Date", "Name"]);
+  assert.deepEqual(boxes.map((b) => [b.page, b.x, b.y]), [[1, 210, 654], [1, 219, 691], [1, 219, 707]]);
+  // Stacked top to bottom without overlapping, all left of the box (x 337) and above the label.
+  for (let k = 1; k < boxes.length; k++) assert.ok(boxes[k].y >= boxes[k - 1].y + boxes[k - 1].h);
+  for (const b of boxes) assert.ok(b.x + b.w <= 360 && b.y + b.h <= 841.69 - 117.9);
+  // Not found (not in the invoice's own pages): the standard spot on the first page.
+  assert.equal(await findSignLabel(await d.save(), 1), null);
+  assert.deepEqual(signBoxes(null)[0], { ...boxes[0], page: 0 });
+});
+
 test("signer details: a real email and a full name, saved per person", async () => {
   const { setSigner, signerOf } = await import("@/lib/invoiceConverter");
   await assert.rejects(setSigner("m1", { email: "nope", name: "Arti Sirohi" }), /email/);

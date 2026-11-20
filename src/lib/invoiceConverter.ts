@@ -254,6 +254,20 @@ export async function startInvoiceSign(invoiceId: string, signer: { name: string
   return { signUrl: s.signUrl, parts: names, skipped: merged.skipped };
 }
 
+/**
+ * Merge and draft (owner, 20 Nov: "only Merge and Draft … auto opens Zoho Sign with that draft … just don't send, I can
+ * send it myself … no need to save"): the merged PDF as a Zoho Sign draft with the signature, date and full name boxes
+ * where the owner puts them; nothing kept here, nothing sent, no API credits used. Returns Zoho Sign's page for it.
+ */
+export async function draftInvoiceSign(invoiceId: string, signer: { name: string; email: string } | null): Promise<{ url: string; parts: string[]; skipped: string[] }> {
+  const { findSignLabel, signBoxes } = await import("./pdfMerge");
+  const { createDraft } = await import("./zohoSign");
+  const { merged, names, number, customer } = await mergedFor(invoiceId);
+  const boxes = signBoxes(await findSignLabel(merged.bytes, merged.firstPages));
+  const d = await createDraft(merged.bytes, { name: `Invoice ${number} · ${customer}`.slice(0, 200), fileName: `Invoice ${number} merged.pdf`, signer, boxes });
+  return { url: d.url, parts: names, skipped: merged.skipped };
+}
+
 /** The invoice PDF from Zoho Books, then its PO and e-way bill attachments, as one PDF. */
 async function mergedFor(invoiceId: string) {
   const { booksFile } = await import("./quotations");

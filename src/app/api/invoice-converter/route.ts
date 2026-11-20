@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
-import { attachPdf, checkInvoiceSign, converterData, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
+import { attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
  *  POST multipart { id, which: "po" | "eway", file, value? } — a PDF attached in Zoho (a PO: to every invoice of the same PI; value = the PO number typed with it)
  *  POST { action: "eway", id, value }              — an e-way bill number typed in (kept here; Zoho invoices have no field for it)
  *  POST { action: "signer", email, name }          — your email and full name for Zoho Sign (once)
- *  POST { action: "sign", id }                     — merge the invoice + PO + e-way bill PDFs and open Zoho Sign's signing page
+ *  POST { action: "draft", id }                    — merge and make a Zoho Sign draft with the boxes placed (never sent); its Zoho Sign page
+ *  POST { action: "sign", id }                   — merge the invoice + PO + e-way bill PDFs and open Zoho Sign's signing page
  *  POST { action: "check", id }                    — how the signing stands
  *  POST { action: "connectSign", code, clientId?, clientSecret? } — Admin: connect Zoho Sign once
  */
@@ -71,6 +72,10 @@ export async function POST(request: Request) {
     if (b?.action === "po") return json(await setPoForPi(id, b.value));
     if (b?.action === "eway") return json(await setEway(id, b.value));
     if (b?.action === "check") return json({ status: await checkInvoiceSign(id) });
+    if (b?.action === "draft") {
+      const signer = await signerOf(me.id);
+      return json(await draftInvoiceSign(id, signer ? { name: signer.name, email: signer.email } : null));
+    }
     if (b?.action === "sign") {
       const signer = await signerOf(me.id);
       if (!signer) return json({ error: "Add your email and full name for Zoho Sign first." }, 409);

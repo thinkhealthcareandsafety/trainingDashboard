@@ -269,29 +269,17 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
     } else onPatch({ ewayPdf: true, ...(r.eway ? { eway: r.eway } : {}) });
     if (!r.found) setError(which === "po" ? "Attached. No PO number found in the PDF (a scanned copy has no text): type it in." : "Attached. No e-way bill number found in the PDF.");
   };
-  // Opens Zoho Sign's page in a new tab straight away (a tab opened after the wait would be blocked), then checks back
-  // every 5 seconds until it's signed.
-  const startSign = async () => {
+  // Merge and draft (owner, 20 Nov): a Zoho Sign draft with the boxes placed, opened in a new tab (opened straight away —
+  // a tab opened after the wait would be blocked). The owner signs and sends it in Zoho Sign; nothing is sent from here.
+  const startDraft = async () => {
     setBusy("sign"); setError("");
     const w = window.open("about:blank", "_blank");
-    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "sign", id: i.id }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "draft", id: i.id }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
     setBusy("");
-    if (r.error || !r.signUrl) { w?.close(); return setError(r.error ?? "Zoho Sign didn't open"); }
-    if (w) w.location.href = r.signUrl; else window.location.href = r.signUrl;
+    if (r.error || !r.url) { w?.close(); return setError(r.error ?? "Zoho Sign didn't open"); }
+    if (w) w.location.href = r.url; else window.location.href = r.url;
     if (r.skipped?.length) setError(`Left out (not a PDF or picture): ${r.skipped.join(", ")}`);
-    onPatch({ sign: "inprogress" });
-    setWatch(Date.now());
   };
-  const [watch, setWatch] = useState(0);
-  useEffect(() => {
-    if (!watch) return;
-    const t = setInterval(async () => {
-      if (Date.now() - watch > 20 * 60_000) return clearInterval(t);
-      const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check", id: i.id }) }).then((x) => x.json()).catch(() => null);
-      if (r?.status === "completed") { onPatch({ sign: "completed" }); clearInterval(t); }
-    }, 5000);
-    return () => clearInterval(t);
-  }, [watch]); // eslint-disable-line react-hooks/exhaustive-deps
   const label = "text-[12px] font-medium text-muted lg:hidden";
 
   return (
@@ -350,18 +338,14 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         )}
         <input ref={ewayFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("eway", e.target.files?.[0]); e.target.value = ""; }} />
       </div>
-      {/* Merge and sign (owner, 17 Nov): invoice + PO + e-way bill PDFs, one signature, name and date, through Zoho Sign. */}
+      {/* Merge and draft (owner, 20 Nov): invoice + PO + e-way bill PDFs as a Zoho Sign draft, signature / date / name
+          boxes placed; signed and sent in Zoho Sign by hand (sending from here would need Zoho Sign API credits). */}
       <div className="col-span-2 lg:col-span-1">
         <p className={label}>Merged PDF</p>
-        {i.sign === "completed" ? (
-          <a className="inline-flex items-center gap-1.5 rounded-lg py-0.5 text-[13px] font-semibold text-brand hover:underline" href={`/api/invoice-converter?signed=${i.id}`}><Mark ok />Download</a>
-        ) : (
-          <button type="button" className="h-8 rounded-lg border border-line px-3 text-[13px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-50" disabled={busy === "sign" || !sign?.connected || !sign?.signer} onClick={startSign}
-            title={!sign?.connected ? "Zoho Sign isn't connected yet" : !sign?.signer ? "Add your email and full name for Zoho Sign above" : "Merge the invoice, PO and e-way bill PDFs and sign once"}>
-            {busy === "sign" ? <Busy text="Merging…" /> : i.sign === "inprogress" ? "Sign now" : "Merge & sign"}
-          </button>
-        )}
-        {i.sign === "inprogress" && <p className="mt-1 text-[12px] text-muted">Waiting for your signature</p>}
+        <button type="button" className="h-8 rounded-lg border border-line px-3 text-[13px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-50" disabled={busy === "sign" || !sign?.connected} onClick={startDraft}
+          title={!sign?.connected ? "Zoho Sign isn't connected yet" : "Merge the invoice, PO and e-way bill PDFs into a Zoho Sign draft with the signature, date and name boxes placed — you sign and send it in Zoho Sign"}>
+          {busy === "sign" ? <Busy text="Merging…" /> : "Merge & draft"}
+        </button>
         {/* The merged PDF on its own (owner, 17 Nov: Zoho Sign's plan refuses API sends). */}
         {/* Fetched here (not a plain link) so the spinner shows while Zoho's files are gathered and merged. */}
         <button type="button" className="mt-1 block text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={merging} onClick={downloadMerged}>{merging ? <Busy text="Merging the PDFs…" /> : "Merged PDF"}</button>

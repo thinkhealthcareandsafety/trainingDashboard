@@ -47,3 +47,41 @@ export async function mergeParts(parts: Part[], title = "Invoice"): Promise<Merg
 
 /** The signature boxes' top-left on the invoice's last page: bottom right, clear of the page edge (points, top-left origin). */
 export const signSpot = (page: { index: number; width: number; height: number }) => ({ page: page.index, x: page.width - 210, y: page.height - 130 });
+
+/** Zoho Books' "Authorized Signature" label: its page (0-based), left x and baseline y (PDF points, bottom-left origin). */
+export type SignLabel = { page: number; x: number; y: number; pageHeight: number };
+export type SignBox = { type: "Signature" | "Date" | "Name"; label: string; page: number; x: number; y: number; w: number; h: number };
+/** Where the label sits on our standard Zoho invoice (A4), for when it can't be found. */
+const STANDARD = { page: 0, x: 412.9, y: 117.9, pageHeight: 841.69 };
+
+/**
+ * The boxes as the owner placed them (20 Nov screenshot): signature, then date, then full name, stacked to the left of
+ * the "Authorized Signature" box, under the bank details, measured from the label so a longer invoice moves them along.
+ * Points, top-left origin (what Zoho Sign takes).
+ */
+export function signBoxes(label: SignLabel | null): SignBox[] {
+  const l = label ?? STANDARD;
+  const top = l.pageHeight - l.y; // the label's baseline, from the top
+  return [
+    { type: "Signature", label: "Signature", page: l.page, x: l.x - 203, y: top - 70, w: 125, h: 32 },
+    { type: "Date", label: "Date", page: l.page, x: l.x - 194, y: top - 33, w: 100, h: 14 },
+    { type: "Name", label: "Full name", page: l.page, x: l.x - 194, y: top - 17, w: 130, h: 14 },
+  ].map((b) => ({ ...b, x: Math.round(b.x), y: Math.round(b.y) })) as SignBox[];
+}
+
+/** Finds "Authorized Signature" in the invoice's own pages (the first `pages` of the merged PDF; the T&C page has none). */
+export async function findSignLabel(bytes: Uint8Array, pages: number): Promise<SignLabel | null> {
+  try {
+    const { getDocumentProxy } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(bytes));
+    for (let p = 1; p <= Math.min(pages, pdf.numPages); p++) {
+      const page = await pdf.getPage(p);
+      const items = (await page.getTextContent()).items as { str?: string; transform?: number[] }[];
+      const hit = items.find((it) => /authori[sz]ed\s+signat/i.test(it.str ?? ""));
+      if (hit?.transform) return { page: p - 1, x: hit.transform[4], y: hit.transform[5], pageHeight: page.getViewport({ scale: 1 }).height };
+    }
+  } catch (e) {
+    console.error(`[invoice-converter] reading the signature spot: ${e instanceof Error ? e.message : e}`);
+  }
+  return null;
+}
