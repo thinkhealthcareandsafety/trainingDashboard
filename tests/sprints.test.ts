@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boardColumns, decode, findProject, pickTeam, sprintsOf } from "@/lib/sprintsRules";
+import { boardColumns, commentHtml, commentsOf, decode, findProject, htmlText, pickTeam, sprintsOf } from "@/lib/sprintsRules";
 
 // Zoho Sprints on the dashboard (owner, 18 Nov). The answers below are Zoho Sprints' own API reference examples.
 
@@ -114,4 +114,24 @@ test("a task given to a member before their account matched a Zoho user follows 
   assert.deepEqual(ownerChanges(["1", "77"], ["1", "77"], new Set(["77"])), { add: ["77"], del: [] });
   assert.deepEqual(ownerChanges(["1"], ["1", "77"], new Set(["77"])), { add: [], del: [] });
   assert.deepEqual(ownerChanges(["77"], ["1"], new Set()), { add: ["77"], del: ["1"] });
+});
+
+// Comments (owner, 20 Nov): Zoho Sprints' notes answer, as read from the live board (I131), plus one added here.
+const prop = { pinnedTime: 18, notes: 1, updatedBy: 4, isPinned: 16, sourceItemId: 21, parentCommentId: 7, noteId: 0, childSeq: 9, updatedOn: 5, pinnedBy: 17, isPrivate: 22, createdOn: 3, addedVia: 14, shareType: 19, sourceItemLink: 20, hasAttach: 6, totalReply: 12, parentSeq: 8, totalReaction: 11, oEmbedData: 13, createdBy: 2, commentType: 15, reactions: 10 };
+const row = (id: string, html: string, by: string, at: string, parent: string | null = null) => [id, html, by, at, by, at, 0, parent, "1", 0, null, 0, 0, null, 0, null, false, "null", "-1", "-1", "", "", false];
+
+test("comments: Zoho's HTML as plain lines, oldest first, the writer's clean name; one added here shows its writer", () => {
+  assert.equal(htmlText("Contacted with Nisha&nbsp; ma'am<br/>so we did it .<br/>"), "Contacted with Nisha  ma'am\nso we did it .");
+  assert.equal(htmlText("<p><span>29 October 2026<br/></span>Worked on scraping.</span><br/></p><div><br/></div>"), "29 October 2026\nWorked on scraping.");
+  const mine = commentHtml("Jasmeet Singh", "Called <the> client\nSent quote & PO");
+  assert.equal(mine, "<b>Jasmeet Singh:</b> Called &lt;the&gt; client<br/>Sent quote &amp; PO");
+  const r = {
+    notesIds: ["n2", "n1", "n3"], notes_prop: prop, userDisplayName: { "57076000000002007": "Sumit Shah Shah" },
+    notesJObj: {
+      n1: row("n1", "Contacted with Nisha&nbsp; ma'am<br/>", "57076000000002007", "2026-11-13T06:26:02.483Z"),
+      n2: row("n2", mine, "57076000000002007", "2026-11-20T10:00:00.000Z"),
+      n3: row("n3", "a reply", "57076000000002007", "2026-11-20T11:00:00.000Z", "n1"),
+    },
+  };
+  assert.deepEqual(commentsOf(r).map((c) => [c.id, c.by, c.text]), [["n1", "Sumit Shah", "Contacted with Nisha  ma'am"], ["n2", "Jasmeet Singh", "Called <the> client\nSent quote & PO"]]);
 });

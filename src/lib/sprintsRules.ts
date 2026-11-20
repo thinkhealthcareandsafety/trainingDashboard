@@ -33,6 +33,8 @@ export type SprintCard = {
   sprintId: string; typeId: string; priorityId: string; ownerIds: string[]; start: string | null;
   /** Everyone on it (owner, 18 Nov): "z:<Zoho user>" from Zoho Sprints and "m:<member>" kept on the dashboard. */
   people?: string[];
+  /** Comments on it in Zoho Sprints (owner, 20 Nov: a comment section, "for example their work"). */
+  comments?: number;
 };
 /** What a task can be set to: item types, priorities, project users, tags, and the custom fields (label → UDF column). */
 export type SprintsMeta = {
@@ -91,6 +93,7 @@ export function boardColumns(statusResp: Record<string, unknown>, items: Record<
         // Past its end date and not completed (Zoho's own isOverDue counts too).
         overdue: it.isOverDue === true || (due !== null && new Date(due) < now && dateOf(it.completedDate) === null), sequence: Number(it.sequence) || 0,
         sprintId: str(it.sprintId), typeId: str(it.projItemTypeId), priorityId: str(it.projPriorityId), ownerIds, start: dateOf(it.startDate),
+        comments: Number(it.commentCount) || 0,
       };
       let col = byId.get(statusId);
       if (!col) { col = { id: statusId || "other", name: "Other", color: "#8a8a8e", cards: [] }; byId.set(col.id, col); cols.push(col); }
@@ -122,6 +125,42 @@ export function itemDetailOf(r: Record<string, unknown>): { description: string;
   const udf: Record<string, string> = {};
   for (const [k, v] of Object.entries(it)) if (/^UDF_/.test(k) && v !== null && v !== undefined && str(v) !== "-1") udf[k] = str(v);
   return { description: str(it.description), udf };
+}
+
+/*
+ * Comments (owner, 20 Nov: "add comment section in sprints so people can add everything in there, for example their
+ * work"): Zoho Sprints' own item comments (GET/POST …/item/{i}/notes/, text in `name`), read and added here. Zoho writes
+ * an API comment as the connected user (Admin), so one added here starts with its writer's name in bold, and that name
+ * is shown as the writer.
+ */
+export type SprintComment = { id: string; by: string; at: string; text: string };
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+/** Zoho's comment HTML as plain lines. */
+export function htmlText(html: string): string {
+  return String(html ?? "")
+    .replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li|h\d)>/gi, "\n").replace(/<li[^>]*>/gi, "• ").replace(/<[^>]+>/g, "")
+    .replace(/&(#\d+|#x[0-9a-f]+|\w+);/gi, (m, e: string) => (e[0] === "#" ? String.fromCodePoint(e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENTITIES[e.toLowerCase()] ?? m))
+    .replace(/[ \t\u00a0]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** A comment typed here, as Zoho's comment HTML, with the writer's name first. */
+export const commentHtml = (by: string, text: string) => `<b>${esc(by.trim())}:</b> ${esc(text.trim()).replace(/\r?\n/g, "<br/>")}`;
+const BY = /^\s*(?:<p>\s*)?<b>([^<:]{1,80}):<\/b>\s*/i;
+
+/** A notes answer → comments, oldest first; the writer from our bold name, else Zoho's user (clean name). */
+export function commentsOf(r: Record<string, unknown>, people: SprintPerson[] = []): SprintComment[] {
+  const names = (r.userDisplayName ?? {}) as Record<string, string>;
+  const known = new Map(people.filter((p) => p.zohoId).map((p) => [p.zohoId!, p.name]));
+  return decode(r.notesIds, r.notesJObj, r.notes_prop)
+    .filter((n) => str(n.parentCommentId) === "" || str(n.parentCommentId) === "-1" || n.parentCommentId === null)
+    .map((n) => {
+      const html = str(n.notes);
+      const ours = html.match(BY);
+      const u = str(n.createdBy);
+      return { id: n.id, by: ours ? ours[1].trim() : known.get(u) ?? cleanName(names[u] ?? ""), at: dateOf(n.createdOn) ?? "", text: htmlText(ours ? html.slice(ours[0].length) : html) };
+    })
+    .sort((a, b) => a.at.localeCompare(b.at));
 }
 
 /** A datetime-local value ("2026-11-20T09:30") as Zoho Sprints wants it (India time: "2026-11-20T09:30:00+05:30"). */

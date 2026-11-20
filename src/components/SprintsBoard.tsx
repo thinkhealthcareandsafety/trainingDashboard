@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { SprintCard, SprintColumn, SprintsBoard as Board, SprintsMeta } from "@/lib/sprintsRules";
+import type { SprintCard, SprintColumn, SprintComment, SprintsBoard as Board, SprintsMeta } from "@/lib/sprintsRules";
 import { localDate } from "@/lib/sprintsRules";
 import { Avatar, Skeleton, btn } from "./ui";
 
@@ -172,7 +172,7 @@ export function SprintsBoard() {
                         {hasPr && <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-ink-2"><span className="size-1.5 rounded-full" style={{ background: pr!.color }} />{pr!.name}</span>}
                       </div>
                       <p className={`mt-1.5 line-clamp-3 text-[13.5px] font-medium leading-snug ${done ? "text-ink-2" : "text-ink"}`}>{card.name}</p>
-                      {(card.owners.length > 0 || card.due) && (
+                      {(card.owners.length > 0 || card.due || Boolean(card.comments)) && (
                         <div className="mt-2.5 flex items-center gap-2">
                           {card.owners.length > 0 && (
                             <span className="flex min-w-0 items-center gap-1.5" title={card.owners.join(", ")}>
@@ -181,6 +181,11 @@ export function SprintsBoard() {
                             </span>
                           )}
                           <span className="flex-1" />
+                          {Boolean(card.comments) && (
+                            <span className="num inline-flex shrink-0 items-center gap-1 text-[11.5px] font-medium text-muted" title={`${card.comments} comment${card.comments === 1 ? "" : "s"}`}>
+                              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5z" /></svg>{card.comments}
+                            </span>
+                          )}
                           {card.due && <span className={`num shrink-0 rounded-full px-2 py-0.5 text-[11.5px] font-medium ${card.overdue && !done ? "bg-high-bg text-high" : "bg-surface-2 text-muted"}`}>{day(card.due)}</span>}
                         </div>
                       )}
@@ -317,6 +322,7 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved 
             <div className={row}><label className={lab} htmlFor="t-pri">Priority</label><select id="t-pri" className={field} value={t.priorityId} onChange={(e) => set("priorityId", e.target.value)}>{meta.priorities.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
             <div className={row}><label className={lab} htmlFor="t-start">Start Date</label><input id="t-start" type="datetime-local" className={field} value={t.start} onChange={(e) => set("start", e.target.value)} /></div>
             <div className={row}><label className={lab} htmlFor="t-end">End Date</label><input id="t-end" type="datetime-local" className={field} value={t.end} onChange={(e) => set("end", e.target.value)} /></div>
+            {editing && <Comments sprintId={sprintId} itemId={card!.id} />}
           </div>
         )}
         {error && <p className="mx-6 mb-2 rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
@@ -339,6 +345,63 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved 
 }
 
 /** Zoho Sprints' one-time connection (again when new permissions were added): Admin pastes a code from the Zoho API console. */
+/**
+ * Comments (owner, 20 Nov: "so people can add everything in there, for example their work"): the task's comments in Zoho
+ * Sprints, and a box to add one. A comment saves on its own (no need for Save) and goes to Zoho under the writer's name.
+ */
+function Comments({ sprintId, itemId }: { sprintId: string; itemId: string }) {
+  const [list, setList] = useState<SprintComment[] | null>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    fetch(`/api/sprints?item=${itemId}&sprint=${sprintId}&comments=1`, { cache: "no-store" }).then((r) => r.json())
+      .then((d) => { if (d.error) { setError(d.error); setList([]); } else setList(d.comments ?? []); })
+      .catch(() => { setError("Couldn't read the comments"); setList([]); });
+  }, [itemId, sprintId]);
+  const add = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true); setError("");
+    const r = await post({ action: "comment", sprint: sprintId, item: itemId, text });
+    setBusy(false);
+    if (r.error) return setError(r.error);
+    setText(""); setList(r.comments ?? []);
+    requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  };
+  const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  return (
+    <section className="border-t border-line pt-4" aria-label="Comments">
+      <h3 className="mb-3 flex items-baseline gap-2 text-[14px] font-semibold text-ink">Comments{list && list.length > 0 && <span className="num text-[12.5px] font-medium text-muted">{list.length}</span>}</h3>
+      {!list ? <p className="flex items-center gap-2 text-[13px] text-muted"><Spinner />Reading comments…</p> : (
+        <ul className="space-y-3">
+          {list.length === 0 && <li className="text-[13px] text-faint">No comments yet. Add what you did, a note or an update.</li>}
+          {list.map((c) => (
+            <li key={c.id} className="flex gap-2.5">
+              <Avatar name={c.by || "?"} />
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]"><span className="font-semibold text-ink">{c.by || "Someone"}</span>{c.at && <span className="num text-faint">{when(c.at)}</span>}</p>
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-ink-2">{c.text}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div ref={endRef} className="mt-3">
+        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a comment: your work today, an update, a question…" aria-label="New comment"
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); add(); } }}
+          className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px] text-ink" />
+        {error && <p className="mt-1.5 rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
+        <div className="mt-1.5 flex items-center gap-2">
+          <span className="hidden text-[12px] text-faint sm:inline">Ctrl + Enter to add</span>
+          <span className="flex-1" />
+          <button type="button" disabled={busy || !text.trim()} onClick={add} className={btn.primary}>{busy ? <><Spinner />Adding…</> : "Add comment"}</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Connect({ canConnect, scopes, onDone, again = false }: { canConnect: boolean; scopes: string; onDone: () => void; again?: boolean }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);

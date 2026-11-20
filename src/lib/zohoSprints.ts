@@ -4,7 +4,7 @@ import { clientsToTry, tokenRequest } from "./zohoOAuth";
 import { booksClient } from "./quotations";
 import {
   type SprintsBoard, type SprintsMeta, type SprintView, boardColumns, customFieldsOf, decode, findProject, itemDetailOf, itemModuleOf,
-  pickTeam, prioritiesOf, sprintsOf, tagsOf, typesOf, usersOf, zohoDate, peopleOf, taskPeople, ownerChanges, zohoOwners, STAND_IN_EMAIL, type SprintPerson,
+  pickTeam, prioritiesOf, commentsOf, commentHtml, cleanName, type SprintComment, sprintsOf, tagsOf, typesOf, usersOf, zohoDate, peopleOf, taskPeople, ownerChanges, zohoOwners, STAND_IN_EMAIL, type SprintPerson,
 } from "./sprintsRules";
 import { isAdmin } from "./roles";
 
@@ -384,4 +384,29 @@ export async function taskDetail(sprintId: unknown, itemId: unknown): Promise<{ 
     get(x.c, `${x.p}/sprints/${s}/item/${i}/tags/`, { action: "itemassociatedtagIds" }).catch(() => ({} as Record<string, unknown>)),
   ]);
   return { ...itemDetailOf(d), tags: ids(tg.associateTagIds) };
+}
+
+/** A task's comments in Zoho Sprints (owner, 20 Nov), oldest first. */
+export async function taskComments(sprintId: unknown, itemId: unknown): Promise<SprintComment[]> {
+  const s = okId(sprintId), i = okId(itemId);
+  if (!s || !i) throw new Error("Unknown task");
+  const x = await ctx();
+  const meta = await sprintsMeta(x);
+  const out: SprintComment[] = [];
+  for (const page of await allPages(x.c, `${x.p}/sprints/${s}/item/${i}/notes/`, {})) out.push(...commentsOf(page, meta.people ?? []));
+  return out.filter((c, k) => out.findIndex((y) => y.id === c.id) === k).sort((a, b) => a.at.localeCompare(b.at));
+}
+
+/** A comment added here → Zoho Sprints, as the connected user, starting with the writer's name. */
+export async function addComment(sprintId: unknown, itemId: unknown, text: unknown, me: { id: string; name: string }): Promise<void> {
+  const s = okId(sprintId), i = okId(itemId);
+  const body = String(text ?? "").trim();
+  if (!s || !i) throw new Error("Unknown task");
+  if (!body) throw new Error("Write something first.");
+  if (body.length > 10000) throw new Error("That comment is too long (10,000 letters at most).");
+  const x = await ctx();
+  // Their full, clean name as the board shows it ("Sumit Shah", not the login's "Sumit").
+  const by = (await sprintsMeta(x)).people?.find((p) => p.memberId === me.id)?.name || cleanName(me.name) || "Someone";
+  await call(x.c, "POST", `${x.p}/sprints/${s}/item/${i}/notes/`, { name: commentHtml(by, body) });
+  after();
 }
