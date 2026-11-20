@@ -21,7 +21,9 @@ const coll = (name: string) => {
   return {
     find: () => {
       const toArray = async () => [...m.values()].map((d) => structuredClone(d));
-      return { toArray, limit: () => ({ toArray }) };
+      // sort ignores the order (insertion order is kept); enough for listing.
+      const chain = { toArray, limit: () => chain, sort: () => chain };
+      return chain;
     },
     // readAll's fingerprint: no answer → it reads the collection, as with a real failure.
     aggregate: () => ({ toArray: async () => [] }),
@@ -49,9 +51,10 @@ const coll = (name: string) => {
     },
     deleteOne: async (q: { _id: string }) => { m.delete(q._id); },
     insertOne: async (doc: Partial<Doc>) => { const _id = doc._id ?? `id${m.size + 1}`; m.set(_id, structuredClone({ ...doc, _id })); return { insertedId: _id }; },
-    // /api/store's writes: replaceOne (upsert) and deleteOne by _id.
-    bulkWrite: async (ops: ({ replaceOne?: { filter: { _id: string }; replacement: Doc }; deleteOne?: { filter: { _id: string } } })[]) => {
+    // /api/store's writes: replaceOne (upsert) and deleteOne by _id; updateOne ($set, upsert) for the BOQ memory.
+    bulkWrite: async (ops: ({ replaceOne?: { filter: { _id: string }; replacement: Doc }; deleteOne?: { filter: { _id: string } }; updateOne?: { filter: { _id: string }; update: { $set?: Record<string, unknown> } } })[]) => {
       for (const o of ops) {
+        if (o.updateOne) m.set(o.updateOne.filter._id, structuredClone({ ...(m.get(o.updateOne.filter._id) ?? {}), ...(o.updateOne.update.$set ?? {}), _id: o.updateOne.filter._id }));
         if (o.replaceOne) m.set(o.replaceOne.filter._id, structuredClone({ ...o.replaceOne.replacement, _id: o.replaceOne.filter._id }));
         if (o.deleteOne) m.delete(o.deleteOne.filter._id);
       }
