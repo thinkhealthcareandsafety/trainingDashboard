@@ -2,41 +2,65 @@
 
 ## Start of the next session (35) — read this block first
 
-_Written Thu 19 Nov 2026, during session 34, for the next Claude Code session and the owner (Sumit)._
+_Written Fri 20 Nov 2026, end of session 34, for the next Claude Code session and the owner (Sumit)._
 
-**State.** **Live = `f3e081c`** (pushed 19 Nov). Push only when the owner says "push": `git push origin master` from the
-**Bash tool**, then check Vercel (`curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/status`)
+**State.** **Live = `c2862c2`** on work.thinkhealth.in, training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel
+`-xfwl` success, sites 200; the other Vercel project "training-dashboard" stays pending — ignore it). Nothing local except
+this handoff. Push only when the owner says "push": `git push origin master` from the **Bash tool**, then check
+`curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/statuses` (the `-xfwl` entry)
 and curl the three sites.
 
-**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master`; `npm test` (**369** pass);
+**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master`; `npm test` (**370** pass);
 `npx tsc --noEmit -p tsconfig.json`.
 
-**First: ask the owner.**
-1. **Did the PDF summary arrive** (7 pm, or "Email the report now")? The email is now the date + headline with the summary as a
-   PDF of tables (`summaryTables.ts` → `summaryPdf.ts`, pdf-lib, Helvetica so "Rs" not ₹). If the PDF can't be attached,
-   `sendMail(… needAttachments)` throws `NOT_ATTACHED` and the old HTML body (`summaryEmail`) goes instead — check Vercel logs for
-   `[overview report]` / `[summary]`. Never run on real Zoho yet.
-2. **GST year fill.** GST = every invoice's / bill's `taxes` since 1 April (`gst.ts`, rate from the tax name "CGST9"), read once
-   and kept in `salesDetails` / `billDetails` (zohoDocs reused). 469 FY invoices, ~120 kept on 19 Nov + most bills unread →
-   70 a run (this month's first), so the year figure is low for ~a week and the PDF says "N not read yet". Offered the owner a
-   one-off fill (~600 reads, ~10 min, ≤60/min for Zoho's 100/min limit, writes only our copies); no answer yet — ask.
+**First: ask the owner (one AskUserQuestion round).**
+1. **Did the PDF summary arrive** at 7 pm on 19 Nov (to sshah@)? One was sent by hand to thinkhealth.directory@gmail.com on
+   19 Nov (first real run: PDF attached, no error). Ask if any table looks wrong (AED section, GST rates, "of which overdue"
+   — fixed in `d1234cb`, Zoho's spelling is `Status.OverDue`). Logs: `[overview report]`, `[summary]`.
+2. **GST year fill.** GST = each invoice's / bill's `taxes` since 1 April (`gst.ts`), read once and kept (`salesDetails` /
+   `billDetails`, zohoDocs reused), 70 a run with this month's first — the FY figure is low for about a week and the PDF says
+   "N not read yet". Offered a one-off fill (~600 reads, ~10 min, ≤60/min for Zoho's 100/min limit, writes only our copies).
+   No answer yet.
+3. **Jasmeet's 24 Sprints tasks** (4 open: I150, I63, I148, I183; 20 done). Only 4 show Jasmeet: 11 are owned in Zoho by
+   thinkhealth.directory (now shown as "Thinkhealth"), 9 have no owner (only "Jasmeet - …" in the title). Offered: put Jasmeet
+   on all (sprintAssign + hello@ in Zoho), drop or keep thinkhealth.directory, open only or done too — dry run first.
+4. **45 older dashboard-only Sprints tasks** (people without a Zoho user): add hello@ in Zoho now (dry run first) or let it
+   happen on each edit? No answer yet.
+5. **Next.js security notice** (next dev stops once to show it): offer `next upgrade --agent=security` in a separate git
+   worktree; the owner decides. Still open: Sprints priority shown as a label only now (the 3px bar is gone).
 
-**Session 34 in short (19 Nov), all live:**
-- Owner's answers: summary email (body version) arrived, every section fine on real Zoho. **Arti / Vaibhavi: Quotations view
-  only** (`viewOnly` in `ACCESS`; `canQuote` = page and not view only; the server lets them read the list, `view`, `pdf` only).
-  Shreya every board, Arti / Vaibhavi all Reports — confirmed as built. Jasmeet's account exists ("Jasmeet singh", owvnq0x6),
-  first-name matched to Zoho Sprints' thinkhealth.directory user; a task given to a member before the match now follows them
-  (`taskPeople`) and an edit keeping them makes them a Zoho owner (`ownerChanges`).
-- **Summary = PDF of tables** (owner: "PDF only"): AEDs, quotations / invoices (by person, biggest), pace, **GST**, payments,
-  outstanding, stock, new customers, trainings, renewals. Tables: border, column lines, shaded head and totals, a short table
-  (≤14 rows) kept on one page, a section's heading kept with its first table, footer + page number on every page.
-- **GST summary** (owner's layout, side by side): a table for **this month** and one for **this FY** (in the daily summary too);
-  rows IGST 5/18/28, CGST 2.5/9/14, SGST 2.5/9/14 (+ any other rate), Total = IGST + CGST + SGST; columns Purchase (bills),
-  Sale (invoices, not draft / void), Total = sale − purchase. Credit notes not taken off.
+**Session 34 in short (19–20 Nov), all live:**
+- **Permissions (owner's answers):** Arti / Vaibhavi see Quotations **view only** (`viewOnly` in `ACCESS`, `canQuote` = page
+  and not view only; the server lets them read the list, `view` and `pdf` only). Shreya every board, Arti / Vaibhavi all
+  Reports — as built.
+- **Summary email = PDF of tables** (owner: "PDF only"): the email has the date and headline; `summaryTables.ts` (facts →
+  sections of tables) → `summaryPdf.ts` (pdf-lib, Helvetica, "Rs" for ₹, drawn arrows). Every table: border, column lines,
+  shaded heading and totals; a table of ≤14 rows stays on one page; a heading stays with its first table; footer + page
+  number on each page. If the PDF won't attach, `sendMail({ needAttachments })` throws `NOT_ATTACHED` and the old HTML body
+  goes instead.
+- **GST summary** (owner's layout, side by side): tables for **this month** and **this FY**, in the daily summary too. Rows
+  IGST 5/18/28, CGST 2.5/9/14, SGST 2.5/9/14 (+ any other rate after its tax), Total = IGST + CGST + SGST; columns Purchase
+  (bills), Sale (invoices, not draft / void), Total = sale − purchase. Rate from Zoho's tax name ("CGST9"). Credit notes not
+  taken off.
+- **Sprints:** people without their own Zoho Sprints user (Anuj, Anushka, Prashant, Vaibhavi, **Jasmeet** — no longer
+  thinkhealth.directory) are written to Zoho as **hello@thinkhealth.in** (= Priyanka's Zoho user, `meta.standIn`); the
+  dashboard keeps the real person (`sprintAssign`, `standIn: true` hides hello@ on the card; picking Priyanka keeps her —
+  `zohoOwners`). A new task with nobody picked goes to its creator. Board tidied (app buttons, status dot + count pill,
+  cards: type + number, priority right, 3-line title, initials + first names, due never red in Done). Older: a task given
+  to a member before their account matched a Zoho user follows them (`taskPeople`, `ownerChanges`).
+- Zoho Sprints users (19 Nov): sshah (Sumit), hello@ (Priyanka), logistics@ (Arti), sales3@ (Pranjal), sales@ (Ashish),
+  shikhadixit@, digital@ (Shreya), accounts.team@ (Nikita); client users vaibhav.thinkhealth, sagar.thinkhealth,
+  thinkhealth.directory (all @gmail.com).
 
-**Traps learned in session 34:** Node's type-stripping test runner rejects constructor parameter properties (`private x`);
-bash heredocs with backticks / `${}` break — write node patch scripts with the Write tool; scratch test files can live in the
-scratchpad and run with `--import ./tests/register.mjs` (`@/` resolves to src).
+**Traps learned in session 34:**
+- Node's type-stripping test runner rejects constructor parameter properties (`private x`).
+- Bash heredocs with backticks / `${}` break: write node patch scripts with the Write tool.
+- Scratch scripts against the real DB and Zoho: a loader in the scratchpad (`register` hook: `@/` → src, extensionless →
+  `.ts`, `server-only` → empty, env from `.env.local`), run from the repo root with `NODE_PATH=$PWD/node_modules`. Read
+  only unless the owner asked; a Windows "Assertion failed … async.c" line at exit is harmless.
+- Staff UI previews: a temporary `src/app/(zz)/` root layout + page with mocked fetch, screenshot with
+  `scripts/cdp-shot.mjs`; delete it (and `.next/dev/types`) before committing.
+- Zoho Books invoice filter is `Status.OverDue` ("Overdue" is refused).
 
 ---
 
