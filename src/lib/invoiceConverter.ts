@@ -259,12 +259,14 @@ export async function startInvoiceSign(invoiceId: string, signer: { name: string
  * send it myself … no need to save"): the merged PDF as a Zoho Sign draft with the signature, date and full name boxes
  * where the owner puts them; nothing kept here, nothing sent, no API credits used. Returns Zoho Sign's page for it.
  */
-export async function draftInvoiceSign(invoiceId: string, signer: { name: string; email: string } | null): Promise<{ url: string; parts: string[]; skipped: string[] }> {
+export async function draftInvoiceSign(invoiceId: string): Promise<{ url: string; parts: string[]; skipped: string[] }> {
   const { findSignLabel, signBoxes } = await import("./pdfMerge");
   const { createDraft } = await import("./zohoSign");
   const { merged, names, number, customer } = await mergedFor(invoiceId);
   const boxes = signBoxes(await findSignLabel(merged.bytes, merged.firstPages));
-  const d = await createDraft(merged.bytes, { name: `Invoice ${number} · ${customer}`.slice(0, 200), fileName: `Invoice ${number} merged.pdf`, signer, boxes });
+  // Zoho Sign refuses some characters in names ("·" was refused live, 20 Nov): letters, digits, spaces and - _ . ( ) only.
+  const plain = (s: string) => s.replace(/[^\p{L}\p{N} _.()-]+/gu, " ").replace(/\s+/g, " ").trim();
+  const d = await createDraft(merged.bytes, { name: plain(`Invoice ${number} - ${customer}`).slice(0, 200), fileName: `${plain(`Invoice ${number} merged`)}.pdf`, boxes });
   return { url: d.url, parts: names, skipped: merged.skipped };
 }
 

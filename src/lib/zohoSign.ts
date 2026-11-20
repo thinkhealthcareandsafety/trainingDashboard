@@ -111,35 +111,30 @@ export async function startSigning(pdf: Uint8Array, opts: { name: string; fileNa
 /** Zoho Sign's own web page for a request (a draft opens ready to edit and send). */
 export const signWebUrl = (requestId: string) => `${new URL(SIGN_API).origin}/zs#/request/new/${requestId}`;
 
-/** The Zoho Sign account's user, as the draft's signer when the person has no signer details of their own. */
-async function accountUser(c: Conn): Promise<{ name: string; email: string }> {
-  const u = ((await sign(c, "GET", "/accounts")).accounts as { users?: { first_name?: string; last_name?: string; user_email?: string }[] } | undefined)?.users?.[0];
-  if (!u?.user_email) throw new Error("Zoho Sign didn't say who its user is.");
-  const first = String(u.first_name ?? "").trim(), last = String(u.last_name ?? "").trim();
-  return { name: !last || first.toLowerCase().endsWith(last.toLowerCase()) ? first || last : `${first} ${last}`, email: u.user_email };
-}
-
 /**
- * Merge and draft (owner, 20 Nov: "only Merge and Draft … just don't send, I can send it myself"): the PDF as a Zoho
- * Sign DRAFT with the signature, full name and date boxes placed — never submitted, so no API credits are used (only
- * sending through the API needs them; drafts were checked on the Zoho One plan, 20 Nov). The owner opens it in Zoho
- * Sign and signs / sends it there.
+ * Merge and draft (owner, 20 Nov: "I want to use Zoho Sign only … use the fields that are already there"): the PDF as a
+ * Zoho Sign "Sign yourself" DRAFT (self_sign) with Zoho's own Signature, Sign date and Full name boxes placed on the
+ * owner's signing slot, so in Zoho they show his saved signature, the day and his name and he just finishes it there.
+ * Never signed or sent through the API — that needs Zoho Sign credits (both a send and a self-sign /sign call were
+ * refused, 20 Nov); creating the draft and placing the boxes isn't. The Zoho Sign user is the signer (self-sign).
  */
-export async function createDraft(pdf: Uint8Array, opts: { name: string; fileName: string; signer?: { name: string; email: string } | null; boxes: SignBox[] }): Promise<{ requestId: string; url: string }> {
+export async function createDraft(pdf: Uint8Array, opts: { name: string; fileName: string; boxes: SignBox[] }): Promise<{ requestId: string; url: string }> {
   const c = await conn();
-  const who = opts.signer ?? (await accountUser(c));
-  const action = { action_type: "SIGN", recipient_name: who.name, recipient_email: who.email, signing_order: 0, verify_recipient: false };
-  const made = await sign(c, "POST", "/requests", { file: { bytes: pdf, name: opts.fileName }, data: { requests: { request_name: opts.name, is_sequential: true, expiration_days: 15, email_reminders: false, actions: [action] } } });
-  const req = made.requests as { request_id: string; actions: { action_id: string }[]; document_ids: { document_id: string }[] };
+  const made = await sign(c, "POST", "/requests", { file: { bytes: pdf, name: opts.fileName }, data: { requests: { request_name: opts.name, self_sign: true } } });
+  const req = made.requests as { request_id: string; actions?: { action_id: string; recipient_email?: string; recipient_name?: string }[]; document_ids: { document_id: string }[] };
+  const me = req.actions?.[0];
   const documentId = req.document_ids[0].document_id;
-  // Date as the owner writes it: 18/11/2026.
+  if (!me) { console.error(`[zoho sign] self-sign draft ${req.request_id} came back without its signer`); return { requestId: req.request_id, url: signWebUrl(req.request_id) }; }
+  const types = new Map((((await sign(c, "GET", "/fieldtypes")).field_types as { field_type_name: string; field_type_id: string; field_category: string }[] | undefined) ?? []).map((f) => [f.field_type_name, f]));
+  // Zoho's "Date" box is the sign date (filled with the day it's signed); shown as the owner writes it: 18/11/2026.
   const fields = opts.boxes.map((b) => ({
-    field_type_name: b.type, field_name: b.label, field_label: b.label, document_id: documentId, page_no: b.page,
+    field_type_id: types.get(b.type)?.field_type_id, field_type_name: b.type, field_category: types.get(b.type)?.field_category, action_id: me.action_id,
+    field_name: b.label, field_label: b.label, document_id: documentId, page_no: b.page,
     x_coord: b.x, y_coord: b.y, abs_width: b.w, abs_height: b.h, is_mandatory: true, ...(b.type === "Date" ? { date_format: "dd/MM/yyyy" } : {}),
   }));
-  // The boxes on the draft (PUT, not submit): if Zoho refuses them the draft is still there to place them by hand.
+  // The boxes on the draft (PUT, not sign): if Zoho refuses them the draft is still there to place them by hand.
   await sign(c, "PUT", `/requests/${req.request_id}`, {
-    data: { requests: { actions: [{ ...action, action_id: req.actions[0].action_id, fields }] } },
+    data: { requests: { self_sign: true, actions: [{ action_id: me.action_id, action_type: "SIGN", recipient_email: me.recipient_email, recipient_name: me.recipient_name, fields }] } },
   }).catch((e: Error) => console.error(`[zoho sign] boxes on draft ${req.request_id}: ${e.message}`));
   return { requestId: req.request_id, url: signWebUrl(req.request_id) };
 }
