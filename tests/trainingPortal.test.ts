@@ -148,7 +148,8 @@ test("QR join: the right key lets people in; the same phone gets their page back
   const [t] = await trainingsFor(RIYA);
   assert.deepEqual(await joinInfo("QT-1", t.joinKey), { training: "CPR & AED Training", customer: "The Grand", coordinator: "Riya Mehta", closed: false, notYet: false });
   assert.equal(await joinInfo("QT-1", "wrong-key-123"), null);
-  const a = await join("QT-1", t.joinKey, { name: "Aman Shah", phone: "9876543210" });
+  assert.equal(((await join("QT-1", t.joinKey, { name: "Aman Shah", phone: "9876543210" })) as { status: number }).status, 400); // no email: refused (21 Nov)
+  const a = await join("QT-1", t.joinKey, { name: "Aman Shah", phone: "9876543210", email: "aman@example.com" });
   assert.ok("th" in a && !a.existed);
   const again = await join("QT-1", t.joinKey, { name: "Aman S", phone: "+91 98765 43210" });
   assert.ok("th" in again && again.existed && "th" in a && again.th === a.th);
@@ -182,7 +183,7 @@ test("routes: the coordinator's actions need their session; join and the partici
   const [t] = await trainingsFor(RIYA);
   const info = await joinGet(new Request(`http://x/api/portal/join?n=QT-1&k=${t.joinKey}`));
   assert.equal(info.status, 200);
-  const joined = (await (await joinPost(new Request("http://x/api/portal/join", { method: "POST", body: JSON.stringify({ n: "QT-1", k: t.joinKey, name: "Neha", phone: "9876543211" }) }))).json()) as { th: string; token: string };
+  const joined = (await (await joinPost(new Request("http://x/api/portal/join", { method: "POST", body: JSON.stringify({ n: "QT-1", k: t.joinKey, name: "Neha", phone: "9876543211", email: "neha@example.com" }) }))).json()) as { th: string; token: string };
   assert.equal(joined.th, "TH002");
   const page = (await (await joinGet(new Request(`http://x/api/portal/join?n=QT-1&th=${joined.th}&p=${joined.token}`))).json()) as { page: { name: string }; content: { social: unknown[] } };
   assert.equal(page.page.name, "Neha");

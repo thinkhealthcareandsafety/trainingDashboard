@@ -127,7 +127,7 @@ export function ProposeForm({ t, onSaved, onCancel }: { t: ToolTraining; onSaved
 
 /* ---------------- Steps 6 and 7: the attendee list and the QR link ---------------- */
 
-const SOURCE: Record<Row["source"], string> = { typed: "Typed", excel: "Excel", qr: "QR", walkin: "Walk-in", coordinator: "Coordinator" };
+const SOURCE: Record<Row["source"], string> = { typed: "Added by you", excel: "From your file", qr: "Joined by link", walkin: "Joined on the day", coordinator: "Coordinator" };
 const dayShort = (d: string) => fmtProposalDate({ date: d, time: "" }).replace(/ \d{4}$/, "");
 /** "4 Dec": the day on a several-day training's stamp. */
 const stampDay = (d: string) => dayShort(d).replace(/^\w+, /, "");
@@ -218,7 +218,7 @@ export function Participants({ t, adding, onCount, onLive, openTab, meTh }: { t:
           <ul className="divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
             <li className="flex items-center justify-between gap-3 bg-ground px-3.5 py-2">
               <span className="text-[13.5px] font-semibold text-ink-2">
-                {att.on && att.days.length ? <>Attendance{att.days.length > 1 ? <span className="num font-normal text-muted"> · {att.days.map(dayShort).join(" · ")}</span> : ""}</> : "The list, in the order people were added"}
+                {att.on && att.days.some((d) => d <= today) ? <>Attendance{att.days.length > 1 ? <span className="num font-normal text-muted"> · {att.days.map(dayShort).join(" · ")}</span> : ""}</> : "The list, in the order people were added"}
               </span>
               <button type="button" className={linkBtn} onClick={download}>Download</button>
             </li>
@@ -232,7 +232,7 @@ export function Participants({ t, adding, onCount, onLive, openTab, meTh }: { t:
                 </span>
                 {/* A mark per training day (owner, 13 Nov): live; the coordinator can tick a day that has come. Owner, 17 Nov: a
                     present day is a green neon tick (the day's date under it when there are several days), no PRESENT word. */}
-                {att.on && att.days.length > 0 && (
+                {att.on && att.days.some((d) => d <= today) && (
                   <span className="flex shrink-0 gap-1.5">
                     {att.days.map((d) => {
                       const here = r.present.includes(d);
@@ -393,7 +393,7 @@ export function AttendQr({ id, number, title, attendKey, onNew, big = false, chi
           <a className={linkBtn} href={whatsapp} target="_blank" rel="noopener noreferrer">Share on WhatsApp</a>
           <button type="button" className={linkBtn} onClick={print}>Print</button>
           <button type="button" className={linkBtn} onClick={png}>Download</button>
-          <button type="button" className={`${linkBtn} !text-muted`} onClick={renew} disabled={busy}>{busy ? "Making a new QR…" : "New QR"}</button>
+          {/* Owner, 21 Nov: New QR (it stops the printed one) tucked under More, away from Print. */}<details className="relative"><summary className={`${linkBtn} !text-muted cursor-pointer list-none`}>More</summary><button type="button" className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-lg bg-surface px-3 py-2 text-[14px] font-semibold text-danger shadow-[0_6px_18px_rgb(2_40_60/0.18)] ring-1 ring-line" onClick={renew} disabled={busy}>{busy ? "Making a new QR…" : "Make a new QR (the old one stops working)"}</button></details>
         </div>
       </div>
     ) : (
@@ -409,7 +409,7 @@ export function AttendQr({ id, number, title, attendKey, onNew, big = false, chi
           <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1.5 sm:justify-start">
             <button type="button" className={linkBtn} onClick={print}>Print</button>
             <button type="button" className={linkBtn} onClick={png}>Download</button>
-            <button type="button" className={`${linkBtn} !text-muted`} onClick={renew} disabled={busy}>{busy ? "Making a new QR…" : "New QR"}</button>
+            {/* Owner, 21 Nov: New QR (it stops the printed one) tucked under More, away from Print. */}<details className="relative"><summary className={`${linkBtn} !text-muted cursor-pointer list-none`}>More</summary><button type="button" className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-lg bg-surface px-3 py-2 text-[14px] font-semibold text-danger shadow-[0_6px_18px_rgb(2_40_60/0.18)] ring-1 ring-line" onClick={renew} disabled={busy}>{busy ? "Making a new QR…" : "Make a new QR (the old one stops working)"}</button></details>
           </div>
         </div>
       </div>

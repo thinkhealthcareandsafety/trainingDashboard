@@ -419,6 +419,8 @@ export async function join(number: unknown, key: unknown, raw: unknown): Promise
   const have = await peopleOf(j.t._id);
   const already = have.find((x) => x.phone === p.phone);
   if (already) return { th: already._id, token: already.token, name: already.name, existed: true };
+  // Everyone gives an email (owner, 17 Nov; the join page too, 21 Nov): the certificate is sent there.
+  if (!p.email) return { error: "Add your email: your certificate is sent there after the training.", status: 400 };
   if (have.length >= MAX_PEOPLE) return { error: "This training's list is full. Please speak to your training coordinator.", status: 409 };
   const [doc] = await insertPeople(j.t._id, [p], "qr");
   return { th: doc._id, token: doc.token, name: doc.name, existed: false };

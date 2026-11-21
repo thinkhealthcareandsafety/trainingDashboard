@@ -22,14 +22,13 @@ const OFFLINE = "Couldn't reach Think Health. Check your connection and try agai
 const Check = () => <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M2.5 6.3l2.3 2.3 4.7-5" /></svg>;
 const Warn = () => <svg viewBox="0 0 20 20" fill="none" aria-hidden><path d="M10 2.5 18 17H2L10 2.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M10 8v4M10 14.5v.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
 
-export function QuizScreen({ number, th, token, name, onClose, onReport }: { number: string; th: string; token: string; name: string; onClose: () => void; onReport?: (save: boolean) => void }) {
+export function QuizScreen({ number, th, token, name, onClose, onReport, answers: showAnswers = false }: { number: string; th: string; token: string; name: string; onClose: () => void; onReport?: (save: boolean) => void; answers?: boolean }) {
   const [data, setData] = useState<QuizData | null | undefined>(undefined);
   const [error, setError] = useState("");
   const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [step, setStep] = useState(-1); // -1 intro, 0..n-1 questions, n review
   const [busy, setBusy] = useState(false);
-  const [review, setReview] = useState(false);
-  const [pulse, setPulse] = useState(false);
+  const [review, setReview] = useState(showAnswers);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const draftKey = `th_quiz_${number}_${th}`;
 
@@ -74,12 +73,9 @@ export function QuizScreen({ number, th, token, name, onClose, onReport }: { num
   };
   const pick = (i: number, o: number) => {
     setAnswers((a) => a.map((x, k) => (k === i ? o : x)));
-    setPulse(true); setTimeout(() => setPulse(false), 420);
     setError("");
     // No jumping on (owner, 16 Nov: "let me choose, then I can press Next on my own").
   };
-  // Questions open in order: answered ones, and the first one still to answer (owner, 16 Nov: Next only after choosing).
-  const reachable = (i: number) => { const gap = answers.findIndex((a) => a === null); return gap < 0 || i <= gap; };
   const submit = async () => {
     if (done < n) { setError(`Answer all ${n} questions first: ${n - done} left.`); return; }
     setBusy(true); setError("");
@@ -104,11 +100,9 @@ export function QuizScreen({ number, th, token, name, onClose, onReport }: { num
           </div>
           <h2 className="qz-complete-title" ref={headingRef} tabIndex={-1}>Quiz complete</h2>
           <p className="qz-complete-sub">{name.split(" ")[0]}, here&apos;s how you did{r.tries > 1 ? ` on try ${r.tries}` : ""}.</p>
-          <div className="qz-stats">
-            <div className="qz-stat"><span className="qz-stat-val tabular">{r.points}</span><span className="qz-stat-label">of {r.max} points</span></div>
-            <div className="qz-stat"><span className="qz-stat-val tabular">{r.pct}%</span><span className="qz-stat-label">{r.correct} of {r.total} right</span></div>
-            <div className="qz-stat"><span className="qz-stat-val tabular">#{r.rank}</span><span className="qz-stat-label">of {r.of} so far</span></div>
-          </div>
+          {/* Owner, 21 Nov: the score as a percentage and how many were right; no points, no rank. */}
+          <span className="qz-big-pct tabular">{r.pct}%</span>
+          <p className="qz-complete-sub tabular">{r.correct} of {r.total} right</p>
           {r.badge ? <span className="qz-verdict badge">Perfect score: you&apos;ve earned a free {quiz.badge}</span>
             : r.passed ? <span className="qz-verdict pass">Passed: {quiz.passPct}% was needed</span>
             : <span className="qz-verdict fail">Not passed this time: {quiz.passPct}% is needed</span>}
@@ -119,15 +113,13 @@ export function QuizScreen({ number, th, token, name, onClose, onReport }: { num
               <div style={{ marginTop: 18 }}><button type="button" className="qz-btn qz-btn-primary qz-btn-big" onClick={start} disabled={busy}>{busy ? "Opening…" : "Try again"}</button></div>
             </>
           ) : !r.passed && data.state !== "open" ? <p className="qz-lede">The quiz has closed.</p> : null}
-          {(r.passed || !data.canRetake) && <p className="qz-lede">{data.state === "revealed" ? "The right answers are out." : "The right answers show once your coordinator ends the training."}</p>}
-          {/* Owner, 17 Nov: after the quiz, their own report: view it, or download it as a PDF. */}
-          {onReport && !data.canRetake && (
-            <div className="qz-actions" style={{ justifyContent: "center" }}>
-              <button type="button" className="qz-btn qz-btn-primary" onClick={() => onReport(false)}>View my report</button>
-              <button type="button" className="qz-btn qz-btn-ghost" onClick={() => onReport(true)}>Download (save as PDF)</button>
-            </div>
-          )}
-          {data.state === "revealed" && <div style={{ marginTop: 14 }}><button type="button" className="qz-btn qz-btn-ghost" onClick={() => setReview(true)}>See the right answers</button></div>}
+          {(r.passed || !data.canRetake) && <p className="qz-lede">{data.state === "revealed" ? "The right answers are out: see which ones you got right and wrong." : "The right answers come when your coordinator ends the training, here and by email with your certificate."}</p>}
+          {/* One way to your answers (owner, 21 Nov): the right answers once revealed; your report (it has its own Download). */}
+          <div className="qz-actions" style={{ justifyContent: "center" }}>
+            {data.state === "revealed" && <button type="button" className="qz-btn qz-btn-primary" onClick={() => setReview(true)}>See my answers</button>}
+            {onReport && !data.canRetake && <button type="button" className={`qz-btn ${data.state === "revealed" ? "qz-btn-ghost" : "qz-btn-primary"}`} onClick={() => onReport(false)}>My report</button>}
+            <button type="button" className="qz-btn qz-btn-ghost" onClick={onClose}>Back to my page</button>
+          </div>
         </div>
         {data.certificate && <CertificateCard c={data.certificate} over={data.state === "revealed"} number={number} th={th} token={token} onSaved={load} />}
         <Board list={data.leaderboard} me={th} live={data.state === "open"} />
@@ -159,11 +151,11 @@ export function QuizScreen({ number, th, token, name, onClose, onReport }: { num
           <h2 className="qz-display" ref={headingRef} tabIndex={-1}>{data.result ? `Try ${data.result.tries + 1}` : quiz.title}</h2>
           <p className="qz-lede">{data.result ? <>Your best so far is <b className="tabular">{data.result.bestPct}%</b>; {quiz.passPct}% passes. Answer every question, then send.</> : <>{quiz.intro[0]}. Answer every question, then send your answers.</>}</p>
           <div className="qz-facts">
-            <div className="qz-fact"><span className="qz-fact-val tabular">{n}</span><span className="qz-fact-label">questions, {quiz.pointsEach} points each</span></div>
+            <div className="qz-fact"><span className="qz-fact-val tabular">{n}</span><span className="qz-fact-label">questions</span></div>
             <div className="qz-fact"><span className="qz-fact-val tabular">{quiz.passPct}%</span><span className="qz-fact-label">to pass</span></div>
             <div className="qz-fact"><span className="qz-fact-val tabular">{quiz.badgePct}%</span><span className="qz-fact-label">earns a free {quiz.badge}</span></div>
           </div>
-          <div className="qz-callout">If you don&apos;t pass, you can try again while the training runs; your best score counts. The clock starts when you begin, and breaks ties on the leaderboard.</div>
+          <div className="qz-callout">If you don&apos;t pass, you can try again while the training runs; your best score counts. Take your time: the clock only breaks ties on the leaderboard.</div>
           {error && <p className="qz-error" style={{ marginTop: 14 }} role="alert"><Warn /><span>{error}</span></p>}
           <div style={{ marginTop: 20 }}>
             <button type="button" className="qz-btn qz-btn-primary qz-btn-big" onClick={data.startedAt ? () => setStep(Math.max(0, answers.findIndex((a) => a === null))) : start} disabled={busy}>
@@ -180,18 +172,13 @@ export function QuizScreen({ number, th, token, name, onClose, onReport }: { num
   const pictures = q?.options.some((o) => o.image);
   return (
     <Frame onClose={onClose} title={quiz.title} top={(
-      <>
-        <div className="qz-meta" style={{ marginLeft: 0 }}>
-          <span className={`qz-pill${pulse ? " pulse" : ""}`} aria-live="polite"><span className="qz-pill-cap">Answered</span><span className="qz-pill-value tabular">{done}</span><span className="qz-pill-max tabular">/ {n}</span></span>
-          <span className="qz-step-label">{q ? `Q ${step + 1} / ${n}` : "Review"}</span>
-        </div>
-      </>
-    )} dots={(
-      <div className="qz-dots">
-        {quiz.questions.map((x, i) => (
-          <button key={x.id} type="button" className={`qz-dot${i === step ? " current" : answers[i] !== null ? " answered" : ""}`} onClick={() => reachable(i) && setStep(i)} disabled={!reachable(i)} aria-label={`Question ${i + 1}${answers[i] !== null ? ", answered" : ""}`} aria-current={i === step ? "step" : undefined} />
-        ))}
+      <div className="qz-meta">
+        <span className="qz-qof tabular" aria-live="polite">{q ? <>Question <b>{step + 1}</b> of {n}</> : "Check your answers"}</span>
+        <button type="button" className="qz-btn qz-btn-ghost" onClick={onClose} title="Your answers are kept on this phone">My page</button>
       </div>
+    )} dots={(
+      // One bar (owner, 21 Nov): how far along you are. Going back to a question is on the Review screen.
+      <div className="qz-progress" role="progressbar" aria-valuemin={0} aria-valuemax={n} aria-valuenow={done} aria-label={`${done} of ${n} answered`}><span style={{ width: `${Math.round((done / n) * 100)}%` }} /></div>
     )} footer={(
       <>
         {error && <div className="qz-error" role="alert"><Warn /><span>{error}</span></div>}
@@ -204,8 +191,7 @@ export function QuizScreen({ number, th, token, name, onClose, onReport }: { num
     )}>
       {q ? (
         <div className="qz-card" key={q.id}>
-          <div className="qz-eyebrow"><span className="qz-letter tabular">{step + 1}</span><span className="qz-pts">{quiz.pointsEach} pts</span></div>
-          <h2 className="qz-title" ref={headingRef} tabIndex={-1}>{q.text}</h2>
+          <h2 className="qz-title numbered" ref={headingRef} tabIndex={-1}><span className="qz-num tabular">{step + 1}.</span><span>{q.text}</span></h2>
           {pictures ? (
             <div className={`qz-grid cols-${Math.min(4, q.options.length)}`} role="radiogroup" aria-label={q.text}>
               {q.options.map((o, k) => (
@@ -331,7 +317,7 @@ function Review({ quiz, answers, onBack }: { quiz: PublicQuiz; answers: number[]
     <>
       <div className="qz-card">
         <h2 className="qz-display">The right answers</h2>
-        <p className="qz-lede">Green is the right answer; red is yours where it differed.</p>
+        <p className="qz-lede">Green is the right answer. Red is your answer where it was wrong.</p>
         <div style={{ marginTop: 16 }}><button type="button" className="qz-btn qz-btn-ghost" onClick={onBack}>Back to my result</button></div>
       </div>
       {quiz.questions.map((q, i) => {
@@ -339,8 +325,7 @@ function Review({ quiz, answers, onBack }: { quiz: PublicQuiz; answers: number[]
         const cls = (k: number) => (k === q.answer ? " right" : k === answers[i] ? " wrong" : "") + " locked";
         return (
           <div className="qz-card" key={q.id}>
-            <div className="qz-eyebrow"><span className="qz-letter tabular">{i + 1}</span><span className="qz-pts">{answers[i] === q.answer ? `+${quiz.pointsEach}` : "0"} pts</span></div>
-            <h3 className="qz-title">{q.text}</h3>
+            <h3 className="qz-title numbered"><span className="qz-num tabular">{i + 1}.</span><span>{q.text}{answers[i] === q.answer ? " ✓" : ""}</span></h3>
             {pictures ? (
               <div className={`qz-grid cols-${Math.min(4, q.options.length)}`}>
                 {q.options.map((o, k) => (
