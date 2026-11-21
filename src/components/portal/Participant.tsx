@@ -9,6 +9,7 @@ import { portalPrefix } from "@/lib/portalHost";
 import { NeonTick, primaryBtn, secondaryBtn } from "./TrainingTools";
 import { QuizScreen } from "./Quiz";
 import { MyReport } from "./ParticipantReport";
+import { Leaderboard } from "./Leaderboard";
 import { useLive, watchChanges } from "@/lib/live";
 
 /*
@@ -131,7 +132,7 @@ type QuizInfo = {
   quiz: { title: string; questions: { text: string; options: { text: string; image?: string }[]; answer?: number; critical?: boolean; lesson?: string }[]; passPct: number }; state: "none" | "open" | "closed" | "revealed"; present: boolean; startedAt: string | null;
   result: { points: number; max: number; pct: number; correct: number; total: number; rank: number; of: number; passed: boolean; badge: boolean; bestPct: number; tries: number; seconds: number; answers: number[]; topics: { name: string; right: number; of: number }[] } | null;
   canRetake: boolean; certificate: { ready: boolean; email: string | null; emailedAt: string | null } | null;
-  leaderboard?: { seconds: number }[];
+  leaderboard?: { rank: number; th: string; name: string; pct: number; seconds: number; passed?: boolean; badge?: boolean }[];
 };
 
 export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { number: string; th: string; p: string; quiz?: boolean }) {
@@ -162,7 +163,8 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
   }).catch(() => { if (first) { setData(null); setError("Couldn't reach Think Health. Check your connection and try again."); } });
   useEffect(() => { loadPage(true); }, [number, th, p]); // eslint-disable-line react-hooks/exhaustive-deps
   // Live (owner, 16 Nov): a new date, Start training, their attendance — on the page within seconds, no refresh.
-  useEffect(() => watchChanges("/api/portal/changes"), []);
+  const fast = quiz?.state === "open";
+  useEffect(() => watchChanges("/api/portal/changes", fast ? 2000 : 5000), [fast]);
   const lookQuiz = () => fetch(`/api/portal/quiz?n=${encodeURIComponent(number)}&th=${encodeURIComponent(th)}&p=${encodeURIComponent(p)}`, { cache: "no-store" })
     .then((r) => (r.ok ? r.json() : null)).then((j) => setQuiz(j?.quiz ? (j as QuizInfo) : null)).catch(() => {});
   useLive(() => { if (!showQuiz) { loadPage(false); lookQuiz(); } }, ["work", "team", "zoho"]);
@@ -174,16 +176,11 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
   const reportSaved = () => { fetch("/api/portal/quiz", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ n: number, th, p, action: "saved" }) }).catch(() => {}); };
   const withVideo = content.programmes.filter((x) => x.video || x.photo);
   const row = "grid grid-cols-[64px_minmax(0,1fr)] gap-4 border-b border-line py-4 last:border-b-0";
-  return (
-    <div className="portal-reveal min-h-screen bg-ground">
-      <Band>
-        <h1 className="mt-6 text-[34px] font-extrabold leading-[1.04] tracking-[-0.025em] sm:text-[44px]">{page.name}</h1>
-        <p className="num mt-3 inline-block rounded-lg bg-white/10 px-3 py-1.5 text-[18px] font-extrabold tracking-[0.06em] ring-1 ring-white/15">{page.th}</p>
-      </Band>
-      <main className="mx-auto max-w-3xl px-5">
-        {/* Your steps (owner, 21 Nov): only the step you're on is lit. The training's details below. */}
-        <Steps page={page} q={quiz} number={number} th={th} p={p} onQuiz={() => openQuiz(true)} onAnswers={() => { setToAnswers(true); openQuiz(true); }} onReport={() => setReport("view")} onEmail={lookQuiz} />
-        <section className="mt-4 rounded-2xl bg-surface px-5 ring-1 ring-line sm:px-7" aria-label="Your training">
+  const todayIn = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  const days = page.dates.map((d) => d.date);
+  const phase: "start" | "mid" | "end" = quiz?.state === "revealed" || (days.length > 0 && days.every((d) => d < todayIn)) ? "end" : days.includes(todayIn) ? "mid" : "start";
+  const details = (
+        <section className="mt-8 rounded-2xl bg-surface px-5 ring-1 ring-line sm:px-7" aria-label="Your training">
           <div className={row}>
             <p className="pt-0.5 text-[12.5px] font-bold uppercase tracking-[0.12em] text-muted">On</p>
             <div>
@@ -203,6 +200,24 @@ export function ParticipantPage({ number, th, p, quiz: quizOpen = false }: { num
             </div>
           </div>
         </section>
+  );
+  return (
+    <div className="portal-reveal min-h-screen bg-ground">
+      <Band>
+        <h1 className="mt-6 text-[34px] font-extrabold leading-[1.04] tracking-[-0.025em] sm:text-[44px]">{page.name}</h1>
+        <p className="num mt-3 inline-block rounded-lg bg-white/10 px-3 py-1.5 text-[18px] font-extrabold tracking-[0.06em] ring-1 ring-white/15">{page.th}</p>
+      </Band>
+      <main className="mx-auto max-w-3xl px-5">
+        {/* What comes first depends on where they are (owner, 21 Nov): before the training day and once it's over, On / At / For
+            on top; on the day it steps aside for the steps. After the quiz, the live leaderboard leads. */}
+        {phase !== "mid" && details}
+        {quiz?.result && quiz.leaderboard && (
+          <section className="mt-8 rounded-2xl bg-surface p-5 ring-1 ring-line sm:p-7">
+            <Leaderboard list={quiz.leaderboard} me={page.th} live={quiz.state === "open"} quizOpen={quiz.state === "open"} title={`${quiz.quiz.title} leaderboard`} />
+          </section>
+        )}
+        {/* Your steps (owner, 21 Nov): only the step you're on is lit. */}
+        <Steps page={page} q={quiz} number={number} th={th} p={p} onQuiz={() => openQuiz(true)} onAnswers={() => { setToAnswers(true); openQuiz(true); }} onReport={() => setReport("view")} onEmail={lookQuiz} />
         <p className="mt-3 text-[13.5px] text-muted">Keep this page: bookmark it or add it to your home screen.</p>
         {withVideo.length > 0 && <div className="pb-4"><Programmes list={withVideo} title="Watch before you come" /></div>}
         <div className="h-12" />
@@ -239,8 +254,8 @@ function Steps({ page, q, number, th, p, onQuiz, onAnswers, onReport, onEmail }:
       state: attended ? "done" : "now",
       text: attended ? <>Marked present{days.length > 1 ? ` on ${present.length} of ${days.length} days` : ""}.</>
         : !page.confirmed || !days.length ? <>Your coordinator is confirming the date with Think Health. It shows here once it&apos;s set.</>
-        : nextDay === today ? <><b className="text-ink">Today:</b> scan the code your coordinator shows in the room, then tap <b className="text-ink">Present</b>.</>
-        : <>On <b className="num text-ink">{when(nextDay)}</b>, scan the code your coordinator shows in the room and tap <b className="text-ink">Present</b>.</>,
+        : nextDay === today ? <><b className="text-ink">Today:</b> open the link your coordinator shares, or scan the code shown in the room, then tap <b className="text-ink">Present</b>.</>
+        : <>On <b className="num text-ink">{when(nextDay)}</b>, open the link your coordinator shares, or scan the code shown in the room, and tap <b className="text-ink">Present</b>.</>,
     },
   ];
   if (q) {

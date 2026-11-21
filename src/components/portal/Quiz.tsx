@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PublicQuiz, Ranked, Score } from "@/lib/quizRules";
+import { Leaderboard } from "./Leaderboard";
 
 /*
  * The participant's quiz (owner, 13 Nov), in the AED Readiness Campaign's design (quiz.css): an intro with the pass mark,
@@ -129,7 +130,7 @@ export function QuizScreen({ number, th, token, name, onClose, onReport, answers
 
   // Not open (yet, or any more), or not marked present.
   if (data.state !== "open" || !data.present) {
-    const text = !data.present && data.state === "open" ? "Mark your attendance first: scan your coordinator's attendance code and tap Present. Then the quiz opens here."
+    const text = !data.present && data.state === "open" ? "Mark your attendance first: open the link your coordinator shares, or scan the code in the room, and tap Present. Then the quiz opens here."
       : data.state === "none" || data.state === "closed" ? "Wait for your coordinator to start the training. Then the quiz opens here by itself: take it to get your certificate."
       : "The quiz has closed.";
     return (
@@ -294,21 +295,8 @@ function CertificateCard({ c, over, number, th, token, onSaved }: { c: Certifica
 }
 
 function Board({ list, me, live }: { list: Ranked[]; me: string; live: boolean }) {
-  return (
-    <div className="qz-card">
-      <h3 className="qz-board-title">Leaderboard</h3>
-      <p className="qz-lede" style={{ marginTop: 0 }}>{list.length} {list.length === 1 ? "person has" : "people have"} finished{live ? " so far; it updates by itself" : ""}. A tie goes to the faster finish.</p>
-      <ol className="qz-board">
-        {list.map((b) => (
-          <li key={b.th} className={b.th === me ? "me" : ""}>
-            <span className="qz-rank tabular">{b.rank}</span>
-            <span className="qz-board-name">{b.name}{b.th === me ? " (you)" : ""}</span>
-            <span className="qz-board-score tabular">{b.pct}%<small>{Math.floor(b.seconds / 60)}m {String(b.seconds % 60).padStart(2, "0")}s</small></span>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
+  // The same grand, live board as everywhere (owner, 21 Nov): the podium, then the rest; their own row marked.
+  return <div className="qz-card"><Leaderboard list={list} me={me} live={live} quizOpen={live} /></div>;
 }
 
 /** After the training ends: every question with their answer and the right one. */

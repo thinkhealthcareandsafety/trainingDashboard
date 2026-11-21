@@ -78,7 +78,7 @@ export function MyReport({ d, onClose, autoSave = false, onSaved }: { d: MyRepor
               <p className="text-[13px] font-bold uppercase tracking-[0.14em] text-white/70">{d.name} is a</p>
               <p className="mt-1 text-[32px] font-extrabold leading-tight tracking-[-0.02em] sm:text-[38px]">{who.title}</p>
               <p className="mt-2 text-[15.5px] leading-relaxed text-white/85">{who.line}</p>
-              <p className="num mt-3 text-[14px] font-semibold text-white/75">{r.pct}% · {r.correct} of {r.total} right · #{r.rank} of {r.of}</p>
+              <p className="num mt-3 text-[14px] font-semibold text-white/75">{r.pct}% · {r.correct} of {r.total} right</p>
             </div>
           </section>
 
@@ -121,6 +121,31 @@ export function MyReport({ d, onClose, autoSave = false, onSaved }: { d: MyRepor
                 ))}
               </ol>
             )}
+          </section>
+          {/* Their answers (owner, 21 Nov: "they should see their choices in the quiz"): every question with what they picked;
+              right and wrong once the coordinator ends the training. */}
+          <section className={card}>
+            <p className={label}>Your answers</p>
+            <p className="mt-1.5 text-[14.5px] text-ink-2">{d.revealed ? <>Green ticks are right. Where you were wrong, the right answer is shown.</> : <>What you chose for each question. Right and wrong show when your coordinator ends the training.</>}</p>
+            <ol className="mt-4 divide-y divide-line">
+              {d.questions.map((q, i) => {
+                const mine = r.answers[i];
+                const ok = d.revealed && q.answer !== undefined ? mine === q.answer : null;
+                return (
+                  <li key={i} className="grid grid-cols-[2.2em_minmax(0,1fr)] gap-x-1 py-3.5">
+                    <span className="num text-[15px] font-extrabold text-navy">{i + 1}.</span>
+                    <div className="min-w-0">
+                      <p className="text-[15.5px] font-bold leading-snug text-ink">{q.text}</p>
+                      <p className="mt-1.5 flex items-start gap-2 text-[14.5px] text-ink-2">
+                        {ok !== null && <span className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-[12px] font-extrabold text-white ${ok ? "bg-ok" : "bg-danger"}`} aria-label={ok ? "Right" : "Wrong"}>{ok ? "✓" : "✗"}</span>}
+                        <span>You chose <b className="font-semibold text-ink">{q.options[mine]?.text ?? "no answer"}</b></span>
+                      </p>
+                      {ok === false && <p className="mt-1 pl-7 text-[14.5px] text-ink-2">Right answer: <b className="font-semibold text-ok">{q.options[q.answer!]?.text}</b></p>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
           </section>
         </div>
       </div>

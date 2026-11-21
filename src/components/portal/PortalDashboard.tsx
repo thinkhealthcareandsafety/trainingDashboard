@@ -13,6 +13,7 @@ import { useLive, watchChanges } from "@/lib/live";
 import type { QuoteSheet } from "@/lib/trainingManager";
 
 import { QuizReportLauncher } from "./QuizReport";
+import { Leaderboard } from "./Leaderboard";
 
 /*
  * The Training Manager after sign-in (docs/TRAINING_MANAGER_PLAN.md step 4), Safety-sign direction: the welcome (once,
@@ -47,7 +48,9 @@ export function PortalDashboard({ me, number, welcome, onOut }: { me: Me; number
   useEffect(() => { load(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Live (owner, 16 Nov: "any changes should be live at all times immediately"): whatever we or anyone changes (a Performa
   // confirmed, a date moved on the board, someone joining) shows within seconds, no refresh.
-  useEffect(() => watchChanges("/api/portal/changes"), []);
+  // Every 2 s while a training day or a quiz is on (owner, 21 Nov: "refresh on any and every entry"), else every 5 s.
+  const fast = Boolean(home?.trainings.some((x) => ["open", "waiting"].includes(x.window.state) || x.quiz?.state === "open"));
+  useEffect(() => watchChanges("/api/portal/changes", fast ? 2000 : 5000), [fast]);
   useLive(() => load(false), ["work", "team", "zoho"]);
 
   // The training the link was for (training.thinkhealth.in/<number>): brought into view once, when the page first shows (not
@@ -275,6 +278,8 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const confirmed = Boolean(t.proposal && t.confirmedAt && !t.rejected);
   const myPage = t.me ? `${typeof location !== "undefined" ? portalPrefix(location.host) : ""}/${encodeURIComponent(t.number)}/${t.me.th}?p=${encodeURIComponent(t.me.token)}` : "";
   const [details, setDetails] = useState(false);
+  // The first visit after Think Health confirms (owner, 21 Nov): the moment plays, then a polite ask to register the team.
+  const [justConfirmed, setJustConfirmed] = useState(false);
 
   /*
    * One step at a time (owner, 21 Nov: "it should be step by step instead of all process on face … simple beings that will
@@ -368,7 +373,10 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
   const register = (
     <>
       {waiting}
-      {head("Register your team", <>Send your training&apos;s QR code (or its link) to your team. Each person opens it on their phone and registers. You can also type names or add a file.{confirmed ? "" : " You can start now, while we confirm."}</>)}
+      {confirmed && <ConfirmedMoment t={t} title={title} onShow={() => setJustConfirmed(true)} />}
+      {justConfirmed && t.registered < (t.proposal?.headcount ?? 1)
+        ? head("Next, let's get your team registered", <>Please share your training&apos;s link or QR code with your team. Each person opens it on their phone and registers in a minute. You can also type names or add a file.</>)
+        : head("Register your team", <>Share your training&apos;s link or QR code with your team. Each person opens it on their phone and registers. You can also type names or add a file.{confirmed ? "" : " You can start now, while we confirm."}</>)}
       {/* Asked once (owner, 16 Nov): are you attending too? Now a card inside this step, not the first thing on the page. */}
       {t.selfPrompt === "self" && !t.me && <SelfPrompt t={t} onDone={(patch) => setT((x) => ({ ...x, ...patch }))} />}
       {attendKey && (
@@ -433,7 +441,8 @@ function TrainingPanel({ t: initial, focused }: { t: Training; focused: boolean 
           </button>
           {details && (
             <div className="mt-5 space-y-6">
-              {t.proposal && <ConfirmedDetails t={t} p={t.proposal} title={title} />}
+              {/* While we confirm, the box above already shows the date, place and headcount (owner, 21 Nov: no repeat). */}
+              {confirmed && <ConfirmedDetails t={t} p={t.proposal!} title={title} />}
               <QuoteSection t={t} key="decided" bare />
               <div>
                 <p className={sub}>What&apos;s included</p>
@@ -646,14 +655,18 @@ function ConfirmedView({ t, onCloseTraining, p, title, live, attendKey, onNewKey
     </div>
   );
   const qr = attendKey && onTheDay ? <AttendQr id={t.id} number={t.number} title={title} attendKey={attendKey} onNew={onNewKey} big /> : null;
-  // Over (owner, 17 Nov): the thank-you moment once, then the certificates and the quiz report first, the results and the
-  // leaderboard, then the training report. No QR any more.
+  // Over (owner, 21 Nov): the thank-you moment once, then what happened (training time, who came) on top, the leaderboard,
+  // the certificates, the quiz report. No QR any more.
   if (t.finishedOn) {
     return (
       <>
         <ThanksMoment t={t} title={title} />
-        {t.quiz && t.quiz.state !== "none" ? <Results id={t.id} quiz={t.quiz} done training={title} certs={<FinishedCerts t={t} />} action={onCloseTraining && <CloseTraining closed={Boolean(t.closedAt)} onClick={onCloseTraining} />} /> : <div className="flex flex-wrap items-center justify-between gap-3"><h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Training completed</h4>{onCloseTraining && <CloseTraining closed={Boolean(t.closedAt)} onClick={onCloseTraining} />}</div>}
-        <div className="mt-7"><TrainingReport t={t} /></div>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[28px]">Training completed</h4>
+          {onCloseTraining && <CloseTraining closed={Boolean(t.closedAt)} onClick={onCloseTraining} />}
+        </div>
+        <TrainingReport t={t} />
+        {t.quiz && t.quiz.state !== "none" ? <div className="mt-8"><Results id={t.id} quiz={t.quiz} done training={title} certs={<FinishedCerts t={t} />} /></div> : <div className="mt-8"><FinishedCerts t={t} /></div>}
         {peopleToggle}
         <p className="mt-5 text-[14.5px] text-ink-2">Thank you for organising it with us.</p>
       </>
@@ -900,11 +913,8 @@ function TodayStrip({ t, meta, onChanged }: { t: Training; meta: string[]; onCha
  * `done` (the training is over): the certificates and the quiz report come first, then the figures and the leaderboard,
  * which the coordinator can share on WhatsApp.
  */
-function Results({ id, quiz, report = false, done = false, training = "", certs, action }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean; done?: boolean; training?: string; certs?: React.ReactNode; action?: React.ReactNode }) {
+function Results({ id, quiz, report = false, done = false, training = "", certs }: { id: string; quiz: NonNullable<Training["quiz"]>; report?: boolean; done?: boolean; training?: string; certs?: React.ReactNode }) {
   const [r, setR] = useState<QuizResults | null>(null);
-  // While it runs (owner, 21 Nov): the top five, then everyone on request.
-  const [all, setAll] = useState(false);
-  const top = done || all ? (r?.leaderboard ?? []) : (r?.leaderboard ?? []).slice(0, 5);
   // Owner, 17 Nov: each new pass pops a note top right (name, score, time); the first load only remembers who had passed.
   const passedSeen = useRef<Set<string> | null>(null);
   const [toasts, setToasts] = useState<{ th: string; name: string; pct: number; seconds: number; badge: boolean }[]>([]);
@@ -919,48 +929,24 @@ function Results({ id, quiz, report = false, done = false, training = "", certs,
   }, [r]);
   // Once over, the thank-you emails go out: keep checking until each one with an email has gone.
   const sending = Boolean(done && r?.certificates.list.some((c) => c.email && !c.emailedAt && !c.error));
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const load = () => act<QuizResults & { none?: boolean }>({ action: "results", id }).then((j) => { if (alive.current && j.leaderboard) setR(j); });
+  // Live (owner, 21 Nov: "refresh on any and every entry"): every answer sent moves the portal's change counter, which the
+  // page checks every 2 s while the quiz is open; a 5 s poll stays as the fallback.
+  useLive(load, ["work"]);
   useEffect(() => {
-    let on = true;
-    const load = () => act<QuizResults & { none?: boolean }>({ action: "results", id }).then((j) => { if (on && j.leaderboard) setR(j); });
     load();
-    if (quiz.state !== "open" && !sending) return () => { on = false; };
+    if (quiz.state !== "open" && !sending) return;
     const t = setInterval(() => { if (!document.hidden) load(); }, 5000);
-    return () => { on = false; clearInterval(t); };
-  }, [id, quiz.state, sending]);
+    return () => clearInterval(t);
+  }, [id, quiz.state, sending]); // eslint-disable-line react-hooks/exhaustive-deps
   const list = r?.certificates.list ?? [];
   const emailed = list.filter((c) => c.emailedAt).length;
   const noEmail = list.filter((c) => !c.email).length;
   const waiting = r?.waiting ?? [];
-  const board = r && (r.leaderboard.length > 0 || waiting.length > 0) && (
-    <ol className="mt-3 divide-y divide-line overflow-hidden rounded-xl ring-1 ring-line">
-      {top.map((b) => (
-        <li key={b.th} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 bg-surface px-3.5 py-2.5">
-          <span className={`num text-center text-[15px] font-extrabold ${b.rank === 1 ? "text-navy" : "text-muted"}`}>{b.rank}</span>
-          <span className="min-w-0">
-            <span className="block truncate text-[15px] font-semibold text-ink">{b.name}</span>
-            <span className="num block text-[12.5px] text-muted">{b.th}{b.badge ? " · First Aid Badge" : b.passed ? " · Passed" : " · Not passed"}</span>
-          </span>
-          <span className="text-right">
-            <span className="num block text-[16px] font-extrabold leading-tight text-ink">{b.pct}%</span>
-            <span className="num block text-[12.5px] text-muted">{clockOf(b.seconds)}</span>
-          </span>
-        </li>
-      ))}
-      {/* Present, no score yet (owner, 17 Nov): name only; they haven't finished or haven't taken it. */}
-      {(done || all) && waiting.map((w) => (
-        <li key={w.th} className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 bg-surface px-3.5 py-2.5">
-          <span className="text-center text-[15px] font-extrabold text-line-strong" aria-hidden>–</span>
-          <span className="min-w-0">
-            <span className="block truncate text-[15px] font-semibold text-ink-2">{w.name}</span>
-            <span className="num block text-[12.5px] text-muted">{w.th} · {!w.started ? "Have not started the quiz" : quiz.state === "open" ? "Taking the quiz now" : "Didn't finish"}</span>
-          </span>
-          <span />
-        </li>
-      ))}
-    </ol>
-  );
   const figures = r && (
-    <div className="mt-4 grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 gap-3">
       {[[`${r.taken} of ${r.present}`, "present have taken it"], [String(r.passed), `passed (${r.passPct}%+)`], [`${r.avgPct}%`, "average best score"]].map(([v, l]) => (
         <div key={l} className="rounded-xl bg-ground px-3 py-3 text-center">
           <p className="num text-[22px] font-extrabold leading-none text-ink">{v}</p>
@@ -969,59 +955,49 @@ function Results({ id, quiz, report = false, done = false, training = "", certs,
       ))}
     </div>
   );
-
   const notes = toasts.length > 0 && <PassToasts list={toasts} onDone={(th) => setToasts((x) => x.filter((t) => t.th !== th))} />;
+  const share = r && r.leaderboard.length > 0 ? (
+    <a className={`${secondaryBtn} gap-2`} href={`https://wa.me/?text=${encodeURIComponent(boardText(quiz.title, training, r))}`} target="_blank" rel="noopener noreferrer">
+      <svg viewBox="0 0 24 24" className="size-5" aria-hidden>{ICONS.whatsapp}</svg>Share on WhatsApp
+    </a>
+  ) : undefined;
+
+  // Over (owner, 21 Nov): the leaderboard first, the figures, then the certificates and the quiz report.
   if (done) {
     return (
-      <section aria-label="Training completed">
+      <section aria-label="Quiz results">
         {notes}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-[24px] font-extrabold leading-tight tracking-[-0.02em] text-ink sm:text-[28px]">Training completed</h4>
-          {action}
-        </div>
-        <p className="mt-1.5 max-w-[62ch] text-[15px] leading-relaxed text-ink-2">
-          {list.length === 0 ? "Thank you for organising it with us." : <>Everyone who passed gets a thank-you email with their Good Samaritan certificate: <b className="num text-ink">{emailed} of {list.length}</b> sent{noEmail ? <>; <span className="num">{noEmail}</span> {noEmail === 1 ? "has" : "have"} no email yet and can add it on their page</> : ""}.</>}
-        </p>
-        <div className="mt-6 space-y-4">
-          {certs}
-          {r && r.taken > 0 && <QuizReportLauncher title={quiz.title} r={r} label="View report" />}
-        </div>
+        {!r ? <p className="text-[14px] text-muted">Loading the results…</p> : <Leaderboard list={r.leaderboard} waiting={waiting} title={`${quiz.title} leaderboard`} action={share} />}
+        {r && <div className="mt-5">{figures}</div>}
         <div className="mt-8 border-t border-line pt-6">
-          <h4 className="text-[18px] font-extrabold tracking-[-0.01em] text-ink">{quiz.title} results</h4>
-          {!r ? <p className="mt-3 text-[14px] text-muted">Loading the results…</p> : figures}
-        </div>
-        {r && r.leaderboard.length > 0 && (
-          <div className="mt-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h5 className="text-[17px] font-extrabold tracking-[-0.01em] text-ink">Leaderboard</h5>
-              <a className={`${secondaryBtn} gap-2`} href={`https://wa.me/?text=${encodeURIComponent(boardText(quiz.title, training, r))}`} target="_blank" rel="noopener noreferrer">
-                <svg viewBox="0 0 24 24" className="size-5" aria-hidden>{ICONS.whatsapp}</svg>Share on WhatsApp
-              </a>
-            </div>
-            {board}
+          <h4 className="text-[21px] font-extrabold leading-tight tracking-[-0.015em] text-ink">Certificates</h4>
+          <p className="mt-1.5 max-w-[62ch] text-[15px] leading-relaxed text-ink-2">
+            {!r ? "" : list.length === 0 ? "No one passed the quiz this time." : <>Everyone who passed gets a thank-you email with their Good Samaritan certificate: <b className="num text-ink">{emailed} of {list.length}</b> sent{noEmail ? <>; <span className="num">{noEmail}</span> {noEmail === 1 ? "has" : "have"} no email yet and can add it on their page</> : ""}.</>}
+          </p>
+          <div className="mt-5 space-y-4">
+            {certs}
+            {r && r.taken > 0 && <QuizReportLauncher title={quiz.title} r={r} label="View report" />}
           </div>
-        )}
+        </div>
       </section>
     );
   }
 
+  // While it runs (owner, 21 Nov): the leaderboard is always there once the quiz starts, live; then the figures.
   return (
-    <section className="mt-7 border-t border-line pt-6" aria-label="Quiz results">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h4 className="text-[18px] font-extrabold tracking-[-0.01em] text-ink">{quiz.title} {report ? "report" : "results"}</h4>
-        <span className="text-[13.5px] text-muted">{quiz.state === "open" ? "Live: updates as people finish" : quiz.state === "revealed" ? "Closed: right answers shown" : quiz.state === "closed" ? "Closed until the training restarts" : "Opens when you start the training"}</span>
-      </div>
-      {!r ? <p className="mt-3 text-[14px] text-muted">Loading the results…</p> : (
+    <section className="mt-8 border-t border-line pt-6" aria-label="Quiz results">
+      {notes}
+      {quiz.state === "none" ? (
+        <p className="text-[15px] text-muted"><b className="text-ink">{quiz.title}:</b> opens when you start the training. The leaderboard appears here, live.</p>
+      ) : !r ? <p className="text-[14px] text-muted">Loading the results…</p> : (
         <>
-          {figures}
+          <Leaderboard list={r.leaderboard} waiting={waiting} quizOpen={quiz.state === "open"} live={quiz.state === "open"} title={`${quiz.title} ${report ? "results" : "leaderboard"}`} action={quiz.state === "open" ? undefined : share} />
+          <div className="mt-5">{figures}</div>
           {r.passed > 0 && (
             <p className="mt-4 rounded-xl bg-ground px-4 py-3 text-[14px] leading-snug text-ink-2">
               <b className="num text-ink">{r.passed}</b> passed so far. When the training ends, each gets a thank-you email with their Good Samaritan certificate.
             </p>
           )}
-          {notes}
-          {r.leaderboard.length === 0 && waiting.length === 0 ? <p className="mt-4 text-[14.5px] text-muted">No one has finished yet.</p> : <div className="mt-1">{board}</div>}
-          {!all && r.leaderboard.length + waiting.length > top.length && <button type="button" onClick={() => setAll(true)} className="mt-3 text-[14px] font-semibold text-action hover:underline">Show everyone ({r.leaderboard.length + waiting.length})</button>}
           {r.taken > 0 && (
             <div className="mt-4">
               {/* The report, question by question for the whole group (owner, 16 Nov). */}
@@ -1095,6 +1071,53 @@ function FinishedCerts({ t }: { t: Training }) {
  * training on this browser, for a training that ended in the last two weeks, one at a time. The ring draws, the lines rise
  * (the welcome's motion); a tap, Esc or 5 seconds closes it. With reduced motion: still, and shorter.
  */
+/**
+ * Training confirmed (owner, 21 Nov: "when confirmed and they open this dashboard they should be greeted with an animation of
+ * training confirmed, then politely asked to add participants"): once per training on this browser, the same motion as the
+ * thank-you; a tap, Esc or about 4 seconds closes it.
+ */
+let confirming = false;
+function ConfirmedMoment({ t, title, onShow }: { t: Training; title: string; onShow: () => void }) {
+  const [show, setShow] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const closeRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (confirming || !t.confirmedAt || t.sessions.length || t.finishedOn) return;
+    const key = `th.confirmed.${t.id}`;
+    try { if (localStorage.getItem(key)) return; localStorage.setItem(key, new Date().toISOString()); } catch { return; }
+    confirming = true;
+    setShow(true);
+    onShow();
+  }, [t.id, t.confirmedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!show) return;
+    const close = () => { setLeaving(true); setTimeout(() => { setShow(false); document.getElementById(`training-${t.number}`)?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" }); }, reducedMotion() ? 0 : 420); };
+    const timer = setTimeout(close, reducedMotion() ? 2400 : 4200);
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" || e.key === "Enter") close(); };
+    window.addEventListener("keydown", key);
+    closeRef.current = close;
+    return () => { clearTimeout(timer); window.removeEventListener("keydown", key); };
+  }, [show]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!show) return null;
+  const when = t.tbd || !t.dates.length ? "" : t.dates.map((d) => fmtProposalDate(d)).join(" + ");
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="Training confirmed" onClick={() => closeRef.current()} className={`thanks fixed inset-0 z-50 grid cursor-pointer place-items-center bg-navy px-6 text-white ${leaving ? "thanks-out" : ""}`}>
+      <div className="flex max-w-3xl flex-col items-center text-center">
+        <svg viewBox="0 0 96 96" className="size-24 sm:size-28" aria-hidden>
+          <circle cx="48" cy="48" r="44" fill="none" stroke="rgb(255 255 255 / 0.16)" strokeWidth="4" />
+          <circle className="thanks-ring" cx="48" cy="48" r="44" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round" transform="rotate(-90 48 48)" />
+          <path className="thanks-tick" d="M30 49.5 42 61.5 66 36" fill="none" stroke="#fff" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <p className="welcome-line mt-8 text-[38px] font-extrabold leading-[1.06] tracking-[-0.03em] sm:text-[60px]" style={{ animationDelay: "650ms" }}>Your training is confirmed.</p>
+        <p className="welcome-line num mt-5 text-[18px] font-bold text-white/80 sm:text-[22px]" style={{ animationDelay: "1050ms" }}>{title}{when ? ` · ${when}` : ""}</p>
+        {t.proposal?.location && <p className="welcome-line mt-1.5 text-[16px] text-white/70 sm:text-[18px]" style={{ animationDelay: "1250ms" }}>{t.proposal.location}</p>}
+        <p className="welcome-line mt-10 text-[14px] text-white/65" style={{ animationDelay: "1600ms" }}>Next: register your team. Tap anywhere to continue.</p>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 let thanking = false;
 function ThanksMoment({ t, title }: { t: Training; title: string }) {
   const [show, setShow] = useState(false);

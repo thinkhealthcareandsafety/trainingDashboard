@@ -30,6 +30,13 @@
   --ok-bg: #e9f6ef;
   --warn: #9a5b00; /* "the quotation is for 40", "same phone twice" */
   --warn-bg: #fff7e6;
+  /* The leaderboard podium (owner, 21 Nov): medal tints, not sign colours. */
+  --gold: #b8860b;
+  --gold-bg: #fdf3d6;
+  --silver: #6f7f8b;
+  --silver-bg: #eef2f5;
+  --bronze: #a35f2a;
+  --bronze-bg: #f8e8da;
 }
 
 @theme inline {
@@ -96,3 +103,8 @@ input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px var(--surface) inset; -w
 .thanks { animation: reveal 0.35s ease-out both; }
 .thanks-out { opacity: 0; transition: opacity 0.4s ease-in; }
 @media (prefers-reduced-motion: reduce) { .welcome-line, .portal-reveal, .stamp-present, .tick-stamp, .row-light, .thanks, .thanks-ring, .thanks-tick, .neon-tick-in path, .pass-toast { animation: none; } .neon-tick-in path { stroke-dashoffset: 0; } .thanks-ring, .thanks-tick { stroke-dashoffset: 0; } .thanks-out { transition: none; } }
+
+/* The leaderboard's Live dot: a slow pulse (still with reduced motion). */
+.live-dot { animation: livePulse 1.6s ease-in-out infinite; }
+@keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }

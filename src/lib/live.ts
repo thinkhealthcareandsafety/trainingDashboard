@@ -22,7 +22,8 @@ const EVERY_MS = 5000;
 type Versions = { team: number; work: number; zoho: string };
 
 /** Starts the tab's watcher; returns its stop. The portal watches /api/portal/changes (no staff sign-in there). */
-export function watchChanges(url = "/api/changes"): () => void {
+/** `everyMs`: faster while something is happening live (owner, 21 Nov: the quiz board, a training day). */
+export function watchChanges(url = "/api/changes", everyMs = EVERY_MS): () => void {
   let last: Versions | null = null;
   let stopped = false;
   let busy = false;
@@ -46,7 +47,7 @@ export function watchChanges(url = "/api/changes"): () => void {
     }
   };
   check();
-  const t = setInterval(check, EVERY_MS);
+  const t = setInterval(check, everyMs);
   const onShow = () => { if (document.visibilityState === "visible") check(); };
   document.addEventListener("visibilitychange", onShow);
   window.addEventListener("focus", onShow);
