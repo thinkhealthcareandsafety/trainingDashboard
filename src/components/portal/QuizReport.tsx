@@ -71,24 +71,36 @@ function Topics({ data }: { data: { name: string; pct: number; questions: number
   );
 }
 
+/**
+ * Time vs score as columns (owner, 21 Nov: "make it a column chart"): one column per person, fastest on the left, its height
+ * their score on their best try, navy when passed and grey when not, the pass mark across; their time under each column.
+ */
 function Scatter({ dots, passPct }: { dots: { name: string; minutes: number; pct: number; passed: boolean }[]; passPct: number }) {
-  const maxMin = Math.max(5, Math.ceil(Math.max(0, ...dots.map((d) => d.minutes)) / 5) * 5);
+  const cols = [...dots].sort((a, b) => a.minutes - b.minutes);
+  const time = (m: number) => { const s = Math.round(m * 60); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  // Every column keeps its time while they fit; with many people, every other one (the hover still says it).
+  const every = cols.length > 6 ? Math.ceil(cols.length / 5) : 1;
   return (
     <section className={card}>
       <h5 className={h}>Time vs score</h5>
-      <p className={sub}>Minutes on their best try · filled = passed, hollow = not yet</p>
+      <p className={sub}>Each column is one person, fastest first · height = score on their best try · navy = passed</p>
       <div className="mt-4 flex gap-2">
         <div className="relative w-8 shrink-0">{[0, 50, 100].map((v) => <span key={v} className="num absolute right-0 text-[11.5px] leading-none text-muted" style={{ bottom: `${v}%`, transform: "translateY(50%)" }}>{v}%</span>)}</div>
-        <div className="relative h-[160px] min-w-0 flex-1 border-b border-l border-line">
+        <div className="relative h-[160px] min-w-0 flex-1 border-b border-line">
           {[50, 100].map((v) => <span key={v} className="absolute inset-x-0 border-t border-line" style={{ bottom: `${v}%` }} aria-hidden />)}
-          <span className="absolute inset-x-0 border-t border-ink-2/50" style={{ bottom: `${passPct}%` }} aria-hidden />
+          <div className="absolute inset-0 flex items-end justify-around gap-[3px] px-1 sm:gap-1.5">
+            {cols.map((d, i) => (
+              <span key={i} title={`${d.name}: ${d.pct}% in ${time(d.minutes)}`} className="min-w-0 flex-1 rounded-t-[4px]" style={{ height: `${Math.max(1.5, d.pct)}%`, maxWidth: 28, background: d.passed ? "var(--navy)" : "var(--line-strong)" }} />
+            ))}
+          </div>
+          <span className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-ink-2/60" style={{ bottom: `${passPct}%` }} aria-hidden />
           <span className="absolute left-1.5 z-10 rounded bg-surface px-1 text-[11.5px] font-semibold text-ink-2" style={{ bottom: `calc(${passPct}% + 3px)` }}>{passPct}% to pass</span>
-          {dots.map((d, i) => (
-            <span key={i} title={`${d.name}: ${d.pct}% in ${d.minutes} min`} className={`absolute size-3 -translate-x-1/2 translate-y-1/2 rounded-full ring-2 ring-surface ${d.passed ? "bg-navy" : "bg-surface shadow-[inset_0_0_0_2px_var(--muted)]"}`} style={{ left: `${(d.minutes / maxMin) * 100}%`, bottom: `${d.pct}%` }} />
-          ))}
         </div>
       </div>
-      <div className="ml-10 mt-1.5 flex justify-between">{[0, maxMin / 2, maxMin].map((t) => <span key={t} className="num text-[11.5px] text-muted">{t} min</span>)}</div>
+      <div className="ml-10 mt-1.5 flex justify-around gap-[3px] px-1 sm:gap-1.5">
+        {cols.map((d, i) => <span key={i} className="num flex min-w-0 flex-1 justify-center overflow-visible whitespace-nowrap text-[11px] text-muted" style={{ maxWidth: 28 }}>{i % every === 0 || i === cols.length - 1 ? time(d.minutes) : ""}</span>)}
+      </div>
+      <p className="ml-10 mt-1 text-[11.5px] text-muted">minutes taken</p>
     </section>
   );
 }
