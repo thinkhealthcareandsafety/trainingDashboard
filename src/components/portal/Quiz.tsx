@@ -178,7 +178,7 @@ export function QuizScreen({ number, th, token, name, onClose, onReport, answers
       </div>
     )} dots={(
       // One bar (owner, 21 Nov): how far along you are. Going back to a question is on the Review screen.
-      <div className="qz-progress" role="progressbar" aria-valuemin={0} aria-valuemax={n} aria-valuenow={done} aria-label={`${done} of ${n} answered`}><span style={{ width: `${Math.round((done / n) * 100)}%` }} /></div>
+      <div className="qz-progress" role="progressbar" aria-valuemin={0} aria-valuemax={n} aria-valuenow={done} aria-label={`${done} of ${n} answered`}><span style={{ transform: `scaleX(${done / n})` }} /></div>
     )} footer={(
       <>
         {error && <div className="qz-error" role="alert"><Warn /><span>{error}</span></div>}

@@ -62,7 +62,7 @@
 .qz-pill-value { font-family: var(--qz-mono); font-size: .88rem; font-weight: 800; }
 .qz-pill-max { font-family: var(--qz-mono); font-size: .74rem; font-weight: 600; opacity: .72; }
 .qz-progress { height: 6px; margin-top: 12px; border-radius: 999px; background: var(--line); overflow: hidden; }
-.qz-progress > span { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s ease; }
+.qz-progress > span { display: block; height: 100%; width: 100%; border-radius: 999px; background: var(--accent); transform-origin: left; transition: transform .3s ease; }
 .qz-qof { font-size: .95rem; font-weight: 700; color: var(--ink-soft); white-space: nowrap; }
 .qz-qof b { color: var(--ink); }
 .qz-dots { display: flex; align-items: center; gap: 4px; margin-top: 12px; }
