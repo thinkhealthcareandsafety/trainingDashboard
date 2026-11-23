@@ -376,7 +376,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const onConverter = path.startsWith(CONVERTER);
   const onSheetQuote = path.startsWith(SHEET_QUOTE);
   // The apps home page (owner, 23 Nov) is its own full page: no sidebar, no ticker.
-  if (path === "/") return <>{children}</>;
+  if (path === "/" || path === "/dashboard") return <>{children}</>;
   return (
     <>
       <Ticker />
