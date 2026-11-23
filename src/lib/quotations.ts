@@ -346,7 +346,7 @@ const connection = async () => {
 };
 
 /** Any Zoho Books call on the quotations connection (full access) — the Performa from a quotation (performa.ts). */
-export async function booksApi(method: "GET" | "POST" | "PUT", path: string, params: Record<string, string> = {}, body?: unknown): Promise<Record<string, unknown>> {
+export async function booksApi(method: "GET" | "POST" | "PUT" | "DELETE", path: string, params: Record<string, string> = {}, body?: unknown): Promise<Record<string, unknown>> {
   return books(await connection(), method, path, params, body);
 }
 

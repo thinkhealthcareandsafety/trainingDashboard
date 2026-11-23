@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  *  GET ?signed=<invoice id>    — the signed PDF (once Zoho Sign says completed)
  *  GET ?merged=<invoice id>    — the invoice + PO + e-way bill PDFs merged, unsigned
  *  POST { action: "po", id, value }                — the Purchase Order Number, on every invoice of the same PI
- *  POST multipart { id, which: "po" | "eway", file, value? } — a PDF attached in Zoho (a PO: to every invoice of the same PI; value = the PO number typed with it)
+ *  POST multipart { id, which: "po" | "eway", file, value? } — a PDF attached in Zoho (a PO: to every invoice of the same PI; value = the PO number typed with it; replace=1 deletes the old one first)
  *  POST { action: "eway", id, value }              — an e-way bill number typed in (kept here; Zoho invoices have no field for it)
  *  POST { action: "signer", email, name }          — your email and full name for Zoho Sign (once)
  *  POST { action: "draft", id }                    — merge and make a Zoho Sign "Sign yourself" draft with the boxes placed (never signed / sent here); its Zoho Sign page
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       const file = f.get("file");
       if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a PDF for an invoice" }, 400);
       const value = f.get("value");
-      return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined));
+      return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined, f.get("replace") === "1"));
     }
     const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
     const id = String(b?.id ?? "");

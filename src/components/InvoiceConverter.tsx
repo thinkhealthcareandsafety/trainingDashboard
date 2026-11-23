@@ -205,10 +205,12 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
   );
 }
 
-/** The PDF line under a number: attached (tick), or Attach. */
-function Pdf({ has, pending, busy, onPick }: { has: boolean; pending: boolean; busy: boolean; onPick: () => void }) {
+/** The PDF line under a number: attached (tick) with Replace (owner, 23 Nov), or Attach. */
+function Pdf({ has, pending, busy, onPick, onReplace, replaceTitle }: { has: boolean; pending: boolean; busy: boolean; onPick: () => void; onReplace: () => void; replaceTitle: string }) {
   if (pending) return <p className="mt-0.5 text-[12.5px] text-faint">PDF: reading…</p>;
-  return has ? <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok small />PDF attached</p> : (
+  return has ? (
+    <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok small />PDF attached <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onReplace} title={replaceTitle}>{busy ? <Busy text="Replacing in Zoho…" /> : "Replace"}</button></p>
+  ) : (
     <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok={false} small />No PDF <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onPick}>{busy ? <Busy text="Attaching in Zoho…" /> : "Attach"}</button></p>
   );
 }
@@ -254,11 +256,16 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
     patchIds(r.poIds ?? [i.id], { po: r.po ?? value, poOk: Boolean(r.poOk) });
     setEditing(false);
   };
+  // Replace (owner, 23 Nov): the same file pickers; this says whether the pick replaces the PDF already there.
+  const replacing = useRef(false);
   const attach = async (which: "po" | "eway", file?: File | null) => {
+    const replace = replacing.current;
+    replacing.current = false;
     if (!file) return;
     setBusy(which === "po" ? "poPdf" : "ewayPdf"); setError("");
     const f = new FormData();
     f.append("id", i.id); f.append("which", which); f.append("file", file);
+    if (replace) f.append("replace", "1");
     const r = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
     setBusy("");
     if (r.error) return setError(r.error);
@@ -267,7 +274,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
       patchIds(r.ids ?? [i.id], { poPdf: true });
       if (r.po && r.poIds?.length) patchIds(r.poIds, { po: r.po, poOk: r.poOk });
     } else onPatch({ ewayPdf: true, ...(r.eway ? { eway: r.eway } : {}) });
-    if (!r.found) setError(which === "po" ? "Attached. No PO number found in the PDF (a scanned copy has no text): type it in." : "Attached. No e-way bill number found in the PDF.");
+    if (!r.found) setError(which === "po" ? (replace ? "Replaced." : "Attached.") + " No PO number found in the PDF (a scanned copy has no text): type it in." : (replace ? "Replaced." : "Attached.") + " No e-way bill number found in the PDF.");
   };
   // Merge and draft (owner, 20 Nov): a Zoho Sign draft with the boxes placed, opened in a new tab (opened straight away —
   // a tab opened after the wait would be blocked). The owner signs and sends it in Zoho Sign; nothing is sent from here.
@@ -309,7 +316,8 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
             {!i.poOk && <span className="shrink-0 text-[12.5px] font-semibold text-brand">Add</span>}
           </button>
         )}
-        <Pdf has={i.poPdf} pending={i.pending} busy={busy === "poPdf"} onPick={() => poFile.current?.click()} />
+        <Pdf has={i.poPdf} pending={i.pending} busy={busy === "poPdf"} onPick={() => { replacing.current = false; poFile.current?.click(); }} onReplace={() => { replacing.current = true; poFile.current?.click(); }}
+          replaceTitle={pi ? `Delete the PO PDF in Zoho and attach a new one, on every invoice of ${pi}` : "Delete the PO PDF in Zoho and attach a new one"} />
         <input ref={poFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("po", e.target.files?.[0]); e.target.value = ""; }} />
       </div>
 
@@ -333,7 +341,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
                 {!i.eway && <span className="shrink-0 text-[12.5px] font-semibold text-brand">Add</span>}
               </button>
             )}
-            <Pdf has={i.ewayPdf} pending={false} busy={busy === "ewayPdf"} onPick={() => ewayFile.current?.click()} />
+            <Pdf has={i.ewayPdf} pending={false} busy={busy === "ewayPdf"} onPick={() => { replacing.current = false; ewayFile.current?.click(); }} onReplace={() => { replacing.current = true; ewayFile.current?.click(); }} replaceTitle="Delete the e-way bill PDF in Zoho and attach a new one" />
           </>
         )}
         <input ref={ewayFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("eway", e.target.files?.[0]); e.target.value = ""; }} />

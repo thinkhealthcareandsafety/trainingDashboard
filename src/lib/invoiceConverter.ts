@@ -141,6 +141,20 @@ async function attachOne(invoiceId: string, lmt: string | undefined, name: strin
   return had;
 }
 
+/**
+ * Replace (owner, 23 Nov: "once these are added, why can I not replace them"): the invoice's PO or e-way bill PDFs, found
+ * by name in its full record, deleted in Zoho (DELETE /invoices/{id}/documents/{document id}) and dropped from our copy.
+ */
+async function removeOld(invoiceId: string, which: "po" | "eway") {
+  const isIt = which === "po" ? isPoFile : isEwayFile;
+  const d = await fetchDetail("invoices", invoiceId);
+  const docs = ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).filter((x) => x.document_id && isIt(String(x.file_name ?? "")));
+  for (const x of docs) await booksApi("DELETE", `/invoices/${invoiceId}/documents/${x.document_id}`);
+  const col = await extrasCol();
+  const had = await col.findOne({ _id: invoiceId });
+  if (had) await col.updateOne({ _id: invoiceId }, { $set: { files: (had.files ?? []).filter((n) => !isIt(n)), ...(which === "eway" ? { ewayFound: null } : {}) } });
+}
+
 /** The PDF's text (empty for a scanned one, or one that can't be read). */
 export async function pdfText(bytes: Uint8Array): Promise<string> {
   try {
@@ -167,8 +181,9 @@ export type AttachResult = {
  * A PO PDF goes to every invoice of the same PI that has none yet (owner, 18 Nov), each under its own name
  * ("PO - <invoice>.pdf"). Its number: `typed` when given (the linked block's "PO for all"), written to all of them;
  * otherwise the number read from the PDF, written where the invoice has none or "Verbal". An e-way bill is per invoice.
+ * `replace`: the old PDF goes first (a PO's on every invoice of the PI), and the number read from the new one wins.
  */
-export async function attachPdf(invoiceId: string, which: "po" | "eway", file: File, typed?: string): Promise<AttachResult> {
+export async function attachPdf(invoiceId: string, which: "po" | "eway", file: File, typed?: string, replace = false): Promise<AttachResult> {
   if (file.size > 10 * 1024 * 1024) throw new Error("The file is over 10 MB.");
   if (!/pdf/i.test(file.type) && !/\.pdf$/i.test(file.name)) throw new Error("Attach a PDF.");
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -177,8 +192,9 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
 
   if (which === "eway") {
     const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+    if (replace) await removeOld(invoiceId, "eway");
     const had = await attachOne(invoiceId, row?.lmt, ewayFileName(String(row?.row.invoice_number ?? invoiceId)), bytes, found);
-    const fresh = Boolean(found && !had?.eway && !String(row?.row.cf_e_way_bill_number ?? "").trim());
+    const fresh = Boolean(found && !had?.eway && (replace || !String(row?.row.cf_e_way_bill_number ?? "").trim()));
     // The number read from the PDF goes into Zoho's "E-way Bill Number" too, when the invoice has none yet.
     if (fresh && found) {
       try { await setEway(invoiceId, found); } catch (err) { console.error(`[invoice-converter] e-way bill number into Zoho for ${row?.row.invoice_number ?? invoiceId}: ${err instanceof Error ? err.message : err}`); }
@@ -190,9 +206,11 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
   if (!group.length) throw new Error("That invoice isn't in our copy yet. Sync, then try again.");
   const extras = new Map((await (await extrasCol()).find({ _id: { $in: group.map((r) => r.id) } }).toArray()).map((e) => [e._id, e]));
   // The one clicked always; the others of its PI only if they have no PO PDF yet (no second copy on an invoice).
-  const targets = group.filter((r, n) => n === 0 || !(extras.get(r.id)?.files ?? []).some(isPoFile));
+  // Replacing: every invoice of the PI, each one's old PO PDF deleted first.
+  const targets = replace ? group : group.filter((r, n) => n === 0 || !(extras.get(r.id)?.files ?? []).some(isPoFile));
   const ids: string[] = [];
   for (const r of targets) {
+    if (replace) await removeOld(r.id, "po");
     await attachOne(r.id, r.lmt, poFileName(String(r.row.invoice_number ?? r.id)), bytes);
     ids.push(r.id);
   }
@@ -202,7 +220,7 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
   const poIds: string[] = [];
   let s = { po: "", ok: false };
   for (const r of group) {
-    if (!value && poState(r.row.cf_purchase_order_number).ok) continue; // a number read from a PDF never overwrites one typed in Zoho
+    if (!value && !replace && poState(r.row.cf_purchase_order_number).ok) continue; // a number read from a PDF never overwrites one typed in Zoho
     s = await setPoNumber(r.id, number);
     poIds.push(r.id);
   }
