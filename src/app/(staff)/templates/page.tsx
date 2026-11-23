@@ -12,7 +12,7 @@ import { canSee } from "@/lib/roles";
 // send — and Portal content (step 4 of docs/TRAINING_MANAGER_PLAN.md): the programmes and links on the Training Manager.
 type View = "emails" | "portal";
 const SUB: Record<View, string> = {
-  emails: "The wording of the emails we send. Change one, check the preview, and Save: the next email uses it. Reset puts back the built-in wording.",
+  emails: "Pick an email, change the words, press Save. The preview shows how it will look.",
   portal: "What training coordinators see on the Training Manager besides their trainings: the programmes, their videos and photos, and our links.",
 };
 

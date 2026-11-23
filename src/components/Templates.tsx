@@ -8,7 +8,8 @@ import { fmtDate } from "@/lib/dates";
 import { PORTAL_TEMPLATES, loginBoxHtml, loginEmail } from "@/lib/portalEmail";
 import { piEmail } from "@/lib/performaRules";
 import { certEmail } from "@/lib/portalCertRules";
-import { btn, inputCls, selectCls } from "./ui";
+import { btn, selectCls } from "./ui";
+import { type EditorHandle, type FillIn, FillInEditor } from "./FillInEditor";
 
 /*
  * The Templates page (owner, 10 Nov: "we should technically be able to edit templates on the page"): pick a template,
@@ -23,37 +24,45 @@ type Entry = {
   edited: boolean; editedBy?: string; editedAt?: string; canEdit: boolean;
 };
 
-const GROUPS: { id: Entry["group"]; label: string }[] = [
-  { id: "quote", label: "Quotation emails" },
-  { id: "topic", label: "Item paragraphs" },
-  { id: "ts", label: "Total Supply emails" },
-  { id: "pi", label: "Performa emails" },
-  { id: "sign", label: "Signatures" },
-  { id: "portal", label: "Training Manager" },
-  { id: "aed", label: "AED onboarding (hello@)" },
-  { id: "fulfil", label: "Fulfillment thank-you (learn@)" },
+// Each group in plain words: what it is and when it goes out (owner, 23 Nov: easy for anyone).
+const GROUPS: { id: Entry["group"]; label: string; when: string }[] = [
+  { id: "quote", label: "Quotation emails", when: "The email that goes with a quotation. You pick one of these when you send a quote." },
+  { id: "topic", label: "Item paragraphs", when: "A short paragraph added to a quotation email for each kind of item in the quote." },
+  { id: "ts", label: "Total Supply emails", when: "The same quotation emails, for quotes from Total Supply." },
+  { id: "pi", label: "Performa emails", when: "Sent with the Performa invoice once a customer confirms a training." },
+  { id: "sign", label: "Signatures", when: "Shown under \"Warm regards,\" at the end of quotation emails." },
+  { id: "portal", label: "Training Manager", when: "Emails to training coordinators and participants: their sign-in, their certificate." },
+  { id: "aed", label: "AED onboarding (hello@)", when: "The welcome emails after someone buys an AED, sent from hello@." },
+  { id: "fulfil", label: "Fulfillment thank-you (learn@)", when: "The thank-you email after a training, sent from learn@." },
 ];
 
-/** What each {placeholder} becomes, for the chips' tooltips. */
-const VAR_HELP: Record<string, string> = {
-  hi: "\"Hi Rahul,\" (or \"Hello,\" with no contact name)", ref: "\"Quotation-24-002753 for Acme Hotels\"", what: "the first two kinds of item, \"Zoll AED + training\"",
-  total: "the total with GST, \"₹1,74,480\"", valid: "the quote's expiry date (empty when it has none)", table: "the item table (on its own line)",
-  topics: "the item paragraphs, one per kind of item", sign: "\"Warm regards,\" and the signature", signature: "the signature without \"Warm regards,\"",
-  company: "the customer's company", number: "the quotation number", items: "the item names, \"Zoll AED Plus and Zoll AED 3\"",
-  name: "the person's name as the quote has it", details: "the company details (address, numbers, website)",
-  invoice: "the invoice number", person: "the concerned person (or \"Sir/ Ma'am\")", location: "the training's location", customer: "the customer's name",
-  course: "the training's name", dates: "the training dates", people: "how many people came",
-  training: "the training's name, \"CPR & AED Training\"",
-  quote: "the quotation number",
-  score: "their best quiz score, \"90%\"", link: "their own page, where the certificate can be downloaded", certno: "the certificate number, \"FAT-OD/04-12-2026/TH012\"",
+/** Each fill-in in plain words, with an example (what the boxes in the editor say). */
+const FILLS: Record<string, FillIn> = {
+  hi: { label: "Greeting", example: "\"Hi Rahul,\"" }, ref: { label: "Quotation name", example: "\"Quotation-24-002753 for Acme Hotels\"" },
+  what: { label: "What's quoted", example: "\"Zoll AED + training\"" }, total: { label: "Total price", example: "\"₹1,74,480\"" },
+  valid: { label: "Valid-until date", example: "\"10 Dec 2026\"" }, table: { label: "Item table", example: "the table of items and prices" },
+  topics: { label: "Item paragraphs", example: "one short paragraph per kind of item" }, sign: { label: "Warm regards + signature" },
+  signature: { label: "Signature" }, company: { label: "Customer's company", example: "\"Acme Hotels Pvt Ltd\"" },
+  number: { label: "Quotation number", example: "\"Quotation-24-002753\"" }, items: { label: "Item names", example: "\"Zoll AED Plus and Zoll AED 3\"" },
+  name: { label: "Person's name", example: "\"Mr. Rahul Mehta\"" }, details: { label: "Company details", example: "our address, phone numbers and website" },
+  invoice: { label: "Invoice number", example: "\"2026-01-123\"" }, person: { label: "Contact person", example: "\"Ms. Neha Kulkarni\"" },
+  location: { label: "Training place", example: "\"Acme Hotels, Pune\"" }, customer: { label: "Customer", example: "\"Acme Hotels Pvt Ltd\"" },
+  course: { label: "Training name", example: "\"CPR & AED Training\"" }, dates: { label: "Training dates", example: "\"12 Nov 2026\"" },
+  people: { label: "Number of people", example: "\"20\"" }, training: { label: "Training name", example: "\"CPR & AED Training\"" },
+  quote: { label: "Quotation number", example: "\"Quotation-24-002753\"" }, score: { label: "Quiz score", example: "\"90%\"" },
+  link: { label: "Certificate link", example: "their own page to download the certificate" }, certno: { label: "Certificate number", example: "\"IAGS-SN/012\"" },
+  report: { label: "Quiz report line", example: "\"Your quiz report is attached too.\"" },
 };
-/** Where a variable means something else in one email (the certificate email goes to the participant, not the quote's contact). */
-const VAR_HELP_FOR: Record<string, Record<string, string>> = {
-  "portal:certificate": { name: "the participant's name, as on their certificate" },
-  "portal:login": { name: "the training coordinator's name" },
-  "portal:box": { name: "the training coordinator's name" },
-  "pi:training": { name: "the training coordinator's name" },
+/** Where a fill-in means something else in one email. */
+const FILLS_FOR: Record<string, Record<string, FillIn>> = {
+  "portal:certificate": { name: { label: "Participant's name", example: "\"Asha Rao\"" } },
+  "portal:login": { name: { label: "Coordinator's name", example: "\"Riya Mehta\"" } },
+  "portal:box": { name: { label: "Coordinator's name", example: "\"Riya Mehta\"" } },
+  pi: { number: { label: "Performa number", example: "\"Performa-25-1196\"" }, total: { label: "Performa total", example: "\"₹45,000\"" }, name: { label: "Coordinator's name", example: "\"Riya Mehta\"" } },
+  fulfil: { ref: { label: "Quotation number", example: "\"Performa-25-0456\"" } },
+  sign: { name: { label: "Your name", example: "\"Ashish\"" } },
 };
+const fillsOf = (e: Entry): Record<string, FillIn> => ({ ...FILLS, ...FILLS_FOR[e.group], ...FILLS_FOR[e.key] });
 
 // A made-up quote, so the preview shows every part (nothing here is a real customer).
 const SAMPLE: QuoteEmailInput = {
@@ -121,8 +130,9 @@ export function Templates() {
   const [msg, setMsg] = useState("");
   const [noExpiry, setNoExpiry] = useState(false);
   const lastField = useRef<"subject" | "body">("body");
-  const subjectEl = useRef<HTMLInputElement>(null);
-  const bodyEl = useRef<HTMLTextAreaElement>(null);
+  const subjectEl = useRef<EditorHandle>(null);
+  const bodyEl = useRef<EditorHandle>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = async (keep?: string) => {
     const r = await fetch("/api/templates").catch(() => null);
@@ -150,31 +160,29 @@ export function Templates() {
     if (k === key) return;
     if (dirty && !window.confirm("Leave this template without saving your changes?")) return;
     const e = list!.find((t) => t.key === k)!;
-    setKey(k); setSubject(e.subject ?? ""); setBody(e.body); setMsg(""); remember(k);
+    setKey(k); setSubject(e.subject ?? ""); setBody(e.body); setMsg(""); setAdding(false); remember(k);
   };
   const insert = (name: string) => {
-    const el = lastField.current === "subject" && entry?.subject !== null ? subjectEl.current : bodyEl.current;
-    if (!el) return;
-    const v = el.value, a = el.selectionStart ?? v.length, b = el.selectionEnd ?? v.length;
-    const next = `${v.slice(0, a)}{${name}}${v.slice(b)}`;
-    (el === subjectEl.current ? setSubject : setBody)(next);
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(a + name.length + 2, a + name.length + 2); });
+    setAdding(false);
+    (lastField.current === "subject" && entry?.subject !== null ? subjectEl.current : bodyEl.current)?.insert(name);
   };
   const save = async (reset = false) => {
     if (!entry) return;
-    if (reset && !window.confirm(`Put "${entry.label}" back to the built-in wording? Your changes to it will be gone.`)) return;
+    if (reset && !window.confirm(`Put "${entry.label}" back to its original wording? Your changes to it will be gone.`)) return;
     setBusy(true); setMsg("");
     const r = await fetch("/api/templates", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(reset ? { key, reset: true } : { key, subject, body }) }).catch(() => null);
     const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; error?: string }) : { error: "Couldn't reach the server" };
     setBusy(false);
     if (!j.ok) return setMsg(j.error ?? "Couldn't save");
     await load(key);
-    setMsg(reset ? "Back to the built-in wording." : "Saved. The next email uses it.");
+    setMsg(reset ? "Back to the original wording." : "Saved. The next email uses it.");
   };
 
   if (error) return <p className="text-[14px] text-high">{error}</p>;
   if (!list || !entry) return <p className="text-[14px] text-muted">Loading the templates…</p>;
   const readOnly = !entry.canEdit;
+  const fills = fillsOf(entry);
+  const group = GROUPS.find((g) => g.id === entry.group)!;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_minmax(0,1fr)]">
@@ -194,7 +202,7 @@ export function Templates() {
               <button key={t.key} type="button" onClick={() => pick(t.key)} aria-current={t.key === key}
                 className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] ${t.key === key ? "bg-brand-soft font-medium text-ink" : "text-ink-2 hover:bg-surface-2"}`}>
                 <span className="min-w-0 flex-1 truncate" title={t.label}>{t.label}</span>
-                {t.edited && <span className="size-1.5 shrink-0 rounded-full bg-brand" title="Changed from the built-in wording" />}
+                {t.edited && <span className="size-1.5 shrink-0 rounded-full bg-brand" title="Changed from the original wording" />}
               </button>
             ))}
           </div>
@@ -205,36 +213,50 @@ export function Templates() {
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-[16px] font-semibold">{entry.label}</h2>
           <span className="text-[12px] text-muted">
-            {entry.edited ? "Changed" : "Built-in wording"}{entry.editedBy && entry.editedAt ? ` · last saved by ${entry.editedBy}, ${fmtDate(entry.editedAt, { day: "numeric", month: "short" })}` : ""}
+            {entry.edited ? "Changed by us" : "Original wording"}{entry.editedBy && entry.editedAt ? ` · last saved by ${entry.editedBy}, ${fmtDate(entry.editedAt, { day: "numeric", month: "short" })}` : ""}
           </span>
         </div>
-        {entry.note && <p className="mt-1 text-[12.5px] text-muted">{entry.note}</p>}
+        <p className="mt-1 text-[13px] text-muted">{group.when}{entry.note ? ` ${entry.note}` : ""}</p>
         {readOnly && <p className="mt-1 text-[12.5px] text-medium">{entry.owner ? `Only ${entry.label} and Admin change this signature.` : "Only Admin changes this."}</p>}
 
         {entry.subject !== null && (
-          <label className="mt-3 block">
-            <span className="text-[12px] font-medium text-muted">Subject</span>
-            <input ref={subjectEl} className={`${inputCls} mt-1`} value={subject} readOnly={readOnly} onFocus={() => { lastField.current = "subject"; }} onChange={(e) => setSubject(e.target.value)} />
-          </label>
-        )}
-        <label className="mt-3 block">
-          <span className="text-[12px] font-medium text-muted">{entry.group === "topic" ? "Paragraph" : entry.group === "sign" ? "Signature" : "Message"}</span>
-          <textarea ref={bodyEl} className={`${inputCls} mt-1 !h-auto min-h-[220px] resize-y py-2.5 leading-relaxed xl:min-h-[calc(100vh-620px)]`} rows={12} value={body} readOnly={readOnly}
-            onFocus={() => { lastField.current = "body"; }} onChange={(e) => setBody(e.target.value)} spellCheck />
-        </label>
-
-        {!readOnly && entry.vars.length > 0 && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[12px] text-muted">Insert:</span>
-            {entry.vars.map((v) => (
-              <button key={v} type="button" onClick={() => insert(v)} title={VAR_HELP_FOR[entry.key]?.[v] ?? VAR_HELP[v] ?? v} className="rounded-full bg-surface-2 px-2.5 py-0.5 font-mono text-[12px] text-ink-2 hover:bg-line">{`{${v}}`}</button>
-            ))}
+          <div className="mt-4">
+            <span className="text-[13px] font-semibold text-ink-2">Subject line</span>
+            <FillInEditor ref={subjectEl} className="mt-1.5" label="Subject line" singleLine value={subject} onChange={setSubject} fills={fills} readOnly={readOnly} onFocus={() => { lastField.current = "subject"; }} />
           </div>
         )}
-        <p className="mt-2 text-[12px] leading-relaxed text-faint">
-          Words in {"{ }"} are filled in for each email. Put a part in [square brackets] to leave it out when a value inside it is empty, e.g. <span className="font-mono">[, valid until {"{valid}"}]</span>.
-          {entry.choices && <> <span className="font-mono">{"{is|are}"}</span> picks the first with one item, the second with several.</>}
-        </p>
+        <div className="mt-4">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <span className="text-[13px] font-semibold text-ink-2">{entry.group === "topic" ? "Paragraph" : entry.group === "sign" ? "Signature" : "Email"}</span>
+            {!readOnly && entry.vars.length > 0 && (
+              <div className="relative">
+                <button type="button" className={`${btn.ghost} !h-8 !px-3 !text-[13px]`} aria-expanded={adding} onMouseDown={(e) => e.preventDefault()} onClick={() => setAdding((v) => !v)}>
+                  + Add a detail
+                </button>
+                {adding && (
+                  <div className="absolute right-0 top-9 z-20 max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-surface p-1.5 shadow-pop" onMouseDown={(e) => e.preventDefault()}>
+                    <p className="px-2 pb-1 pt-1 text-[12px] text-muted">Goes where the cursor is. Filled in for each email.</p>
+                    {entry.vars.map((v) => (
+                      <button key={v} type="button" onClick={() => insert(v)} className="flex w-full flex-col rounded-lg px-2 py-1.5 text-left hover:bg-surface-2">
+                        <span className="text-[13.5px] font-semibold text-brand">{fills[v]?.label ?? v}</span>
+                        {fills[v]?.example && <span className="text-[12px] text-muted">e.g. {fills[v].example}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <FillInEditor ref={bodyEl} className={`mt-1.5 ${entry.group === "sign" || entry.group === "topic" ? "min-h-[140px]" : "min-h-[260px]"}`} label={entry.label} value={body} onChange={setBody} fills={fills} readOnly={readOnly} onFocus={() => { lastField.current = "body"; }} />
+        </div>
+
+        {!readOnly && (
+          <ul className="mt-3 space-y-1.5 text-[12.5px] leading-relaxed text-muted">
+            {entry.vars.length > 0 && <li><span className="fi-chip !text-[12px]">Coloured boxes</span> are filled in for each email. Remove one with Backspace; add one with <b className="font-semibold text-ink-2">+ Add a detail</b>.</li>}
+            {/\[[^\]]*\{\w+\}/.test(subject + body) && <li><span className="fi-chip fi-opt !text-[12px]">Dashed boxes</span> show only when their detail exists (no valid-until date: no sentence).</li>}
+            {entry.choices && <li><span className="fi-chip fi-choice !text-[12px]">is / are</span> uses the first word with one item, the second with several.</li>}
+          </ul>
+        )}
 
         {problems.length > 0 && <ul className="mt-2 space-y-0.5 text-[13px] text-high">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
         {msg && <p className={`mt-2 text-[13px] ${/^Saved|^Back/.test(msg) ? "text-low" : "text-high"}`} role="status">{msg}</p>}
@@ -243,7 +265,7 @@ export function Templates() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" className={btn.primary} disabled={busy || !dirty || problems.length > 0} onClick={() => save()}>{busy ? "Saving…" : "Save"}</button>
             {dirty && <button type="button" className={btn.ghost} disabled={busy} onClick={() => { setSubject(entry.subject ?? ""); setBody(entry.body); setMsg(""); }}>Undo changes</button>}
-            {entry.edited && <button type="button" className={btn.danger} disabled={busy} onClick={() => save(true)}>Reset to built-in</button>}
+            {entry.edited && <button type="button" className={btn.danger} disabled={busy} onClick={() => save(true)}>Back to original</button>}
           </div>
         )}
       </section>
@@ -265,7 +287,7 @@ export function Templates() {
             <div className="mt-2 max-h-[calc(100vh-300px)] overflow-y-auto rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-[14px] leading-relaxed text-ink [scrollbar-width:thin] [&_*]:!bg-transparent [&_*]:!text-ink [&_a]:!text-brand [&_a]:underline"
               dangerouslySetInnerHTML={{ __html: shown.html }} />
           </>
-        ) : <p className="mt-3 text-[13px] text-muted">Fix the problems on the left to see it.</p>}
+        ) : <p className="mt-3 text-[13px] text-muted">Fix the note in red to see it.</p>}
       </section>
     </div>
   );
