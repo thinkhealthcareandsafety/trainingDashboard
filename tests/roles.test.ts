@@ -54,7 +54,7 @@ test("the owner's sheet (18 Nov): pages and boards per person", async () => {
   assert.equal(canQuote({ id: "x", name: "Pranjal Nikalje" }), true);
   assert.equal(homeOf({ id: "x", name: "Priyanka" }), "/training-management");
   assert.equal(homeOf({ id: "x", name: "Anushka Rajput" }), "/calendar");
-  assert.equal(homeOf({ id: "x", name: "Ashish Dalal" }), "/");
+  assert.equal(homeOf({ id: "x", name: "Ashish Dalal" }), "/overview"); // Overview moved for the apps home page (23 Nov)
 });
 
 test("Pranjal's Overview: his own figures, and the company's only before this FY", async () => {

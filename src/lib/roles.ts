@@ -70,7 +70,7 @@ export const reportBoards = (m: Who): BoardKind[] => (canSee(m, "reports") ? ALL
 /** Where someone lands: the Overview, else their first page. */
 export const homeOf = (m: Who): string => {
   const pages = accessOf(m).pages;
-  const href: Record<Page, string> = { overview: "/", quotations: "/quotations", trainings: "/training-management", items: "/items", templates: "/templates", followups: "/follow-up", calendar: "/calendar", sprints: "/sprints", reports: "/reports", converter: "/reports/invoice-converter" };
+  const href: Record<Page, string> = { overview: "/overview", quotations: "/quotations", trainings: "/training-management", items: "/items", templates: "/templates", followups: "/follow-up", calendar: "/calendar", sprints: "/sprints", reports: "/reports", converter: "/reports/invoice-converter" };
   return href[pages[0] ?? "calendar"];
 };
 

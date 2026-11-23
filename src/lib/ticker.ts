@@ -113,7 +113,7 @@ export function buildTickerItems(
       priority: "medium",
       label: "Pace",
       text: `${m.completed}/${m.target} trainings · ${m.people}/${m.peopleTarget} people · ${daysBetween(today, monthEnd) + 1} days left · ${m.scheduled} more scheduled`,
-      href: "/",
+      href: "/overview",
       sortKey: now.getTime(),
       board: "training",
     });
@@ -121,13 +121,13 @@ export function buildTickerItems(
 
   for (const a of announcements) {
     if (new Date(a.startsAt) <= now && new Date(a.endsAt) >= now) {
-      items.push({ id: `ann:${a.id}`, priority: a.priority, label: "News", text: a.text, href: "/", sortKey: new Date(a.startsAt).getTime() });
+      items.push({ id: `ann:${a.id}`, priority: a.priority, label: "News", text: a.text, href: "/overview", sortKey: new Date(a.startsAt).getTime() });
     }
   }
 
   const paidToday = trainings.filter((t) => t.status === "paid" && t.trainingDate === todayStr);
   paidToday.forEach((t) =>
-    items.push({ id: `win:${t.id}`, priority: "low", label: "Paid", text: `${fmtINR(t.amount)} · ${t.customerName}`, href: "/", sortKey: now.getTime(), board: "training" }),
+    items.push({ id: `win:${t.id}`, priority: "low", label: "Paid", text: `${fmtINR(t.amount)} · ${t.customerName}`, href: "/overview", sortKey: now.getTime(), board: "training" }),
   );
 
   return [

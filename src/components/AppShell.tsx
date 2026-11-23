@@ -18,7 +18,7 @@ import { type Page, canConvertInvoices, canSee, hasFollowUps, isAdmin } from "@/
 
 // Each item shows only with its page in the owner's sheet (roles.ts ACCESS, 18 Nov).
 const NAV: { href: string; label: string; page: Page; icon: React.ReactNode }[] = [
-  { href: "/", label: "Overview", page: "overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
+  { href: "/overview", label: "Overview", page: "overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
   // Quotations (owner, 28 Oct: "under Overview"): every Zoho customer, one click to send a quotation — the four who sell.
   { href: "/quotations", label: "Quotations", page: "quotations", icon: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" /> },
   // Training Management (owner, 10 Nov): the training-only quotes, under Quotations. Those who quote.
@@ -347,7 +347,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { now, toasts, dismissToast, storage, ready } = useStore();
   // Only mention storage when something is wrong (team database not reachable).
   const storageWarn = ready && storage !== "team";
-  const isOn = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  const isOn = (href: string) => path.startsWith(href);
   const router = useRouter();
   const zoho = useZohoSync(Boolean(session.ready && session.member));
   // The Progress tracker is hidden (owner, 18 Nov): no presence beat, so no red count and no notices.
@@ -375,6 +375,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const nav = NAV.filter((n) => (n.page === "followups" ? hasFollowUps(me) : n.page === "reports" ? canSee(me, "reports") || canConvertInvoices(me) : canSee(me, n.page)));
   const onConverter = path.startsWith(CONVERTER);
   const onSheetQuote = path.startsWith(SHEET_QUOTE);
+  // The apps home page (owner, 23 Nov) is its own full page: no sidebar, no ticker.
+  if (path === "/") return <>{children}</>;
   return (
     <>
       <Ticker />
@@ -423,7 +425,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
         <aside className={`glass sticky top-9 hidden h-[calc(100vh-36px)] w-60 shrink-0 flex-col border-r border-line/70 px-3 py-5 ${sidebar.hidden ? "" : "lg:flex"}`}>
           <div className="mb-6 flex items-center justify-between gap-2">
-            <Link href="/" className="flex items-center gap-2.5 px-2.5">
+            <Link href="/" className="flex items-center gap-2.5 px-2.5" title="All apps">
               <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
               <span className="text-[14px] font-semibold tracking-tight">ThinkHealth</span>
             </Link>
@@ -432,6 +434,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           <nav className="space-y-0.5">
+            {/* Back to the apps home page (owner, 23 Nov). */}
+            <Link href="/" className="press mb-2 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium text-muted hover:bg-ink/[0.04] hover:text-ink">
+              <Icon><path d="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" /></Icon>
+              <span className="flex-1">All apps</span>
+            </Link>
             {nav.map((n) => {
               const reports = n.label === "Reports";
               const on = reports ? isOn(n.href) && !onConverter && !onSheetQuote : isOn(n.href);
@@ -505,8 +512,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="min-w-0 flex-1">
           {/* Top bar (mobile / tablet) */}
           <header className="glass sticky top-9 z-30 flex h-14 items-center gap-3 border-b border-line/70 px-4 lg:hidden">
-            <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
-            <span className="text-[14px] font-semibold">ThinkHealth</span>
+            <Link href="/" className="flex items-center gap-3" aria-label="All apps" title="All apps">
+              <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
+              <span className="text-[14px] font-semibold">ThinkHealth</span>
+            </Link>
             <div className="ml-auto w-48"><SyncPanel sync={zoho} compact /></div>
             {zoho.info?.enabled !== false && (
               <button onClick={() => setLogOpen(true)} aria-label="Sync log" title="Sync log" className="-ml-2 grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink">
