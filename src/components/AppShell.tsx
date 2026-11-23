@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ZOHO_SYNCED, useStore } from "@/lib/store";
@@ -235,50 +235,6 @@ const LogIcon = () => (
   </svg>
 );
 
-/** Sidebar: Sync now, then Last sync / Next sync (red when the last attempt failed), and the Sync log. */
-function SyncPanel({ sync, compact, onLog }: { sync: ZohoSync; compact?: boolean; onLog?: () => void }) {
-  const { now } = useStore();
-  const { info, syncing, syncNow } = sync;
-  if (info?.enabled === false) return null;
-  const last = info?.syncedAt ? dayTime(info.syncedAt, now) : "—";
-  const next = syncing ? "Syncing now…" : info?.due ? "Due now" : info?.nextAt ? dayTime(info.nextAt, now) : "—";
-  const lines = (
-    <>
-      <span className="block truncate"><span className="text-faint">Last sync:</span> <span className="font-medium text-ink-2">{info ? last : "Checking…"}</span></span>
-      <span className="block truncate"><span className="text-faint">Next sync:</span> <span className="font-medium text-ink-2">{info ? next : "—"}</span></span>
-      {info?.error && <span className="block truncate text-high" title={info.error}>Last try failed: {info.error}</span>}
-    </>
-  );
-  if (compact) {
-    return (
-      <button onClick={syncNow} disabled={syncing} className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[11.5px] leading-tight text-muted hover:bg-surface-2 disabled:opacity-70" title="Sync now">
-        <span className="min-w-0 flex-1">{lines}</span>
-        <SyncIcon spin={syncing} />
-      </button>
-    );
-  }
-  return (
-    <div className="rounded-xl border border-line bg-surface/60 p-2">
-      <button
-        onClick={syncNow}
-        disabled={syncing}
-        className={`press flex h-8 w-full items-center justify-center gap-2 rounded-lg text-[13px] font-semibold transition ${info?.error ? "bg-high-bg text-high" : "bg-brand-soft text-brand hover:brightness-95"} disabled:opacity-70`}
-        title="Fetch the latest from Zoho Books now"
-      >
-        <SyncIcon spin={syncing} />
-        {syncing ? "Syncing…" : "Sync now"}
-      </button>
-      <div className="mt-1.5 space-y-0.5 px-1 text-[12px] leading-snug text-muted">{lines}</div>
-      {onLog && (
-        <button onClick={onLog} className="mt-1 flex h-7 w-full items-center gap-2 rounded-lg px-1 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink" title="Every sync, hour by hour">
-          <LogIcon />
-          Sync log
-        </button>
-      )}
-    </div>
-  );
-}
-
 function StorageStatus() {
   const { storage } = useStore();
   return (
@@ -318,6 +274,62 @@ function SignInPage({ onSignIn }: { onSignIn: (m: Member, token: string) => void
         <MembersScreen onPick={onSignIn} />
       </div>
     </div>
+  );
+}
+
+/** A page's icon on its own colour (the same as its big icon on the apps page), white line drawing. */
+function Chip({ page, size = "size-7" }: { page: DashboardPage; size?: string }) {
+  return (
+    <span className={`grid ${size} shrink-0 place-items-center rounded-lg`} style={{ background: page.color }}>
+      <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{APP_ICONS[page.icon]}</svg>
+    </span>
+  );
+}
+
+/*
+ * The top-right tools on every page (owner, 23 Nov: "move Sync now to the top right with Sign out, and Change theme too —
+ * a single palette button — and remove everything else from the sidebar's bottom"). AppShell holds the sync and the
+ * windows; PageHeader draws them beside the name and Sign out.
+ */
+type ShellTools = { zoho: ZohoSync; openLog: () => void; openTheme: () => void; openAnalytics?: () => void };
+const ShellCtx = createContext<ShellTools | null>(null);
+
+function HeaderTools() {
+  const t = useContext(ShellCtx);
+  const { now } = useStore();
+  if (!t) return null;
+  const { info, syncing, syncNow } = t.zoho;
+  const iconBtn = "grid size-9 place-items-center rounded-full bg-surface text-ink-2 shadow-card hover:text-ink";
+  const last = info?.syncedAt ? dayTime(info.syncedAt, now) : "—";
+  const next = syncing ? "Syncing now…" : info?.due ? "Due now" : info?.nextAt ? dayTime(info.nextAt, now) : "—";
+  return (
+    <>
+      {info?.enabled !== false && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-surface p-1 shadow-card">
+          <button
+            onClick={syncNow}
+            disabled={syncing}
+            title={`Fetch the latest from Zoho Books now\nLast sync: ${info ? last : "Checking…"}\nNext sync: ${info ? next : "—"}${info?.error ? `\nLast try failed: ${info.error}` : ""}`}
+            className={`press inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold disabled:opacity-70 ${info?.error ? "bg-high-bg text-high" : "bg-brand-soft text-brand hover:brightness-95"}`}
+          >
+            <SyncIcon spin={syncing} />
+            {syncing ? "Syncing…" : "Sync now"}
+          </button>
+          <button onClick={t.openLog} aria-label="Sync log" title={`Sync log · last sync ${last}`} className="grid size-7 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
+            <LogIcon />
+          </button>
+        </span>
+      )}
+      <button onClick={t.openTheme} aria-label="Change theme" title="Change theme" className={iconBtn}>
+        <Icon>{PALETTE}</Icon>
+      </button>
+      {/* Admin: the owner's Zoho Analytics workspace (read-only) — ANALYTICS-PLAN.md §2b.2. */}
+      {t.openAnalytics && (
+        <button onClick={t.openAnalytics} aria-label="Zoho Analytics" title="Zoho Analytics" className={iconBtn}>
+          <Icon><path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /></Icon>
+        </button>
+      )}
+    </>
   );
 }
 
@@ -361,8 +373,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const tabs = nav.filter((p) => p.id !== "sheet" && p.id !== "converter");
   // The apps home page (owner, 23 Nov) is its own full page: no sidebar, no ticker.
   if (path === "/" || path === "/dashboard") return <>{children}</>;
+  const tools: ShellTools = { zoho, openLog: () => setLogOpen(true), openTheme: () => setThemeOpen(true), ...(isAdmin(me) ? { openAnalytics: () => setAnalyticsOpen(true) } : {}) };
   return (
-    <>
+    <ShellCtx.Provider value={tools}>
       <Ticker />
       <div className="flex min-h-[calc(100vh-36px)]">
         {/* Sidebar (desktop): hidden to a slim rail with the X, reopened from the rail's menu button */}
@@ -377,34 +390,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={n.href}
                 aria-label={n.name}
                 title={n.name}
-                className={`press relative grid size-9 place-items-center rounded-[10px] ${isOnPage(n) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"}`}
+                className={`press relative grid size-10 place-items-center rounded-[10px] ${isOnPage(n) ? "bg-brand-soft ring-1 ring-brand/30" : "hover:bg-ink/[0.05]"}`}
               >
-                <Icon>{APP_ICONS[n.icon]}</Icon>
+                <Chip page={n} />
                 {n.id === "reports" && progress.needs > 0 && <span className="absolute right-0.5 top-0.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
               </Link>
             ))}
-            <button onClick={session.signOut} aria-label="Sign out" title={`Sign out (${session.member.name})`} className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
-              <Icon><path d="M8 4.5H5.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H8M12 13.5 15.5 10 12 6.5M15.5 10H8" /></Icon>
-            </button>
-            {zoho.info?.enabled !== false && (
-              <button
-                onClick={zoho.syncNow}
-                disabled={zoho.syncing}
-                aria-label="Sync now"
-                title={`Sync now\nLast sync: ${zoho.info?.syncedAt ? dayTime(zoho.info.syncedAt, now) : "—"}\nNext sync: ${zoho.info?.nextAt ? dayTime(zoho.info.nextAt, now) : "—"}`}
-                className={`grid size-9 place-items-center rounded-[10px] hover:bg-surface-2 hover:text-ink ${zoho.info?.error ? "text-high" : "text-muted"}`}
-              >
-                <SyncIcon spin={zoho.syncing} />
-              </button>
-            )}
-            {zoho.info?.enabled !== false && (
-              <button onClick={() => setLogOpen(true)} aria-label="Sync log" title="Sync log" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
-                <LogIcon />
-              </button>
-            )}
-            <button onClick={() => setThemeOpen(true)} aria-label="Change theme" title="Change theme" className="grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
-              <Icon>{PALETTE}</Icon>
-            </button>
           </aside>
         )}
         <aside className={`glass sticky top-9 hidden h-[calc(100vh-36px)] w-60 shrink-0 flex-col border-r border-line/70 px-3 py-5 ${sidebar.hidden ? "" : "lg:flex"}`}>
@@ -419,49 +410,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <nav className="space-y-0.5">
             {/* Back to the apps home page (owner, 23 Nov). */}
-            <Link href="/" className="press mb-2 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium text-muted hover:bg-ink/[0.04] hover:text-ink">
-              <Icon><path d="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" /></Icon>
+            <Link href="/" className="press mb-1 flex h-10 items-center gap-3 rounded-[10px] px-2 text-[13.5px] font-medium text-ink-2 hover:bg-ink/[0.05] hover:text-ink">
+              <span className="grid size-7 place-items-center rounded-lg bg-ink/[0.06]"><Icon><path d="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" /></Icon></span>
               <span className="flex-1">All apps</span>
             </Link>
             {sections.map((s) => (
               <div key={s.section} className="pt-3">
-                <p className="px-2.5 pb-1 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">{s.section}</p>
+                <p className="px-2.5 pb-1.5 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-muted">{s.section}</p>
                 {s.pages.map((n) => (
                   <Link
                     key={n.href}
                     href={n.href}
                     aria-current={isOnPage(n) ? "page" : undefined}
-                    className={`press flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
-                      isOnPage(n) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+                    className={`press flex h-10 items-center gap-3 rounded-[10px] px-2 text-[13.5px] ${
+                      isOnPage(n) ? "bg-brand-soft font-semibold text-ink ring-1 ring-brand/25" : "font-medium text-ink-2 hover:bg-ink/[0.05] hover:text-ink"
                     }`}
                   >
-                    <Icon>{APP_ICONS[n.icon]}</Icon>
+                    <Chip page={n} />
                     <span className="flex-1">{n.name}</span>
                   </Link>
                 ))}
               </div>
             ))}
           </nav>
-          <div className="mt-auto space-y-1 border-t border-line pt-3">
-            <div className="flex items-center gap-2.5 px-2.5 py-1.5">
-              <Avatar name={session.member.name} />
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-2">{session.member.name}</span>
-              <button onClick={session.signOut} className="rounded-md px-1.5 py-0.5 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-ink">Sign out</button>
-            </div>
-            {storageWarn && <StorageStatus />}
-            <SyncPanel sync={zoho} onLog={() => setLogOpen(true)} />
-            <button onClick={() => setThemeOpen(true)} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
-              <Icon>{PALETTE}</Icon>
-              Change theme
-            </button>
-            {/* Admin: the owner's Zoho Analytics workspace (read-only) — ANALYTICS-PLAN.md §2b.2. */}
-            {isAdmin(session.member) && (
-              <button onClick={() => setAnalyticsOpen(true)} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-muted hover:bg-surface-2 hover:text-ink">
-                <Icon><path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /></Icon>
-                Zoho Analytics
-              </button>
-            )}
-          </div>
+          {/* Kept clean (owner, 23 Nov): Sync, the theme and Sign out are top right; only a storage problem shows here. */}
+          {storageWarn && <div className="mt-auto border-t border-line pt-3"><StorageStatus /></div>}
         </aside>
 
         <div className="min-w-0 flex-1">
@@ -471,12 +444,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
               <span className="text-[14px] font-semibold">ThinkHealth</span>
             </Link>
-            <div className="ml-auto w-48"><SyncPanel sync={zoho} compact /></div>
-            {zoho.info?.enabled !== false && (
-              <button onClick={() => setLogOpen(true)} aria-label="Sync log" title="Sync log" className="-ml-2 grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink">
-                <LogIcon />
-              </button>
-            )}
           </header>
           {/* Every page uses the whole window (owner, 28 Oct: "if i zoom out, the website should get wide with it") —
               was capped at 1680 px except the boards, so zooming out only added empty margins. */}
@@ -521,7 +488,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         ))}
       </div>
-    </>
+    </ShellCtx.Provider>
   );
 }
 
@@ -547,6 +514,7 @@ export function PageHeader({ title, sub, actions, titleAside }: { title: string;
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {actions}
+        <HeaderTools />
         <MemberPill />
       </div>
     </div>
