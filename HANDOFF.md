@@ -1,6 +1,99 @@
 # Handoff — ThinkHealth Training Dashboard
 
-## Start of the next session (35) — read this block first
+## Start of the next session (36) — read this block first
+
+_Written Mon 23 Nov 2026, end of session 35 (20–21 Nov), for the next Claude Code session and the owner (Sumit; Jasmeet
+Singh, he/him, sometimes types in these sessions — don't assume who is typing)._
+
+**State.** **Live = `c1569b0`** on work.thinkhealth.in, training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel
+`-xfwl` success, sites 200). Nothing local except this handoff. Push only when the owner says "push": `git push origin
+master` from the **Bash tool**, then check `curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/statuses`
+(the `-xfwl` entry) and curl the three sites. Standing rules from the owner: **push only on "push"; short replies in plain
+words.**
+
+**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master`; `npm test` (**378** pass);
+`npx tsc --noEmit -p tsconfig.json`. A full `npm run build` on this PC stops at Next.js's own *SecurityFatalError* (16.4.3
+has an advisory) after compiling fine; Vercel still deploys. `next dev` stops on its first start to show the same notice —
+start it a second time (background).
+
+**First: ask the owner (one AskUserQuestion round).**
+1. **Training portal revamp** (live since 21 Nov): has a coordinator or participant used it? Anything to change? (Step by
+   step, live podium leaderboard, "training confirmed" moment, navy quiz, My report with every answer.)
+2. **Next.js 16.4.6 security upgrade**: ready in the worktree `../trainingDashboard-next-upgrade` (branch
+   `next-security-upgrade`, package.json + lock changed, uncommitted; tests / tsc / build passed there on 20 Nov). Merge it
+   into master? (It also clears the local build stop.) The worktree is based on `838e588`, so redo the bump on master
+   rather than merging the stale branch.
+3. **Jasmeet's 20 Sprints tasks** (24 found, 4 already show him): put him on them, keep thinkhealth.directory — the dry run
+   was shown, **"write it" was never given**. Script: scratchpad `jasmeet-assign.ts` (gone with the scratchpad; rebuild from
+   `zohoSprints.updateTask` with `users` + `was`).
+4. **Zoho Sign "Sign yourself" draft**: did invoice 2026-01-562 (Tata, draft 58454000000145046) open as Sign yourself with
+   the signature / date / name boxes, and did Finish work without credits? (Account has 0 credits; sending through the API
+   is refused; drafts are free.)
+5. **E-invoicing (owner asked 20 Nov, then "ignore")**: JLL invoices 541–544 and 555 are GST treatment *Consumer* with no
+   GSTIN (so not IRP-eligible); 552's GSTIN `29888CL2089B1Z0` doesn't look valid. Only mention if the owner brings it up.
+
+**Session 35 in short (20–21 Nov), all live:**
+- **Zoho Sign → Merge & draft** (`74de69f`, `dcd59f3`): Invoice Converter builds the merged invoice + PO + e-way bill PDF and
+  makes a Zoho Sign **self-sign draft** (`createDraft` in `zohoSign.ts`: POST /requests `self_sign:true`, then PUT the
+  Signature / Sign date (dd/MM/yyyy) / Full name fields on the self action, `field_type_id` from GET /fieldtypes), placed
+  left of the invoice's "Authorized Signature" label (`findSignLabel` / `signBoxes` in `pdfMerge.ts`), opened at
+  `https://sign.zoho.in/zs#/request/new/<id>`. Never submitted. Names: letters, digits, spaces, `- _ . ( )` only ("·" refused).
+  Owner: "Zoho Sign only" — no dashboard-drawn signatures.
+- **Calendar** (`52f27f3`): everyone sees every entry (`seesWholeCalendar` true); changing / deleting / marking done stays with
+  the maker, the people in it and full access (`canEditEntry`).
+- **Sprints comments** (`aaeef6c`): a task's Zoho Sprints comments in its panel + "Add comment" (Ctrl+Enter). API (found by
+  probing; not in the docs we could read): GET `/team/{t}/projects/{p}/sprints/{s}/item/{i}/notes/?index=1&range=N` (no
+  `action`!), POST same path with `name` = HTML. Zoho writes it as the connected user (Admin), so the text starts with
+  `<b>Full Name:</b>` and the dashboard shows that name (`commentHtml` / `commentsOf` in `sprintsRules.ts`). Edit / delete:
+  in Zoho only (delete URL unknown). Cards show `commentCount`.
+- **Invoice Converter → Sheet → Quotation** (`670f935`, owner: "BOQ was just an example"): upload any customer item sheet
+  (.xls/.xlsx/.csv, SheetJS 0.20.3 from cdn.sheetjs.com) → item table found per sheet → each line matched to our Zoho items
+  (`boq.ts`: recall + precision word scoring, make bonus, synonyms; weak = "check") → priced from the line's remembered rate
+  (`boqMemory`), else our last quote / invoice, else Zoho rate → save (temporary quotations in `boqQuotes`) → Download Excel
+  (their sheets + Rate / GST % / Amount / Our item + a Quotation sheet). Not done (ask if wanted): item pictures in the
+  download; "make a real Zoho draft quotation".
+- **GST year fill** done on 20 Nov (522 documents read, 0 left).
+- **Training portal revamp** (`6607ae5`, `16f7b9f`, `e56bf67`, `c1569b0`):
+  - Coordinator card = the progress track + **only the current step**: Decide (quote + What's included + Accept / Decline)
+    → Register your team (what was sent while we confirm, "Are you attending too?" card, QR + link, list) → Training day
+    (Start / End with an in-page confirm, big QR + present count, **live leaderboard**) → Completed (training report on top,
+    leaderboard + WhatsApp share, figures, certificates, quiz report). One "Training details" fold; participant list folded
+    on the day (still mounted: the live count comes from it); no tick boxes before the training day; New QR under "More";
+    plain labels (Joined by link / Added by you / invoice). Header without programme icons; Our programmes folded.
+  - **"Your training is confirmed"** full-screen moment once per training per browser (localStorage `th.confirmed.<id>`),
+    then "Next, let's get your team registered".
+  - **Leaderboard** (`Leaderboard.tsx`, shared): podium (gold / silver / bronze tints in `portal.css`) + ranked list, FLIP
+    row animation, Live pulse; refreshed via `useLive(["work"])` and `watchChanges(url, 2000)` while a training day or quiz
+    is on (`live.ts` takes an interval now).
+  - Participant page = a **steps card** (Registered → Mark attendance ("open the link your coordinator shares, or scan the
+    code") → Take the quiz → Your result → Good Samaritan certificate (email box right there if missing)); On / At / For on
+    top before and after the training day, hidden on the day; the leaderboard first once they've sent the quiz.
+  - **Quiz** in the portal's navy / Manrope (owner chose this over the AED campaign look); "3. What is…" on one line;
+    "Question 3 of 30" + one progress bar + "My page" exit; no points or rank anywhere for participants (% and "24 of 30
+    right").
+  - **My report** lists every answer they chose (✓/✗ + right answer once revealed).
+  - Quiz report "Time vs score": back to the scatter (owner tried columns, reverted), with legend, axis names, dashed pass
+    line and one plain takeaway sentence.
+  - Joining via the old `/join` link now **requires an email** (`join()` in `portalTrainings.ts`).
+- One-off for the owner: `D:\Projects\BOQ - Security (filled).xls` (Make redone, pictures, Rate / Total) via Excel COM.
+
+**Local-only things (not in git):**
+- Portal preview with made-up data: `src/app/training/zz-preview/` (Preview.tsx + page.tsx), excluded in `.git/info/exclude`.
+  Run `next dev -p 3998` and open `http://localhost:3998/training/zz-preview` (black stage bar at the bottom). Keep it
+  excluded; delete if it ever gets in the way.
+- `../trainingDashboard-next-upgrade` worktree (see question 2).
+
+**Traps learned in session 35:**
+- Dev React mounts twice: an "alive" ref cleared in a cleanup must be set back to true in the effect, or loads never land.
+- Bash `node - <<'EOF'` / `node -e` scripts trip on apostrophes and `${}` here — write the patch to a scratchpad file with
+  the Write tool and run it.
+- Zoho Sprints notes endpoint 404s with `action=data`; omit `action`.
+- Zoho Sign: API submit / self-sign "sign" calls need credits (5 credits ≈ $0.50 per envelope); drafts don't.
+- `cdp-shot.mjs` screenshots the viewport only: pass a tall height for full pages.
+
+---
+
+## Session 35's start block (history)
 
 _Written Fri 20 Nov 2026, end of session 34, for the next Claude Code session and the owner (Sumit)._
 
