@@ -1,9 +1,14 @@
-import { Manrope } from "next/font/google";
-import { DashboardHome } from "@/components/Launcher";
+"use client";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "@/lib/session";
+import { homeOf } from "@/lib/roles";
 
-// Inside the Training Dashboard application (owner, 23 Nov): our pages as big icons, "All apps" back to /.
-const manrope = Manrope({ variable: "--font-manrope", subsets: ["latin"] });
-
+// The folders page here was dropped (owner, 23 Nov: "scrape it, just keep the application page"); old links land on
+// the person's first page of the Training Dashboard.
 export default function TrainingDashboardHome() {
-  return <div className={manrope.variable}><DashboardHome /></div>;
+  const { member } = useSession();
+  const router = useRouter();
+  useEffect(() => { if (member) router.replace(homeOf(member)); }, [member, router]);
+  return null;
 }

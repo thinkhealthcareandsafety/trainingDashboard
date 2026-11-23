@@ -7,7 +7,7 @@ import { canConvertInvoices, canSee, hasFollowUps } from "./roles";
  *    main page."
  *  - "I add them: a link that opens their website on this same page instead of a new tab; going back comes back to this
  *    page." So Admin adds an application as a name and a link (`launcherApps`, /api/apps); it opens in the same tab.
- *  - Inside Training Dashboard (/dashboard): every page of the dashboard, in the sidebar's order, each for those who
+ *  - The pages of Training Dashboard (the sidebar): every page, section by section, each for those who
  *    may open it (the same rules as the sidebar).
  * Pure: the pages, the links' rules.
  */
