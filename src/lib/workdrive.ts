@@ -8,7 +8,8 @@ import { clientsToTry, tokenRequest } from "./zohoOAuth";
  * address; zohoapis.in worked for listing and downloading on 5 Nov. Connect lists the folder before saving.
  */
 
-export const WORKDRIVE_SCOPES = "WorkDrive.files.READ";
+// CREATE since 23 Nov: a folder in SALES for each new customer (customerFolders.ts, Sprints I148).
+export const WORKDRIVE_SCOPES = "WorkDrive.files.READ,WorkDrive.files.CREATE";
 export const WORKDRIVE_ROOT = "znge79c8e870f2b9f477e9501433581458b2a";
 export const WORKDRIVE_LINK = "https://workdrive.zoho.in/53ff4315ed8ce16a945a0a0dc401e6a12c2c3/teams/53ff4315ed8ce16a945a0a0dc401e6a12c2c3/ws/znge7acf2ee5bec304274b0cecca367bed7e6/folders/znge79c8e870f2b9f477e9501433581458b2a";
 const API = "https://www.zohoapis.in/workdrive/api/v1";
@@ -22,7 +23,7 @@ const FRESH_MS = 60_000;
 const MAX_BYTES = 50 * 1024 * 1024; // no rule of ours (owner, 5 Nov), just what one server call can carry; Zoho Books may refuse less, and says so
 
 export type WdEntry = { id: string; name: string; folder: boolean; pdf: boolean; size: number | null };
-type Conn = { _id: string; clientId: string; clientSecret: string; refreshToken: string; token?: { value: string; expiresAt: number }; connectedAt: string; connectedBy: string };
+type Conn = { _id: string; clientId: string; clientSecret: string; refreshToken: string; token?: { value: string; expiresAt: number }; connectedAt: string; connectedBy: string; scopes?: string };
 type Listing = { data?: { id?: unknown; attributes?: { name?: unknown; is_folder?: unknown; type?: unknown; extn?: unknown; storage_info?: { size_in_bytes?: unknown } } }[]; links?: { cursor?: { has_next?: unknown } } };
 const kv = async () => (await db()).collection<Conn>("kv");
 
@@ -91,9 +92,10 @@ async function listFolder(c: Conn, id: string, fresh = false): Promise<WdEntry[]
   return entries;
 }
 
-export async function workdriveInfo(): Promise<{ connectedAt: string; connectedBy: string } | null> {
+/** canCreate: connected with the CREATE scope (customer folders); before 23 Nov it was read-only. */
+export async function workdriveInfo(): Promise<{ connectedAt: string; connectedBy: string; canCreate: boolean } | null> {
   const c = await (await kv()).findOne({ _id: KEY });
-  return c ? { connectedAt: c.connectedAt, connectedBy: c.connectedBy } : null;
+  return c ? { connectedAt: c.connectedAt, connectedBy: c.connectedBy, canCreate: /WorkDrive.files.CREATE/.test(c.scopes ?? "") } : null;
 }
 
 const connection = async (): Promise<Conn> => {
@@ -146,10 +148,38 @@ export async function connectWorkdrive(input: { code: string; clientId?: string;
   }
   if (!t) throw refused;
   if (!t.refresh_token) throw new Error("Zoho gave no refresh token: generate a new code and try again");
-  const c: Conn = { _id: KEY, clientId, clientSecret, refreshToken: t.refresh_token, token: { value: t.access_token!, expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000 }, connectedAt: new Date().toISOString(), connectedBy: by };
+  const c: Conn = { _id: KEY, clientId, clientSecret, refreshToken: t.refresh_token, token: { value: t.access_token!, expiresAt: Date.now() + (t.expires_in ?? 3600) * 1000 }, connectedAt: new Date().toISOString(), connectedBy: by, scopes: WORKDRIVE_SCOPES };
   await listFolder(c, WORKDRIVE_ROOT, true).catch((e: Error) => {
     throw new Error(`Zoho took the code, but the shared folder can't be read, so nothing changed. Generate the code signed in as someone who can open that folder. (${e.message})`);
   });
   await col.replaceOne({ _id: KEY }, c, { upsert: true });
   return { connectedAt: c.connectedAt, connectedBy: by };
+}
+
+/** The folders directly inside a folder (any folder the connected user can open), fresh. */
+export async function workdriveSubfolders(id: string): Promise<WdEntry[]> {
+  return (await listFolder(await connection(), id, true)).filter((e) => e.folder);
+}
+
+/** A new folder inside `parent` (POST /files, scope WorkDrive.files.CREATE). Its id. One retry after a 401. */
+export async function workdriveMakeFolder(parent: string, name: string): Promise<string> {
+  const c = await connection();
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}/files`, {
+      method: "POST",
+      headers: { Authorization: `Zoho-oauthtoken ${await accessFor(c, attempt > 0)}`, Accept: "application/vnd.api+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ data: { attributes: { name, parent_id: parent }, type: "files" } }),
+      cache: "no-store",
+    });
+    if (res.status === 401 && attempt === 0) continue;
+    const j = (await res.json().catch(() => ({}))) as { data?: { id?: unknown }; errors?: { id?: string; title?: string }[] };
+    const id = String(j.data?.id ?? "");
+    if (!res.ok || !id) {
+      const why = j.errors?.[0]?.title ?? `error ${res.status}`;
+      console.error(`[workdrive] new folder → ${res.status} ${j.errors?.[0]?.id ?? ""} ${why}`);
+      throw new Error(/scope/i.test(why) ? "Zoho WorkDrive needs connecting again (Admin) so the dashboard may make folders" : `Zoho WorkDrive: ${why}`);
+    }
+    cache.delete(parent);
+    return id;
+  }
 }

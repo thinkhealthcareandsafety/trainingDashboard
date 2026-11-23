@@ -154,6 +154,8 @@ export type SyncLogEntry = SyncTrigger & {
   payments?: string[]; // invoice numbers whose payments were (re)read
   customers?: string[]; // new or changed customers
   customersRemoved?: number;
+  folders?: string[]; // customer folders made in WorkDrive SALES (customerFolders.ts)
+  folderError?: string;
   replies?: number; // new replies to Fulfillment gratitude emails (Zoho Mail, learn@)
   sales?: number; // Sales board copy (salesSync.ts): documents changed + invoices whose payments were read
   salesError?: string;
@@ -477,6 +479,14 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
         log.customers = fresh.map((l) => l.name);
         changed++;
       }
+    }
+    // A WorkDrive folder for each new customer (owner, 23 Nov; Sprints I148). Never fails the sync.
+    try {
+      const made = await (await import("./customerFolders")).makeCustomerFolders();
+      if (made.length) log.folders = made;
+    } catch (e) {
+      log.folderError = e instanceof Error ? e.message : String(e);
+      console.error(`[customer folders] failed: ${log.folderError}`);
     }
     // Team (Zoho users).
     if (!state.usersAt || fullDue) {

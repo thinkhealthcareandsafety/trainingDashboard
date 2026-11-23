@@ -247,8 +247,10 @@ export async function GET(request: Request) {
       const path = parseWdPath(q.get("path"));
       if (!path) return Response.json({ error: "Unknown folder" }, { status: 400 });
       const common = { admin: isAdmin(me), link: WORKDRIVE_LINK, scopes: WORKDRIVE_SCOPES };
-      if (!(await workdriveInfo())) return Response.json({ ...common, connected: false, entries: [] });
-      return Response.json({ ...common, connected: true, entries: await workdriveFolder(path) });
+      const info = await workdriveInfo();
+      if (!info) return Response.json({ ...common, connected: false, entries: [] });
+      // canCreate: false until Admin connects again with the CREATE scope (customer folders, 23 Nov).
+      return Response.json({ ...common, connected: true, canCreate: info.canCreate, entries: await workdriveFolder(path) });
     }
 
     // Total Supply quotation (owner, 5 Nov): the prices to show in the email step, and the PDF to look at. Nothing is saved or numbered yet.

@@ -1280,7 +1280,7 @@ function AddBrochure({ item, live, label = "Add PDF", onAdded }: { item: Item; l
 /** The team's shared WorkDrive folder inside the dashboard: open folders, click a PDF, and the server copies it onto the item. Nothing is downloaded here. */
 function WorkDrivePicker({ item, onClose, onAdded }: { item: Item; onClose: () => void; onAdded: (brochure: string) => void }) {
   type Entry = { id: string; name: string; folder: boolean; pdf: boolean; size: number | null };
-  type Res = { connected?: boolean; admin?: boolean; link?: string; scopes?: string; entries?: Entry[]; error?: string };
+  type Res = { connected?: boolean; canCreate?: boolean; admin?: boolean; link?: string; scopes?: string; entries?: Entry[]; error?: string };
   const [crumbs, setCrumbs] = useState<{ id: string; name: string }[]>([]);
   const [res, setRes] = useState<Res | null>(null);
   const [tick, setTick] = useState(0);
@@ -1313,6 +1313,12 @@ function WorkDrivePicker({ item, onClose, onAdded }: { item: Item; onClose: () =
           </div>
           <button className={btn.quiet} onClick={onClose} aria-label="Close" disabled={Boolean(picking)}>✕</button>
         </div>
+        {res?.admin && res.connected && res.canCreate === false && (
+          <div className="mx-5 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-soft px-3 py-2 text-[13.5px] text-ink-2">
+            <span>New customers get a folder in SALES once WorkDrive is connected again, allowing new folders.</span>
+            <button type="button" className={btn.primary} onClick={() => setConnecting(true)}>Connect again</button>
+          </div>
+        )}
         <nav aria-label="Folders" className="flex flex-wrap items-center gap-1 px-5 pt-3 text-[14px]">
           <button type="button" className={crumbs.length ? "font-semibold text-brand hover:underline" : "font-semibold text-ink"} disabled={!crumbs.length || Boolean(picking)} onClick={() => setCrumbs([])}>Shared folder</button>
           {crumbs.map((c, i) => (
