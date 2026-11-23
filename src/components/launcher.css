@@ -22,7 +22,7 @@
 .lx-me button { font: inherit; font-weight: 700; color: var(--lx-ink); background: none; border: 0; cursor: pointer; }
 .lx-me button:hover { color: var(--lx-action); }
 
-.lx-in { flex: 1; width: 100%; max-width: 720px; margin: 0 auto; padding: 9vh 24px 64px; text-align: center; }
+.lx-in { flex: 1; width: 100%; max-width: 800px; margin: 0 auto; padding: 9vh 24px 64px; text-align: center; }
 .lx-in h1 { font-size: clamp(24px, 3vw, 30px); font-weight: 700; letter-spacing: -0.02em; margin-bottom: 40px; }
 
 .lx-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }

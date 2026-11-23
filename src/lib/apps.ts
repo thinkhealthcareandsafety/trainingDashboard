@@ -1,57 +1,48 @@
-import { type Page, canConvertInvoices, canSee, hasFollowUps, homeOf } from "./roles";
+import { canConvertInvoices, canSee, hasFollowUps } from "./roles";
 
 /*
- * The apps home page (owner, 23 Nov: "like Chrome's main page — they log in, they see the applications; first our
- * ThinkHealth dashboard, other colleagues will add their own applications there, one click and it opens"). Look C,
- * "Signboard". Pure: who sees which app, the search, and the personal shortcuts' rules (the API keeps them).
+ * The apps home page (owner, 23 Nov: "like Chrome's main page — they log in, they see the applications"; then "make it
+ * minimalist"; then "there's this many, how come I only see 3"): every page of the dashboard is an app, in the
+ * sidebar's order, each for those who may open it (the same rules as the sidebar). Pure: who sees which app, the
+ * search, and the personal shortcuts' rules (the API keeps them).
  *
  * A colleague's new application: build it in this project under its own route, then add it to APPS below with who
- * may see it. It shows as a tile for those people at once.
+ * may see it (and its icon in Launcher.tsx). It shows as a tile for those people at once.
  */
 
 type Who = { id: string; name: string };
-export type AppIcon = "dashboard" | "trainings" | "converter" | "sheet";
-export type AppTile = {
-  id: string; name: string; about: string; href: string; icon: AppIcon;
-  /** The sign's colour (DESIGN.md sign grammar, white pictogram). */
-  color: string;
-  /** The main app: drawn wide, with an Open button. */
-  main?: boolean;
-};
+/** One per app: the sidebar's own icons (AppShell NAV), plus the two Reports tools. */
+export type AppIcon = "overview" | "quotations" | "trainings" | "items" | "templates" | "followups" | "calendar" | "sprints" | "reports" | "converter" | "sheet";
+export type AppTile = { id: AppIcon; name: string; about: string; href: string; icon: AppIcon; color: string };
 
-const APPS: (Omit<AppTile, "href"> & { href: string | ((m: Who) => string); show: (m: Who) => boolean })[] = [
-  { id: "dashboard", name: "ThinkHealth Dashboard", about: "Sales, quotations, trainings, follow-ups, calendar, sprints and reports.", href: (m) => homeOf(m), icon: "dashboard", color: "#034f72", main: true, show: () => true },
-  { id: "trainings", name: "Training Manager", about: "Training quotations and the clients' training portal.", href: "/training-management", icon: "trainings", color: "#00843d", show: (m) => canSee(m, "trainings") },
-  { id: "converter", name: "Invoice Converter", about: "Purchase orders and e-way bills on invoices.", href: "/reports/invoice-converter", icon: "converter", color: "#005387", show: (m) => canConvertInvoices(m) },
-  { id: "sheet", name: "Sheet → Quotation", about: "Customer item sheets into Zoho draft quotations.", href: "/reports/sheet-to-quotation", icon: "sheet", color: "#9a5b00", show: (m) => canConvertInvoices(m) },
+const APPS: (AppTile & { show: (m: Who) => boolean })[] = [
+  { id: "overview", name: "Overview", about: "Sales, targets and the month at a glance", href: "/overview", icon: "overview", color: "#034f72", show: (m) => canSee(m, "overview") },
+  { id: "quotations", name: "Quotations", about: "Quote any customer in Zoho Books", href: "/quotations", icon: "quotations", color: "#0077b6", show: (m) => canSee(m, "quotations") },
+  { id: "trainings", name: "Trainings", about: "Training quotations and the clients' portal", href: "/training-management", icon: "trainings", color: "#00843d", show: (m) => canSee(m, "trainings") },
+  { id: "items", name: "Items", about: "Products, prices, stock and brochures", href: "/items", icon: "items", color: "#5a6b2f", show: (m) => canSee(m, "items") },
+  { id: "templates", name: "Templates", about: "The wording of our emails", href: "/templates", icon: "templates", color: "#7a4fc0", show: (m) => canSee(m, "templates") },
+  { id: "followups", name: "Follow-ups", about: "The boards: leads, AED, fulfilment", href: "/follow-up", icon: "followups", color: "#b8641a", show: (m) => hasFollowUps(m) },
+  { id: "calendar", name: "Calendar", about: "Everyone's schedule", href: "/calendar", icon: "calendar", color: "#b42318", show: (m) => canSee(m, "calendar") },
+  { id: "sprints", name: "Sprints", about: "Team tasks from Zoho Sprints", href: "/sprints", icon: "sprints", color: "#1f6f8b", show: (m) => canSee(m, "sprints") },
+  { id: "reports", name: "Reports", about: "Sales and analytics dashboards", href: "/reports", icon: "reports", color: "#023a55", show: (m) => canSee(m, "reports") },
+  { id: "converter", name: "Invoice Converter", about: "Purchase orders and e-way bills on invoices", href: "/reports/invoice-converter", icon: "converter", color: "#005387", show: (m) => canConvertInvoices(m) },
+  { id: "sheet", name: "Sheet → Quotation", about: "Customer item sheets into Zoho draft quotations", href: "/reports/sheet-to-quotation", icon: "sheet", color: "#9a5b00", show: (m) => canConvertInvoices(m) },
 ];
 
-/** The apps this person may open, the main one first. */
+/** The apps this person may open, in the sidebar's order. */
 export function appsFor(m: Who): AppTile[] {
-  return APPS.filter((a) => a.show(m)).map(({ show: _s, href, ...a }) => { void _s; return { ...a, href: typeof href === "function" ? href(m) : href }; });
+  return APPS.filter((a) => a.show(m)).map(({ show: _s, ...a }) => { void _s; return a; });
 }
 
-/** The dashboard's own pages, for the search ("find an app or a page"). */
-const PAGES: { page: Page | "followups"; name: string; href: string; words: string }[] = [
-  { page: "overview", name: "Overview", href: "/overview", words: "kpi sales numbers targets" },
-  { page: "quotations", name: "Quotations", href: "/quotations", words: "quote customer estimate" },
-  { page: "trainings", name: "Trainings", href: "/training-management", words: "training portal coordinator" },
-  { page: "items", name: "Items", href: "/items", words: "products stock brochure price" },
-  { page: "templates", name: "Templates", href: "/templates", words: "email wording" },
-  { page: "followups", name: "Follow-ups", href: "/follow-up", words: "board leads aed fulfillment" },
-  { page: "calendar", name: "Calendar", href: "/calendar", words: "schedule entries" },
-  { page: "sprints", name: "Sprints", href: "/sprints", words: "tasks zoho sprints" },
-  { page: "reports", name: "Reports", href: "/reports", words: "analytics dashboards" },
-];
-export type Found = { name: string; href: string; kind: "app" | "page" | "shortcut"; external?: boolean };
+export type Found = { name: string; href: string; kind: "app" | "shortcut"; external?: boolean };
+/** Apps and their own shortcuts by name (kept for a search box; the minimalist page has none yet). */
 export function search(q: string, m: Who, shortcuts: Shortcut[]): Found[] {
   const ws = q.toLowerCase().split(/\s+/).filter(Boolean);
   if (!ws.length) return [];
   const hit = (text: string) => ws.every((w) => text.toLowerCase().includes(w));
   const apps = appsFor(m).filter((a) => hit(`${a.name} ${a.about}`)).map((a): Found => ({ name: a.name, href: a.href, kind: "app" }));
-  const pages = PAGES.filter((p) => (p.page === "followups" ? hasFollowUps(m) : canSee(m, p.page)) && hit(`${p.name} ${p.words}`)).map((p): Found => ({ name: p.name, href: p.href, kind: "page" }));
   const mine = shortcuts.filter((s) => hit(`${s.name} ${s.url}`)).map((s): Found => ({ name: s.name, href: s.url, kind: "shortcut", external: true }));
-  return [...apps, ...pages, ...mine].filter((f, i, all) => all.findIndex((x) => x.href === f.href) === i).slice(0, 8);
+  return [...apps, ...mine].slice(0, 8);
 }
 
 /* ---------------- Personal shortcuts (owner: each person adds their own websites) ---------------- */

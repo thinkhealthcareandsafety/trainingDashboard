@@ -10,20 +10,18 @@ beforeEach(() => resetFakeDb());
 const sumit = { id: "sumit", name: "Sumit A Shah" };
 const admin = { id: "admin", name: "Admin" };
 
-test("the Dashboard is everyone's first app and opens their first page; the others follow their pages", () => {
-  const mine = appsFor(sumit);
-  assert.equal(mine[0].id, "dashboard");
-  assert.ok(mine[0].main);
-  assert.equal(mine[0].href, "/overview");
-  const all = appsFor(admin).map((a) => a.id);
-  assert.deepEqual(all, ["dashboard", "trainings", "converter", "sheet"]);
+test("every dashboard page is an app, in the sidebar's order, for those who may open it", () => {
+  assert.deepEqual(appsFor(admin).map((a) => a.id), ["overview", "quotations", "trainings", "items", "templates", "followups", "calendar", "sprints", "reports", "converter", "sheet"]);
+  assert.equal(new Set(appsFor(admin).map((a) => a.href)).size, 11);
+  const arti = appsFor({ id: "arti", name: "Arti Sirohi" }).map((a) => a.id);
+  assert.ok(arti.includes("converter") && arti.includes("items"));
+  assert.ok(!arti.includes("overview") && !arti.includes("templates"));
+  assert.ok(appsFor(sumit).some((a) => a.id === "overview"));
 });
 
-test("search finds apps, dashboard pages and their own shortcuts, each once", () => {
-  // Apps whose description mentions it count too; Training Manager and the Trainings page are the same address, so once.
-  assert.deepEqual(search("quot", admin, []).map((f) => f.name), ["ThinkHealth Dashboard", "Training Manager", "Sheet → Quotation", "Quotations"]);
-  assert.equal(search("calendar", admin, []).find((f) => f.kind === "page")?.href, "/calendar");
-  assert.deepEqual(search("books", admin, [{ id: "s1", name: "Zoho Books", url: "https://books.zoho.in/" }]).map((f) => [f.kind, f.external]), [["shortcut", true]]);
+test("search finds apps and their own shortcuts", () => {
+  assert.deepEqual(search("quot", admin, []).map((f) => f.name), ["Quotations", "Trainings", "Sheet → Quotation"]);
+  assert.deepEqual(search("books", admin, [{ id: "s1", name: "Zoho Books", url: "https://books.zoho.in/" }]).map((f) => [f.name, f.kind]), [["Quotations", "app"], ["Zoho Books", "shortcut"]]);
   assert.deepEqual(search("  ", admin, []), []);
 });
 
