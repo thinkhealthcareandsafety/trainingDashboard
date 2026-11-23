@@ -36,6 +36,10 @@
 .lx-plus { background: transparent; color: var(--lx-muted); box-shadow: inset 0 0 0 1.5px var(--lx-line); }
 .lx-name { font-size: 14px; font-weight: 600; line-height: 1.3; text-align: center; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
+/* Inside Training Dashboard: the sidebar's sections (owner, 23 Nov). */
+.lx-section + .lx-section { margin-top: 36px; }
+.lx-section h2 { margin-bottom: 12px; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--lx-ink); }
+
 .lx-sw { position: relative; }
 .lx-x { position: absolute; top: 8px; right: 14px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--lx-surface); color: var(--lx-muted); border: 0; cursor: pointer; box-shadow: 0 0 0 1px var(--lx-line); opacity: 0; transition: opacity 0.15s; }
 .lx-sw:hover .lx-x, .lx-x:focus-visible { opacity: 1; }

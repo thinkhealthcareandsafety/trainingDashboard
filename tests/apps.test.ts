@@ -1,7 +1,7 @@
 // The apps home page (owner, 23 Nov): the applications Admin adds (links), and the pages inside Training Dashboard.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { appName, cleanUrl, dashboardPages } from "@/lib/apps";
+import { appName, cleanUrl, dashboardPages, pageAt, pageSections } from "@/lib/apps";
 import { DELETE, GET, POST } from "@/app/api/apps/route";
 import { resetFakeDb } from "./fakes/db";
 
@@ -11,8 +11,8 @@ const sumit = { id: "sumit", name: "Sumit A Shah" };
 const admin = { id: "admin", name: "Admin" };
 const arti = { id: "arti", name: "Arti Sirohi" };
 
-test("inside Training Dashboard: every page, in the sidebar's order, for those who may open it", () => {
-  assert.deepEqual(dashboardPages(admin).map((p) => p.id), ["overview", "quotations", "trainings", "items", "templates", "followups", "calendar", "sprints", "reports", "converter", "sheet"]);
+test("inside Training Dashboard and in the sidebar: every page, section by section, for those who may open it", () => {
+  assert.deepEqual(dashboardPages(admin).map((p) => p.id), ["overview", "followups", "calendar", "reports", "quotations", "sheet", "trainings", "items", "converter", "sprints", "templates"]);
   assert.equal(new Set(dashboardPages(admin).map((p) => p.href)).size, 11);
   const hers = dashboardPages(arti).map((p) => p.id);
   assert.ok(hers.includes("converter") && hers.includes("items"));
@@ -53,4 +53,21 @@ test("applications on the main page: Admin adds and removes, everyone sees them,
   assert.equal((await call(arti, "DELETE", undefined, `?id=${id}`)).s, 403);
   assert.deepEqual((await call(admin, "DELETE", undefined, `?id=${id}`)).j.apps.map((x: { name: string }) => x.name), ["AED Tracker"]);
   assert.equal((await call(admin, "DELETE", undefined, `?id=${id}`)).s, 404);
+});
+
+test("the sections (owner, 23 Nov) and which page a path is on", () => {
+  assert.deepEqual(pageSections(admin).map((s) => [s.section, s.pages.map((p) => p.name)]), [
+    ["Overview", ["Overview", "Follow-ups", "Calendar", "Reports"]],
+    ["Sales", ["Quotations", "Sheet → Quotation", "Trainings"]],
+    ["Inventory", ["Items"]],
+    ["Utilities", ["Invoice Converter", "Sprints", "Templates"]],
+  ]);
+  // A section with nothing for someone is left out.
+  assert.ok(pageSections(arti).every((s) => s.pages.length > 0));
+  const pages = dashboardPages(admin);
+  assert.equal(pageAt("/reports/invoice-converter", pages), "/reports/invoice-converter");
+  assert.equal(pageAt("/reports", pages), "/reports");
+  assert.equal(pageAt("/reports/sales", pages), "/reports");
+  assert.equal(pageAt("/follow-up/aed", pages), "/follow-up");
+  assert.equal(pageAt("/itemsx", pages), undefined);
 });

@@ -14,31 +14,13 @@ import { RevertConfirm } from "./RevertConfirm";
 import { DayReminders } from "./DayReminders";
 import { AnalyticsConnect } from "./AnalyticsConnect";
 import { ProgressToasts, useProgressPulse } from "./progress/ProgressPulse";
-import { type Page, canConvertInvoices, canSee, hasFollowUps, isAdmin } from "@/lib/roles";
+import { isAdmin } from "@/lib/roles";
+import { type DashboardPage, dashboardPages, pageAt, pageSections } from "@/lib/apps";
+import { APP_ICONS } from "./appIcons";
 
-// Each item shows only with its page in the owner's sheet (roles.ts ACCESS, 18 Nov).
-const NAV: { href: string; label: string; page: Page; icon: React.ReactNode }[] = [
-  { href: "/overview", label: "Overview", page: "overview", icon: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" /> },
-  // Quotations (owner, 28 Oct: "under Overview"): every Zoho customer, one click to send a quotation — the four who sell.
-  { href: "/quotations", label: "Quotations", page: "quotations", icon: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" /> },
-  // Training Management (owner, 10 Nov): the training-only quotes, under Quotations. Those who quote.
-  { href: "/training-management", label: "Trainings", page: "trainings", icon: <><path d="M10 3.5 3 7l7 3.5L17 7z" /><path d="M6 8.7v3.8c1 1.2 2.4 1.8 4 1.8s3-.6 4-1.8V8.7M17 7v4" /></> },
-  // Items (owner, 4 Nov): its own page right under Quotations. Every member sees it and can change anything on an item (owner, 5 Nov); only starting a quotation stays with those who quote.
-  { href: "/items", label: "Items", page: "items", icon: <path d="M3.5 6.5 10 3.5l6.5 3v7L10 16.5l-6.5-3zM3.5 6.5 10 9.5l6.5-3M10 9.5v7" /> },
-  // Templates (owner, 10 Nov): the wording of the emails we send. Those who quote.
-  { href: "/templates", label: "Templates", page: "templates", icon: <path d="M3.5 5.5h13v9h-13zM3.5 6l6.5 5 6.5-5" /> },
-  { href: "/follow-up", label: "Follow-ups", page: "followups", icon: <path d="M4 5.5h12M4 10h12M4 14.5h7" /> },
-  { href: "/calendar", label: "Calendar", page: "calendar", icon: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></> },
-  // Sprints (owner, 18 Nov): Zoho Sprints' board, its own item (not under Reports), in the hidden Progress tracker's place. Everyone.
-  { href: "/sprints", label: "Sprints", page: "sprints", icon: <><rect x="3" y="3.5" width="14" height="13" rx="2" /><path d="M7.7 3.5v13M12.3 3.5v13M4.8 6.5h1.4M9.3 6.5h1.4M9.3 9h1.4M13.8 6.5h1.4" /></> },
-  // Reports (ANALYTICS-PLAN.md): its dashboards are Books money — the sheet's Reports column. Since 26 Oct it also
-  // held the Progress tracker, now hidden (owner, 18 Nov; Sprints is its own item). Others see Reports only for the Invoice Converter.
-  { href: "/reports", label: "Reports", page: "reports", icon: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /> },
-];
-// The Progress tracker is hidden entirely (owner, 18 Nov: its page, red count, notices and "Ask a teammate"); Sprints
-// took its place as its own item. Nothing of the tracker is deleted.
-const CONVERTER = "/reports/invoice-converter";
-const SHEET_QUOTE = "/reports/sheet-to-quotation";
+// The pages, their sections (owner, 23 Nov: Overview / Sales / Inventory / Utilities) and who sees each: lib/apps.ts,
+// shared with the apps page. Each item shows only with its page in the owner's sheet (roles.ts ACCESS, 18 Nov).
+// The Progress tracker is hidden entirely (owner, 18 Nov); nothing of it is deleted.
 
 /**
  * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
@@ -347,7 +329,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { now, toasts, dismissToast, storage, ready } = useStore();
   // Only mention storage when something is wrong (team database not reachable).
   const storageWarn = ready && storage !== "team";
-  const isOn = (href: string) => path.startsWith(href);
   const router = useRouter();
   const zoho = useZohoSync(Boolean(session.ready && session.member));
   // The Progress tracker is hidden (owner, 18 Nov): no presence beat, so no red count and no notices.
@@ -372,9 +353,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
   const me = session.member!;
   // The owner's sheet (18 Nov): a page each; Follow-ups needs a board too; Reports also shows for the Invoice Converter alone (/reports forwards there).
-  const nav = NAV.filter((n) => (n.page === "followups" ? hasFollowUps(me) : n.page === "reports" ? canSee(me, "reports") || canConvertInvoices(me) : canSee(me, n.page)));
-  const onConverter = path.startsWith(CONVERTER);
-  const onSheetQuote = path.startsWith(SHEET_QUOTE);
+  const nav = dashboardPages(me);
+  const sections = pageSections(me);
+  const current = pageAt(path, nav);
+  const isOnPage = (p: DashboardPage) => p.href === current;
+  // Phones: the bottom tabs keep to the main pages (the two Reports tools are in the sidebar and the apps page).
+  const tabs = nav.filter((p) => p.id !== "sheet" && p.id !== "converter");
   // The apps home page (owner, 23 Nov) is its own full page: no sidebar, no ticker.
   if (path === "/" || path === "/dashboard") return <>{children}</>;
   return (
@@ -391,12 +375,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={n.href}
                 href={n.href}
-                aria-label={n.label}
-                title={n.label}
-                className={`press relative grid size-9 place-items-center rounded-[10px] ${isOn(n.href) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"}`}
+                aria-label={n.name}
+                title={n.name}
+                className={`press relative grid size-9 place-items-center rounded-[10px] ${isOnPage(n) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"}`}
               >
-                <Icon>{n.icon}</Icon>
-                {n.label === "Reports" && progress.needs > 0 && <span className="absolute right-0.5 top-0.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
+                <Icon>{APP_ICONS[n.icon]}</Icon>
+                {n.id === "reports" && progress.needs > 0 && <span className="absolute right-0.5 top-0.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
               </Link>
             ))}
             <button onClick={session.signOut} aria-label="Sign out" title={`Sign out (${session.member.name})`} className="mt-auto grid size-9 place-items-center rounded-[10px] text-muted hover:bg-surface-2 hover:text-ink">
@@ -439,53 +423,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Icon><path d="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" /></Icon>
               <span className="flex-1">All apps</span>
             </Link>
-            {nav.map((n) => {
-              const reports = n.label === "Reports";
-              const on = reports ? isOn(n.href) && !onConverter && !onSheetQuote : isOn(n.href);
-              return (
-                <div key={n.href}>
+            {sections.map((s) => (
+              <div key={s.section} className="pt-3">
+                <p className="px-2.5 pb-1 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">{s.section}</p>
+                {s.pages.map((n) => (
                   <Link
+                    key={n.href}
                     href={n.href}
+                    aria-current={isOnPage(n) ? "page" : undefined}
                     className={`press flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
-                      on ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+                      isOnPage(n) ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
                     }`}
                   >
-                    <Icon>{n.icon}</Icon>
-                    <span className="flex-1">{n.label}</span>
+                    <Icon>{APP_ICONS[n.icon]}</Icon>
+                    <span className="flex-1">{n.name}</span>
                   </Link>
-                  {/* Reports → Invoice Converter (owner, 17 Nov): invoices, POs and e-way bills. */}
-                  {reports && session.member && canConvertInvoices(session.member) && (
-                    <Link
-                      href={CONVERTER}
-                      className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
-                        onConverter ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
-                      }`}
-                    >
-                      {/* An invoice with a tick: the paperwork completed. */}
-                      <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M7.5 12l2 2 3.5-4" />
-                      </svg>
-                      <span className="flex-1">Invoice Converter</span>
-                    </Link>
-                  )}
-                  {/* Reports → Sheet → Quotation (owner, 23 Nov): its own section under the Invoice Converter. */}
-                  {reports && session.member && canConvertInvoices(session.member) && (
-                    <Link
-                      href={SHEET_QUOTE}
-                      className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
-                        onSheetQuote ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
-                      }`}
-                    >
-                      {/* A sheet's rows turning into a quotation. */}
-                      <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M3 4.5h8v11H3zM3 8h8M3 11.5h8M6.5 4.5v11M13 10h4M15 8l2 2-2 2" />
-                      </svg>
-                      <span className="flex-1">Sheet → Quotation</span>
-                    </Link>
-                  )}
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            ))}
           </nav>
           <div className="mt-auto space-y-1 border-t border-line pt-3">
             <div className="flex items-center gap-2.5 px-2.5 py-1.5">
@@ -530,12 +485,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Bottom tabs (mobile / tablet) */}
-      <nav className={`glass fixed inset-x-0 bottom-0 z-30 grid ${nav.length === 5 ? "grid-cols-5" : nav.length === 4 || nav.length >= 7 ? "grid-cols-4" : "grid-cols-3"} border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden`}>
-        {nav.map((n) => (
-          <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOn(n.href) ? "text-ink" : "text-muted"}`}>
-            <Icon>{n.icon}</Icon>
-            {n.label}
-            {n.label === "Reports" && progress.needs > 0 && <span className="absolute right-[calc(50%-16px)] top-1.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
+      <nav className={`glass fixed inset-x-0 bottom-0 z-30 grid ${tabs.length === 5 ? "grid-cols-5" : tabs.length === 4 || tabs.length >= 7 ? "grid-cols-4" : "grid-cols-3"} border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden`}>
+        {tabs.map((n) => (
+          <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOnPage(n) ? "text-ink" : "text-muted"}`}>
+            <Icon>{APP_ICONS[n.icon]}</Icon>
+            {n.name}
+            {n.id === "reports" && progress.needs > 0 && <span className="absolute right-[calc(50%-16px)] top-1.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
           </Link>
         ))}
       </nav>
