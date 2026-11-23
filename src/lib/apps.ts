@@ -13,20 +13,22 @@ import { canConvertInvoices, canSee, hasFollowUps } from "./roles";
 type Who = { id: string; name: string };
 /** One per app: the sidebar's own icons (AppShell NAV), plus the two Reports tools. */
 export type AppIcon = "overview" | "quotations" | "trainings" | "items" | "templates" | "followups" | "calendar" | "sprints" | "reports" | "converter" | "sheet";
-export type AppTile = { id: AppIcon; name: string; about: string; href: string; icon: AppIcon; color: string };
+/** `group`: the application it belongs to, shown as a heading over its icons (owner, 23 Nov). */
+export type AppTile = { id: AppIcon; name: string; about: string; href: string; icon: AppIcon; color: string; group: string };
+export const TRAINING_DASHBOARD = "Training Dashboard";
 
 const APPS: (AppTile & { show: (m: Who) => boolean })[] = [
-  { id: "overview", name: "Overview", about: "Sales, targets and the month at a glance", href: "/overview", icon: "overview", color: "#034f72", show: (m) => canSee(m, "overview") },
-  { id: "quotations", name: "Quotations", about: "Quote any customer in Zoho Books", href: "/quotations", icon: "quotations", color: "#0077b6", show: (m) => canSee(m, "quotations") },
-  { id: "trainings", name: "Trainings", about: "Training quotations and the clients' portal", href: "/training-management", icon: "trainings", color: "#00843d", show: (m) => canSee(m, "trainings") },
-  { id: "items", name: "Items", about: "Products, prices, stock and brochures", href: "/items", icon: "items", color: "#5a6b2f", show: (m) => canSee(m, "items") },
-  { id: "templates", name: "Templates", about: "The wording of our emails", href: "/templates", icon: "templates", color: "#7a4fc0", show: (m) => canSee(m, "templates") },
-  { id: "followups", name: "Follow-ups", about: "The boards: leads, AED, fulfilment", href: "/follow-up", icon: "followups", color: "#b8641a", show: (m) => hasFollowUps(m) },
-  { id: "calendar", name: "Calendar", about: "Everyone's schedule", href: "/calendar", icon: "calendar", color: "#b42318", show: (m) => canSee(m, "calendar") },
-  { id: "sprints", name: "Sprints", about: "Team tasks from Zoho Sprints", href: "/sprints", icon: "sprints", color: "#1f6f8b", show: (m) => canSee(m, "sprints") },
-  { id: "reports", name: "Reports", about: "Sales and analytics dashboards", href: "/reports", icon: "reports", color: "#023a55", show: (m) => canSee(m, "reports") },
-  { id: "converter", name: "Invoice Converter", about: "Purchase orders and e-way bills on invoices", href: "/reports/invoice-converter", icon: "converter", color: "#005387", show: (m) => canConvertInvoices(m) },
-  { id: "sheet", name: "Sheet → Quotation", about: "Customer item sheets into Zoho draft quotations", href: "/reports/sheet-to-quotation", icon: "sheet", color: "#9a5b00", show: (m) => canConvertInvoices(m) },
+  { id: "overview", name: "Overview", about: "Sales, targets and the month at a glance", href: "/overview", icon: "overview", color: "#034f72", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "overview") },
+  { id: "quotations", name: "Quotations", about: "Quote any customer in Zoho Books", href: "/quotations", icon: "quotations", color: "#0077b6", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "quotations") },
+  { id: "trainings", name: "Trainings", about: "Training quotations and the clients' portal", href: "/training-management", icon: "trainings", color: "#00843d", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "trainings") },
+  { id: "items", name: "Items", about: "Products, prices, stock and brochures", href: "/items", icon: "items", color: "#5a6b2f", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "items") },
+  { id: "templates", name: "Templates", about: "The wording of our emails", href: "/templates", icon: "templates", color: "#7a4fc0", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "templates") },
+  { id: "followups", name: "Follow-ups", about: "The boards: leads, AED, fulfilment", href: "/follow-up", icon: "followups", color: "#b8641a", group: TRAINING_DASHBOARD, show: (m) => hasFollowUps(m) },
+  { id: "calendar", name: "Calendar", about: "Everyone's schedule", href: "/calendar", icon: "calendar", color: "#b42318", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "calendar") },
+  { id: "sprints", name: "Sprints", about: "Team tasks from Zoho Sprints", href: "/sprints", icon: "sprints", color: "#1f6f8b", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "sprints") },
+  { id: "reports", name: "Reports", about: "Sales and analytics dashboards", href: "/reports", icon: "reports", color: "#023a55", group: TRAINING_DASHBOARD, show: (m) => canSee(m, "reports") },
+  { id: "converter", name: "Invoice Converter", about: "Purchase orders and e-way bills on invoices", href: "/reports/invoice-converter", icon: "converter", color: "#005387", group: TRAINING_DASHBOARD, show: (m) => canConvertInvoices(m) },
+  { id: "sheet", name: "Sheet → Quotation", about: "Customer item sheets into Zoho draft quotations", href: "/reports/sheet-to-quotation", icon: "sheet", color: "#9a5b00", group: TRAINING_DASHBOARD, show: (m) => canConvertInvoices(m) },
 ];
 
 /** The apps this person may open, in the sidebar's order. */
@@ -69,4 +71,14 @@ export function shortcutName(raw: unknown, url: string): string {
   const host = new URL(url).hostname.replace(/^www\./, "").split(".");
   const core = host.length > 2 && host.at(-2)!.length <= 3 ? host.at(-3)! : host.at(-2) ?? host[0];
   return core.charAt(0).toUpperCase() + core.slice(1);
+}
+
+/** The apps by the application they belong to, in first-seen order (the Training Dashboard first). */
+export function groupApps(apps: AppTile[]): { group: string; apps: AppTile[] }[] {
+  const out: { group: string; apps: AppTile[] }[] = [];
+  for (const a of apps) {
+    const g = out.find((x) => x.group === a.group);
+    if (g) g.apps.push(a); else out.push({ group: a.group, apps: [a] });
+  }
+  return out;
 }

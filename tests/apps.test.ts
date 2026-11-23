@@ -1,7 +1,7 @@
 // The apps home page (owner, 23 Nov): who sees which app, the search, and the personal shortcuts.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { appsFor, cleanUrl, search, shortcutName } from "@/lib/apps";
+import { TRAINING_DASHBOARD, appsFor, cleanUrl, groupApps, search, shortcutName } from "@/lib/apps";
 import { DELETE, GET, POST } from "@/app/api/shortcuts/route";
 import { resetFakeDb } from "./fakes/db";
 
@@ -57,4 +57,11 @@ test("shortcuts are each person's own: add, no twins, rename, reorder, remove", 
   assert.deepEqual((await call(sumit, "POST", { action: "order", ids: [w.id, z.id] })).j.shortcuts.map((s: { id: string }) => s.id), [w.id, z.id]);
   assert.equal((await call(admin, "DELETE", undefined, `?id=${z.id}`)).s, 404);
   assert.deepEqual((await call(sumit, "DELETE", undefined, `?id=${z.id}`)).j.shortcuts.map((s: { name: string }) => s.name), ["WhatsApp"]);
+});
+
+test("the apps come grouped under their application: all of today's under Training Dashboard", () => {
+  const groups = groupApps(appsFor(admin));
+  assert.deepEqual(groups.map((g) => [g.group, g.apps.length]), [[TRAINING_DASHBOARD, 11]]);
+  const two = groupApps([...appsFor(admin).slice(0, 2), { ...appsFor(admin)[2], group: "Colleague app" }]);
+  assert.deepEqual(two.map((g) => g.group), [TRAINING_DASHBOARD, "Colleague app"]);
 });

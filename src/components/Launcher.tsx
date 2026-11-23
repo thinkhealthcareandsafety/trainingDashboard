@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/lib/session";
-import { type AppIcon, type Shortcut, appsFor } from "@/lib/apps";
+import { type AppIcon, type Shortcut, appsFor, groupApps } from "@/lib/apps";
 import "./launcher.css";
 
 /*
@@ -56,16 +56,22 @@ export function LauncherView({ member, signOut }: { member: { id: string; name: 
       </header>
       <main className="lx-in">
         <h1>{hello ? `${hello}, ${first(member.name)}.` : " "}</h1>
-        <nav className="lx-grid" aria-label="Applications">
-          {apps.map((a) => (
-            <Link key={a.id} href={a.href} className="lx-tile">
-              <span className="lx-ic" style={{ background: a.color }}>
-                <svg viewBox="0 0 20 20" width="28" height="28" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[a.icon]}</svg>
-              </span>
-              <span className="lx-name">{a.name}</span>
-            </Link>
-          ))}
-        </nav>
+        {/* One block per application (owner, 23 Nov: "under Training Dashboard comes all this stuff"); a colleague's app gets its own. */}
+        {groupApps(apps).map((g) => (
+          <section key={g.group} className="lx-group" aria-label={g.group}>
+            <h2>{g.group}</h2>
+            <nav className="lx-grid">
+              {g.apps.map((a) => (
+                <Link key={a.id} href={a.href} className="lx-tile">
+                  <span className="lx-ic" style={{ background: a.color }}>
+                    <svg viewBox="0 0 20 20" width="28" height="28" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[a.icon]}</svg>
+                  </span>
+                  <span className="lx-name">{a.name}</span>
+                </Link>
+              ))}
+            </nav>
+          </section>
+        ))}
         <Shortcuts list={shortcuts} onChange={setShortcuts} />
       </main>
     </div>
@@ -93,6 +99,7 @@ function Shortcuts({ list, onChange }: { list: Shortcut[] | null; onChange: (l: 
   if (!list) return null;
   return (
     <section className="lx-shortcuts" aria-label="My shortcuts">
+      <h2>My shortcuts</h2>
       <div className="lx-grid">
         {list.map((s) => (
           <div key={s.id} className="lx-sw">

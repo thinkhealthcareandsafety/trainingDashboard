@@ -55,3 +55,7 @@
   .lx-tile { width: 96px; }
 }
 @media (prefers-reduced-motion: reduce) { .lx * { transition: none !important; } }
+
+/* One block per application (owner, 23 Nov: "under Training Dashboard comes all this stuff"). */
+.lx-group + .lx-group { margin-top: 32px; }
+.lx-group h2, .lx-shortcuts h2 { margin-bottom: 14px; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--lx-ink); }
