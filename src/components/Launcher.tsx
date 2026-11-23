@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/lib/session";
-import { type LinkApp, pageSections } from "@/lib/apps";
+import { type LinkApp, type Section, pageSections } from "@/lib/apps";
 import { APP_ICONS } from "./appIcons";
 import "./launcher.css";
 
@@ -140,26 +140,74 @@ export function DashboardHome() {
   return <DashboardHomeView member={member} signOut={signOut} />;
 }
 
+// A folder's mark: what the section is about, drawn on the folder's front (like a Windows folder's overlay).
+const SECTION_GLYPH: Record<Section, React.ReactNode> = {
+  Overview: <path d="M3.5 4.5h5v5h-5zM11.5 4.5h5v5h-5zM3.5 12.5h5v3h-5zM11.5 12.5h5v3h-5z" />,
+  Sales: <path d="M6 3.5h6l3 3v10H6zM12 3.5v3h3M8.5 10h4M8.5 13h4" />,
+  Inventory: <path d="M3.5 6.5 10 3.5l6.5 3v7L10 16.5l-6.5-3zM3.5 6.5 10 9.5l6.5-3M10 9.5v7" />,
+  Utilities: <path d="M12.5 3.5a3.5 3.5 0 0 0-3.3 4.6L3.8 13.5a1.5 1.5 0 0 0 2.1 2.1l5.4-5.4a3.5 3.5 0 0 0 4.6-3.3l-2 2-2-.6-.6-2z" />,
+};
+/** A folder in the File Explorer style the owner pointed to (23 Nov): a back flap, a front, the section's mark. */
+function Folder({ section }: { section: Section }) {
+  return (
+    <svg viewBox="0 0 64 52" width="64" height="52" aria-hidden className="lx-folder">
+      <path d="M4 8a4 4 0 0 1 4-4h14.3a4 4 0 0 1 2.8 1.2L29 9h27a4 4 0 0 1 4 4v4H4z" fill="#E3A21A" />
+      <rect x="4" y="13" width="56" height="35" rx="4" fill="#FFC83D" />
+      <rect x="4" y="13" width="56" height="3" rx="1.5" fill="#FFD76E" />
+      <g transform="translate(22 21) scale(1)">
+        <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="#8A5A00" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{SECTION_GLYPH[section]}</svg>
+      </g>
+    </svg>
+  );
+}
+const slug = (s: Section) => s.toLowerCase();
+
+/*
+ * Inside Training Dashboard (owner, 23 Nov: "this rather better looks like this" — a File Explorer window of folders):
+ * the sections as folders; a folder opens to its pages. The open folder is in the address (?f=sales), so Back closes it.
+ */
 export function DashboardHomeView({ member, signOut }: { member: Who; signOut: () => void }) {
+  const sections = pageSections(member);
+  const [open, setOpen] = useState<Section | null>(null);
+  useEffect(() => {
+    const read = () => { const f = new URLSearchParams(window.location.search).get("f"); setOpen(sections.find((s) => slug(s.section) === f)?.section ?? null); };
+    read();
+    window.addEventListener("popstate", read);
+    return () => window.removeEventListener("popstate", read);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the sections don't change while the page is open
+  const go = (s: Section | null) => {
+    window.history.pushState(null, "", s ? `/dashboard?f=${slug(s)}` : "/dashboard");
+    setOpen(s);
+  };
+  const folder = sections.find((s) => s.section === open);
   return (
     <div className="lx">
       <Top member={member} signOut={signOut} back />
-      <main className="lx-in">
-        <h1>Training Dashboard</h1>
-        {/* The sidebar's sections (owner, 23 Nov), each with its pages. */}
-        {pageSections(member).map((s) => (
-          <section key={s.section} className="lx-section" aria-label={s.section}>
-            <h2>{s.section}</h2>
-            <nav className="lx-grid lx-big">
-              {s.pages.map((p) => (
-                <Link key={p.id} href={p.href} className="lx-tile">
-                  <span className="lx-ic" style={{ background: p.color }}><Glyph>{ICONS[p.icon]}</Glyph></span>
-                  <span className="lx-name">{p.name}</span>
-                </Link>
-              ))}
-            </nav>
-          </section>
-        ))}
+      <main className="lx-ex">
+        <nav className="lx-crumbs" aria-label="Where you are">
+          {folder ? <button type="button" onClick={() => go(null)}>Training Dashboard</button> : <span aria-current="page">Training Dashboard</span>}
+          {folder && <><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M8 5l5 5-5 5" /></svg><span aria-current="page">{folder.section}</span></>}
+        </nav>
+        {folder ? (
+          <div className="lx-files">
+            {folder.pages.map((p) => (
+              <Link key={p.id} href={p.href} className="lx-file">
+                <span className="lx-ic" style={{ background: p.color }}><Glyph size={28}>{ICONS[p.icon]}</Glyph></span>
+                <span className="lx-name">{p.name}</span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="lx-files">
+            {sections.map((s) => (
+              <button key={s.section} type="button" className="lx-file" onClick={() => go(s.section)} title={s.pages.map((p) => p.name).join(", ")}>
+                <Folder section={s.section} />
+                <span className="lx-name">{s.section}</span>
+                <span className="lx-count">{s.pages.length} {s.pages.length === 1 ? "page" : "pages"}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );
