@@ -184,3 +184,46 @@ export function buildQuote(sheets: BoqSheet[], items: CatalogItem[], memory: Map
     return { row: l.row, sheet: s.name, sno: l.sno, item: l.item, make: l.make, unit: l.unit, qty: l.qty ?? 0, note: l.note, section: l.section, itemId: it?.id, itemName: it?.name, rate: price.rate, gst: it?.gst ?? 18, source: price.source, priceNote: price.note, score: best?.score ?? 0, candidates: cands };
   }));
 }
+
+/* ---------------- New items and the Zoho draft (owner, 23 Nov) ---------------- */
+/*
+ * "There should be two tabs, the quotations and the Items — new items only; if something matches our items, just match
+ * them." A line is new while it has no item, or only a weak one ("check") nobody has confirmed. Picking or confirming an
+ * item (score 1) settles it — in every saved sheet with the same words, and in the next sheet (boqMemory). The Zoho
+ * draft is made only when no line is new (owner: create the items in Zoho first; this list is for doing that by hand).
+ */
+export const isNewLine = (l: Pick<QuoteLine, "itemId" | "score">) => !l.itemId || l.score < CHECK;
+
+export type NewItem = {
+  key: string; item: string; make: string; unit: string; lines: number; qty: number;
+  quotes: { id: string; title: string }[];
+  /** The weak match waiting to be confirmed. */
+  suggest?: { itemId: string; itemName: string; score: number };
+  candidates: Candidate[];
+};
+/** Every new line of every saved sheet, the same words once, most asked for first. */
+export function newItemGroups(quotes: { id: string; title: string; lines: QuoteLine[] }[]): NewItem[] {
+  const out = new Map<string, NewItem>();
+  for (const q of quotes) for (const l of q.lines) {
+    if (!isNewLine(l)) continue;
+    const key = memoryKey(l.item, l.make);
+    if (!key) continue;
+    const g = out.get(key) ?? { key, item: l.item, make: l.make, unit: l.unit, lines: 0, qty: 0, quotes: [], candidates: l.candidates };
+    g.lines++;
+    g.qty += l.qty || 0;
+    if (!g.quotes.some((x) => x.id === q.id)) g.quotes.push({ id: q.id, title: q.title });
+    if (!g.suggest && l.itemId && l.itemName) g.suggest = { itemId: l.itemId, itemName: l.itemName, score: l.score };
+    out.set(key, g);
+  }
+  return [...out.values()].sort((a, b) => b.quotes.length - a.quotes.length || b.lines - a.lines || a.item.localeCompare(b.item));
+}
+
+/** Why the Zoho draft can't be made yet ("" = it can). */
+export function draftBlock(lines: Pick<QuoteLine, "itemId" | "score" | "qty">[]): string {
+  if (!lines.length) return "No lines to quote.";
+  const fresh = lines.filter(isNewLine).length;
+  if (fresh) return `${fresh} ${fresh === 1 ? "line needs" : "lines need"} our item first (New items tab).`;
+  const noQty = lines.filter((l) => !(l.qty > 0)).length;
+  if (noQty) return `${noQty} ${noQty === 1 ? "line has" : "lines have"} no quantity.`;
+  return "";
+}

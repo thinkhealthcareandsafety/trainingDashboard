@@ -1,7 +1,7 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
-import { buildQuote, candidates, findColumns, memoryKey, priceFor, quoteByDefault, score, sheetLines, totals, words } from "@/lib/boq";
+import { buildQuote, candidates, draftBlock, findColumns, isNewLine, memoryKey, newItemGroups, priceFor, quoteByDefault, score, sheetLines, totals, words } from "@/lib/boq";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 
@@ -104,4 +104,49 @@ test("upload → save → the next sheet with the same line fills itself; Downlo
   assert.deepEqual(rows[2].slice(5, 9), [425, 18, 4250, "Rechargeable Torch MZ - M240"]);
   assert.deepEqual(rows[7].slice(5, 8), [1850, 18, 18500]);
   assert.match(f.name, /Leela Waterstone - quotation\.xlsx/);
+});
+
+test("new items: no item or an unconfirmed weak one, the same words once across sheets; the draft waits for them and for quantities", () => {
+  const lines = buildQuote([sheetLines("Security", SECURITY)], ITEMS, new Map(), []);
+  assert.equal(isNewLine({ itemId: undefined, score: 0 }), true);
+  assert.equal(isNewLine({ itemId: "x", score: 0.6 }), true); // "check"
+  assert.equal(isNewLine({ itemId: "x", score: 1 }), false);
+  const groups = newItemGroups([{ id: "a", title: "Leela", lines }, { id: "b", title: "Taj", lines }]);
+  const buoy = groups.find((g) => g.item.startsWith("Life Buoy"))!;
+  assert.deepEqual([buoy.lines, buoy.qty, buoy.quotes.map((q) => q.title)], [2, 20, ["Leela", "Taj"]]);
+  assert.ok(groups.some((g) => g.item.startsWith("Cable Tie")));
+  assert.ok(!groups.some((g) => g.item.startsWith("Rechargeable")));
+  assert.match(draftBlock(lines), /^2 lines need our item first/);
+  assert.equal(draftBlock(lines.map((l) => ({ ...l, itemId: "x", score: 1 }))), "1 line has no quantity.");
+  assert.equal(draftBlock(lines.map((l) => ({ ...l, itemId: "x", score: 1, qty: 1 }))), "");
+});
+
+test("new items on the server: a pick settles the words on every sheet and the next; an item made in Zoho matches by itself", async () => {
+  const d = await db();
+  const kv = d.collection<{ _id: string; items: object[] }>("kv");
+  await kv.replaceOne({ _id: "zoho_items" }, { items: ITEMS }, { upsert: true });
+  const { newQuote, newItems, matchItem, saveQuote, getQuote } = await import("@/lib/boqServer");
+  const a = await newQuote(xls({ Security: SECURITY }), "Sumit");
+  const b = await newQuote(xls({ Security: SECURITY }), "Arti");
+  const listed = await newItems();
+  const buoy = listed.find((g) => g.item.startsWith("Life Buoy"))!;
+  assert.equal(buoy.quotes.length, 2);
+  // Picked once → both sheets, score 1, priced; gone from the list.
+  assert.deepEqual(await matchItem(buoy.key, "blanket", "Sumit"), { lines: 2 });
+  for (const id of [a._id, b._id]) {
+    const l = (await getQuote(id))!.lines.find((x) => x.item.startsWith("Life Buoy"))!;
+    assert.deepEqual([l.itemId, l.score, l.rate], ["blanket", 1, 650]);
+  }
+  assert.ok(!(await newItems()).some((g) => g.key === buoy.key));
+  // The next sheet with the same line: matched from memory.
+  const c = await newQuote(xls({ Security: SECURITY }), "Arti");
+  assert.equal(c.lines.find((x) => x.item.startsWith("Life Buoy"))!.itemId, "blanket");
+  // Someone makes the cable ties in Zoho: the next look matches them on every sheet.
+  await kv.replaceOne({ _id: "zoho_items" }, { items: [...ITEMS, { id: "ties", name: "Cable Ties Plastic", rate: 90, gst: 18 }] }, { upsert: true });
+  assert.ok(!(await newItems()).some((g) => g.item.startsWith("Cable Tie")));
+  assert.equal((await getQuote(a._id))!.lines.find((x) => x.item.startsWith("Cable Tie"))!.itemId, "ties");
+  // A different item picked on the quotation itself counts as confirmed.
+  const torch = (await getQuote(a._id))!.lines.find((x) => x.item.startsWith("Rechargeable"))!;
+  const saved = await saveQuote(a._id, { lines: [{ sheet: torch.sheet, row: torch.row, itemId: "mega2", rate: 400, qty: 10, gst: 18 }] }, "Sumit");
+  assert.equal(saved.lines.find((x) => x.row === torch.row)!.score, 1);
 });

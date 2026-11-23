@@ -12,7 +12,7 @@ import { canConvertInvoices } from "@/lib/roles";
 type Tab = "invoices" | "boq";
 const TABS: { key: Tab; label: string; sub: string }[] = [
   { key: "invoices", label: "Invoices", sub: "Each customer's invoices: the purchase order and, over ₹50,000, the e-way bill. Add what's missing; it goes straight to the invoice in Zoho Books." },
-  { key: "boq", label: "Sheet → Quotation", sub: "Upload any customer sheet of items (BOQ, enquiry, requirement list): our items and prices are filled in for a temporary quotation. Check, change, save, and download it as Excel." },
+  { key: "boq", label: "Sheet → Quotation", sub: "Upload any customer sheet of items (BOQ, enquiry, requirement list): our items and prices are filled in. Check it, then make it a draft quotation in Zoho Books. Lines that aren't our items yet wait under New items." },
 ];
 
 export default function InvoiceConverterPage() {

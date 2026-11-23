@@ -31,6 +31,8 @@ type Last = { id?: string; date: string; number: string; amount: number; status:
 type Customer = { id: string; name: string; email: string | null; phone: string | null; sector: string | null; type: string | null; lastQuote: Last | null; lastInvoice: string | null };
 type ListRes = { connected: { connectedAt: string; connectedBy: string; newCustomers: boolean } | null; scopes: string; states: [string, string][]; admin: boolean; live: boolean; customerTypes: string[]; customerSectors: string[]; total: number; page: number; pageSize: number; sectors: string[]; types: string[]; customers: Customer[]; error?: string };
 type Item = { id: string; active?: boolean; name: string; group: string | null; rate: number | null; gst: number | null; unit: string | null; stock: string | null; service: boolean; onHand: number | null; category: string | null; image: boolean | null; demand?: number; brochure?: string | null };
+/** A line to start a quotation with: an item ticked on the Items page, or a line of a customer's sheet (with its qty and our rate). */
+type StartLine = Pick<Item, "id" | "name" | "rate" | "gst"> & { qty?: number };
 type Contact = { id: string; name: string | null; email: string | null; phone: string | null; primary: boolean };
 type Line = { key: number; itemId: string; name: string; qty: number; rate: number; gst: number | null; description?: string; open?: boolean };
 type Opts = { sendToCrm: string[]; reminderFrequency: string[]; productType: string[]; leadSource: string[] };
@@ -342,7 +344,7 @@ function StockCell({ item }: { item: Item | undefined }) {
 const GRID = "grid grid-cols-[4.5rem_minmax(0,1fr)_6.5rem_2rem] items-center gap-2 sm:grid-cols-[minmax(0,1fr)_7rem_5rem_7.5rem_4.5rem_7.5rem_2rem]";
 
 /** `fresh` ("New quotation"): from scratch — no lines or fields from their last quote (it can still be copied in). */
-function QuotePopup({ customer, fresh = false, start, fromId, mode, live, onClose }: { customer: Customer; fresh?: boolean; start?: Item[]; fromId?: string; mode?: "copy" | "revise"; live: boolean; onClose: (sent: boolean) => void }) {
+function QuotePopup({ customer, fresh = false, start, fromId, mode, live, onClose }: { customer: Customer; fresh?: boolean; start?: StartLine[]; fromId?: string; mode?: "copy" | "revise"; live: boolean; onClose: (sent: boolean) => void }) {
   useNoPageScroll();
   const { toast } = useStore();
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -397,7 +399,7 @@ function QuotePopup({ customer, fresh = false, start, fromId, mode, live, onClos
       const first = withMail.find((c) => c.primary) ?? withMail[0];
       setTo(first ? [first.id] : []);
       // Ticked on the Items page (owner, 4 Nov): those, with their rate and GST; the descriptions come as when picked.
-      const ticked = start?.map((i) => ({ i, line: row({ itemId: i.id, name: i.name, qty: 1, rate: i.rate || 0, gst: i.gst }) }));
+      const ticked = start?.map((i) => ({ i, line: row({ itemId: i.id, name: i.name, qty: i.qty && i.qty > 0 ? i.qty : 1, rate: i.rate || 0, gst: i.gst }) }));
       setLines(ticked?.length ? ticked.map((x) => x.line) : !fresh && j.last?.lines.length ? j.last.lines.map((l) => row(l)) : [blank()]);
       ticked?.forEach((x) => describe(x.line.key, x.i));
       // The quote's fields: Send to CRM Yes (owner, 28 Oct); the rest from their last quotation where it had them.
@@ -416,7 +418,7 @@ function QuotePopup({ customer, fresh = false, start, fromId, mode, live, onClos
     describe(k, i);
   };
   // Zoho puts the item's description on the line — read it now (and the GST %, if the item list is older than the item).
-  const describe = (k: number, i: Item) => {
+  const describe = (k: number, i: Pick<Item, "id">) => {
     fetch(`/api/quotations?item=${i.id}`).then((r) => r.json()).then((j: { description?: string; gst?: number | null }) => {
       setLines((ls) => ls.map((l) => (l.key === k && l.itemId === i.id ? { ...l, description: l.description ?? j.description ?? "", gst: l.gst ?? j.gst ?? null } : l)));
     }).catch(() => {});
@@ -1091,6 +1093,23 @@ export function ItemsPage() {
       {quoting && res && createPortal(<QuotePopup customer={quoting.c} fresh start={quoting.items} live={res.live} onClose={(sent) => { setQuoting(null); if (sent) setClear((n) => n + 1); }} />, document.body)}
     </div>
   );
+}
+
+/**
+ * Sheet → Quotation's "Make Zoho draft" (owner, 23 Nov): the customer picked as on this page, then the same quotation
+ * window, its lines the sheet's (our item, qty, our rate); saved as a draft (or emailed) in Zoho Books from there.
+ */
+export function QuoteFromLines({ lines, onClose }: { lines: StartLine[]; onClose: (made: boolean) => void }) {
+  const [res, setRes] = useState<ListRes | null>(null);
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  useEffect(() => { fetch(`/api/quotations?${new URLSearchParams({ q: "", page: "0" })}`).then((r) => r.json()).then((j: ListRes) => setRes(j)).catch(() => setRes({ error: "Couldn't reach the server" } as ListRes)); }, []);
+  if (!res) return null;
+  if (res.error || !res.connected) {
+    return createPortal(<Modal open title="Make a Zoho draft" onClose={() => onClose(false)}><p className="text-[14px] text-high">{res.error ?? "Zoho Books isn't connected for quotations yet."}</p></Modal>, document.body);
+  }
+  return createPortal(customer
+    ? <QuotePopup customer={customer} fresh start={lines} live={res.live} onClose={(sent) => onClose(sent)} />
+    : <NewQuote res={res} onPick={setCustomer} onClose={() => onClose(false)} />, document.body);
 }
 
 function ItemsSection({ viewOnly, clear, live: listLive, canQuote, onQuote }: { viewOnly: boolean; clear: number; live: boolean; canQuote: boolean; onQuote: (items: Item[]) => void }) {

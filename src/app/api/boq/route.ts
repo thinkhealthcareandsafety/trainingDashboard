@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices } from "@/lib/roles";
-import { chooseSheets, deleteQuote, exportQuote, getQuote, listQuotes, newQuote, pickList, quoteView, saveQuote } from "@/lib/boqServer";
+import { chooseSheets, deleteQuote, exportQuote, getQuote, listQuotes, matchItem, newItems, newQuote, pickList, quoteView, refreshItems, saveQuote } from "@/lib/boqServer";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +13,9 @@ export const dynamic = "force-dynamic";
  *  POST { action: "sheets", id, names } — quote these sheets of the file
  *  POST { action: "save", id, title, lines } — the edits (remembered for the next sheet)
  *  POST { action: "delete", id }
+ *  GET ?new=1               — the New items tab: lines of every sheet that aren't our items yet (owner, 23 Nov)
+ *  POST { action: "match", key, itemId } — these words are this item, on every sheet and the next
+ *  POST { action: "refreshItems" }       — read Zoho's item list now (items made there by hand)
  */
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 const ID = /^boq_[a-z0-9]{6,30}$/;
@@ -28,6 +31,10 @@ export async function GET(request: Request) {
       if (!ID.test(exp)) return json({ error: "Unknown quotation" }, 400);
       const f = await exportQuote(exp);
       return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store" } });
+    }
+    if (sp.get("new")) {
+      const [list, items] = await Promise.all([newItems(), pickList()]);
+      return json({ newItems: list, items });
     }
     const id = sp.get("id");
     if (id) {
@@ -52,7 +59,14 @@ export async function POST(request: Request) {
       if (!(file instanceof File)) return json({ error: "Pick a BOQ sheet" }, 400);
       return json(quoteView(await newQuote(file, me.name)));
     }
-    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; names?: unknown; title?: unknown; lines?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; names?: unknown; title?: unknown; lines?: unknown; key?: unknown; itemId?: unknown } | null;
+    if (b?.action === "refreshItems") return json(await refreshItems());
+    if (b?.action === "match") {
+      const key = typeof b.key === "string" ? b.key.slice(0, 300) : "";
+      const itemId = typeof b.itemId === "string" && /^\d{6,25}$/.test(b.itemId) ? b.itemId : "";
+      if (!key || !itemId) return json({ error: "Pick one of our items" }, 400);
+      return json(await matchItem(key, itemId, me.name));
+    }
     const id = String(b?.id ?? "");
     if (!ID.test(id)) return json({ error: "Unknown quotation" }, 400);
     if (b?.action === "sheets") return json(quoteView(await chooseSheets(id, Array.isArray(b.names) ? b.names.map(String).slice(0, 50) : [])));

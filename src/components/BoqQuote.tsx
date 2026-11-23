@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CHECK, type QuoteLine, lineAmount, totals } from "@/lib/boq";
+import { CHECK, type NewItem, type QuoteLine, draftBlock, lineAmount, totals } from "@/lib/boq";
+import { canQuote } from "@/lib/roles";
+import { useSession } from "@/lib/session";
+import { QuoteFromLines } from "./Quotations";
 import { Skeleton, btn } from "./ui";
 
 /*
@@ -9,6 +12,9 @@ import { Skeleton, btn } from "./ui";
  * populate the items and prices and create a temporary quotation"). Upload the customer's sheet; each line comes back
  * matched to our item and priced (last quoted / invoiced, else Zoho's rate); change what's wrong, Save (remembered for
  * the next sheet), Download Excel = their sheet with our rates.
+ * Two tabs (owner, 23 Nov): Quotations (each ends in a real Zoho draft, "Make Zoho draft", once every line is our item)
+ * and New items (the lines of every sheet that aren't our items yet, once each: confirm / pick ours, or make them in Zoho
+ * by hand and "Check Zoho for new items").
  */
 
 type Summary = { id: string; title: string; fileName: string; lines: number; subtotal: number; gst: number; total: number; priced: number; createdBy: string; updatedAt: string };
@@ -25,6 +31,8 @@ function Spinner() {
 }
 
 export function BoqQuote() {
+  const [tab, setTab] = useState<"quotes" | "new">("quotes");
+  const [newCount, setNewCount] = useState<number | null>(null);
   const [list, setList] = useState<Summary[] | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -36,6 +44,7 @@ export function BoqQuote() {
     const r = await fetch("/api/boq").then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
     if (r.error) return setError(r.error);
     setList(r.quotes); setItems(r.items);
+    fetch("/api/boq?new=1").then((x) => x.json()).then((j) => { if (Array.isArray(j.newItems)) setNewCount(j.newItems.length); }).catch(() => {});
   };
   useEffect(() => { load(); }, []);
 
@@ -60,8 +69,21 @@ export function BoqQuote() {
 
   if (quote) return <Editor quote={quote} items={items} onClose={() => { setQuote(null); load(); }} />;
 
+  const tabs = (
+    <div role="tablist" aria-label="Sheet → Quotation" className="flex gap-1 border-b border-line">
+      {([["quotes", "Quotations", null], ["new", "New items", newCount]] as const).map(([k, label, n]) => (
+        <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+          className={`-mb-px flex items-center gap-2 border-b-2 px-3.5 py-2 text-[14px] font-semibold transition ${tab === k ? "border-brand text-ink" : "border-transparent text-muted hover:text-ink"}`}>
+          {label}{n ? <span className="num rounded-full bg-medium-bg px-2 py-0.5 text-[11.5px] font-semibold text-medium">{n}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab === "new") return <div className="space-y-4">{tabs}<NewItems onCount={setNewCount} /></div>;
+
   return (
     <div className="space-y-4">
+      {tabs}
       <div
         className="card flex flex-col items-center gap-3 border-2 border-dashed border-line px-6 py-8 text-center"
         onDragOver={(e) => e.preventDefault()}
@@ -98,6 +120,10 @@ export function BoqQuote() {
 }
 
 function Editor({ quote: start, items, onClose }: { quote: Quote; items: Item[]; onClose: () => void }) {
+  const { member } = useSession();
+  const mayQuote = Boolean(member && canQuote(member));
+  const [drafting, setDrafting] = useState<QuoteLine[] | null>(null);
+  const [made, setMade] = useState(false);
   const [quote, setQuote] = useState(start);
   const [title, setTitle] = useState(start.title);
   const [lines, setLines] = useState(start.lines);
@@ -117,11 +143,17 @@ function Editor({ quote: start, items, onClose }: { quote: Quote; items: Item[];
   };
   const save = async () => {
     setBusy("save"); setError("");
-    const r = await post({ action: "save", id: quote.id, title, lines: lines.map((l) => ({ sheet: l.sheet, row: l.row, itemId: l.itemId, rate: l.rate, qty: l.qty, gst: l.gst })) });
+    const r = await post({ action: "save", id: quote.id, title, lines: lines.map((l) => ({ sheet: l.sheet, row: l.row, itemId: l.itemId, rate: l.rate, qty: l.qty, gst: l.gst, score: l.score })) });
     setBusy("");
     if (r.error) { setError(r.error); return false; }
     setQuote(r); setLines(r.lines); setTitle(r.title); setDirty(false);
-    return true;
+    return r.lines as QuoteLine[];
+  };
+  const block = draftBlock(lines);
+  const makeDraft = async () => {
+    const saved = dirty ? await save() : lines;
+    if (!saved || draftBlock(saved)) return;
+    setMade(false); setDrafting(saved);
   };
   const download = async () => {
     if (dirty && !(await save())) return;
@@ -221,16 +253,99 @@ function Editor({ quote: start, items, onClose }: { quote: Quote; items: Item[];
               </span>
             ) : <button type="button" className={btn.danger} onClick={() => setConfirmDelete(true)}>Delete</button>}
             <button type="button" className={btn.ghost} onClick={download} disabled={busy === "save"}>Download Excel</button>
-            <button type="button" className={btn.primary} onClick={save} disabled={!dirty || busy === "save"}>{busy === "save" ? <><Spinner />Saving…</> : dirty ? "Save" : "Saved"}</button>
+            <button type="button" className={btn.ghost} onClick={save} disabled={!dirty || busy === "save"}>{busy === "save" ? <><Spinner />Saving…</> : dirty ? "Save" : "Saved"}</button>
+            {mayQuote && <button type="button" className={btn.primary} onClick={makeDraft} disabled={Boolean(block) || busy === "save"} title={block || "Pick the customer, then save it as a draft quotation in Zoho Books"}>Make Zoho draft</button>}
           </span>
         </div>
+        {mayQuote && block && <p className="mt-1.5 text-right text-[12.5px] text-muted">Zoho draft: {block}</p>}
+        {made && <p className="mt-1.5 text-right text-[12.5px] font-medium text-ink-2">Made in Zoho Books. It&apos;s on the Quotations page too.</p>}
       </div>
+      {drafting && <QuoteFromLines lines={drafting.map((l) => ({ id: l.itemId!, name: l.itemName ?? l.item, rate: l.rate, gst: l.gst, qty: l.qty }))} onClose={(ok) => { setDrafting(null); if (ok) setMade(true); }} />}
+    </div>
+  );
+}
+
+/**
+ * New items (owner, 23 Nov: "these items are from our quotations; if something matches our items we will not need them
+ * here, just match them — we need new items only"). The same words once, with the sheets they're on. Confirm the
+ * suggested item or pick ours (every sheet, and the next one); the rest are made in Zoho by hand, then "Check Zoho".
+ */
+function NewItems({ onCount }: { onCount: (n: number) => void }) {
+  const [data, setData] = useState<{ newItems: NewItem[]; items: Item[] } | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [picking, setPicking] = useState("");
+  const byId = useMemo(() => new Map((data?.items ?? []).map((i) => [i.id, i])), [data]);
+  const load = async () => {
+    const r = await fetch("/api/boq?new=1").then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    if (r.error) return setError(r.error);
+    setData(r); onCount(r.newItems.length);
+  };
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once
+  const match = async (key: string, itemId: string) => {
+    setBusy(key); setError(""); setNote(""); setPicking("");
+    const r = await post({ action: "match", key, itemId });
+    if (r.error) { setBusy(""); return setError(r.error); }
+    await load();
+    setBusy("");
+  };
+  const refresh = async () => {
+    setBusy("refresh"); setError(""); setNote("");
+    const r = await post({ action: "refreshItems" });
+    if (r.error) { setBusy(""); return setError(r.error); }
+    await load();
+    setBusy("");
+    setNote(`Read ${r.items} items from Zoho.`);
+  };
+  const copy = async () => {
+    const rows = (data?.newItems ?? []).map((g) => [g.item, g.make, g.unit, g.qty || ""].join("\t"));
+    try { await navigator.clipboard.writeText(["Item\tMake\tUnit\tQty asked", ...rows].join("\n")); setNote("Copied. Paste it into Excel or a message."); } catch { setError("Couldn't copy here."); }
+  };
+  if (!data) return error ? <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p> : <Skeleton className="h-40" />;
+  const list = data.newItems;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="min-w-0 flex-1 basis-80 text-[13.5px] text-ink-2">Lines from your sheets that aren&apos;t our Zoho items yet. If it&apos;s something we have, confirm or pick it. If it&apos;s new, make it in Zoho, then check Zoho.</p>
+        <button type="button" className={btn.ghost} onClick={copy} disabled={!list.length}>Copy list</button>
+        <button type="button" className={btn.primary} onClick={refresh} disabled={busy === "refresh"}>{busy === "refresh" ? <><Spinner />Reading Zoho…</> : "Check Zoho for new items"}</button>
+      </div>
+      {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
+      {note && <p className="text-[12.5px] text-muted">{note}</p>}
+      {!list.length ? <p className="card p-5 text-[13.5px] text-muted">No new items. Every line of every sheet is one of our items.</p> : (
+        <ul className="card divide-y divide-line">
+          {list.map((g) => (
+            <li key={g.key} className="grid gap-x-5 gap-y-2 px-5 py-3.5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
+              <div className="min-w-0">
+                <p className="line-clamp-2 text-[14px] font-medium text-ink" title={g.item}>{g.item}</p>
+                <p className="text-[12.5px] text-muted">
+                  {[g.make, g.unit].filter(Boolean).join(" · ")}{g.make || g.unit ? " · " : ""}
+                  <span className="num">{g.qty ? `${g.qty} asked` : "no qty"}</span> · {g.quotes.map((q) => q.title).join(", ")}
+                </p>
+              </div>
+              <div className="min-w-0">
+                {busy === g.key ? <p className="flex items-center gap-2 text-[13px] text-muted"><Spinner />Matching on every sheet…</p> : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {g.suggest && <>
+                      <span className="min-w-0 flex-1 basis-48 text-[13px] text-ink-2">Ours? <b className="font-semibold text-ink">{g.suggest.itemName}</b> <span className="num text-faint">{Math.round(g.suggest.score * 100)}%</span></span>
+                      <button type="button" className={btn.primary} onClick={() => match(g.key, g.suggest!.itemId)}>Confirm</button>
+                    </>}
+                    <button type="button" className={btn.ghost} onClick={() => setPicking(picking === g.key ? "" : g.key)}>{g.suggest ? "Pick another" : "Pick our item"}</button>
+                  </div>
+                )}
+                {picking === g.key && <Picker line={{ candidates: g.candidates }} items={data.items} byId={byId} onPick={(it) => it && match(g.key, it.id)} onClose={() => setPicking("")} />}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
 /** Our item for a line: the suggestions first (with how well they match), then any item by typing. */
-function Picker({ line, items, byId, onPick, onClose }: { line: QuoteLine; items: Item[]; byId: Map<string, Item>; onPick: (it: Item | null) => void; onClose: () => void }) {
+function Picker({ line, items, byId, onPick, onClose }: { line: Pick<QuoteLine, "candidates"> & { itemId?: string }; items: Item[]; byId: Map<string, Item>; onPick: (it: Item | null) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
   const found = useMemo(() => {
     const ws = q.toLowerCase().split(/\s+/).filter(Boolean);

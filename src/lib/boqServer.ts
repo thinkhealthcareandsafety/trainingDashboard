@@ -2,10 +2,10 @@ import "server-only";
 import { Binary } from "mongodb";
 import * as XLSX from "xlsx";
 import { db } from "./db";
-import type { ZItem } from "./zoho";
+import { type ZItem, fetchItems } from "./zoho";
 import {
-  type BoqSheet, type CatalogItem, type Memory, type PricePoint, type QuoteLine,
-  buildQuote, lineAmount, memoryKey, quoteByDefault, sheetLines, totals,
+  type BoqSheet, type CatalogItem, type Memory, type NewItem, type PricePoint, type QuoteLine,
+  SURE, buildQuote, candidates, latestPrices, lineAmount, memoryKey, newItemGroups, priceFor, quoteByDefault, sheetLines, totals,
 } from "./boq";
 
 /*
@@ -109,7 +109,8 @@ export async function saveQuote(quoteId: string, input: { title?: unknown; lines
     const itemId = typeof s.itemId === "string" && items.has(s.itemId) ? s.itemId : undefined;
     const rate = n(s.rate, 1e9), qty = n(s.qty, 1e7), gst = n(s.gst, 100);
     const changed = itemId !== l.itemId || rate !== l.rate;
-    return { ...l, itemId, itemName: itemId ? items.get(itemId)!.name : undefined, rate, qty, gst, ...(changed ? { source: rate ? "memory" as const : "none" as const, priceNote: rate ? "Set by hand" : "" } : {}) };
+    const sure = Boolean(itemId && (itemId !== l.itemId || s.score === 1));
+    return { ...l, itemId, itemName: itemId ? items.get(itemId)!.name : undefined, rate, qty, gst, score: !itemId ? 0 : sure ? 1 : l.score, ...(changed ? { source: rate ? "memory" as const : "none" as const, priceNote: rate ? "Set by hand" : "" } : {}) };
   });
   const title = typeof input.title === "string" && input.title.trim() ? input.title.trim().slice(0, 120) : q.title;
   const now = new Date().toISOString();
@@ -180,3 +181,71 @@ export async function exportQuote(quoteId: string): Promise<{ bytes: Uint8Array;
 }
 
 export const quoteView = (q: BoqQuoteDoc) => ({ id: q._id, title: q.title, fileName: q.fileName, sheets: q.sheets, lines: q.lines, createdBy: q.createdBy, updatedAt: q.updatedAt });
+
+/* ---------------- New items (owner, 23 Nov) ---------------- */
+
+/**
+ * Lines still without an item, matched again against today's items and what was picked since (an item made in Zoho by
+ * hand, or the same words matched on another sheet): a sure match fills the line, as on upload. Saved where it changed.
+ */
+async function rematch(): Promise<BoqQuoteDoc[]> {
+  const col = await quotesCol();
+  const quotes = await col.find({}, { projection: { file: 0 } }).toArray();
+  const [items, mem, points] = await Promise.all([catalog(), memory(), pricePoints()]);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const latest = latestPrices(points);
+  for (const q of quotes) {
+    let changed = false;
+    q.lines = q.lines.map((l) => {
+      if (l.itemId) return l;
+      const cands = candidates(l, items, mem);
+      const best = cands[0] && cands[0].score >= SURE ? cands[0] : undefined;
+      const it = best ? byId.get(best.itemId) : undefined;
+      if (!it) return l.candidates.length === cands.length ? l : { ...l, candidates: cands };
+      changed = true;
+      const price = l.rate > 0 ? null : priceFor(it.id, memoryKey(l.item, l.make), mem, latest, byId);
+      return { ...l, itemId: it.id, itemName: it.name, gst: it.gst ?? l.gst, score: best!.score, candidates: cands, ...(price ? { rate: price.rate, source: price.source, priceNote: price.note } : {}) };
+    });
+    if (changed) await col.updateOne({ _id: q._id }, { $set: { lines: q.lines } });
+  }
+  return quotes;
+}
+
+/** The New items tab: every line of every saved sheet that isn't one of our items yet (or only might be). */
+export async function newItems(): Promise<NewItem[]> {
+  return newItemGroups((await rematch()).map((q) => ({ id: q._id, title: q.title, lines: q.lines })));
+}
+
+/** These words are this item: on every saved sheet, and remembered for the next one. */
+export async function matchItem(key: string, itemId: string, by: string): Promise<{ lines: number }> {
+  const items = await catalog();
+  const it = items.find((i) => i.id === itemId);
+  if (!it) throw new Error("That item isn't in our Zoho items.");
+  const now = new Date().toISOString();
+  await (await memoryCol()).updateOne({ _id: key }, { $set: { itemId, at: now, by } }, { upsert: true });
+  const [mem, points] = await Promise.all([memory(), pricePoints()]);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const latest = latestPrices(points);
+  const col = await quotesCol();
+  let n = 0;
+  for (const q of await col.find({}, { projection: { file: 0 } }).toArray()) {
+    let changed = false;
+    const lines = q.lines.map((l) => {
+      if (memoryKey(l.item, l.make) !== key) return l;
+      changed = true; n++;
+      const price = l.rate > 0 && l.itemId === itemId ? null : priceFor(itemId, key, mem, latest, byId);
+      return { ...l, itemId, itemName: it.name, gst: it.gst ?? l.gst, score: 1, ...(price ? { rate: price.rate, source: price.source, priceNote: price.note } : {}) };
+    });
+    if (changed) await col.updateOne({ _id: q._id }, { $set: { lines, updatedAt: now } });
+  }
+  return { lines: n };
+}
+
+/** Zoho's item list read now (items made there by hand show at once, not at the next hourly read). */
+export async function refreshItems(): Promise<{ items: number }> {
+  const fresh = await fetchItems();
+  const kv = (await db()).collection<{ _id: string; items?: ZItem[] }>("kv");
+  const had = (await kv.findOne({ _id: "zoho_items" }))?.items ?? [];
+  if (fresh.length && JSON.stringify(fresh) !== JSON.stringify(had)) await kv.replaceOne({ _id: "zoho_items" }, { items: fresh }, { upsert: true });
+  return { items: fresh.length };
+}
