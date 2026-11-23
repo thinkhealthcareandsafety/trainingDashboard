@@ -9,6 +9,7 @@ import { fmtDate, fmtINR } from "@/lib/dates";
 import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
 import { Avatar, Modal, Segmented, btn, inputCls } from "./ui";
+import { HeaderTools } from "./AppShell";
 import { AedCardModal } from "./followups/AedModal";
 import { useAedInvoices, usePipeline, useSalesData } from "./followups/useBoards";
 import { SALES_COLUMN, buildSalesBoard, fireDeals, isSaleCard, mergeAllSteps, overdueCards, splitForBoard } from "@/lib/sales";
@@ -924,8 +925,10 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
             </>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {isAdmin(member) && <ClearLogs member={member} boardName={BOARD_LABEL[boardKind]} cards={(aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : logiMode ? logiBoard?.cards : salesMode ? salesBoard?.cards : undefined) ?? board.cards} />}
+          {/* The same top-right tools as every page (owner, 23 Nov: Sync now, the palette, Sign out). */}
+          <HeaderTools />
           <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
             <Avatar name={member.name} />
             <span className="font-medium text-ink">{member.name}</span>

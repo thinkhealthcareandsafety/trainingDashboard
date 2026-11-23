@@ -294,7 +294,7 @@ function Chip({ page, size = "size-7" }: { page: DashboardPage; size?: string })
 type ShellTools = { zoho: ZohoSync; openLog: () => void; openTheme: () => void; openAnalytics?: () => void };
 const ShellCtx = createContext<ShellTools | null>(null);
 
-function HeaderTools() {
+export function HeaderTools() {
   const t = useContext(ShellCtx);
   const { now } = useStore();
   if (!t) return null;
