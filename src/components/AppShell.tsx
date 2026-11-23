@@ -38,6 +38,7 @@ const NAV: { href: string; label: string; page: Page; icon: React.ReactNode }[] 
 // The Progress tracker is hidden entirely (owner, 18 Nov: its page, red count, notices and "Ask a teammate"); Sprints
 // took its place as its own item. Nothing of the tracker is deleted.
 const CONVERTER = "/reports/invoice-converter";
+const SHEET_QUOTE = "/reports/sheet-to-quotation";
 
 /**
  * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
@@ -373,6 +374,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // The owner's sheet (18 Nov): a page each; Follow-ups needs a board too; Reports also shows for the Invoice Converter alone (/reports forwards there).
   const nav = NAV.filter((n) => (n.page === "followups" ? hasFollowUps(me) : n.page === "reports" ? canSee(me, "reports") || canConvertInvoices(me) : canSee(me, n.page)));
   const onConverter = path.startsWith(CONVERTER);
+  const onSheetQuote = path.startsWith(SHEET_QUOTE);
   return (
     <>
       <Ticker />
@@ -432,7 +434,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="space-y-0.5">
             {nav.map((n) => {
               const reports = n.label === "Reports";
-              const on = reports ? isOn(n.href) && !onConverter : isOn(n.href);
+              const on = reports ? isOn(n.href) && !onConverter && !onSheetQuote : isOn(n.href);
               return (
                 <div key={n.href}>
                   <Link
@@ -457,6 +459,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M7.5 12l2 2 3.5-4" />
                       </svg>
                       <span className="flex-1">Invoice Converter</span>
+                    </Link>
+                  )}
+                  {/* Reports → Sheet → Quotation (owner, 23 Nov): its own section under the Invoice Converter. */}
+                  {reports && session.member && canConvertInvoices(session.member) && (
+                    <Link
+                      href={SHEET_QUOTE}
+                      className={`press mt-0.5 flex h-9 items-center gap-2.5 rounded-[10px] px-2.5 text-[13.5px] font-medium ${
+                        onSheetQuote ? "bg-ink/[0.06] text-ink" : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+                      }`}
+                    >
+                      {/* A sheet's rows turning into a quotation. */}
+                      <svg viewBox="0 0 20 20" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M3 4.5h8v11H3zM3 8h8M3 11.5h8M6.5 4.5v11M13 10h4M15 8l2 2-2 2" />
+                      </svg>
+                      <span className="flex-1">Sheet → Quotation</span>
                     </Link>
                   )}
                 </div>
