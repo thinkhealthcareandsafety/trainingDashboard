@@ -47,7 +47,8 @@
 .lx-file:hover { background: var(--lx-tile-hover); border-color: var(--lx-line); }
 .lx-file .lx-ic { width: 56px; height: 56px; border-radius: 16px; }
 .lx-file .lx-name { font-size: 13.5px; }
-.lx-count { margin-top: -6px; font-size: 12px; color: var(--lx-muted); }
+.lx-peek { margin-top: -2px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.lx-peek > span { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; }
 .lx-folder { display: block; filter: drop-shadow(0 1px 1px rgb(80 50 0 / 0.18)); }
 
 .lx-sw { position: relative; }

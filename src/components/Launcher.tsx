@@ -203,7 +203,10 @@ export function DashboardHomeView({ member, signOut }: { member: Who; signOut: (
               <button key={s.section} type="button" className="lx-file" onClick={() => go(s.section)} title={s.pages.map((p) => p.name).join(", ")}>
                 <Folder section={s.section} />
                 <span className="lx-name">{s.section}</span>
-                <span className="lx-count">{s.pages.length} {s.pages.length === 1 ? "page" : "pages"}</span>
+                {/* What's inside, as the pages' own little icons (owner, 23 Nov: "not pages, make it icons"). */}
+                <span className="lx-peek" aria-hidden>
+                  {s.pages.map((p) => <span key={p.id} style={{ background: p.color }}><Glyph size={11}>{ICONS[p.icon]}</Glyph></span>)}
+                </span>
               </button>
             ))}
           </div>
