@@ -2,7 +2,8 @@ import "server-only";
 import { Binary } from "mongodb";
 import * as XLSX from "xlsx";
 import { db } from "./db";
-import { type ZItem, fetchItems } from "./zoho";
+import { type ZItem, fetchItems, itemImage } from "./zoho";
+import { addPictures } from "./xlsxPictures";
 import {
   type BoqSheet, type CatalogItem, type Memory, type NewItem, type PricePoint, type QuoteLine,
   SURE, buildQuote, candidates, latestPrices, lineAmount, memoryKey, newItemGroups, priceFor, quoteByDefault, sheetLines, totals,
@@ -140,11 +141,30 @@ export async function pickList(): Promise<{ id: string; name: string; rate?: num
  * The customer's own workbook back with our prices: on each quoted sheet, Rate, GST %, Amount and Our item after its
  * last column, on the heading row and each line's row, and the totals under the last line. Then a "Quotation" sheet with
  * every line. .xlsx (the original's colours and borders aren't kept).
+ * Pictures (owner): each line's item picture from Zoho Books in a "Picture" column, on both kinds of sheet; a line with
+ * no picture in Zoho, or one Zoho won't give, just has none. One Zoho call per item (two when it has no main picture).
  */
+const PIC_PX = 64;
+async function itemPictures(ids: string[]): Promise<Map<string, Uint8Array>> {
+  const out = new Map<string, Uint8Array>();
+  const queue = [...ids];
+  await Promise.all(Array.from({ length: Math.min(5, queue.length) }, async () => {
+    for (let id = queue.shift(); id; id = queue.shift()) {
+      const img = await itemImage(id).catch(() => null);
+      if (img) out.set(id, new Uint8Array(img.bytes));
+    }
+  }));
+  return out;
+}
+
 export async function exportQuote(quoteId: string): Promise<{ bytes: Uint8Array; name: string }> {
   const q = await (await quotesCol()).findOne({ _id: quoteId });
   if (!q?.file) throw new Error("That quotation is gone.");
   const wb = XLSX.read(new Uint8Array(q.file.buffer), { type: "array", cellStyles: true });
+  const pics = await itemPictures([...new Set(q.lines.map((l) => l.itemId).filter((x): x is string => Boolean(x)))]);
+  const placed: { sheet: string; row: number; col: number; bytes: Uint8Array }[] = [];
+  const tall = (ws: XLSX.WorkSheet, row0: number) => { const rows = (ws["!rows"] ??= []); rows[row0] = { ...rows[row0], hpx: PIC_PX + 10 }; };
+  const wide = (ws: XLSX.WorkSheet, col: number) => { const cols = (ws["!cols"] ??= []); cols[col] = { ...cols[col], wpx: PIC_PX + 14 }; };
   for (const name of new Set(q.lines.map((l) => l.sheet))) {
     const ws = wb.Sheets[name];
     if (!ws) continue;
@@ -157,27 +177,42 @@ export async function exportQuote(quoteId: string): Promise<{ bytes: Uint8Array;
     for (const r of [head.headerRow, ...mine.map((l) => l.row)]) (rows[r - 1] ?? []).forEach((v, c) => { if (String(v ?? "").trim()) last = Math.max(last, c); });
     const c0 = last + 1;
     const put = (r: number, c: number, v: string | number) => { ws[XLSX.utils.encode_cell({ r: r - 1, c })] = typeof v === "number" ? { t: "n", v, z: "#,##0.00" } : { t: "s", v }; };
-    ["Rate (Rs)", "GST %", "Amount (Rs)", "Our item"].forEach((h, k) => put(head.headerRow, c0 + k, h));
+    const withPics = mine.some((l) => l.itemId && pics.has(l.itemId));
+    [...["Rate (Rs)", "GST %", "Amount (Rs)", "Our item"], ...(withPics ? ["Picture"] : [])].forEach((h, k) => put(head.headerRow, c0 + k, h));
     for (const l of mine) {
       if (l.rate > 0) { put(l.row, c0, l.rate); put(l.row, c0 + 1, l.gst); put(l.row, c0 + 2, lineAmount(l)); }
       if (l.itemName) put(l.row, c0 + 3, l.itemName);
+      const img = l.itemId ? pics.get(l.itemId) : undefined;
+      if (img) { placed.push({ sheet: name, row: l.row - 1, col: c0 + 4, bytes: img }); tall(ws, l.row - 1); }
     }
+    if (withPics) wide(ws, c0 + 4);
     const t = totals(mine);
     const end = Math.max(...mine.map((l) => l.row), head.headerRow) + 2;
     [["Subtotal", t.subtotal], ["GST", t.gst], ["Total", t.total]].forEach(([k, v], i) => { put(end + i, c0 + 1, k as string); put(end + i, c0 + 2, v as number); });
-    range.e.c = Math.max(range.e.c, c0 + 3);
+    range.e.c = Math.max(range.e.c, c0 + (withPics ? 4 : 3));
     range.e.r = Math.max(range.e.r, end + 2);
     ws["!ref"] = XLSX.utils.encode_range(range);
   }
+  const anyPic = pics.size > 0;
   const sheet = XLSX.utils.aoa_to_sheet([
-    ["Sheet", "S. No.", "Item (as asked)", "Make", "Unit", "Qty", "Our item", "Rate (Rs)", "GST %", "Amount (Rs)"],
+    ["Sheet", "S. No.", "Item (as asked)", "Make", "Unit", "Qty", "Our item", "Rate (Rs)", "GST %", "Amount (Rs)", ...(anyPic ? ["Picture"] : [])],
     ...q.lines.map((l) => [l.sheet, l.sno, l.item, l.make, l.unit, l.qty, l.itemName ?? "", l.rate || "", l.rate ? l.gst : "", l.rate ? lineAmount(l) : ""]),
     [], ...(() => { const t = totals(q.lines); return [["", "", "", "", "", "", "", "", "Subtotal", t.subtotal], ["", "", "", "", "", "", "", "", "GST", t.gst], ["", "", "", "", "", "", "", "", "Total", t.total]]; })(),
   ]);
   const name = wb.SheetNames.includes("Quotation") ? "Our quotation" : "Quotation";
+  if (anyPic) {
+    wide(sheet, 10);
+    q.lines.forEach((l, i) => { const img = l.itemId ? pics.get(l.itemId) : undefined; if (img) { placed.push({ sheet: name, row: i + 1, col: 10, bytes: img }); tall(sheet, i + 1); } });
+  }
   XLSX.utils.book_append_sheet(wb, sheet, name);
-  const out = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
-  return { bytes: new Uint8Array(out), name: `${q.title.replace(/[^\w .()-]+/g, " ").trim() || "BOQ"} - quotation.xlsx` };
+  const out = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer);
+  let bytes: Uint8Array = out;
+  try {
+    bytes = addPictures(out, placed.map((p) => ({ sheet: wb.SheetNames.indexOf(p.sheet), row: p.row, col: p.col, bytes: p.bytes, maxPx: PIC_PX, rowPx: PIC_PX + 10 })));
+  } catch (e) {
+    console.error(`[boq] pictures left out: ${e instanceof Error ? e.message : e}`); // the sheet without pictures beats no sheet
+  }
+  return { bytes, name: `${q.title.replace(/[^\w .()-]+/g, " ").trim() || "BOQ"} - quotation.xlsx` };
 }
 
 export const quoteView = (q: BoqQuoteDoc) => ({ id: q._id, title: q.title, fileName: q.fileName, sheets: q.sheets, lines: q.lines, createdBy: q.createdBy, updatedAt: q.updatedAt });
