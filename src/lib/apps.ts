@@ -30,7 +30,7 @@ const PAGES: (DashboardPage & { show: (m: Who) => boolean })[] = [
   { id: "sheet", name: "Sheet → Quotation", href: "/reports/sheet-to-quotation", icon: "sheet", color: "#9a5b00", section: "Sales", show: (m) => canConvertInvoices(m) },
   { id: "trainings", name: "Trainings", href: "/training-management", icon: "trainings", color: "#00843d", section: "Sales", show: (m) => canSee(m, "trainings") },
   { id: "items", name: "Items", href: "/items", icon: "items", color: "#5a6b2f", section: "Inventory", show: (m) => canSee(m, "items") },
-  { id: "converter", name: "Invoice Converter", href: "/reports/invoice-converter", icon: "converter", color: "#005387", section: "Utilities", show: (m) => canConvertInvoices(m) },
+  { id: "converter", name: "Invoice Converter", href: "/reports/invoice-converter", icon: "converter", color: "#005387", section: "Inventory", show: (m) => canConvertInvoices(m) },
   { id: "sprints", name: "Sprints", href: "/sprints", icon: "sprints", color: "#1f6f8b", section: "Utilities", show: (m) => canSee(m, "sprints") },
   { id: "templates", name: "Templates", href: "/templates", icon: "templates", color: "#7a4fc0", section: "Utilities", show: (m) => canSee(m, "templates") },
 ];

@@ -492,6 +492,12 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
       log.folderError = e instanceof Error ? e.message : String(e);
       console.error(`[customer folders] failed: ${log.folderError}`);
     }
+    // New PO PDFs in WorkDrive (poFolder.ts): read, so the Invoice Converter shows "PO found".
+    try {
+      await (await import("./poFolder")).scanPoFolder(10_000);
+    } catch (e) {
+      console.error(`[po folder] failed: ${e instanceof Error ? e.message : e}`);
+    }
     // Team (Zoho users).
     if (!state.usersAt || fullDue) {
       await store.replaceOne({ _id: "zoho_users" }, { team: await fetchTeam() }, { upsert: true });

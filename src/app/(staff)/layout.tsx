@@ -8,7 +8,7 @@ import { AppShell } from "@/components/AppShell";
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ThinkHealth Training Dashboard",
+  title: "Think Health Dashboard",
   description: "Training KPIs, calendar and follow-ups for ThinkHealth.in, powered by Zoho Books.",
 };
 

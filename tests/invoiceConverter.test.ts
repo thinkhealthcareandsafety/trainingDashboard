@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poState } from "@/lib/invoiceConverterRules";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
+import { orderText, poInPdf, poKey } from "@/lib/poMatch";
+import { matchNewKeys, poFileFor, poFiles } from "@/lib/poFolder";
+import { GET as convGet, POST as convPost } from "@/app/api/invoice-converter/route";
 
 // The Invoice Converter (owner, 17 Nov): customers, their invoices, the PO and (over ₹50,000) the e-way bill.
 
@@ -171,4 +174,40 @@ test("an e-way bill number: 12 digits; the invoice's E-way Bill Number field fro
   const inv = (await converterData()).customers[0].invoices[0];
   assert.equal(inv.eway, "232328638953");
   assert.equal(inv.ewayZoho, false); // our field, not Zoho's own e-way bill: can be changed here
+});
+
+test("PO found: the whole number, only its marks may differ; short ones only after a PO label (from the real folder)", () => {
+  const on = (po: string, text: string, name = "x.pdf") => poInPdf(poKey(po), name, text);
+  assert.ok(on("6566219-OP-4470300006", "Purchase Order 6566219 OP -- 4470300006 7 Item"));
+  assert.ok(on("6568686 - OP - 4470300047", "Purchase Order 4470300047- -OP 6568686"));
+  assert.ok(on("4500149348 / 0", "PURCHASE ORDER : 4500149348 / 0 ORDER DATE"));
+  assert.ok(on("B202610-05628", "Novotel Goa PanjimP.O. No.: B202610-05628"));
+  assert.ok(on("26273165", "", "Usha Armour  26273165.pdf"));
+  assert.ok(on("3981", "DATE 02-04-2026 PO # 3981 GSTIN") && on("3793", "", "Purchase Order 3793 (1).pdf") && on("100425", "", "PO_100425.pdf"));
+  assert.ok(on("STS/ 84/LPO", "Local Purchase Order No:STS/ 84 /LPO"));
+  // Never part of a longer number, an unlabelled short one, or too little to go by.
+  assert.ok(!on("52600831", "PO No 152600831") && !on("52600831", "PO No 526008312") && !on("5628", "B202610-05628"));
+  assert.ok(!on("25-367", "Other References PI No - 25-367") && !on("1518", "", "tHINK hEALTH 1518.pdf") && !on("3981", "HSN 3981"));
+  for (const bad of ["", "00", "Verbal", "whatsapp", "2026-01-450", "Performa-26-1060"]) assert.equal(poKey(bad), "", bad);
+  assert.ok(orderText("PURCHASE ORDER PO NO : 31") && !orderText("Statement of account"));
+});
+
+test("PO found: PDFs by PO number, the same copy once; a number typed later is compared too; only that invoice's PDF opens", async () => {
+  const d = await db();
+  const s = (id: string, name: string, size: number, depth: number, text: string, hits: string[]) => d.collection<any>("poScans").insertOne({ _id: id, name, size, depth, text, hits, readable: true, at: "" });
+  await s("filecopy0001", "PO 52600831.pdf", 10, 2, "", ["52600831"]);
+  await s("filetop00001", "PO 52600831.pdf", 10, 0, "PO No 52600831", ["52600831"]);
+  await s("fileother001", "a.pdf", 5, 0, "Purchase Order 7001629499", []);
+  await d.collection<any>("kv").insertOne({ _id: "po_folder", keys: ["52600831"], at: "" });
+  await d.collection<any>("salesDocs").insertOne({ _id: "invoices:1000001", id: "1000001", kind: "invoices", row: { cf_purchase_order_number: "52600831", invoice_number: "A" } });
+  assert.deepEqual((await poFiles()).get("52600831"), [{ id: "filetop00001", name: "PO 52600831.pdf" }]);
+  await matchNewKeys(["52600831", "7001629499"]);
+  assert.deepEqual((await poFiles()).get("7001629499"), [{ id: "fileother001", name: "a.pdf" }]);
+  assert.equal((await poFileFor("1000001", "filetop00001")).key, "52600831");
+  await assert.rejects(poFileFor("1000001", "fileother001"));
+  const req = (id: string, body?: object) => new Request("http://x/api/invoice-converter?po=filetop00001&id=1000001", { method: body ? "POST" : "GET", ...(body ? { body: JSON.stringify(body) } : {}), headers: { "content-type": "application/json", ...(id ? { "x-test-member": JSON.stringify({ id, name: id }) } : {}) } });
+  assert.equal((await convGet(req(""))).status, 401);
+  assert.equal((await convGet(req("shreya"))).status, 403);
+  assert.equal((await convPost(req("shreya", { action: "scanPo" }))).status, 403);
+  assert.equal((await convPost(req("admin", { action: "usePo", id: "1000001", file: "../x" }))).status, 400);
 });

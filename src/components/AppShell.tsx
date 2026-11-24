@@ -266,7 +266,7 @@ function SignInPage({ onSignIn }: { onSignIn: (m: Member, token: string) => void
       <div className="w-full max-w-2xl">
         <div className="mb-6 flex items-center justify-center gap-2.5">
           <span className="grid size-9 place-items-center rounded-xl bg-brand text-[14px] font-bold text-brand-ink">TH</span>
-          <span className="text-[18px] font-semibold tracking-tight">ThinkHealth Training Dashboard</span>
+          <span className="text-[18px] font-semibold tracking-tight">Think Health Dashboard</span>
         </div>
         <MembersScreen onPick={onSignIn} />
       </div>

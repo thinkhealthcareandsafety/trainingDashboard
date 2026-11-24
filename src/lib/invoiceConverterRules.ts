@@ -66,6 +66,8 @@ export type ConvInvoice = {
   pending: boolean;
   /** Merge and sign (owner, 17 Nov): Zoho Sign's status for this invoice ("inprogress", "completed", …), if started. */
   sign?: string;
+  /** PO PDFs in the WorkDrive PO folder that carry this invoice's PO number, when it has no PO PDF yet (owner, 24 Nov). */
+  poFound?: { id: string; name: string }[];
 };
 export type ConvCustomer = { id: string; name: string; invoices: ConvInvoice[]; latest: string; missing: number };
 

@@ -92,10 +92,10 @@ export function LauncherView({ member, signOut }: { member: Who; signOut: () => 
         <h1>{hello ? `${hello}, ${first(member.name)}.` : " "}</h1>
         <nav className="lx-grid lx-big" aria-label="Applications">
           {ours.map(({ id, app: a }) => !a ? (
-            <Link key={id} href={homeOf(member)} className="lx-tile lx-sw" onContextMenu={onMenu(id, "Training Dashboard", homeOf(member))}>
+            <Link key={id} href={homeOf(member)} className="lx-tile lx-sw" onContextMenu={onMenu(id, "Think Health Dashboard", homeOf(member))}>
               {isPinned(id) && <PinMark />}
               <span className="lx-ic" style={{ background: "#034f72" }}><Glyph>{ICONS.reports}</Glyph></span>
-              <span className="lx-name">Training Dashboard</span>
+              <span className="lx-name">Think Health Dashboard</span>
             </Link>
           ) : (
             <div key={id} className="lx-sw" onContextMenu={onMenu(id, a.name, a.url)}>

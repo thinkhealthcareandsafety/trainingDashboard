@@ -183,3 +183,32 @@ export async function workdriveMakeFolder(parent: string, name: string): Promise
     return id;
   }
 }
+
+export type WdFile = { id: string; name: string; size: number | null; depth: number };
+/** Every PDF in a folder and the folders inside it (the PO folder, poFolder.ts), read fresh. */
+export async function workdrivePdfsUnder(root: string): Promise<WdFile[]> {
+  const c = await connection();
+  const out: WdFile[] = [];
+  let level = [root];
+  for (let depth = 0; level.length && depth < 6; depth++) {
+    const inside: string[] = [];
+    for (const id of level) for (const e of await listFolder(c, id, true)) {
+      if (e.folder) inside.push(e.id);
+      else if (e.pdf && (e.size ?? 0) < MAX_BYTES) out.push({ id: e.id, name: e.name, size: e.size, depth });
+    }
+    level = inside;
+  }
+  return out;
+}
+
+/** A file as WorkDrive sends it. The caller checks first that this file may be read. */
+export async function workdriveOpen(fileId: string): Promise<Response> {
+  if (!goodWdId(fileId)) throw new Error("Unknown file");
+  const c = await connection();
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${DOWNLOAD}/${fileId}`, { headers: { Authorization: `Zoho-oauthtoken ${await accessFor(c, attempt > 0)}` }, cache: "no-store" });
+    if (res.status === 401 && attempt === 0) continue;
+    if (!res.ok) { console.error(`[workdrive] open → ${res.status}`); throw new Error(`Zoho WorkDrive didn't give the file (${res.status})`); }
+    return res;
+  }
+}

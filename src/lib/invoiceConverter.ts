@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
+import { poKey } from "./poMatch";
 import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, isPoFile, needsEway, piOf, poFileName, poState } from "./invoiceConverterRules";
 
 /*
@@ -33,6 +34,7 @@ const wantsDetail = (r: SalesRow) => needsEway(Number(r.row.total) || 0) || Bool
 
 /** Every customer with their invoices; reads up to READ_BATCH full records from Zoho that aren't known yet. */
 export async function converterData(): Promise<{ customers: ConvCustomer[]; pending: number }> {
+  const poFolder = await import("./poFolder");
   const signs = await signStates();
   // The customer's name as Zoho has it now (owner, 17 Nov: renamed customers, e.g. "JLL Mumbai" → "Jones Lang LaSalle …"):
   // invoices keep the name from when they were made, so the current one comes from the customers copy.
@@ -56,17 +58,25 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       break; // Zoho busy: try again on the next load
     }
   }
+  // PO PDFs found in WorkDrive; if that can't be read the page works as before.
+  const found = await (async () => {
+    await poFolder.matchNewKeys([...new Set(rows.map((r) => poKey(r.row.cf_purchase_order_number)).filter(Boolean))]);
+    return poFolder.poFiles();
+  })().catch((e) => { console.error(`[po folder] ${e instanceof Error ? e.message : e}`); return new Map<string, { id: string; name: string }[]>(); });
   const list = rows.map((r) => {
     const total = Number(r.row.total) || 0;
     const e = extras.get(r.id);
     const po = poState(r.row.cf_purchase_order_number);
     const files = e?.files ?? [];
+    const pending = wantsDetail(r) && !fresh(r);
+    const poFound = pending || files.some(isPoFile) ? undefined : found.get(poKey(r.row.cf_purchase_order_number));
     return {
+      ...(poFound?.length ? { poFound } : {}),
       customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
       id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""), pi: piOf(r.row.reference_number),
       po: po.label, poOk: po.ok, poPdf: files.some(isPoFile),
       eway: e?.eway || String(r.row.cf_e_way_bill_number ?? "").trim() || e?.ewayFound || null, ewayZoho: Boolean(e?.eway), ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
-      pending: wantsDetail(r) && !fresh(r),
+      pending,
       sign: signs.get(r.id)?.status,
     };
   });
@@ -181,14 +191,16 @@ export type AttachResult = {
  * A PO PDF goes to every invoice of the same PI that has none yet (owner, 18 Nov), each under its own name
  * ("PO - <invoice>.pdf"). Its number: `typed` when given (the linked block's "PO for all"), written to all of them;
  * otherwise the number read from the PDF, written where the invoice has none or "Verbal". An e-way bill is per invoice.
+ * `known`: the invoice's own PO number, already matched on this PDF (poFolder.ts) — taken as the number read, and the PDF
+ * goes only to those invoices of the PI that have the same number or none.
  * `replace`: the old PDF goes first (a PO's on every invoice of the PI), and the number read from the new one wins.
  */
-export async function attachPdf(invoiceId: string, which: "po" | "eway", file: File, typed?: string, replace = false): Promise<AttachResult> {
+export async function attachPdf(invoiceId: string, which: "po" | "eway", file: File, typed?: string, replace = false, known?: string): Promise<AttachResult> {
   if (file.size > 10 * 1024 * 1024) throw new Error("The file is over 10 MB.");
   if (!/pdf/i.test(file.type) && !/\.pdf$/i.test(file.name)) throw new Error("Attach a PDF.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const text = await pdfText(bytes);
-  const found = which === "po" ? poFromText(text) : ewayFromText(text);
+  const found = which === "po" ? known ?? poFromText(text) : ewayFromText(text);
 
   if (which === "eway") {
     const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
@@ -202,8 +214,9 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
     return { ok: true, found, ids: [invoiceId], poIds: [], ...(fresh && found ? { eway: found } : {}) };
   }
 
-  const group = await samePiInvoices(invoiceId);
-  if (!group.length) throw new Error("That invoice isn't in our copy yet. Sync, then try again.");
+  const whole = await samePiInvoices(invoiceId);
+  if (!whole.length) throw new Error("That invoice isn't in our copy yet. Sync, then try again.");
+  const group = known ? whole.filter((r, n) => n === 0 || !poState(r.row.cf_purchase_order_number).ok || poKey(r.row.cf_purchase_order_number) === poKey(known)) : whole;
   const extras = new Map((await (await extrasCol()).find({ _id: { $in: group.map((r) => r.id) } }).toArray()).map((e) => [e._id, e]));
   // The one clicked always; the others of its PI only if they have no PO PDF yet (no second copy on an invoice).
   // Replacing: every invoice of the PI, each one's old PO PDF deleted first.
@@ -225,6 +238,18 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
     poIds.push(r.id);
   }
   return poIds.length ? { ok: true, found, ids, poIds, po: s.po, poOk: s.ok } : { ok: true, found, ids, poIds };
+}
+
+/** The PDF picked after "PO found" (owner, 24 Nov): from WorkDrive onto the invoice, only if it carries its PO number. */
+export async function attachFoundPo(invoiceId: string, fileId: string): Promise<AttachResult> {
+  const { poFileFor } = await import("./poFolder");
+  const { workdriveOpen } = await import("./workdrive");
+  const { name } = await poFileFor(invoiceId, fileId);
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  if (((await (await extrasCol()).findOne({ _id: invoiceId }))?.files ?? []).some(isPoFile)) throw new Error("This invoice already has a PO PDF. Refresh the page.");
+  const bytes = new Uint8Array(await (await workdriveOpen(fileId)).arrayBuffer());
+  if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-") throw new Error("That file isn't a PDF");
+  return attachPdf(invoiceId, "po", new File([bytes], name, { type: "application/pdf" }), undefined, false, String(row?.row.cf_purchase_order_number ?? "").trim());
 }
 
 /* ---------------- Merge and sign (owner, 17 Nov) ---------------- */

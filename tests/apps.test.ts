@@ -59,8 +59,8 @@ test("the sections (owner, 23 Nov) and which page a path is on", () => {
   assert.deepEqual(pageSections(admin).map((s) => [s.section, s.pages.map((p) => p.name)]), [
     ["Overview", ["Overview", "Follow-ups", "Calendar", "Reports"]],
     ["Sales", ["Quotations", "Sheet → Quotation", "Trainings"]],
-    ["Inventory", ["Items"]],
-    ["Utilities", ["Invoice Converter", "Sprints", "Templates"]],
+    ["Inventory", ["Items", "Invoice Converter"]],
+    ["Utilities", ["Sprints", "Templates"]],
   ]);
   // A section with nothing for someone is left out.
   assert.ok(pageSections(arti).every((s) => s.pages.length > 0));

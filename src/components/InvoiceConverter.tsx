@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
 import { EWAY_OVER, blocksOf } from "@/lib/invoiceConverterRules";
 import { Skeleton } from "./ui";
@@ -47,6 +48,21 @@ export function InvoiceConverter() {
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [onlyFound, setOnlyFound] = useState(false);
+  // "Find POs" (owner, 24 Nov): read the WorkDrive PO folder, a batch at a time, until nothing is left.
+  const [scan, setScan] = useState<{ busy: boolean; text: string; bad?: boolean }>({ busy: false, text: "" });
+  const findPos = async () => {
+    setScan({ busy: true, text: "Reading the PO folder…" });
+    let last: { files?: number; left?: number; unread?: number; error?: string } = {}, before = Infinity;
+    for (let n = 0; n < 40; n++) {
+      last = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "scanPo" }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      if (last.error || !last.left || last.left >= before) break;
+      before = last.left;
+      setScan({ busy: true, text: `Reading the PO folder… ${last.left} of ${last.files} PDFs left` });
+    }
+    await load();
+    setScan(last.error ? { busy: false, text: last.error, bad: true } : { busy: false, text: `${last.files ?? 0} PDFs in the PO folder checked${last.left ? `, ${last.left} couldn't be read` : ""}${last.unread ? ` · ${last.unread} are scans without text (checked by file name)` : ""}` });
+  };
   const load = () => fetch("/api/invoice-converter", { cache: "no-store" }).then(async (r) => {
     const j = await r.json().catch(() => ({}));
     if (j.customers) { setData(j); setError(""); } else setError(j.error ?? "Couldn't load the invoices");
@@ -67,17 +83,23 @@ export function InvoiceConverter() {
   const shown = useMemo(() => {
     if (!data) return [];
     const s = q.trim().toLowerCase();
+    const anyFound = data.customers.some((c) => c.invoices.some((i) => i.poFound?.length && !i.poPdf));
     return data.customers
-      .map((c) => ({ ...c, invoices: c.invoices.filter((i) => !s || c.name.toLowerCase().includes(s) || i.number.toLowerCase().includes(s) || i.po.toLowerCase().includes(s)) }))
+      .map((c) => ({ ...c, invoices: c.invoices.filter((i) => (!onlyFound || !anyFound || (i.poFound?.length && !i.poPdf)) && (!s || c.name.toLowerCase().includes(s) || i.number.toLowerCase().includes(s) || i.po.toLowerCase().includes(s))) }))
       .filter((c) => c.invoices.length);
-  }, [data, q]);
-  const searching = q.trim().length > 0;
+  }, [data, q, onlyFound]);
+  const foundCount = data?.customers.reduce((n, c) => n + c.invoices.filter((i) => i.poFound?.length && !i.poPdf).length, 0) ?? 0;
+  const filtering = onlyFound && foundCount > 0;
+  const searching = q.trim().length > 0 || filtering;
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <input className="h-10 w-full max-w-sm rounded-xl border border-line bg-surface px-3.5 text-[14px] text-ink placeholder:text-faint" placeholder="Search a customer, invoice or PO number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
+        <button type="button" onClick={findPos} disabled={scan.busy} className="h-10 shrink-0 rounded-xl bg-brand px-4 text-[13.5px] font-semibold text-brand-ink disabled:opacity-60" title="Look in the WorkDrive PO folder for PDFs carrying these invoices' PO numbers">{scan.busy ? <Busy text="Finding POs…" /> : "Find POs"}</button>
+        {foundCount > 0 && <button type="button" aria-pressed={filtering} onClick={() => setOnlyFound(!filtering)} className={`num h-10 shrink-0 rounded-xl border px-4 text-[13.5px] font-semibold ${filtering ? "border-brand bg-brand-soft text-brand" : "border-line bg-surface text-ink hover:bg-surface-2"}`}>{foundCount} PO{foundCount === 1 ? "" : "s"} found{filtering ? " ✕" : ""}</button>}
+        {scan.text && <span className={`num text-[13px] ${scan.bad ? "text-high" : "text-muted"}`} role="status">{scan.text}</span>}
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
@@ -245,6 +267,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
     setEwayEdit(false);
   };
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState(false);
   const poFile = useRef<HTMLInputElement>(null);
   const ewayFile = useRef<HTMLInputElement>(null);
 
@@ -318,6 +341,17 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         )}
         <Pdf has={i.poPdf} pending={i.pending} busy={busy === "poPdf"} onPick={() => { replacing.current = false; poFile.current?.click(); }} onReplace={() => { replacing.current = true; poFile.current?.click(); }}
           replaceTitle={pi ? `Delete the PO PDF in Zoho and attach a new one, on every invoice of ${pi}` : "Delete the PO PDF in Zoho and attach a new one"} />
+        {!i.poPdf && !i.pending && Boolean(i.poFound?.length) && (
+          <button type="button" onClick={() => setPreview(true)} className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-brand-soft px-2 py-1 text-[12.5px] font-semibold text-brand hover:underline" title={i.poFound!.map((f) => f.name).join(", ")}>
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden className="shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 1.8H4v12.4h8V4.8zM9 1.8v3h3" /></svg>
+            PO found{i.poFound!.length > 1 ? ` (${i.poFound!.length})` : ""} · Preview
+          </button>
+        )}
+        {preview && i.poFound && <PoPreview i={i} pi={pi} onClose={() => setPreview(false)} onUsed={(r) => {
+          setPreview(false);
+          patchIds(r.ids ?? [i.id], { poPdf: true });
+          if (r.po && r.poIds?.length) patchIds(r.poIds, { po: r.po, poOk: r.poOk });
+        }} />}
         <input ref={poFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("po", e.target.files?.[0]); e.target.value = ""; }} />
       </div>
 
@@ -361,6 +395,54 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
       {error && <p className="col-span-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
     </li>
   );
+}
+
+/** The PO PDF(s) found in WorkDrive for an invoice: look, then pick (owner, 24 Nov: never attached by itself). */
+function PoPreview({ i, pi, onClose, onUsed }: { i: ConvInvoice; pi?: string; onClose: () => void; onUsed: (r: { ids?: string[]; poIds?: string[]; po?: string; poOk?: boolean }) => void }) {
+  const files = i.poFound ?? [];
+  const [at, setAt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const f = files[Math.min(at, files.length - 1)];
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [busy, onClose]);
+  if (!f) return null;
+  const src = `/api/invoice-converter?po=${encodeURIComponent(f.id)}&id=${i.id}`;
+  const use = async () => {
+    setBusy(true); setError("");
+    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "usePo", id: i.id, file: f.id }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    setBusy(false);
+    if (r.error) return setError(r.error);
+    onUsed(r);
+  };
+  return createPortal(
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-3 sm:p-6" onClick={() => { if (!busy) onClose(); }}>
+      <div className="modal-in flex h-full max-h-[920px] w-full max-w-[900px] flex-col overflow-hidden rounded-2xl bg-surface shadow-pop" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`PO found for invoice ${i.number}`}>
+        <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <h2 className="num text-[16px] font-semibold text-ink">PO {i.po} <span className="font-medium text-muted">· invoice {i.number} · {inr(i.total)}</span></h2>
+            <p className="truncate text-[13px] text-muted">{f.name}</p>
+          </div>
+          <a href={src} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg px-2 py-1 text-[13px] font-semibold text-brand hover:bg-brand-soft">Open in a new tab</a>
+          <button type="button" onClick={onClose} disabled={busy} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink" aria-label="Close">✕</button>
+        </header>
+        {files.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 border-b border-line px-5 py-2.5" role="group" aria-label="PDFs found">
+            {files.map((x, k) => <button key={x.id} type="button" aria-pressed={k === at} onClick={() => { setAt(k); setError(""); }} disabled={busy} className={`max-w-[260px] truncate rounded-full px-3 py-1 text-[12.5px] font-medium ${k === at ? "bg-brand text-brand-ink" : "bg-surface-2 text-ink hover:bg-line"}`}>{x.name}</button>)}
+          </div>
+        )}
+        <iframe key={f.id} src={src} title={f.name} className="min-h-0 w-full flex-1 bg-white" />
+        {error && <p className="bg-high-bg px-5 py-2.5 text-[13px] text-high" role="alert">{error}</p>}
+        <footer className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3">
+          <span className="min-w-0 flex-1 text-[12.5px] text-muted">{pi ? `Goes on the invoices of ${pi} with this PO number or none.` : "Goes on this invoice in Zoho Books."}</span>
+          <button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg px-3 text-[13px] text-muted hover:text-ink">Cancel</button>
+          <button type="button" autoFocus onClick={use} disabled={busy} className="h-9 rounded-lg bg-brand px-4 text-[13px] font-semibold text-brand-ink disabled:opacity-60">{busy ? <Busy text="Attaching in Zoho…" /> : "Use this PO"}</button>
+        </footer>
+      </div>
+    </div>, document.body);
 }
 
 /** Zoho Sign's one-time setup: Admin connects it; each signer gives their email and full name once. */

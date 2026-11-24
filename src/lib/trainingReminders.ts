@@ -99,7 +99,7 @@ export function buildReminderMail(card: CardView, info: DatesInfo, kind: Kind): 
 <p>Dear ${esc(names(to))},</p>
 <p>${intro}</p>
 <table style="border-collapse:collapse;margin:8px 0 16px">${table}</table>
-<p style="color:#555">— ThinkHealth Training Dashboard</p>
+<p style="color:#555">— Think Health Dashboard</p>
 </div>`;
   return { to, subject, html };
 }
