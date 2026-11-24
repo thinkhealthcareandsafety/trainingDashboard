@@ -90,7 +90,7 @@ export function LauncherView({ member, signOut }: { member: Who; signOut: () => 
       <Top member={member} signOut={signOut} />
       <main className="lx-in">
         <h1>{hello ? `${hello}, ${first(member.name)}.` : " "}</h1>
-        <nav className="lx-grid lx-big" aria-label="Applications">
+        <nav className="lx-grid lx-big lx-panel" aria-label="Applications">
           {ours.map(({ id, app: a }) => !a ? (
             <Link key={id} href={homeOf(member)} className="lx-tile lx-sw" onContextMenu={onMenu(id, "Think Health Dashboard", homeOf(member))}>
               {isPinned(id) && <PinMark />}
@@ -116,7 +116,7 @@ export function LauncherView({ member, signOut }: { member: Who; signOut: () => 
         </nav>
         {error && <p className="lx-err" role="alert">{error}</p>}
         {pins !== undefined && (
-          <section className="lx-zoho">
+          <section className="lx-zoho lx-panel">
             <h2>Zoho</h2>
             <nav className="lx-grid" aria-label="Zoho apps">
               {pinnedFirst(ZOHO_APPS, pins ?? []).map((z) => (

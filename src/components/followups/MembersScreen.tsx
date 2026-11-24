@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Member } from "@/lib/types";
-import { Avatar, btn, inputCls } from "../ui";
+import { Avatar, btn, inputCls, toneOf } from "../ui";
 
 /** Signs in as the admin (PIN in ADMIN_PIN on the server); changes are recorded as "Admin". */
 const ADMIN: Member = { id: "admin", name: "Admin", createdAt: "" };
@@ -25,7 +25,7 @@ function PinField({ value, onChange, label, autoFocus }: { value: string; onChan
       inputMode="numeric"
       autoComplete="off"
       maxLength={4}
-      className={`${inputCls} num text-center text-[18px] tracking-[0.5em]`}
+      className={`${inputCls} num h-14 text-center text-[22px] tracking-[0.5em]`}
       placeholder="••••"
       value={value}
       onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
@@ -59,8 +59,8 @@ function PersonTile({ name, onClick, admin }: { name: string; onClick: () => voi
   const initials = name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   const first = name.trim().split(/\s+/)[0];
   return (
-    <button type="button" onClick={onClick} title={name} className="press group flex min-w-0 flex-col items-center gap-2 rounded-2xl px-1.5 py-3 hover:bg-surface-2/70 focus-visible:bg-surface-2/70">
-      <span className={`grid size-14 place-items-center rounded-full text-[17px] font-semibold ring-1 transition group-hover:ring-2 group-hover:ring-brand ${admin ? "bg-ink text-surface ring-ink" : "bg-surface-2 text-ink-2 ring-line"}`} aria-hidden>
+    <button type="button" onClick={onClick} title={name} className="press group flex min-w-0 flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 hover:bg-surface-2/70 focus-visible:bg-surface-2/70">
+      <span style={admin ? undefined : toneOf(name)} className={`grid size-16 place-items-center rounded-full text-[19px] font-semibold ring-brand/0 transition group-hover:ring-4 group-hover:ring-brand/20 ${admin ? "bg-ink text-surface" : "soft-tone"}`} aria-hidden>
         {admin ? <svg viewBox="0 0 20 20" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"><path d="M10 2.5 4 5v4.5c0 3.6 2.6 6.6 6 7.5 3.4-.9 6-3.9 6-7.5V5l-6-2.5Z" /></svg> : initials}
       </span>
       <span className="w-full truncate text-center text-[13.5px] font-medium text-ink">{first}</span>
@@ -125,8 +125,8 @@ export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) =
   };
 
   return (
-    <div className={`mx-auto w-full ${who || adding ? "max-w-md" : "max-w-2xl"}`}>
-      <div className="card p-6">
+    <div className={`mx-auto w-full ${who || adding ? "max-w-md" : "max-w-3xl"}`}>
+      <div className="card p-6 sm:p-9">
         {who ? (
           <form onSubmit={(e) => { e.preventDefault(); void signIn(pin); }}>
             <div className="flex items-center gap-3">
@@ -173,16 +173,16 @@ export function MembersScreen({ onPick }: { onPick: (m: Member, token: string) =
           </form>
         ) : (
           <>
-            <h1 className="text-center text-[20px] font-semibold tracking-tight">Who’s signing in?</h1>
-            <p className="mt-1 text-center text-[13px] text-muted">Tap your name, then enter your PIN. Every change you make is recorded under your name.</p>
-            <ul className="mt-5 grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
+            <h1 className="text-center text-[24px] font-semibold tracking-[-0.02em]">Who’s signing in?</h1>
+            <p className="mx-auto mt-2 max-w-[52ch] text-center text-[14px] leading-relaxed text-muted">Tap your name, then enter your PIN. Every change you make is recorded under your name.</p>
+            <ul className="mt-7 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
               {sorted.map((m) => (
                 <li key={m.id} className="min-w-0"><PersonTile name={m.name} onClick={() => setWho(m)} /></li>
               ))}
               <li className="min-w-0"><PersonTile name="Admin" admin onClick={() => setWho(ADMIN)} /></li>
             </ul>
             {sorted.length === 0 && <p className="mt-3 text-center text-[13px] text-muted">No members yet — the admin can add the first one.</p>}
-            <div className="mt-4 flex justify-center">
+            <div className="mt-7 flex justify-center">
               <button className={btn.ghost} onClick={() => setAdding(true)}>+ Add new member</button>
             </div>
           </>

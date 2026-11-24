@@ -262,11 +262,11 @@ function useSidebar() {
 /** The whole site starts here when nobody is signed in: name + PIN, then the Dashboard. */
 function SignInPage({ onSignIn }: { onSignIn: (m: Member, token: string) => void }) {
   return (
-    <div className="grid min-h-screen place-items-center px-4 py-10">
-      <div className="w-full max-w-2xl">
-        <div className="mb-6 flex items-center justify-center gap-2.5">
-          <span className="grid size-9 place-items-center rounded-xl bg-brand text-[14px] font-bold text-brand-ink">TH</span>
-          <span className="text-[18px] font-semibold tracking-tight">Think Health Dashboard</span>
+    <div className="sign-in grid min-h-screen place-items-center px-4 py-10">
+      <div className="w-full max-w-3xl">
+        <div className="mb-8 flex items-center justify-center gap-3">
+          <span className="grid size-11 place-items-center rounded-[14px] bg-brand text-[15px] font-bold text-brand-ink shadow-card">TH</span>
+          <span className="text-[21px] font-semibold tracking-[-0.02em]">Think Health Dashboard</span>
         </div>
         <MembersScreen onPick={onSignIn} />
       </div>
@@ -274,11 +274,11 @@ function SignInPage({ onSignIn }: { onSignIn: (m: Member, token: string) => void
   );
 }
 
-/** A page's icon on its own colour (the same as its big icon on the apps page), white line drawing. */
+/** A page's icon on a soft tint of its own colour (owner, 24 Nov: soft and airy). */
 function Chip({ page, size = "size-7" }: { page: DashboardPage; size?: string }) {
   return (
-    <span className={`grid ${size} shrink-0 place-items-center rounded-lg`} style={{ background: page.color }}>
-      <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{APP_ICONS[page.icon]}</svg>
+    <span className={`tint-chip grid ${size} shrink-0 place-items-center rounded-[10px]`} style={{ "--c": page.color } as React.CSSProperties}>
+      <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{APP_ICONS[page.icon]}</svg>
     </span>
   );
 }
@@ -380,7 +380,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-[calc(100vh-36px)]">
         {/* Sidebar (desktop): hidden to a slim rail with the X, reopened from the rail's menu button */}
         {sidebar.hidden && (
-          <aside className="glass sticky top-9 hidden h-[calc(100vh-36px)] w-14 shrink-0 flex-col items-center gap-1 border-r border-line/70 py-5 lg:flex">
+          <aside className="glass sticky top-12 my-3 ml-3 hidden h-[calc(100vh-60px)] w-14 shrink-0 flex-col items-center gap-1 overflow-y-auto rounded-[24px] py-4 shadow-card no-scrollbar lg:flex">
             <button onClick={sidebar.show} aria-label="Show sidebar" title="Show sidebar" className="mb-5 grid size-9 place-items-center rounded-[10px] text-muted hover:bg-ink/[0.04] hover:text-ink">
               <Icon><path d="M4 5.5h12M4 10h12M4 14.5h12" /></Icon>
             </button>
@@ -390,7 +390,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={n.href}
                 aria-label={n.name}
                 title={n.name}
-                className={`press relative grid size-10 place-items-center rounded-[10px] ${isOnPage(n) ? "bg-brand-soft ring-1 ring-brand/30" : "hover:bg-ink/[0.05]"}`}
+                className={`press relative grid size-10 place-items-center rounded-[14px] ${isOnPage(n) ? "bg-brand-soft" : "hover:bg-ink/[0.05]"}`}
               >
                 <Chip page={n} />
                 {n.id === "reports" && progress.needs > 0 && <span className="absolute right-0.5 top-0.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
@@ -398,10 +398,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ))}
           </aside>
         )}
-        <aside className={`glass sticky top-9 hidden h-[calc(100vh-36px)] w-60 shrink-0 flex-col border-r border-line/70 px-3 py-5 ${sidebar.hidden ? "" : "lg:flex"}`}>
+        <aside className={`glass sticky top-12 my-3 ml-3 hidden h-[calc(100vh-60px)] w-60 shrink-0 flex-col overflow-y-auto rounded-[24px] px-3 py-5 shadow-card no-scrollbar ${sidebar.hidden ? "" : "lg:flex"}`}>
           <div className="mb-6 flex items-center justify-between gap-2">
             <Link href="/" className="flex items-center gap-2.5 px-2.5" title="All apps">
-              <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
+              <span className="grid size-7 place-items-center rounded-[9px] bg-brand text-[12px] font-bold text-brand-ink">TH</span>
               <span className="text-[14px] font-semibold tracking-tight">ThinkHealth</span>
             </Link>
             <button onClick={sidebar.hide} aria-label="Hide sidebar" title="Hide sidebar" className="grid size-7 place-items-center rounded-lg text-faint hover:bg-ink/[0.04] hover:text-ink">
@@ -410,20 +410,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <nav className="space-y-0.5">
             {/* Back to the apps home page (owner, 23 Nov). */}
-            <Link href="/" className="press mb-1 flex h-10 items-center gap-3 rounded-[10px] px-2 text-[13.5px] font-medium text-ink-2 hover:bg-ink/[0.05] hover:text-ink">
+            <Link href="/" className="press mb-1 flex h-10 items-center gap-3 rounded-[14px] px-2 text-[13.5px] font-medium text-ink-2 hover:bg-ink/[0.05] hover:text-ink">
               <span className="grid size-7 place-items-center rounded-lg bg-ink/[0.06]"><Icon><path d="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" /></Icon></span>
               <span className="flex-1">All apps</span>
             </Link>
             {sections.map((s) => (
               <div key={s.section} className="pt-3">
-                <p className="px-2.5 pb-1.5 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-muted">{s.section}</p>
+                <p className="px-2.5 pb-1.5 text-[12.5px] font-medium text-muted">{s.section}</p>
                 {s.pages.map((n) => (
                   <Link
                     key={n.href}
                     href={n.href}
                     aria-current={isOnPage(n) ? "page" : undefined}
-                    className={`press flex h-10 items-center gap-3 rounded-[10px] px-2 text-[13.5px] ${
-                      isOnPage(n) ? "bg-brand-soft font-semibold text-ink ring-1 ring-brand/25" : "font-medium text-ink-2 hover:bg-ink/[0.05] hover:text-ink"
+                    className={`press flex h-10 items-center gap-3 rounded-[14px] px-2 text-[13.5px] ${
+                      isOnPage(n) ? "bg-brand-soft font-semibold text-ink" : "font-medium text-ink-2 hover:bg-ink/[0.05] hover:text-ink"
                     }`}
                   >
                     <Chip page={n} />
@@ -441,7 +441,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Top bar (mobile / tablet) */}
           <header className="glass sticky top-9 z-30 flex h-14 items-center gap-3 border-b border-line/70 px-4 lg:hidden">
             <Link href="/" className="flex items-center gap-3" aria-label="All apps" title="All apps">
-              <span className="grid size-7 place-items-center rounded-lg bg-brand text-[12px] font-bold text-brand-ink">TH</span>
+              <span className="grid size-7 place-items-center rounded-[9px] bg-brand text-[12px] font-bold text-brand-ink">TH</span>
               <span className="text-[14px] font-semibold">ThinkHealth</span>
             </Link>
           </header>
@@ -509,7 +509,7 @@ export function PageHeader({ title, sub, actions, titleAside }: { title: string;
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="flex items-center gap-2.5 text-[28px] font-semibold leading-tight tracking-[-0.025em]">{title}{titleAside}</h1>
+        <h1 className="flex items-center gap-2.5 text-[30px] font-semibold leading-tight tracking-[-0.03em]">{title}{titleAside}</h1>
         {sub && <p className="mt-1.5 max-w-2xl text-[14px] text-muted">{sub}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">

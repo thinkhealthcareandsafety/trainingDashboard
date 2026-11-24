@@ -95,14 +95,18 @@ export function Field({ label, children, hint }: { label: string; children: Reac
   );
 }
 
+/** Calm colours for a name's initials: the same name always gets the same one. */
+const TONES = ["#0f766e", "#2f6fb0", "#7a5cc0", "#b0567a", "#a9702a", "#4f7a3a"];
+export const toneOf = (name: string): React.CSSProperties => ({ "--c": TONES[[...name].reduce((n, c) => n + c.charCodeAt(0), 0) % TONES.length] }) as React.CSSProperties;
+
 export const inputCls =
-  "h-10 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] text-ink placeholder:text-faint transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
+  "h-10 w-full rounded-[14px] border border-line bg-surface px-3 text-[14px] text-ink placeholder:text-faint transition focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
 
 export const selectCls =
   "h-9 rounded-full border border-line bg-surface pl-3.5 pr-8 text-[13px] text-ink-2 transition hover:border-line-strong focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15";
 
 export const btn = {
-  primary: "press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-brand px-4 text-[13px] font-semibold text-brand-ink shadow-[0_1px_2px_rgb(0_0_0/0.12)] hover:brightness-110 disabled:opacity-40 disabled:active:scale-100",
+  primary: "press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-brand px-4 text-[13px] font-semibold text-brand-ink shadow-[0_6px_16px_-8px_color-mix(in_srgb,var(--brand)_70%,transparent)] hover:brightness-110 disabled:opacity-40 disabled:active:scale-100",
   ghost: "press inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-surface-2 px-4 text-[13px] font-medium text-ink hover:bg-line",
   quiet: "press inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink",
   danger: "press inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-4 text-[13px] font-medium text-high hover:bg-high-bg",
@@ -141,7 +145,7 @@ export function Segmented<T extends string>({ value, onChange, options, size = "
 export function Avatar({ name }: { name: string }) {
   const initials = name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   return (
-    <span className="inline-grid size-6 shrink-0 place-items-center rounded-full bg-surface-2 text-[10px] font-semibold text-ink-2 ring-1 ring-line" aria-hidden>
+    <span style={toneOf(name)} className="soft-tone inline-grid size-6 shrink-0 place-items-center rounded-full text-[10px] font-semibold ring-1 ring-surface" aria-hidden>
       {initials}
     </span>
   );

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
 import { EWAY_OVER, blocksOf } from "@/lib/invoiceConverterRules";
-import { Skeleton } from "./ui";
+import { Skeleton, toneOf } from "./ui";
 
 /*
  * The Invoice Converter (owner, 17 Nov): each customer and all their invoices; for each invoice the Purchase Order (its
@@ -18,7 +18,7 @@ const day = (s: string) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString("en
 type SignInfo = { connected: boolean; canConnect: boolean; signer: { email: string; name: string } | null };
 
 /** Blue N/A (owner, 17 Nov): no e-way bill is needed on an invoice of ₹50,000 or less. */
-const NA = () => <span className="rounded-md bg-info-bg px-2 py-0.5 text-[12.5px] font-bold tracking-wide text-info">N/A</span>;
+const NA = () => <span className="rounded-full bg-info-bg px-2.5 py-1 text-[12px] font-semibold text-info">N/A</span>;
 
 /** A small spinning ring shown while something is being written to Zoho Books. */
 function Spinner({ size = 14 }: { size?: number }) {
@@ -32,14 +32,14 @@ function Spinner({ size = 14 }: { size?: number }) {
 /** A button's label while busy: the spinner and what it's doing. */
 const Busy = ({ text }: { text: string }) => <span className="inline-flex items-center gap-1.5"><Spinner />{text}</span>;
 
-/** The neon marks (owner: "TICK OR CROSS NEON"). */
+/** There or missing: a soft round mark (owner, 24 Nov: instead of the neon ticks and crosses). */
 function Mark({ ok, small = false }: { ok: boolean; small?: boolean }) {
-  const c = ok ? "#12d65a" : "#ff3b5c";
   return (
-    <svg viewBox="0 0 24 24" width={small ? 15 : 20} height={small ? 15 : 20} className="shrink-0" style={{ color: c, filter: `drop-shadow(0 0 3px ${c}aa) drop-shadow(0 0 7px ${c}55)` }} aria-label={ok ? "Yes" : "No"} role="img">
-      {ok ? <path d="M4.5 12.8 9.6 17.6 19.5 6.8" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-        : <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" />}
-    </svg>
+    <span className={`grid shrink-0 place-items-center rounded-full ${small ? "size-[18px]" : "size-6"} ${ok ? "bg-low-bg text-low" : "bg-high-bg text-high"}`} role="img" aria-label={ok ? "Yes" : "No"}>
+      <svg viewBox="0 0 16 16" width={small ? 10 : 12} height={small ? 10 : 12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {ok ? <path d="M3 8.6 6.4 12 13 4.6" /> : <path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6" />}
+      </svg>
+    </span>
   );
 }
 
@@ -94,11 +94,11 @@ export function InvoiceConverter() {
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        <input className="h-10 w-full max-w-sm rounded-xl border border-line bg-surface px-3.5 text-[14px] text-ink placeholder:text-faint" placeholder="Search a customer, invoice or PO number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
-        <button type="button" onClick={findPos} disabled={scan.busy} className="h-10 shrink-0 rounded-xl bg-brand px-4 text-[13.5px] font-semibold text-brand-ink disabled:opacity-60" title="Look in the WorkDrive PO folder for PDFs carrying these invoices' PO numbers">{scan.busy ? <Busy text="Finding POs…" /> : "Find POs"}</button>
-        {foundCount > 0 && <button type="button" aria-pressed={filtering} onClick={() => setOnlyFound(!filtering)} className={`num h-10 shrink-0 rounded-xl border px-4 text-[13.5px] font-semibold ${filtering ? "border-brand bg-brand-soft text-brand" : "border-line bg-surface text-ink hover:bg-surface-2"}`}>{foundCount} PO{foundCount === 1 ? "" : "s"} found{filtering ? " ✕" : ""}</button>}
+        <input className="h-11 w-full max-w-sm rounded-full border border-line bg-surface px-5 text-[14px] text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" placeholder="Search a customer, invoice or PO number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
+        <button type="button" onClick={findPos} disabled={scan.busy} className="press h-11 shrink-0 rounded-full bg-brand px-5 text-[13.5px] font-semibold text-brand-ink shadow-[0_6px_16px_-8px_color-mix(in_srgb,var(--brand)_70%,transparent)] hover:brightness-110 disabled:opacity-60" title="Look in the WorkDrive PO folder for PDFs carrying these invoices' PO numbers">{scan.busy ? <Busy text="Finding POs…" /> : "Find POs"}</button>
+        {foundCount > 0 && <button type="button" aria-pressed={filtering} onClick={() => setOnlyFound(!filtering)} className={`press num h-11 shrink-0 rounded-full px-5 text-[13.5px] font-semibold ${filtering ? "bg-brand-soft text-brand ring-1 ring-brand/40" : "bg-surface text-ink shadow-card hover:bg-surface-2"}`}>{foundCount} PO{foundCount === 1 ? "" : "s"} found{filtering ? " ✕" : ""}</button>}
         {scan.text && <span className={`num text-[13px] ${scan.bad ? "text-high" : "text-muted"}`} role="status">{scan.text}</span>}
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
@@ -106,26 +106,27 @@ export function InvoiceConverter() {
       {/* Zoho Sign's one-time setup (name and email per signer) is hidden for everyone (owner, 18 Nov): signing waits on
           Zoho Sign API credits. Put <SignSetup sign={data.sign} onDone={load} /> back here when signing is turned on. */}
       {!data ? <Skeleton className="h-[420px]" /> : shown.length === 0 ? <p className="card p-6 text-[14px] text-muted">{searching ? "Nothing matches." : "No invoices."}</p> : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {shown.map((c) => {
             const isOpen = searching || open.has(c.id);
             return (
               <section key={c.id} className="card overflow-hidden">
-                <button type="button" onClick={() => toggle(c.id)} aria-expanded={isOpen} className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-surface-2/50">
+                <button type="button" onClick={() => toggle(c.id)} aria-expanded={isOpen} className="flex w-full items-center gap-4 px-5 py-5 text-left hover:bg-surface-2/50 sm:px-6">
+                  <span style={toneOf(c.name)} className="soft-tone hidden size-11 shrink-0 place-items-center rounded-[14px] text-[14px] font-semibold sm:grid" aria-hidden>{c.name.replace(/[^\p{L}\p{N} ]/gu, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[16px] font-semibold text-ink">{c.name}</span>
                     <span className="num block text-[13px] text-muted">{c.invoices.length} invoice{c.invoices.length === 1 ? "" : "s"} · last {day(c.latest)}</span>
                   </span>
-                  {c.missing > 0 ? <span className="num shrink-0 rounded-full bg-high-bg px-2.5 py-1 text-[12.5px] font-semibold text-high">{c.missing} to complete</span>
-                    : <span className="flex shrink-0 items-center gap-1.5 text-[13px] font-medium text-ink-2"><Mark ok />All complete</span>}
+                  {c.missing > 0 ? <span className="num inline-flex shrink-0 items-center gap-2 rounded-full bg-medium-bg px-3 py-1.5 text-[12.5px] font-semibold text-ink-2"><span className="size-1.5 rounded-full bg-medium" aria-hidden />{c.missing} to complete</span>
+                    : <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-low-bg px-3 py-1.5 text-[12.5px] font-semibold text-low"><span className="size-1.5 rounded-full bg-low" aria-hidden />All complete</span>}
                   <svg viewBox="0 0 16 16" width="16" height="16" className={`shrink-0 text-muted transition ${isOpen ? "rotate-180" : ""}`} aria-hidden><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </button>
                 {isOpen && (
                   <div className="border-t border-line">
-                    <div className={`hidden ${COLS} gap-x-10 bg-surface-2/60 py-2.5 pl-11 pr-5 text-[12px] font-semibold uppercase tracking-[0.06em] text-muted lg:grid`}>
+                    <div className={`hidden ${COLS} gap-x-10 bg-surface-2/50 py-3 pl-11 pr-6 text-[12.5px] font-medium text-muted lg:grid`}>
                       <span>Invoice</span><span>Value</span><span>Purchase order</span><span title={`Needed over ${inr(EWAY_OVER)}`}>E-way bill</span><span>Merged PDF</span>
                     </div>
-                    <ul className="divide-y divide-line">
+                    <ul className="divide-y divide-line/70">
                       {blocksOf(c.invoices).map((b) => b.pi ? (
                         <Linked key={b.pi} pi={b.pi} invoices={b.invoices} sign={data.sign} onPatch={patch} />
                       ) : <Row key={b.invoices[0].id} i={b.invoices[0]} sign={data.sign} onPatch={patch} />)}
@@ -203,7 +204,7 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
               <button type="button" className="rounded px-1.5 py-0.5 font-semibold text-brand hover:bg-brand-soft" onClick={() => { setValue(""); setEditing(true); }}>Change</button>
             </span>
           ) : (
-            <button type="button" disabled={editing} className="h-8 rounded-lg bg-brand px-3.5 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={() => { setValue(""); setEditing(true); }}>Add PO for all {n}</button>
+            <button type="button" disabled={editing} className="press h-9 rounded-full bg-brand px-4 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={() => { setValue(""); setEditing(true); }}>Add PO for all {n}</button>
           )}
         </div>
         <p className="hidden text-[12.5px] text-muted lg:block">Each invoice has its own</p>
@@ -231,9 +232,9 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
 function Pdf({ has, pending, busy, onPick, onReplace, replaceTitle }: { has: boolean; pending: boolean; busy: boolean; onPick: () => void; onReplace: () => void; replaceTitle: string }) {
   if (pending) return <p className="mt-0.5 text-[12.5px] text-faint">PDF: reading…</p>;
   return has ? (
-    <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok small />PDF attached <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onReplace} title={replaceTitle}>{busy ? <Busy text="Replacing in Zoho…" /> : "Replace"}</button></p>
+    <p className="mt-1.5 flex items-center gap-2 text-[12.5px] text-ink-2"><Mark ok small />PDF attached <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onReplace} title={replaceTitle}>{busy ? <Busy text="Replacing in Zoho…" /> : "Replace"}</button></p>
   ) : (
-    <p className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-ink-2"><Mark ok={false} small />No PDF <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onPick}>{busy ? <Busy text="Attaching in Zoho…" /> : "Attach"}</button></p>
+    <p className="mt-1.5 flex items-center gap-2 text-[12.5px] text-ink-2"><Mark ok={false} small />No PDF <button type="button" className="rounded px-1 font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy} onClick={onPick}>{busy ? <Busy text="Attaching in Zoho…" /> : "Attach"}</button></p>
   );
 }
 
@@ -313,10 +314,10 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const label = "text-[12px] font-medium text-muted lg:hidden";
 
   return (
-    <li className={`relative grid grid-cols-2 gap-x-10 gap-y-2.5 py-3 pl-11 pr-5 ${COLS_LG} lg:items-center`}>
+    <li className={`relative grid grid-cols-2 gap-x-10 gap-y-3 py-5 pl-11 pr-6 ${COLS_LG} lg:items-center`}>
       {/* The PI's line: through this invoice's dot, or, on the last one, ending in an arrow at it. */}
-      {link === "mid" && <><span aria-hidden className="absolute bottom-0 left-[19px] top-0 w-0.5 bg-brand" /><span aria-hidden className="absolute left-[14px] top-[18px] h-3 w-3 rounded-full border-2 lg:top-[24px] border-brand bg-surface" /></>}
-      {link === "last" && <><span aria-hidden className="absolute left-[19px] top-0 h-[16px] w-0.5 bg-brand lg:h-[22px]" /><svg aria-hidden viewBox="0 0 12 10" width="12" height="10" className="absolute left-[14px] top-[15px] text-brand lg:top-[21px]"><path d="M0 0h12L6 10z" fill="currentColor" /></svg></>}
+      {link === "mid" && <><span aria-hidden className="absolute bottom-0 left-[19px] top-0 w-0.5 bg-brand" /><span aria-hidden className="absolute left-[14px] top-[26px] h-3 w-3 rounded-full border-2 border-brand bg-surface lg:top-[32px]" /></>}
+      {link === "last" && <><span aria-hidden className="absolute left-[19px] top-0 h-[24px] w-0.5 bg-brand lg:h-[30px]" /><svg aria-hidden viewBox="0 0 12 10" width="12" height="10" className="absolute left-[14px] top-[23px] text-brand lg:top-[29px]"><path d="M0 0h12L6 10z" fill="currentColor" /></svg></>}
       <div className="col-span-2 min-w-0 lg:col-span-1">
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
@@ -342,7 +343,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         <Pdf has={i.poPdf} pending={i.pending} busy={busy === "poPdf"} onPick={() => { replacing.current = false; poFile.current?.click(); }} onReplace={() => { replacing.current = true; poFile.current?.click(); }}
           replaceTitle={pi ? `Delete the PO PDF in Zoho and attach a new one, on every invoice of ${pi}` : "Delete the PO PDF in Zoho and attach a new one"} />
         {!i.poPdf && !i.pending && Boolean(i.poFound?.length) && (
-          <button type="button" onClick={() => setPreview(true)} className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-brand-soft px-2 py-1 text-[12.5px] font-semibold text-brand hover:underline" title={i.poFound!.map((f) => f.name).join(", ")}>
+          <button type="button" onClick={() => setPreview(true)} className="press mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1.5 text-[12.5px] font-semibold text-brand hover:underline" title={i.poFound!.map((f) => f.name).join(", ")}>
             <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden className="shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M9 1.8H4v12.4h8V4.8zM9 1.8v3h3" /></svg>
             PO found{i.poFound!.length > 1 ? ` (${i.poFound!.length})` : ""} · Preview
           </button>
@@ -384,7 +385,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
           boxes placed; signed and sent in Zoho Sign by hand (sending from here would need Zoho Sign API credits). */}
       <div className="col-span-2 lg:col-span-1">
         <p className={label}>Merged PDF</p>
-        <button type="button" className="h-8 rounded-lg border border-line px-3 text-[13px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-50" disabled={busy === "sign" || !sign?.connected} onClick={startDraft}
+        <button type="button" className="press h-9 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-ink hover:bg-line disabled:opacity-50" disabled={busy === "sign" || !sign?.connected} onClick={startDraft}
           title={!sign?.connected ? "Zoho Sign isn't connected yet" : "Merge the invoice, PO and e-way bill PDFs into a Zoho Sign draft with the signature, date and name boxes placed — you sign and send it in Zoho Sign"}>
           {busy === "sign" ? <Busy text="Merging…" /> : "Merge & draft"}
         </button>

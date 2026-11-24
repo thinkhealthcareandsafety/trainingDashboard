@@ -7,14 +7,15 @@
  * Light priority set validated (CVD + normal-vision + contrast) against #ffffff.
  */
 :root {
-  --bg: #f5f5f7;
+  /* Soft and airy (owner, 24 Nov): the plain light theme leans a little to the teal instead of grey. */
+  --bg: #f3f7f7;
   --surface: #ffffff;
-  --surface-2: #f2f2f5;
-  --line: #e6e6eb;
-  --line-strong: #d2d2d7;
-  --ink: #1d1d1f;
-  --ink-2: #3a3a3c;
-  --muted: #6e6e73;
+  --surface-2: #f0f5f5;
+  --line: #e4ecec;
+  --line-strong: #cbd8d9;
+  --ink: #1c2a2e;
+  --ink-2: #3b4c51;
+  --muted: #5d6e73;
   --faint: #a1a1a6;
   --brand: #0f766e;
   --brand-2: #9fd6cd; /* lighter step of the brand ramp: scheduled / tracks */
@@ -43,8 +44,8 @@
   --series-1: #0d9488; /* Overview chart: quotations (validated with the dataviz palette checks) */
   --series-2: #7c3aed; /* invoiced */
 
-  --shadow: 0 0 0 1px rgb(0 0 0 / 0.035), 0 1px 2px rgb(0 0 0 / 0.04), 0 6px 20px -12px rgb(0 0 0 / 0.12);
-  --shadow-lg: 0 0 0 1px rgb(0 0 0 / 0.05), 0 24px 60px -20px rgb(0 0 0 / 0.28);
+  --shadow: 0 0 0 1px rgb(20 50 60 / 0.035), 0 2px 6px rgb(20 50 60 / 0.03), 0 14px 36px -18px rgb(20 50 60 / 0.16);
+  --shadow-lg: 0 0 0 1px rgb(20 50 60 / 0.05), 0 8px 20px -8px rgb(20 50 60 / 0.12), 0 32px 72px -24px rgb(20 50 60 / 0.28);
   color-scheme: light;
 }
 
@@ -159,6 +160,11 @@
   --color-completed: var(--completed);
   --color-completed-bg: var(--completed-bg);
   --font-sans: var(--font-inter);
+  /* Rounder everywhere (owner, 24 Nov: soft and airy). */
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.375rem;
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-lg);
 }
@@ -449,7 +455,7 @@ h1, h2, h3 { letter-spacing: -0.018em; }
 /* Surfaces: a hairline ring + soft depth instead of heavy borders. */
 .card {
   background: var(--surface);
-  border-radius: 18px;
+  border-radius: 24px;
   box-shadow: var(--shadow);
   transition: box-shadow 0.25s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -457,6 +463,23 @@ h1, h2, h3 { letter-spacing: -0.018em; }
   transform: translateY(-2px);
   box-shadow: var(--shadow), 0 16px 32px -20px rgb(0 0 0 / 0.25);
 }
+
+/* A page's icon: its own colour as a soft tint, light and dark alike (--c). */
+.tint-chip { background: color-mix(in srgb, var(--c) 14%, var(--surface)); color: color-mix(in srgb, var(--c) 82%, var(--ink)); }
+:root[data-theme="dark"] .soft-tone { background: color-mix(in srgb, var(--c) 38%, var(--surface)); color: color-mix(in srgb, var(--c) 30%, #fff); }
+:root[data-theme="dark"] .tint-chip { background: color-mix(in srgb, var(--c) 42%, var(--surface)); color: color-mix(in srgb, var(--c) 38%, #fff); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .soft-tone { background: color-mix(in srgb, var(--c) 38%, var(--surface)); color: color-mix(in srgb, var(--c) 30%, #fff); }
+  :root:not([data-theme="light"]) .tint-chip { background: color-mix(in srgb, var(--c) 42%, var(--surface)); color: color-mix(in srgb, var(--c) 38%, #fff); }
+}
+
+/* Sign-in: a soft wash of the brand behind the card (a chosen theme keeps its own). */
+html:not([data-bg]) .sign-in { background: radial-gradient(60% 55% at 12% 0%, color-mix(in srgb, var(--brand) 13%, transparent), transparent 70%), radial-gradient(55% 55% at 95% 100%, color-mix(in srgb, #0088c8 12%, transparent), transparent 70%); }
+/* A person's own calm colour (--c), used for initials. */
+.soft-tone { background: color-mix(in srgb, var(--c) 16%, var(--surface)); color: color-mix(in srgb, var(--c) 58%, var(--ink)); }
+
+::selection { background: color-mix(in srgb, var(--brand) 26%, transparent); }
+body { caret-color: var(--brand); accent-color: var(--brand); }
 
 /* Tactile buttons. */
 .press { transition: transform 0.12s ease, background-color 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease; }
