@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SprintCard, SprintColumn, SprintComment, SprintsBoard as Board, SprintsMeta } from "@/lib/sprintsRules";
-import { localDate } from "@/lib/sprintsRules";
+import { filterByPeople, localDate, NO_ONE, peopleOnBoard } from "@/lib/sprintsRules";
 import { Avatar, Skeleton, btn } from "./ui";
 
 /*
@@ -78,6 +78,7 @@ export function SprintsBoard() {
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [who, setWho] = useState<string[]>([]);
   const busyMoves = useRef(0);
   const { pageRef, colH } = useFitHeight([Boolean(data?.board)]);
 
@@ -113,22 +114,26 @@ export function SprintsBoard() {
     busyMoves.current--;
     if (r.error) { setCols(before); setNote(`Couldn't move ${card.no}: ${r.error}`); }
   };
-  const total = (cols ?? []).reduce((n, c) => n + c.cards.length, 0);
+  // Only what is shown is filtered; moves and saves work on every column (`cols`).
+  const shown = filterByPeople(cols ?? [], who);
+  const all = (cols ?? []).reduce((n, c) => n + c.cards.length, 0);
+  const total = shown.reduce((n, c) => n + c.cards.length, 0);
 
   return (
     <div ref={pageRef} className="space-y-4">
       {data.needsReconnect && data.canConnect && <Connect canConnect scopes={data.scopes} onDone={load} again />}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="relative flex flex-wrap items-center gap-x-3 gap-y-2 sm:static">
         <div className="flex min-w-0 items-baseline gap-2">
           {b && b.sprints.length > 1 ? (
             <select value={tab} onChange={(e) => setTab(Number(e.target.value))} className="select-chevron bg-transparent pr-6 text-[15px] font-semibold text-ink" aria-label="Board">
               {b.sprints.map((s, k) => <option key={s.id} value={k}>{s.name}</option>)}
             </select>
           ) : <span className="text-[15px] font-semibold text-ink">{b?.project.name ?? sprint?.name ?? "Board"}</span>}
-          <span className="num text-[13px] text-muted">{total} tasks</span>
+          <span className="num text-[13px] text-muted">{who.length ? `${total} of ${all}` : total} tasks</span>
         </div>
         {b && b.seesAll === false && <span className="rounded-full bg-brand-soft px-2.5 py-0.5 text-[12px] font-semibold text-brand">Only your tasks</span>}
         <span className="flex-1" />
+        {cols && b?.seesAll !== false && <PeopleFilter options={peopleOnBoard(cols, meta.people ?? [], who)} value={who} onChange={setWho} />}
         {b && <span className="num hidden text-[12.5px] text-faint sm:inline">Updated {new Date(b.fetchedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</span>}
         <a href={b?.boardUrl ?? "https://sprints.zoho.in/workspace/thinkhealth#P5/board"} target="_blank" rel="noreferrer" className={btn.ghost}>
           Open in Zoho Sprints
@@ -140,7 +145,7 @@ export function SprintsBoard() {
       {note && <p className="flex items-center gap-3 rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{note}<button type="button" className="ml-auto font-semibold" onClick={() => setNote("")}>Dismiss</button></p>}
       {sprint && cols ? (
         <div className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1">
-          {cols.map((c) => (
+          {shown.map((c) => (
             <section key={c.id}
               onDragOver={(e) => { if (drag) { e.preventDefault(); setOver(c.id); } }}
               onDragLeave={() => setOver((o) => (o === c.id ? null : o))}
@@ -156,7 +161,7 @@ export function SprintsBoard() {
                 </button>
               </header>
               <ul data-col-body style={colH ? { height: colH } : undefined} className={`no-scrollbar flex flex-col gap-2 overflow-y-auto px-2.5 pb-3 ${colH ? "" : "max-h-[calc(100vh-250px)]"}`}>
-                {c.cards.length === 0 && <li className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-[12.5px] text-faint">Drop a task here</li>}
+                {c.cards.length === 0 && <li className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-[12.5px] text-faint">{who.length ? "No tasks for this filter" : "Drop a task here"}</li>}
                 {c.cards.map((card) => {
                   const pr = priority(card.priorityId);
                   const hasPr = Boolean(pr && !/^none$/i.test(pr.name));
@@ -205,6 +210,53 @@ export function SprintsBoard() {
       {open && sprint && cols && (
         <TaskPanel key={open.card?.id ?? `new-${open.statusId ?? ""}`} card={open.card} statusId={open.statusId} sprintId={open.card?.sprintId || sprint.id} cols={cols} meta={meta} me={b?.me}
           onClose={() => setOpen(null)} onSaved={() => { setOpen(null); load(); }} />
+      )}
+    </div>
+  );
+}
+
+/** Show only some people's tasks (owner, 24 Nov): tick one or more; each with how many tasks they have. */
+function PeopleFilter({ options, value, onChange }: { options: { id: string; name: string; count: number }[]; value: string[]; onChange: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const out = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("pointerdown", out);
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("pointerdown", out); window.removeEventListener("keydown", esc); };
+  }, [open]);
+  const picked = options.filter((o) => value.includes(o.id));
+  const label = !picked.length ? "Everyone" : picked.length === 1 ? picked[0].name : `${picked.length} people`;
+  const list = options.filter((o) => o.name.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div ref={box} className="flex items-center gap-1 sm:relative">
+      <button type="button" onClick={() => { setQ(""); setOpen(!open); }} aria-expanded={open} aria-label={`Show tasks of: ${label}`} title={picked.map((o) => o.name).join(", ") || undefined}
+        className={`press inline-flex h-9 max-w-[220px] items-center gap-1.5 rounded-full px-4 text-[13px] font-medium ${picked.length ? "bg-brand-soft text-brand" : "bg-surface-2 text-ink hover:bg-line"}`}>
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden className="shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="8" cy="5" r="2.6" /><path d="M2.8 13.5c.5-2.8 2.5-4.2 5.2-4.2s4.7 1.4 5.2 4.2" /></svg>
+        <span className="truncate">{label}</span>
+        <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden className="shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 4.5 6 8l3.5-3.5" /></svg>
+      </button>
+      {picked.length > 0 && <button type="button" onClick={() => onChange([])} className="grid size-8 place-items-center rounded-full text-[13px] text-muted hover:bg-surface-2 hover:text-ink" aria-label="Show everyone's tasks" title="Show everyone's tasks">✕</button>}
+      {open && (
+        <div className="absolute inset-x-0 top-full z-30 mt-1.5 rounded-xl border border-line bg-surface p-2 shadow-pop sm:left-auto sm:w-[270px]">
+          {options.length > 8 && <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" aria-label="Search people" className="mb-1 h-9 w-full rounded-lg bg-surface-2 px-3 text-[13px] text-ink" />}
+          <ul className="no-scrollbar max-h-[min(22rem,55vh)] overflow-y-auto">
+            {list.map((o) => (
+              <li key={o.id}>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] text-ink hover:bg-surface-2">
+                  <input type="checkbox" checked={value.includes(o.id)} onChange={() => onChange(value.includes(o.id) ? value.filter((x) => x !== o.id) : [...value, o.id])} />
+                  {o.id !== NO_ONE && <Avatar name={o.name} />}
+                  <span className="min-w-0 flex-1 truncate">{o.name}</span>
+                  <span className="num text-[12px] text-muted">{o.count}</span>
+                </label>
+              </li>
+            ))}
+            {!list.length && <li className="px-2 py-2 text-[12.5px] text-faint">Nothing matches</li>}
+          </ul>
+        </div>
       )}
     </div>
   );

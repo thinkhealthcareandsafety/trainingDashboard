@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boardColumns, commentHtml, commentsOf, decode, findProject, htmlText, pickTeam, sprintsOf } from "@/lib/sprintsRules";
+import { boardColumns, commentHtml, commentsOf, decode, filterByPeople, findProject, htmlText, NO_ONE, peopleOnBoard, pickTeam, sprintsOf, type SprintColumn } from "@/lib/sprintsRules";
 
 // Zoho Sprints on the dashboard (owner, 18 Nov). The answers below are Zoho Sprints' own API reference examples.
 
@@ -134,4 +134,16 @@ test("comments: Zoho's HTML as plain lines, oldest first, the writer's clean nam
     },
   };
   assert.deepEqual(commentsOf(r).map((c) => [c.id, c.by, c.text]), [["n1", "Sumit Shah", "Contacted with Nisha  ma'am"], ["n2", "Jasmeet Singh", "Called <the> client\nSent quote & PO"]]);
+});
+
+test("the people filter: anyone picked, no one, and the list with counts", () => {
+  const card = (id: string, people: string[] | undefined, ownerIds: string[] = []) => ({ id, people, ownerIds });
+  const cols = [{ id: "a", name: "To do", color: "", cards: [card("1", ["z:1", "m:x"]), card("2", []), card("3", undefined, ["1"])] }, { id: "b", name: "Done", color: "", cards: [card("4", ["m:x"])] }] as unknown as SprintColumn[];
+  const ids = (p: string[]) => filterByPeople(cols, p).map((c) => c.cards.map((x) => x.id).join(""));
+  assert.deepEqual(ids([]), ["123", "4"]);
+  assert.deepEqual(ids(["z:1"]), ["13", ""]);
+  assert.deepEqual(ids(["m:x"]), ["1", "4"]);
+  assert.deepEqual(ids([NO_ONE, "m:x"]), ["12", "4"]);
+  const people = [{ key: "z:1", name: "Sumit" }, { key: "m:x", name: "Anuj" }];
+  assert.deepEqual(peopleOnBoard(cols, people, ["m:gone"]).map((o) => [o.name, o.count]), [["Anuj", 2], ["Someone else", 0], ["Sumit", 2], ["No one", 1]]);
 });

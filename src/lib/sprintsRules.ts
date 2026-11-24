@@ -218,6 +218,23 @@ export function taskPeople(ownerIds: string[], local: string[], people: SprintPe
   return [...new Set([...ownerIds.filter((z) => z !== hide).map((z) => `z:${z}`), ...local.map((m) => zohoOf.get(m) ?? `m:${m}`)])];
 }
 
+/* The board's people filter (owner, 24 Nov): several people = tasks any of them is on; NO_ONE = tasks nobody is on. */
+export const NO_ONE = "none";
+const onCard = (c: SprintCard) => c.people ?? c.ownerIds.map((z) => `z:${z}`);
+export function filterByPeople(cols: SprintColumn[], picked: string[]): SprintColumn[] {
+  if (!picked.length) return cols;
+  const fits = (c: SprintCard) => { const on = onCard(c); return on.length ? on.some((k) => picked.includes(k)) : picked.includes(NO_ONE); };
+  return cols.map((c) => ({ ...c, cards: c.cards.filter(fits) }));
+}
+/** Who can be picked: people with a task on the board (and those already picked), by name, with how many; "No one" last. */
+export function peopleOnBoard(cols: SprintColumn[], people: SprintPerson[], picked: string[] = []): { id: string; name: string; count: number }[] {
+  const n = new Map<string, number>(picked.map((k) => [k, 0]));
+  for (const c of cols) for (const card of c.cards) { const on = onCard(card); for (const k of on.length ? on : [NO_ONE]) n.set(k, (n.get(k) ?? 0) + 1); }
+  const name = new Map(people.map((p) => [p.key, p.name]));
+  return [...n].map(([id, count]) => ({ id, name: id === NO_ONE ? "No one" : name.get(id) ?? "Someone else", count }))
+    .sort((a, b) => Number(a.id === NO_ONE) - Number(b.id === NO_ONE) || a.name.localeCompare(b.name));
+}
+
 /**
  * Owner (19 Nov): someone with no Zoho Sprints user of their own (Anuj, Anushka, Prashant, Vaibhavi, Jasmeet) is written to
  * Zoho as hello@thinkhealth.in — the dashboard keeps the real person (sprintAssign). `standIn` = it was added only for them,
