@@ -164,7 +164,7 @@
 }
 
 /*
- * Themes (owner, 21–22 Oct): a gradient behind the cards, each person's own pick, kept in their browser (localStorage
+ * Themes (owner, 21–22 Oct): a gradient behind the cards, each person's own pick, on their account and in their browser (localStorage
  * th.bg → <html data-bg>). Light themes are soft pastels behind white cards; dark themes ("dark-…") are deep colours
  * behind the dark cards — picking one also sets light / dark (th.theme). An element with data-bg (the picker's
  * swatches) shows the same gradient.
@@ -349,6 +349,77 @@
   --ink: #161b28; --ink-2: #2f3648; --muted: #636c80; --faint: #9aa2b3;
   --brand: #3f56a6; --brand-2: #b4c0e8; --brand-ink: #ffffff; --brand-soft: #e2e7f6;
   --ticker: #161b28; --ticker-ink: #f2f4f9;
+}
+
+/* 24 Nov (owner: more themes). Same contrast rule as above. */
+[data-bg="xmatcha"] {
+  --bg-art: radial-gradient(50% 55% at 6% 8%, #dbe8c4 0%, transparent 72%), radial-gradient(45% 55% at 94% 8%, #eef0d2 0%, transparent 72%),
+    radial-gradient(50% 55% at 8% 96%, #d3e6d0 0%, transparent 72%), radial-gradient(50% 55% at 94% 94%, #e6ecc8 0%, transparent 72%),
+    linear-gradient(160deg, #f5f8ec, #eff4e4);
+}
+:root[data-theme="light"][data-bg="xmatcha"] {
+  --bg: #eef3e3; --surface: #f8faf3; --surface-2: #edf2e2; --line: #dce5cb; --line-strong: #c6d3ae;
+  --ink: #1c2414; --ink-2: #354127; --muted: #5d6a4b; --faint: #98a584;
+  --brand: #4c7030; --brand-2: #bcd49c; --brand-ink: #ffffff; --brand-soft: #e4eed5;
+  --ticker: #1c2414; --ticker-ink: #f5f8ec;
+}
+[data-bg="xlilac"] {
+  --bg-art: radial-gradient(50% 55% at 6% 8%, #e2d6fa 0%, transparent 72%), radial-gradient(45% 55% at 94% 8%, #f3d9f2 0%, transparent 72%),
+    radial-gradient(50% 55% at 8% 96%, #d8dcfb 0%, transparent 72%), radial-gradient(50% 55% at 94% 94%, #ebdcfa 0%, transparent 72%),
+    linear-gradient(160deg, #f8f5fd, #f3effb);
+}
+:root[data-theme="light"][data-bg="xlilac"] {
+  --bg: #f1edf9; --surface: #faf8fe; --surface-2: #f1ecfa; --line: #e3daf1; --line-strong: #cfc2e4;
+  --ink: #211830; --ink-2: #3d3050; --muted: #6c5f80; --faint: #a599b8;
+  --brand: #7448b0; --brand-2: #cdb6ea; --brand-ink: #ffffff; --brand-soft: #ebe1f8;
+  --ticker: #211830; --ticker-ink: #f7f3fd;
+}
+[data-bg="xhoney"] {
+  --bg-art: radial-gradient(50% 55% at 6% 8%, #fde6ae 0%, transparent 72%), radial-gradient(45% 55% at 94% 8%, #fbedcf 0%, transparent 72%),
+    radial-gradient(50% 55% at 8% 96%, #fbe0b8 0%, transparent 72%), radial-gradient(50% 55% at 94% 94%, #f8eebc 0%, transparent 72%),
+    linear-gradient(160deg, #fef9ea, #fbf3dd);
+}
+:root[data-theme="light"][data-bg="xhoney"] {
+  --bg: #f9f1da; --surface: #fefaf0; --surface-2: #f8efd9; --line: #ebddba; --line-strong: #dcc998;
+  --ink: #2a2110; --ink-2: #4a3c20; --muted: #70603e; --faint: #b0a07c;
+  --brand: #8a5c00; --brand-2: #ecc878; --brand-ink: #ffffff; --brand-soft: #faeac6;
+  --ticker: #2a2110; --ticker-ink: #fef8e8;
+}
+[data-bg="dark-xindigo"] {
+  --bg-art: radial-gradient(55% 60% at 6% 6%, #252a6b 0%, transparent 70%), radial-gradient(50% 55% at 94% 10%, #1a2f5c 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #33246b 0%, transparent 70%), linear-gradient(160deg, #080a18, #0b0c1e);
+}
+:root[data-theme="dark"][data-bg="dark-xindigo"] {
+  --bg: #0a0c1a; --surface: #171a30; --surface-2: #20243f; --line: #2b3050; --line-strong: #383e62;
+  --ink: #f1f2fd; --ink-2: #d3d6ee; --muted: #9ea3c6; --faint: #686d90;
+  --brand: #9aa8ff; --brand-2: #39428a; --brand-ink: #0c1140; --brand-soft: #252b56;
+  --ticker: #070914; --ticker-ink: #f1f2fd;
+  --shadow: 0 0 0 1px rgb(220 225 255 / 0.06), 0 8px 24px -16px rgb(0 0 0 / 0.8);
+  --shadow-lg: 0 0 0 1px rgb(220 225 255 / 0.08), 0 28px 70px -20px rgb(0 0 0 / 0.9);
+}
+[data-bg="dark-xgraphite"] {
+  --bg-art: radial-gradient(55% 60% at 6% 6%, #2c343b 0%, transparent 70%), radial-gradient(50% 55% at 94% 10%, #252b31 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #2a3036 0%, transparent 70%), linear-gradient(160deg, #0e1012, #121518);
+}
+:root[data-theme="dark"][data-bg="dark-xgraphite"] {
+  --bg: #101214; --surface: #1e2226; --surface-2: #282d32; --line: #333a40; --line-strong: #424a51;
+  --ink: #f2f5f7; --ink-2: #d5dbe0; --muted: #9ca7af; --faint: #69737b;
+  --brand: #a9c3d6; --brand-2: #40596b; --brand-ink: #0c1a24; --brand-soft: #2a3740;
+  --ticker: #0b0d0f; --ticker-ink: #f2f5f7;
+  --shadow: 0 0 0 1px rgb(230 240 250 / 0.06), 0 8px 24px -16px rgb(0 0 0 / 0.8);
+  --shadow-lg: 0 0 0 1px rgb(230 240 250 / 0.08), 0 28px 70px -20px rgb(0 0 0 / 0.9);
+}
+[data-bg="dark-xwine"] {
+  --bg-art: radial-gradient(55% 60% at 6% 6%, #561a2c 0%, transparent 70%), radial-gradient(50% 55% at 94% 10%, #43142f 0%, transparent 70%),
+    radial-gradient(60% 55% at 50% 100%, #4c1c1c 0%, transparent 70%), linear-gradient(160deg, #14080c, #170a0f);
+}
+:root[data-theme="dark"][data-bg="dark-xwine"] {
+  --bg: #14090d; --surface: #25141a; --surface-2: #311c24; --line: #40272f; --line-strong: #52343d;
+  --ink: #fbeff2; --ink-2: #e8d0d7; --muted: #b898a2; --faint: #7e616a;
+  --brand: #f09ab0; --brand-2: #73384a; --brand-ink: #34091a; --brand-soft: #421f2b;
+  --ticker: #0f0609; --ticker-ink: #fbeff2;
+  --shadow: 0 0 0 1px rgb(255 220 230 / 0.06), 0 8px 24px -16px rgb(0 0 0 / 0.8);
+  --shadow-lg: 0 0 0 1px rgb(255 220 230 / 0.08), 0 28px 70px -20px rgb(0 0 0 / 0.9);
 }
 
 /* A light theme shows only in light mode, a dark one only in dark mode. */

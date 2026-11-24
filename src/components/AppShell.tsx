@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ZOHO_SYNCED, useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
+import { loadAccountTheme, pickTheme } from "@/lib/accountTheme";
 import { MembersScreen } from "./followups/MembersScreen";
 import { Avatar, btn } from "./ui";
 import type { Member } from "@/lib/types";
@@ -23,7 +24,7 @@ import { APP_ICONS } from "./appIcons";
 // The Progress tracker is hidden entirely (owner, 18 Nov); nothing of it is deleted.
 
 /**
- * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; this browser only. A theme is
+ * Change theme (owner, 21–22 Oct): a gradient behind the cards — globals.css [data-bg]; saved to the account (24 Nov, lib/accountTheme.ts). A theme is
  * light or dark (picking one sets the mode; there's no separate Appearance switch any more). "" = plain. The full themes
  * (`full`) colour the cards, lines and text too (`card` / `accent` only draw their swatch) — no longer "experimental"
  * (owner, 30 Oct: "light with light, dark with dark … i like them no need to keep them experimental").
@@ -56,6 +57,13 @@ const THEMES: Theme[] = [
   { mode: "light", id: "xsakura", label: "Sakura", full: true, card: "#fff8fa", accent: "#b83d68" },
   { mode: "light", id: "xsand", label: "Sand dune", full: true, card: "#fcf8f1", accent: "#a8552f" },
   { mode: "light", id: "xnordic", label: "Nordic", full: true, card: "#f7f8fb", accent: "#3f56a6" },
+  // 24 Nov (owner: more themes).
+  { mode: "light", id: "xmatcha", label: "Matcha", full: true, card: "#f8faf3", accent: "#4c7030" },
+  { mode: "light", id: "xlilac", label: "Lilac", full: true, card: "#faf8fe", accent: "#7448b0" },
+  { mode: "light", id: "xhoney", label: "Honey", full: true, card: "#fefaf0", accent: "#8a5c00" },
+  { mode: "dark", id: "dark-xindigo", label: "Indigo night", full: true, card: "#171a30", accent: "#9aa8ff" },
+  { mode: "dark", id: "dark-xgraphite", label: "Graphite", full: true, card: "#1e2226", accent: "#a9c3d6" },
+  { mode: "dark", id: "dark-xwine", label: "Wine", full: true, card: "#25141a", accent: "#f09ab0" },
 ];
 // Light with light, dark with dark: the gradients first, then the full themes.
 const GROUPS = (["light", "dark"] as const).map((mode) => ({
@@ -69,19 +77,8 @@ const currentMode = (): Mode => {
   return (root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
 };
 
-function setTheme(mode: Mode, id: string) {
-  const root = document.documentElement;
-  root.dataset.theme = mode;
-  if (id) root.dataset.bg = id;
-  else delete root.dataset.bg;
-  try {
-    localStorage.setItem("th.theme", mode);
-    if (id) localStorage.setItem("th.bg", id);
-    else localStorage.removeItem("th.bg");
-  } catch {}
-}
-
-function ThemePicker({ onClose }: { onClose: () => void }) {
+function ThemePicker({ me, onClose }: { me: string; onClose: () => void }) {
+  const [browserOnly, setBrowserOnly] = useState(false);
   const [current, setCurrent] = useState(() => ({ mode: currentMode(), id: document.documentElement.dataset.bg ?? "" }));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -90,11 +87,11 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
   }, [onClose]);
   return (
     <div className="fade-in fixed inset-0 z-[80] grid place-items-center bg-black/25 p-4" onMouseDown={onClose}>
-      <div role="dialog" aria-label="Change theme" className="modal-in w-full max-w-[560px] rounded-2xl bg-surface p-5 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label="Change theme" className="modal-in max-h-full w-full max-w-[560px] overflow-y-auto rounded-2xl bg-surface p-5 shadow-pop [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-[17px] font-bold tracking-tight text-ink">Change theme</h3>
-            <p className="mt-0.5 text-[13px] text-muted">The colours behind the cards — saved on this browser only.</p>
+            <p className="mt-0.5 text-[13px] text-muted">{browserOnly ? "Couldn't reach your account: saved on this browser only for now." : "Saved to your account, so it follows you to any computer."}</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink">
             <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5L5 15" /></svg>
@@ -113,7 +110,7 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
                     key={t.id || t.mode}
                     type="button"
                     aria-pressed={on}
-                    onClick={() => { setTheme(t.mode, t.id); setCurrent({ mode: t.mode, id: t.id }); }}
+                    onClick={() => { void pickTheme({ mode: t.mode, id: t.id }, me).then((ok) => setBrowserOnly(!ok)); setCurrent({ mode: t.mode, id: t.id }); }}
                     className={`press flex flex-col items-center gap-1.5 rounded-xl p-1.5 text-center text-[12.5px] font-medium ${on ? "text-ink ring-2 ring-brand" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
                   >
                     <span data-bg={t.id || undefined} className="relative h-12 w-full overflow-hidden rounded-lg border border-line" style={{ backgroundColor: t.mode === "light" ? "#f5f5f7" : "#000000", backgroundImage: t.id ? "var(--bg-art)" : "none" }}>
@@ -347,6 +344,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const progress = useProgressPulse(false);
   const [logOpen, setLogOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  // The account's theme, once signed in (also on the apps home page).
+  const themeFor = session.verified ? session.member?.id : undefined;
+  useEffect(() => { if (themeFor) void loadAccountTheme(themeFor); }, [themeFor]);
   const closeTheme = useCallback(() => setThemeOpen(false), []);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const closeAnalytics = useCallback(() => setAnalyticsOpen(false), []);
@@ -463,7 +463,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>
 
       {logOpen && <SyncLogWindow open onClose={() => setLogOpen(false)} />}
-      {themeOpen && <ThemePicker onClose={closeTheme} />}
+      {themeOpen && <ThemePicker me={me.id} onClose={closeTheme} />}
       {analyticsOpen && <AnalyticsConnect onClose={closeAnalytics} />}
       <RevertConfirm />
       <DayReminders />

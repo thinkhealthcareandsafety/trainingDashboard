@@ -1,8 +1,8 @@
 /* The apps home page and the inside of Training Dashboard (owner, 23 Nov: minimalist, big icons).
-   Scoped under .lx; light by default, dark with the site's dark theme. */
+   Scoped under .lx; Plain and Black keep their own quiet look, any other theme shows through (owner, 24 Nov). */
 .lx {
   --lx-ink: #0f2a3a; --lx-muted: #5f7584; --lx-line: #dfe7ec; --lx-ground: #f7f9fa; --lx-tile-hover: #eaf0f3;
-  --lx-surface: #ffffff; --lx-action: #0077b6; --lx-danger: #b42318;
+  --lx-surface: #ffffff; --lx-action: #0077b6; --lx-danger: #b42318; --lx-on-action: #ffffff;
   font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
   min-height: 100vh; display: flex; flex-direction: column; background: var(--lx-ground); color: var(--lx-ink);
   caret-color: var(--lx-action);
@@ -11,12 +11,17 @@
   --lx-ink: #e6eff4; --lx-muted: #8fa5b2; --lx-line: #1e3441; --lx-ground: #0a141a; --lx-tile-hover: #13232c;
   --lx-surface: #10202a; --lx-action: #3aa6de; --lx-danger: #ff8a80;
 }
+:root[data-theme="light"][data-bg]:not([data-bg^="dark-"]) .lx, :root[data-theme="dark"][data-bg^="dark-"] .lx {
+  --lx-ink: var(--ink); --lx-muted: var(--muted); --lx-line: var(--line-strong); --lx-ground: transparent;
+  --lx-tile-hover: color-mix(in srgb, var(--ink) 7%, transparent); --lx-surface: var(--surface);
+  --lx-action: var(--brand); --lx-on-action: var(--brand-ink);
+}
 .lx ::selection { background: #034f72; color: #fff; }
 .lx :focus-visible { outline: 2px solid var(--lx-action); outline-offset: 3px; border-radius: 12px; }
 
 .lx-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 32px; }
 .lx-mark { font-weight: 800; font-size: 16px; letter-spacing: -0.01em; color: #034f72; }
-:root[data-theme="dark"] .lx-mark { color: #e6eff4; }
+:root[data-theme="dark"] .lx-mark, :root[data-theme="light"][data-bg]:not([data-bg^="dark-"]) .lx .lx-mark { color: var(--lx-ink); }
 .lx-mark span { margin-left: 4px; padding: 0 6px 2px; border-radius: 7px 7px 7px 2px; background: #0088c8; color: #fff; }
 .lx-me { display: flex; align-items: center; gap: 14px; font-size: 13.5px; color: var(--lx-muted); }
 .lx-me button { font: inherit; font-weight: 700; color: var(--lx-ink); background: none; border: 0; cursor: pointer; }
@@ -43,7 +48,7 @@
 .lx-form { flex-basis: 100%; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 10px auto 0; max-width: 600px; }
 .lx-form input { flex: 1 1 200px; height: 42px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--lx-line); background: var(--lx-surface); color: var(--lx-ink); font: inherit; font-size: 14px; }
 .lx-form input:focus { outline: 0; border-color: var(--lx-action); }
-.lx-form button { height: 42px; padding: 0 20px; border-radius: 10px; border: 0; background: var(--lx-action); color: #fff; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+.lx-form button { height: 42px; padding: 0 20px; border-radius: 10px; border: 0; background: var(--lx-action); color: var(--lx-on-action); font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
 .lx-form button:disabled { opacity: 0.5; cursor: default; }
 .lx-err { margin-top: 14px; font-size: 13px; color: var(--lx-danger); }
 

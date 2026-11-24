@@ -43,6 +43,12 @@ const THEME_PALETTES: Record<string, string[]> = {
   xsakura: ["#b83d68", "#d9708f", "#9a4fa8", "#e89a6a", "#c45a8a", "#7a6ad0", "#d4a04a"],
   xsand: ["#a8552f", "#c98a3a", "#6f8a4a", "#d06a50", "#8a6a4a", "#b89a5a", "#5f7f8a"],
   xnordic: ["#3f56a6", "#5a8ac8", "#6a6aa8", "#4aa0a8", "#8a7ab8", "#7a9ab8", "#a8708a"],
+  xmatcha: ["#4c7030", "#8aa83f", "#2f8a6a", "#c0a03a", "#6f9a4f", "#a8763f", "#5f8f9a"],
+  xlilac: ["#7448b0", "#a06ad0", "#4f6ac8", "#c45fa8", "#8a7ad8", "#5a9ac0", "#b07a9a"],
+  xhoney: ["#b87a00", "#d9a02f", "#9a6a3a", "#7f8f2f", "#d0743a", "#c7b04a", "#6f7f8a"],
+  "dark-xindigo": ["#9aa8ff", "#6f8af0", "#b890f5", "#6fc0f0", "#7f7ae0", "#c4ccff", "#8fa0d0"],
+  "dark-xgraphite": ["#a9c3d6", "#7fa0b8", "#c9bfa0", "#8fc0b4", "#b4a8d0", "#d0a898", "#6f8a9c"],
+  "dark-xwine": ["#f09ab0", "#d9708f", "#e8b48a", "#c48ad0", "#f0b8c4", "#b85f80", "#d0a08a"],
 };
 
 /** The colour a one-colour chart on this theme gets (slot 0) — also the goal meter's fill (owner, 27 Oct: "the color
