@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { GET, PUT } from "@/app/api/ui-prefs/route";
 import { themeOnSignIn } from "@/lib/accountTheme";
 import { resetFakeDb } from "./fakes/db";
+import { existsSync } from "node:fs";
+import { pinnedFirst, ZOHO_APPS } from "@/lib/zohoApps";
 
 beforeEach(() => resetFakeDb());
 const as = (id: string, init: RequestInit = {}) => new Request("http://x/api/ui-prefs", { ...init, headers: { "content-type": "application/json", "x-test-member": JSON.stringify({ id, name: id }) } });
@@ -35,4 +37,14 @@ test("signing in: the account's theme wins; a browser's old pick moves to the ac
   assert.deepEqual(themeOnSignIn(undefined, mint, "sumit", "sumit"), { do: "save", theme: mint });
   assert.deepEqual(themeOnSignIn(undefined, mint, "arti", "sumit"), { do: "clear" });
   assert.deepEqual(themeOnSignIn(undefined, null, null, "sumit"), { do: "nothing" });
+});
+
+test("the apps page: pins are each person's own and come first in the order pinned; every Zoho app has a picture", async () => {
+  assert.equal((await put("sumit", { key: "appPins", value: ["z:crm", "dashboard"] })).status, 200);
+  assert.deepEqual(((await (await GET(as("sumit"))).json()) as { prefs: Record<string, unknown> }).prefs, { appPins: ["z:crm", "dashboard"] });
+  assert.deepEqual(((await (await GET(as("ashish"))).json()) as { prefs: Record<string, unknown> }).prefs, {});
+  for (const value of [null, "z:crm", [1], ["a", "a"], ["<b>"], Array.from({ length: 201 }, (_, i) => `a${i}`)]) assert.equal((await put("sumit", { key: "appPins", value })).status, 400);
+  assert.deepEqual(pinnedFirst([{ id: "a" }, { id: "b" }, { id: "c" }], ["c", "gone", "b"]).map((x) => x.id), ["c", "b", "a"]);
+  assert.equal(new Set(ZOHO_APPS.map((z) => z.id)).size, ZOHO_APPS.length);
+  for (const z of ZOHO_APPS) { assert.ok(existsSync(`public${z.icon}`), z.id); assert.match(new URL(z.url).hostname, /\.zoho\.in$/); }
 });

@@ -4,6 +4,7 @@
  */
 
 import { goodTheme } from "./accountTheme";
+import { goodPins } from "./zohoApps";
 
 export const TRAINING_SORT_KEYS = ["customer", "quote", "training", "expected", "total", "status"] as const;
 export type TrainingSortKey = (typeof TRAINING_SORT_KEYS)[number];
@@ -13,6 +14,8 @@ type Check = (v: unknown) => { ok: true; value: unknown } | { ok: false };
 export const UI_PREFS: Record<string, Check> = {
   // Change theme (owner, 24 Nov: saved to the account).
   theme: (v) => (goodTheme(v) ? { ok: true, value: { mode: v.mode, id: v.id } } : { ok: false }),
+  // The apps home page's pins (owner, 24 Nov).
+  appPins: (v) => (goodPins(v) ? { ok: true, value: v } : { ok: false }),
   // The Trainings page's column sort; null = the default order (accepted first, then newest).
   trainingsSort: (v) => {
     if (v === null) return { ok: true, value: null };
