@@ -315,6 +315,7 @@ export async function createTask(sprintId: unknown, t: TaskInput, by?: { id: str
   const s = okId(sprintId);
   if (!s) throw new Error("No board to add the task to.");
   if (!String(t.name ?? "").trim()) throw new Error("Give the task a name.");
+  if (!String(t.description ?? "").trim()) throw new Error("Write a description."); // owner, 24 Nov
   const x = await ctx();
   const params = taskParams(t, await udfSet(x));
   const meta = await sprintsMeta(x);

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SprintCard, SprintColumn, SprintComment, SprintsBoard as Board, SprintsMeta } from "@/lib/sprintsRules";
-import { filterByPeople, localDate, NO_ONE, peopleOnBoard } from "@/lib/sprintsRules";
+import { filterByPeople, localDate, newTaskDates, NO_ONE, peopleOnBoard } from "@/lib/sprintsRules";
 import { Avatar, Skeleton, btn } from "./ui";
 
 /*
@@ -301,7 +301,7 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved 
   const defPriority = meta.priorities.find((p) => /^none$/i.test(p.name))?.id ?? meta.priorities[0]?.id ?? "";
   const first: Task = useMemo(() => ({
     name: card?.name ?? "", description: "", statusId: card?.statusId ?? statusId ?? cols[0]?.id ?? "", typeId: card?.typeId || defType, priorityId: card?.priorityId || defPriority,
-    start: localDate(card?.start ?? null), end: localDate(card?.due ?? null), users: card ? card.people ?? card.ownerIds.map((z) => `z:${z}`) : me ? [me] : [], tags: [], udf: {},
+    ...(card ? { start: localDate(card.start), end: localDate(card.due) } : newTaskDates()), users: card ? card.people ?? card.ownerIds.map((z) => `z:${z}`) : me ? [me] : [], tags: [], udf: {},
   }), [card, statusId, cols, defType, defPriority, me]);
   const [t, setT] = useState<Task>(first);
   const [loaded, setLoaded] = useState<Task | null>(editing ? null : first);
@@ -321,6 +321,7 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved 
 
   const save = async () => {
     if (!t.name.trim()) return setError("Give the task a name.");
+    if (!editing && !t.description.trim()) { document.getElementById("t-desc")?.focus(); return setError("Write a description."); }
     setBusy("save"); setError("");
     let r;
     if (!editing) r = await post({ action: "create", sprint: sprintId, task: t });
@@ -362,7 +363,7 @@ function TaskPanel({ card, statusId, sprintId, cols, meta, me, onClose, onSaved 
         {!loaded ? <div className="flex flex-1 items-center justify-center gap-2 text-[13px] text-muted"><Spinner />Reading the task from Zoho Sprints…</div> : (
           <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
             <div className={row}><label className={lab} htmlFor="t-name">Task Name</label><input id="t-name" autoFocus={!editing} className={field} value={t.name} onChange={(e) => set("name", e.target.value)} /></div>
-            <div className={row}><label className={lab} htmlFor="t-desc">Description</label><textarea id="t-desc" rows={4} className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px] text-ink" value={t.description} onChange={(e) => set("description", e.target.value)} /></div>
+            <div className={row}><label className={lab} htmlFor="t-desc">Description{!editing && <span className="text-high" aria-hidden> *</span>}</label><textarea id="t-desc" rows={4} aria-required={!editing} className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px] text-ink" value={t.description} onChange={(e) => set("description", e.target.value)} /></div>
             <div className={row}><span className={lab}>Tags</span><MultiPick label="Tags" options={meta.tags} value={t.tags} onChange={(v) => set("tags", v)} /></div>
             {meta.fields.length > 0 && <p className="border-b border-line pb-1 pt-2 text-[13px] font-semibold text-brand">Default Section</p>}
             {meta.fields.map((f) => (

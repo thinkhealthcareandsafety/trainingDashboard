@@ -172,6 +172,12 @@ export function localDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16);
 }
 
+/** A new task's dates (owner, 24 Nov): starts today, ends a week later (India's day; 9 am to 6 pm). Both can be changed. */
+export function newTaskDates(now = new Date()): { start: string; end: string } {
+  const on = (days: number) => localDate(new Date(now.getTime() + days * 86_400_000).toISOString()).slice(0, 10);
+  return { start: `${on(0)}T09:00`, end: `${on(7)}T18:00` };
+}
+
 /* ---------------- People (owner, 18 Nov: full, clean names; every dashboard member can be assigned) ---------------- */
 
 const titleWord = (w: string) => (w === w.toUpperCase() || w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w);

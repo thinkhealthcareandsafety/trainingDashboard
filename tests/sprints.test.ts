@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boardColumns, commentHtml, commentsOf, decode, filterByPeople, findProject, htmlText, NO_ONE, peopleOnBoard, pickTeam, sprintsOf, type SprintColumn } from "@/lib/sprintsRules";
+import { boardColumns, commentHtml, commentsOf, decode, filterByPeople, findProject, htmlText, newTaskDates, NO_ONE, peopleOnBoard, pickTeam, sprintsOf, type SprintColumn } from "@/lib/sprintsRules";
 
 // Zoho Sprints on the dashboard (owner, 18 Nov). The answers below are Zoho Sprints' own API reference examples.
 
@@ -146,4 +146,9 @@ test("the people filter: anyone picked, no one, and the list with counts", () =>
   assert.deepEqual(ids([NO_ONE, "m:x"]), ["12", "4"]);
   const people = [{ key: "z:1", name: "Sumit" }, { key: "m:x", name: "Anuj" }];
   assert.deepEqual(peopleOnBoard(cols, people, ["m:gone"]).map((o) => [o.name, o.count]), [["Anuj", 2], ["Someone else", 0], ["Sumit", 2], ["No one", 1]]);
+});
+
+test("a new task starts today and ends a week later, by India's day", () => {
+  assert.deepEqual(newTaskDates(new Date("2026-11-24T06:00:00Z")), { start: "2026-11-24T09:00", end: "2026-12-01T18:00" });
+  assert.deepEqual(newTaskDates(new Date("2026-12-27T20:00:00Z")), { start: "2026-12-28T09:00", end: "2027-01-04T18:00" });
 });
