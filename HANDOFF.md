@@ -1,6 +1,85 @@
 # Handoff — ThinkHealth Training Dashboard
 
-## Start of the next session (36) — read this block first
+## Start of the next session (37) — read this block first
+
+_Written Tue 24 Nov 2026, end of session 36 (23–24 Nov), for the next Claude Code session and the owner (Sumit; Jasmeet
+Singh, he/him, sometimes types in these sessions — don't assume who is typing)._
+
+**State.** **Live = `03b20c8`** on work.thinkhealth.in, training.thinkhealth.in and training-dashboard-xfwl.vercel.app (Vercel
+`-xfwl` success, sites 200). Nothing local except this handoff. Push only when the owner says "push": `timeout 120 git push
+origin master` from the **Bash tool** (it stalled silently once: confirm with `git fetch; git log -1 origin/master`), then
+`curl -s https://api.github.com/repos/thinkhealthcareandsafety/trainingDashboard/commits/<sha>/statuses` (the `-xfwl` entry;
+there is no `gh` here) and curl the three sites. Standing rules: **push only on "push"; short replies in plain words.**
+
+**Start checklist.** `git fetch`; `git status`; `git log --oneline origin/master..master`; `npm test` (**389** pass);
+`npx tsc --noEmit -p tsconfig.json` (a stale-route error means delete `.next/dev/types`). Next.js is 16.4.6; the full build
+passes and the security stop is gone.
+
+**First: ask the owner (one AskUserQuestion round).**
+1. **Customer folders (Sprints I148, due Thu 26 Nov):** has Admin reconnected WorkDrive? Items → any item → Add PDF → Zoho
+   WorkDrive → **Connect again** → a new Zoho API console code with `WorkDrive.files.READ,WorkDrive.files.CREATE`. Then one
+   new customer in Books, and check its folder in SALES. The owner said "we will do this later" on 23 Nov.
+2. **Themes:** the owner asked "more themes?". Offered, unanswered: (a) the apps home page (`launcher.css`) follows the
+   chosen theme (today only plain light / dark), (b) the theme saved to the account instead of the browser, (c) new themes.
+   There are 24 today (9 light, 7 dark, 8 full); "25" in chat was a miscount.
+3. **Not tried for real yet:** a real template save in the new editor; the first Zoho draft from Sheet → Quotation; the first
+   Excel download with item pictures. Did any of them go wrong?
+4. **Tidy-up:** remove the stale worktree `../trainingDashboard-next-upgrade` (branch `next-security-upgrade`; the upgrade is
+   on master)? The owner never answered.
+
+**Closed, don't raise again:** Zoho Sign (the owner signs by hand; see below), IndiaMart leads (I63, "skip the indiamart"),
+e-invoicing (only if the owner brings it up). Jasmeet's open Sprints tasks on 23 Nov: I148 (in progress), I63 (on hold).
+
+**Session 36 in short (23–24 Nov), all live:**
+- **Next.js 16.4.6** (`29d6239`). Jasmeet was put on his 20 Sprints tasks (I88 left out).
+- **Invoice Converter: Replace** an attached PO / e-way bill PDF (`a274f98`); owner: works.
+- **Sheet → Quotation** (`31a6d14`, `28d8d06`, `03b20c8`): own page `/reports/sheet-to-quotation`; "Make Zoho draft"; **New
+  items** tab (list only, the owner makes items in Zoho by hand; weak matches stay until confirmed); item pictures in the
+  Excel download (`src/lib/xlsxPictures.ts` adds the drawing parts with Node's zlib, because SheetJS can't write pictures).
+- **Apps home page** at `/` (`Launcher.tsx`, `launcher.css`): big icons, Training Dashboard first, then links Admin adds
+  (`/api/apps`, collection `launcherApps`), opening in the same tab. Overview is `/overview`. The folders page inside Training
+  Dashboard was built, then **dropped** ("scrape it, just keep the application page", `20bf78d`): the tile goes to
+  `homeOf(member)` and `/dashboard` forwards there. Several looks were rejected first: the owner wants it minimalist.
+- **Sidebar** in sections from `src/lib/apps.ts` (Overview / Sales / Inventory / Utilities), coloured icon chips, clean
+  bottom. Sync now, sync log, theme palette, Analytics (Admin) and Sign out sit top right (`HeaderTools` in `AppShell.tsx`),
+  also on Follow-ups.
+- **Customer folders** (`b646008`, `src/lib/customerFolders.ts`): each customer created in Books after the first sync gets an
+  empty folder in WorkDrive SALES (`yn5nx6650c0d9b6824a37b5d47b05db8a09fc`). Rides on the Zoho sync; state in kv
+  `customer_folders` {since} and collection `customerFolders`; shown in the sync log. A same-named folder is reused. Does
+  nothing until the reconnect. The sample CLIENT NAME folder stays. The owner chose an empty folder, new customers only.
+- **Templates editor** (`9c4b7d1`, `FillInEditor.tsx`, `fillin.css`): `{codes}` show as boxes in plain words, "+ Add a
+  detail", plain help. The saved text format is unchanged (`templateText.ts`).
+
+**Zoho Sign, what we learned (24 Nov).** The API self-sign draft for 2026-01-562 opened with its boxes in the right place, but
+**Finish said "Insufficient Zoho Sign credits"**. Files the owner uploads by hand finish free. Likely cause: anything made by
+the API counts as an API envelope (Zoho's pricing page); no source confirms this exact case. The session 35 notes below that
+drafts need no credits are true only for *making* one. Zoho's Full name box shows "Sumit Shah Shah" (the Zoho profile). The
+owner picked "Always Sumit A Shah" for that box, then closed the topic: **Merge & draft is unchanged.**
+
+**Known limits, not yet checked or fixed:**
+- Templates: the words inside a dashed (optional) box can't be edited, only deleted. The editor was tested by typing and
+  inserting in a preview, not by a save.
+- Customer folders: the create call has only run against a stub. Chat said "about 15 minutes"; check the real sync timing. Two
+  customers with the same name share a folder. `listFolder` reads at most 500 entries, so past that the same-name check
+  could miss one.
+- Pictures: checked in Excel with a sample of 3 real item pictures, not through `exportQuote` (there was no saved quotation).
+  One or two Zoho calls per item at download; big sheets not timed on Vercel. Only PNG / JPEG / GIF.
+- The Sheet → Quotation page and Templates were not opened signed in on the live site; only HTTP 200 was checked.
+
+**Local-only things (not in git, excluded in `.git/info/exclude`):** `src/app/training/zz-preview/` (portal, `launcher`,
+`templates`) and `src/app/(staff)/zz-shell/`. `launcher` and `templates` use made-up data; run `npx next dev -p 3998`. Never
+commit them. Stop stray `next dev` node processes afterwards.
+
+**Traps learned in session 36:**
+- Patch scripts: write them with the Write tool and run them (heredocs break on apostrophes).
+- `npm i` of a new package (exceljs) was **denied by the auto-mode classifier**: ask the owner before adding a dependency.
+- `globals.css` is loaded only by the `(staff)` layout: a component's own CSS goes in its own file.
+- The test DB fake has no `insertMany`, `deletedCount` or `matchedCount`. tsc refuses the regex `s` flag in tests: use `[^]*`.
+- WorkDrive URLs need encoded brackets: set `page[limit]` with `searchParams`.
+
+---
+
+## Session 36's start block (history)
 
 _Written Mon 23 Nov 2026, end of session 35 (20–21 Nov), for the next Claude Code session and the owner (Sumit; Jasmeet
 Singh, he/him, sometimes types in these sessions — don't assume who is typing)._
