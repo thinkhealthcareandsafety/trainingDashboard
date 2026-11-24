@@ -9,7 +9,7 @@ import { checkGratitudeReplies } from "./gratitudeReplies";
 import { checkAedReplies } from "./aedReplies";
 import {
   type ItemSets, type Kind, type ZDoc, type ZItem, KINDS, OPEN_ORDER, OPEN_QUOTE, docIdOf, fetchAllLeads, fetchDetail, fetchInvoicePaymentRows,
-  fetchItems, fetchNewestVendors, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, listNewest, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
+  fetchContactEntry, fetchItems, fetchNewestVendors, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, listNewest, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
   toInvoice, toPI, toPayments, toPipeline, toQuote, toTrainings, zohoConfigured,
 } from "./zoho";
 
@@ -484,7 +484,7 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     // A WorkDrive folder for each new customer (owner, 23 Nov; Sprints I148) and vendor (24 Nov). Never fails the sync.
     try {
       const f = await import("./customerFolders");
-      const made = await f.makeCustomerFolders();
+      const made = await f.makeCustomerFolders(new Date(), fetchContactEntry);
       if (made.length) log.folders = made;
       const vendors = await f.makeVendorFolders(fetchNewestVendors);
       if (vendors.length) log.vendorFolders = vendors;

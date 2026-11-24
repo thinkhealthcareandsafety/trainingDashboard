@@ -1,7 +1,7 @@
 // Customer folders (owner, 23 Nov; Sprints I148): a WorkDrive folder in SALES for each customer added from now on.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { PURCHASE_FOLDER, SALES_FOLDER, folderName, makeCustomerFolders, makeVendorFolders, needFolders } from "@/lib/customerFolders";
+import { PURCHASE_FOLDER, SALES_FOLDER, entryFolder, folderName, makeCustomerFolders, makeVendorFolders, needFolders } from "@/lib/customerFolders";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 
@@ -79,5 +79,45 @@ test("vendors: first run only marks the start; a new one gets a folder in PURCHA
     assert.deepEqual(await makeVendorFolders(newest, at("11:30")), []);
     assert.equal(asked, 2);
     assert.deepEqual(await makeVendorFolders(newest, at("12:10")), ["Later Vendor"]);
+  } finally { globalThis.fetch = real; }
+});
+
+test("the folder of one entry: city and GSTIN; pincode, then a number, only when taken", () => {
+  const e = { city: "Mumbai", zip: "400051", gst: "27AAACL2089B1ZS" };
+  assert.equal(entryFolder(e, []), "Mumbai - 27AAACL2089B1ZS");
+  assert.equal(entryFolder(e, ["mumbai - 27AAACL2089B1ZS"]), "Mumbai 400051 - 27AAACL2089B1ZS");
+  assert.equal(entryFolder(e, ["Mumbai - 27AAACL2089B1ZS", "Mumbai 400051 - 27AAACL2089B1ZS"]), "Mumbai 400051 - 27AAACL2089B1ZS (2)");
+  assert.equal(entryFolder({ city: "Pune" }, []), "Pune");
+  assert.equal(entryFolder({}, ["Entry"]), "Entry (2)");
+});
+
+test("same name: one folder, a folder inside for each entry; a failure is tried again without doubling", async () => {
+  const d = await db();
+  await makeCustomerFolders(new Date("2026-11-23T10:00:00.000Z"));
+  await d.collection<any>("kv").insertOne({ _id: "zoho_workdrive", clientId: "c", clientSecret: "s", refreshToken: "r", token: { value: "t", expiresAt: Date.now() + 3600_000 }, connectedAt: "", connectedBy: "Admin", scopes: "WorkDrive.files.READ,WorkDrive.files.CREATE" });
+  await d.collection<any>("customerFolders").insertOne({ _id: "c1", name: "Tata", folder: "Tata", folderId: "tata", how: "made", at: new Date() });
+  await d.collection<any>("zohoCustomers").insertOne({ _id: "c2", name: "TATA", createdAt: "2026-11-24T11:00:00.000Z" });
+  const kids: Record<string, { id: string; attributes: object }[]> = { [SALES_FOLDER]: [{ id: "tata", attributes: { name: "Tata", is_folder: true } }], tata: [] };
+  const entries: Record<string, object> = { c1: { city: "Mumbai", gst: "27X" }, c2: { city: "New Delhi", gst: "07X" } };
+  let down = true;
+  const entry = async (id: string) => { if (id === "c2" && down) throw new Error("Zoho down"); return entries[id]; };
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (u: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      const a = JSON.parse(String(init.body)).data.attributes;
+      const id = `s${kids.tata.length}`;
+      kids[a.parent_id].push({ id, attributes: { name: a.name, is_folder: true } });
+      return new Response(JSON.stringify({ data: { id } }), { status: 201 });
+    }
+    return new Response(JSON.stringify({ data: kids[String(u).match(/files\/(\w+)\/files/)![1]] }));
+  }) as typeof fetch;
+  try {
+    await assert.rejects(makeCustomerFolders(new Date(), entry), /Zoho down/);
+    down = false;
+    assert.deepEqual(await makeCustomerFolders(new Date(), entry), ["TATA"]);
+    assert.deepEqual(kids.tata.map((k) => (k.attributes as { name: string }).name), ["Mumbai - 27X", "New Delhi - 07X"]);
+    assert.equal(kids[SALES_FOLDER].length, 1);
+    assert.equal((await d.collection<any>("customerFolders").findOne({ _id: "c2" }))?.sub, "New Delhi - 07X");
+    assert.equal((await d.collection<any>("customerFolders").findOne({ _id: "c1" }))?.subId, "s0");
   } finally { globalThis.fetch = real; }
 });

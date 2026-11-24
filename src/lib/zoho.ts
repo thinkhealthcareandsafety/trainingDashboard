@@ -566,6 +566,14 @@ export async function fetchAllLeads(): Promise<ZohoLead[]> {
   return (await pagedParallel("/contacts", "contacts", LEAD_FILTER)).filter(isCustomer).map(toLead);
 }
 
+/** City, pincode and GSTIN of one customer (the folder for each of several with the same name, customerFolders.ts). */
+export async function fetchContactEntry(id: string): Promise<{ city?: string; zip?: string; gst?: string }> {
+  const c = ((await zget<Record<string, unknown>>(`/contacts/${id}`)).contact ?? {}) as ZRecord;
+  const b = (c.billing_address ?? {}) as Record<string, unknown>;
+  const city = str(b.city);
+  return { city: city ? tidyName(city) : undefined, zip: str(b.zip)?.trim(), gst: str(c.gst_no) };
+}
+
 /** The 200 newest active vendors (a folder each in WorkDrive PURCHASE, customerFolders.ts). */
 export async function fetchNewestVendors(): Promise<{ _id: string; name: string; createdAt?: string }[]> {
   const json = await zget<Record<string, unknown>>("/contacts", { contact_type: "vendor", sort_column: "created_time", sort_order: "D", per_page: 200 });

@@ -12,6 +12,8 @@ import { workdriveInfo, workdriveMakeFolder, workdriveSubfolders } from "./workd
  * Vendors too (owner, 24 Nov): each vendor added in Books gets one in PURCHASE, next to SALES. Vendors aren't kept here, so
  * the newest are asked for once an hour (one Books call): kv `vendor_folders` {since, checkedAt}, collection `vendorFolders`.
  * On 24 Nov everyone with an invoice (customers) or a bill (vendors), not void or draft, got a folder once: `backfill: true`.
+ * Customers with the same name share one folder, with a folder inside for each entry: "City - GSTIN" (owner, 24 Nov:
+ * "duplicate customer names get a single folder and then bifurcate inside"). Record: {sub, subId}.
  */
 
 export const PURCHASE_FOLDER = "yn5nx5e97f2cc7c2c4e75a43c055eea01ce70";
@@ -36,10 +38,23 @@ export function needFolders(customers: Customer[], since: string, done: Set<stri
     .map((c) => ({ id: c._id, folder: folderName(c.name ?? "") }));
 }
 
-type Done = { _id: string; name: string; folder: string; folderId: string; how: "made" | "kept"; at: Date; backfill?: boolean };
+/** What tells two customers of the same name apart. */
+export type Entry = { city?: string; zip?: string; gst?: string };
+/** The folder for one entry inside a shared folder: "City - GSTIN"; the pincode, then a number, only when that name is taken. */
+export function entryFolder(e: Entry, taken: string[]): string {
+  const used = new Set(taken.map((t) => t.toLowerCase()));
+  const name = (place: string) => folderName([place, e.gst ?? ""].filter(Boolean).join(" - ")) || "Entry";
+  const plain = name(e.city ?? ""), withPin = name([e.city, e.zip].filter(Boolean).join(" "));
+  for (const n of [plain, withPin]) if (!used.has(n.toLowerCase())) return n;
+  let i = 2;
+  while (used.has(`${withPin} (${i})`.toLowerCase())) i++;
+  return `${withPin} (${i})`;
+}
+
+type Done = { sub?: string; subId?: string; _id: string; name: string; folder: string; folderId: string; how: "made" | "kept"; at: Date; backfill?: boolean };
 
 /** The folders still owed to these people, in `parent`. The names made (or found already there). */
-async function makeOwed(people: Customer[], since: string, parent: string, collection: "customerFolders" | "vendorFolders"): Promise<string[]> {
+async function makeOwed(people: Customer[], since: string, parent: string, collection: "customerFolders" | "vendorFolders", entry?: (id: string) => Promise<Entry>): Promise<string[]> {
   if (!people.length) return [];
   const doneCol = (await db()).collection<Done>(collection);
   const done = new Set((await doneCol.find({ _id: { $in: people.map((c) => c._id) } }, { projection: { _id: 1 } }).toArray()).map((x) => x._id));
@@ -52,14 +67,26 @@ async function makeOwed(people: Customer[], since: string, parent: string, colle
     const kept = there.get(t.folder.toLowerCase());
     const folderId = kept ?? (await workdriveMakeFolder(parent, t.folder));
     there.set(t.folder.toLowerCase(), folderId);
-    await doneCol.replaceOne({ _id: t.id }, { name, folder: t.folder, folderId, how: kept ? "kept" : "made", at: new Date() }, { upsert: true });
+    // Someone else's folder already: one inside it for each of them. Before this one is recorded, so a failure is tried again.
+    const others = kept && entry ? await doneCol.find({ folderId }).toArray() : [];
+    const taken = others.flatMap((o) => (o.sub ? [o.sub] : []));
+    const inside = others.length ? new Map((await workdriveSubfolders(folderId)).map((e) => [e.name.toLowerCase(), e.id])) : null;
+    const split = async (id: string) => {
+      const sub = entryFolder(await entry!(id), taken);
+      const subId = inside!.get(sub.toLowerCase()) ?? (await workdriveMakeFolder(folderId, sub));
+      taken.push(sub);
+      return { sub, subId };
+    };
+    for (const o of others) if (!o.subId) await doneCol.updateOne({ _id: o._id }, { $set: await split(o._id) });
+    const own = inside ? await split(t.id) : {};
+    await doneCol.replaceOne({ _id: t.id }, { name, folder: t.folder, folderId, how: kept ? "kept" : "made", at: new Date(), ...own }, { upsert: true });
     out.push(t.folder);
   }
   return out;
 }
 
 /** Make the customer folders still owed. Throws on a WorkDrive problem (the sync logs it). */
-export async function makeCustomerFolders(now = new Date()): Promise<string[]> {
+export async function makeCustomerFolders(now = new Date(), entry?: (id: string) => Promise<Entry>): Promise<string[]> {
   const d = await db();
   const kv = d.collection<{ _id: string; since?: string }>("kv");
   const state = await kv.findOne({ _id: STATE });
@@ -69,7 +96,7 @@ export async function makeCustomerFolders(now = new Date()): Promise<string[]> {
   }
   if (!(await workdriveInfo())?.canCreate) return [];
   const customers = await d.collection<Customer>("zohoCustomers").find({ createdAt: { $gt: state.since } }, { projection: { name: 1, createdAt: 1 } }).toArray();
-  return makeOwed(customers, state.since, SALES_FOLDER, "customerFolders");
+  return makeOwed(customers, state.since, SALES_FOLDER, "customerFolders", entry);
 }
 
 /** The same for vendors, at most once an hour. `newest` asks Zoho Books for the newest vendors. */
