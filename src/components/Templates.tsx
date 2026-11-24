@@ -253,7 +253,7 @@ export function Templates() {
         {!readOnly && (
           <ul className="mt-3 space-y-1.5 text-[12.5px] leading-relaxed text-muted">
             {entry.vars.length > 0 && <li><span className="fi-chip !text-[12px]">Coloured boxes</span> are filled in for each email. Remove one with Backspace; add one with <b className="font-semibold text-ink-2">+ Add a detail</b>.</li>}
-            {/\[[^\]]*\{\w+\}/.test(subject + body) && <li><span className="fi-chip fi-opt !text-[12px]">Dashed boxes</span> show only when their detail exists (no valid-until date: no sentence).</li>}
+            {/\[[^\]]*\{\w+\}/.test(subject + body) && <li><span className="fi-chip fi-opt !text-[12px]">Dashed boxes</span> show only when their detail exists (no valid-until date: no sentence). Click one to change its words.</li>}
             {entry.choices && <li><span className="fi-chip fi-choice !text-[12px]">is / are</span> uses the first word with one item, the second with several.</li>}
           </ul>
         )}

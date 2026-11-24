@@ -26,6 +26,7 @@ type Entry = {
   customers?: string[];
   customersRemoved?: number;
   folders?: string[]; // customer folders made in WorkDrive
+  vendorFolders?: string[];
   folderError?: string;
   replies?: number; // replies to Fulfillment gratitude emails found
   mailError?: string; // checking them failed (the Books sync still counts)
@@ -68,7 +69,7 @@ const isSync = (e: Entry) => e.result === "ok" || e.result === "failed" || e.res
 const isReminderRun = (e: Entry) => /reminders/i.test(e.source ?? "");
 const isCheck = (e: Entry) => !isSync(e) && !isReminderRun(e);
 const changeCount = (e: Entry) =>
-  (e.docs?.length ?? 0) + (e.payments?.length ?? 0) + (e.customers?.length ?? 0) + (e.customersRemoved ?? 0) + (e.folders?.length ?? 0) + (e.folderError ? 1 : 0) + (e.replies ?? 0) + (e.mailError ? 1 : 0) + (e.aedReplies ?? 0) + (e.aedMailError ? 1 : 0) +
+  (e.docs?.length ?? 0) + (e.payments?.length ?? 0) + (e.customers?.length ?? 0) + (e.customersRemoved ?? 0) + (e.folders?.length ?? 0) + (e.vendorFolders?.length ?? 0) + (e.folderError ? 1 : 0) + (e.replies ?? 0) + (e.mailError ? 1 : 0) + (e.aedReplies ?? 0) + (e.aedMailError ? 1 : 0) +
   (e.reminders ?? 0) + (e.reminderError ? 1 : 0) + (e.whatsapp ?? 0) + (e.whatsappError ? 1 : 0);
 function changeSummary(e: Entry): string {
   const parts = [
@@ -77,7 +78,8 @@ function changeSummary(e: Entry): string {
     e.customers?.length ? plural(e.customers.length, "customer") : "",
     e.customersRemoved ? `${e.customersRemoved} customer${e.customersRemoved === 1 ? "" : "s"} removed` : "",
     e.folders?.length ? `${e.folders.length} customer ${e.folders.length === 1 ? "folder" : "folders"}` : "",
-    e.folderError ? "customer folders not made" : "",
+    e.vendorFolders?.length ? `${e.vendorFolders.length} vendor ${e.vendorFolders.length === 1 ? "folder" : "folders"}` : "",
+    e.folderError ? "folders not made" : "",
     e.replies ? `${e.replies} gratitude ${e.replies === 1 ? "reply" : "replies"}` : "",
     e.mailError ? "replies not checked" : "",
     e.aedReplies ? `${e.aedReplies} AedSmartx ${e.aedReplies === 1 ? "reply" : "replies"}` : "",
@@ -139,7 +141,8 @@ function RunLine({ e, main }: { e: Entry; main?: boolean }) {
           {e.customers?.length ? <div><span className="text-faint">Customers new/changed:</span> {e.customers.join(", ")}</div> : null}
           {e.customersRemoved ? <div><span className="text-faint">Customers no longer active:</span> {e.customersRemoved}</div> : null}
           {e.folders?.length ? <div><span className="text-faint">Customer folders made in WorkDrive (SALES):</span> {e.folders.join(", ")}</div> : null}
-          {e.folderError ? <div className="text-high"><span className="text-faint">Making customer folders failed:</span> {e.folderError}</div> : null}
+          {e.vendorFolders?.length ? <div><span className="text-faint">Vendor folders made in WorkDrive (PURCHASE):</span> {e.vendorFolders.join(", ")}</div> : null}
+          {e.folderError ? <div className="text-high"><span className="text-faint">Making WorkDrive folders failed:</span> {e.folderError}</div> : null}
           {e.replies ? <div><span className="text-faint">Replies to gratitude emails (Zoho Mail):</span> {e.replies}</div> : null}
           {e.mailError ? <div className="text-high"><span className="text-faint">Checking gratitude replies failed:</span> {e.mailError}</div> : null}
           {e.aedReplies ? <div><span className="text-faint">Replies to AedSmartx emails (hello@):</span> {e.aedReplies}</div> : null}

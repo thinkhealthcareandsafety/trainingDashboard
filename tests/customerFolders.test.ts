@@ -1,7 +1,7 @@
 // Customer folders (owner, 23 Nov; Sprints I148): a WorkDrive folder in SALES for each customer added from now on.
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { SALES_FOLDER, folderName, makeCustomerFolders, needFolders } from "@/lib/customerFolders";
+import { PURCHASE_FOLDER, SALES_FOLDER, folderName, makeCustomerFolders, makeVendorFolders, needFolders } from "@/lib/customerFolders";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 
@@ -49,5 +49,35 @@ test("first run only marks the start; then new customers get a folder, one alrea
     assert.equal((await d.collection<any>("customerFolders").findOne({ _id: "n2" }))?.how, "kept");
     assert.deepEqual(await makeCustomerFolders(), []);
     assert.equal(made.length, 1);
+  } finally { globalThis.fetch = real; }
+});
+
+test("vendors: first run only marks the start; a new one gets a folder in PURCHASE; Books is asked once an hour", async () => {
+  const d = await db();
+  const at = (s: string) => new Date(`2026-11-24T${s}:00.000Z`);
+  let asked = 0;
+  let list = [{ _id: "old", name: "Old Vendor", createdAt: "2026-11-01T00:00:00.000Z" }, { _id: "v1", name: "New Vendor", createdAt: "2026-11-24T10:30:00.000Z" }];
+  const newest = async () => { asked++; return list; };
+  await d.collection<any>("kv").insertOne({ _id: "zoho_workdrive", clientId: "c", clientSecret: "s", refreshToken: "r", token: { value: "t", expiresAt: Date.now() + 3600_000 }, connectedAt: "", connectedBy: "Admin", scopes: "WorkDrive.files.READ,WorkDrive.files.CREATE" });
+  assert.deepEqual(await makeVendorFolders(newest, at("10:00")), []);
+  assert.equal(asked, 0);
+  const made: unknown[] = [];
+  let fail = true;
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method !== "POST") return new Response(null, { status: 204 });
+    if (fail) return new Response(JSON.stringify({ errors: [{ title: "busy" }] }), { status: 500 });
+    made.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ data: { id: "f" } }), { status: 201 });
+  }) as typeof fetch;
+  try {
+    await assert.rejects(makeVendorFolders(newest, at("11:00")), /busy/);
+    fail = false;
+    assert.deepEqual(await makeVendorFolders(newest, at("11:05")), ["New Vendor"]); // tried again at the next sync
+    assert.deepEqual(made, [{ data: { attributes: { name: "New Vendor", parent_id: PURCHASE_FOLDER }, type: "files" } }]);
+    list = [...list, { _id: "v2", name: "Later Vendor", createdAt: "2026-11-24T11:06:00.000Z" }];
+    assert.deepEqual(await makeVendorFolders(newest, at("11:30")), []);
+    assert.equal(asked, 2);
+    assert.deepEqual(await makeVendorFolders(newest, at("12:10")), ["Later Vendor"]);
   } finally { globalThis.fetch = real; }
 });

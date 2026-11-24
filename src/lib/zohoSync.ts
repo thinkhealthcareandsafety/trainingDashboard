@@ -9,7 +9,7 @@ import { checkGratitudeReplies } from "./gratitudeReplies";
 import { checkAedReplies } from "./aedReplies";
 import {
   type ItemSets, type Kind, type ZDoc, type ZItem, KINDS, OPEN_ORDER, OPEN_QUOTE, docIdOf, fetchAllLeads, fetchDetail, fetchInvoicePaymentRows,
-  fetchItems, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, listNewest, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
+  fetchItems, fetchNewestVendors, fetchRecentLeads, fetchTeam, itemSets, listByItem, listChangedSince, listNewest, lmtOf, newestChange, pool, takeZohoCalls, toAedInvoice,
   toInvoice, toPI, toPayments, toPipeline, toQuote, toTrainings, zohoConfigured,
 } from "./zoho";
 
@@ -155,6 +155,7 @@ export type SyncLogEntry = SyncTrigger & {
   customers?: string[]; // new or changed customers
   customersRemoved?: number;
   folders?: string[]; // customer folders made in WorkDrive SALES (customerFolders.ts)
+  vendorFolders?: string[]; // … and vendor folders in PURCHASE
   folderError?: string;
   replies?: number; // new replies to Fulfillment gratitude emails (Zoho Mail, learn@)
   sales?: number; // Sales board copy (salesSync.ts): documents changed + invoices whose payments were read
@@ -480,10 +481,13 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
         changed++;
       }
     }
-    // A WorkDrive folder for each new customer (owner, 23 Nov; Sprints I148). Never fails the sync.
+    // A WorkDrive folder for each new customer (owner, 23 Nov; Sprints I148) and vendor (24 Nov). Never fails the sync.
     try {
-      const made = await (await import("./customerFolders")).makeCustomerFolders();
+      const f = await import("./customerFolders");
+      const made = await f.makeCustomerFolders();
       if (made.length) log.folders = made;
+      const vendors = await f.makeVendorFolders(fetchNewestVendors);
+      if (vendors.length) log.vendorFolders = vendors;
     } catch (e) {
       log.folderError = e instanceof Error ? e.message : String(e);
       console.error(`[customer folders] failed: ${log.folderError}`);

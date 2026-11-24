@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { renderTemplate, templateProblems } from "@/lib/templateText";
+import { optionalPart, renderTemplate, templateProblems } from "@/lib/templateText";
 import { TEMPLATES, TEMPLATE_VARS, TOPICS, TOPIC_EXTRAS, TOPIC_VARS, buildQuoteEmail, type TopicId } from "@/lib/quoteEmails";
 import { TS_TEMPLATES, buildTsEmail } from "@/lib/totalSupply";
 import { SAMPLES } from "./fixtures/quoteSamples";
@@ -13,6 +13,13 @@ test("[…] drops with an empty value inside; {one|many}; unknown names stay as 
   assert.equal(renderTemplate("{It is|They are} [ready]", {}, false), "It is [ready]");
   assert.equal(renderTemplate("{It is|They are} ok", {}, true), "They are ok");
   assert.equal(renderTemplate("Hi {who}", {}), "Hi {who}");
+});
+
+test("an optional part's edited words: kept optional with a detail inside, ordinary words without, no stray brackets", () => {
+  assert.equal(optionalPart(", good till {valid}"), "[, good till {valid}]");
+  assert.equal(optionalPart(" [x] {valid}"), "[ x {valid}]");
+  assert.equal(optionalPart(", soon"), ", soon");
+  assert.equal(optionalPart(""), "");
 });
 
 test("saving refuses unknown placeholders, choices outside item paragraphs, and empty text", () => {

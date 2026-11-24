@@ -19,6 +19,13 @@ export function renderTemplate(text: string, vars: Record<string, string | undef
     .replace(NAME, (m, k: string) => (k in vars ? (vars[k] ?? "") : m));
 }
 
+/** The words of an optional part as edited in its own box: no square brackets of their own (they'd end the part early).
+ * Without a {name} nothing decides whether to leave it out, so the words become ordinary text. */
+export function optionalPart(words: string): string {
+  const w = words.replace(/[[\]]/g, "");
+  return /\{\w+\}/.test(w) ? `[${w}]` : w;
+}
+
 /** What's wrong with a template before it's saved; empty when it can be saved. */
 export function templateProblems(text: string, allowed: readonly string[], opts: { choices?: boolean; required?: boolean } = {}): string[] {
   const out: string[] = [];

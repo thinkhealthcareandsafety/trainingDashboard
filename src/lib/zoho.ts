@@ -566,6 +566,14 @@ export async function fetchAllLeads(): Promise<ZohoLead[]> {
   return (await pagedParallel("/contacts", "contacts", LEAD_FILTER)).filter(isCustomer).map(toLead);
 }
 
+/** The 200 newest active vendors (a folder each in WorkDrive PURCHASE, customerFolders.ts). */
+export async function fetchNewestVendors(): Promise<{ _id: string; name: string; createdAt?: string }[]> {
+  const json = await zget<Record<string, unknown>>("/contacts", { contact_type: "vendor", sort_column: "created_time", sort_order: "D", per_page: 200 });
+  return ((json.contacts as ZRecord[]) ?? [])
+    .filter((c) => c.contact_type === "vendor" && c.status === "active")
+    .map((c) => ({ _id: String(c.contact_id), name: tidyName(String(c.contact_name)), createdAt: isoTime(c.created_time) }));
+}
+
 /** The 200 most recently created/edited active customers — cheap way to pick up new ones between full syncs. */
 export async function fetchRecentLeads(): Promise<ZohoLead[]> {
   const json = await zget<Record<string, unknown>>("/contacts", { ...LEAD_FILTER, sort_column: "last_modified_time", sort_order: "D", per_page: 200 });
