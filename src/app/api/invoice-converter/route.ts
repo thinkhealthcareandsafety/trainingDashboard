@@ -6,7 +6,7 @@ import { poFileFor, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300; // scanned POs are read from their pictures, up to 20 s each
 
 /*
  * The Invoice Converter (owner, 17 Nov). Full access and logistics only.
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
       if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sign" }, 403);
       return json(await connectSign({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
     }
-    if (b?.action === "scanPo") return json(await scanPoFolder(25_000));
+    if (b?.action === "scanPo") return json(await scanPoFolder(30_000));
     if (!ID.test(id)) return json({ error: "Unknown invoice" }, 400);
     if (b?.action === "usePo") return goodWdId(b.file) ? json(await attachFoundPo(id, b.file)) : json({ error: "Unknown file" }, 400);
     if (b?.action === "po") return json(await setPoForPi(id, b.value));

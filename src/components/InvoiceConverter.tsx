@@ -44,30 +44,41 @@ function Mark({ ok, small = false }: { ok: boolean; small?: boolean }) {
 }
 
 export function InvoiceConverter() {
-  const [data, setData] = useState<{ customers: ConvCustomer[]; pending: number; sign?: SignInfo } | null>(null);
+  const [data, setData] = useState<{ customers: ConvCustomer[]; pending: number; scansDue?: number; sign?: SignInfo } | null>(null);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [onlyFound, setOnlyFound] = useState(false);
   // "Find POs" (owner, 24 Nov): read the WorkDrive PO folder, a batch at a time, until nothing is left.
   const [scan, setScan] = useState<{ busy: boolean; text: string; bad?: boolean }>({ busy: false, text: "" });
+  const scanning = useRef(false);
   const findPos = async () => {
+    if (scanning.current) return;
     setScan({ busy: true, text: "Reading the PO folder…" });
-    let last: { files?: number; left?: number; unread?: number; error?: string } = {}, before = Infinity;
-    for (let n = 0; n < 40; n++) {
+    scanning.current = true;
+    let last: { files?: number; left?: number; pictures?: number; added?: number; seen?: number; unread?: number; error?: string } = {};
+    for (let n = 0; n < 200; n++) {
       last = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "scanPo" }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
-      if (last.error || !last.left || last.left >= before) break;
-      before = last.left;
-      setScan({ busy: true, text: `Reading the PO folder… ${last.left} of ${last.files} PDFs left` });
+      if (last.error || !last.left || !last.added) break;
+      setScan({ busy: true, text: last.left === last.pictures ? `Reading scanned POs page by page… ${last.left} left` : `Reading the PO folder… ${last.left} of ${last.files} PDFs left` });
+      if (n % 3 === 2) await load();
     }
     await load();
-    setScan(last.error ? { busy: false, text: last.error, bad: true } : { busy: false, text: `${last.files ?? 0} PDFs in the PO folder checked${last.left ? `, ${last.left} couldn't be read` : ""}${last.unread ? ` · ${last.unread} are scans without text (checked by file name)` : ""}` });
+    scanning.current = false;
+    setScan(last.error ? { busy: false, text: last.error, bad: true } : { busy: false, text: `${last.files ?? 0} PDFs in the PO folder checked, ${last.seen ?? 0} of them read from the scanned page${(last.left ?? 0) + (last.unread ?? 0) ? ` · ${(last.left ?? 0) + (last.unread ?? 0)} couldn't be read` : ""}` });
   };
   const load = () => fetch("/api/invoice-converter", { cache: "no-store" }).then(async (r) => {
     const j = await r.json().catch(() => ({}));
     if (j.customers) { setData(j); setError(""); } else setError(j.error ?? "Couldn't load the invoices");
   }).catch(() => setError("Couldn't reach the server"));
   useEffect(() => { load(); }, []);
+  // New scans found by a sync: their pages are read now, once, without a click.
+  const carriedOn = useRef(false);
+  useEffect(() => {
+    if (!data?.scansDue || carriedOn.current || scanning.current) return;
+    carriedOn.current = true;
+    void findPos();
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   // E-way bills and attachments are read from Zoho a few at a time: keep asking while some are left.
   useEffect(() => {
     if (!data?.pending) return;

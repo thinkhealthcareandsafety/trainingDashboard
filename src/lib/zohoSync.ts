@@ -494,7 +494,7 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
     }
     // New PO PDFs in WorkDrive (poFolder.ts): read, so the Invoice Converter shows "PO found".
     try {
-      await (await import("./poFolder")).scanPoFolder(10_000);
+      await (await import("./poFolder")).scanPoFolderQuietly(10_000);
     } catch (e) {
       console.error(`[po folder] failed: ${e instanceof Error ? e.message : e}`);
     }

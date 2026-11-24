@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poState } from "@/lib/invoiceConverterRules";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
-import { orderText, poInPdf, poKey } from "@/lib/poMatch";
+import { clearPo, orderText, poInPdf, poKey } from "@/lib/poMatch";
 import { matchNewKeys, poFileFor, poFiles } from "@/lib/poFolder";
 import { GET as convGet, POST as convPost } from "@/app/api/invoice-converter/route";
 
@@ -177,24 +177,25 @@ test("an e-way bill number: 12 digits; the invoice's E-way Bill Number field fro
 });
 
 test("PO found: the whole number, only its marks may differ; short ones only after a PO label (from the real folder)", () => {
-  const on = (po: string, text: string, name = "x.pdf") => poInPdf(poKey(po), name, text);
+  const on = (po: string, text: string) => poInPdf(poKey(po), text);
   assert.ok(on("6566219-OP-4470300006", "Purchase Order 6566219 OP -- 4470300006 7 Item"));
   assert.ok(on("6568686 - OP - 4470300047", "Purchase Order 4470300047- -OP 6568686"));
   assert.ok(on("4500149348 / 0", "PURCHASE ORDER : 4500149348 / 0 ORDER DATE"));
   assert.ok(on("B202610-05628", "Novotel Goa PanjimP.O. No.: B202610-05628"));
-  assert.ok(on("26273165", "", "Usha Armour  26273165.pdf"));
-  assert.ok(on("3981", "DATE 02-04-2026 PO # 3981 GSTIN") && on("3793", "", "Purchase Order 3793 (1).pdf") && on("100425", "", "PO_100425.pdf"));
+  assert.ok(on("3981", "DATE 02-04-2026 PO # 3981 GSTIN") && on("161647", "Purchase Order No Dated Think Health Care & Safety 161647 30/12/2025"));
+  assert.ok(on("6013", "Purchase Order page 1 of To, SUPAB23 Furchase order No {TT 6013 THINK") && on("3793", "Purchase Order medic assist Lise-Meitner-Allee 27 + 44801 Bochum Think Health Care and Safety 3793 22-07-2026 1/1"));
+  assert.ok(clearPo("Purchase Order No 1518 Date") && clearPo("PO NUMBER : KOLKA0000072306") && !clearPo("Purchase Order Document No. Date") && !clearPo(""));
   assert.ok(on("STS/ 84/LPO", "Local Purchase Order No:STS/ 84 /LPO"));
   // Never part of a longer number, an unlabelled short one, or too little to go by.
   assert.ok(!on("52600831", "PO No 152600831") && !on("52600831", "PO No 526008312") && !on("5628", "B202610-05628"));
-  assert.ok(!on("25-367", "Other References PI No - 25-367") && !on("1518", "", "tHINK hEALTH 1518.pdf") && !on("3981", "HSN 3981"));
+  assert.ok(!on("25-367", "Other References PI No - 25-367") && !on("1518", "Purchase Order HSN 1518 qty") && !on("3981", "HSN 3981 02-04-2026") && !on("6013", "Purchase Order No 77 for 6013"));
   for (const bad of ["", "00", "Verbal", "whatsapp", "2026-01-450", "Performa-26-1060"]) assert.equal(poKey(bad), "", bad);
   assert.ok(orderText("PURCHASE ORDER PO NO : 31") && !orderText("Statement of account"));
 });
 
 test("PO found: PDFs by PO number, the same copy once; a number typed later is compared too; only that invoice's PDF opens", async () => {
   const d = await db();
-  const s = (id: string, name: string, size: number, depth: number, text: string, hits: string[]) => d.collection<any>("poScans").insertOne({ _id: id, name, size, depth, text, hits, readable: true, at: "" });
+  const s = (id: string, name: string, size: number, depth: number, text: string, hits: string[]) => d.collection<any>("poScans").insertOne({ _id: id, name, size, depth, text, hits, look: "no", v: 2, at: "" });
   await s("filecopy0001", "PO 52600831.pdf", 10, 2, "", ["52600831"]);
   await s("filetop00001", "PO 52600831.pdf", 10, 0, "PO No 52600831", ["52600831"]);
   await s("fileother001", "a.pdf", 5, 0, "Purchase Order 7001629499", []);

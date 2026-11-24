@@ -33,7 +33,7 @@ const extrasCol = async () => (await db()).collection<Extras>("invoiceExtras");
 const wantsDetail = (r: SalesRow) => needsEway(Number(r.row.total) || 0) || Boolean(r.row.has_attachment);
 
 /** Every customer with their invoices; reads up to READ_BATCH full records from Zoho that aren't known yet. */
-export async function converterData(): Promise<{ customers: ConvCustomer[]; pending: number }> {
+export async function converterData(): Promise<{ customers: ConvCustomer[]; pending: number; scansDue: number }> {
   const poFolder = await import("./poFolder");
   const signs = await signStates();
   // The customer's name as Zoho has it now (owner, 17 Nov: renamed customers, e.g. "JLL Mumbai" → "Jones Lang LaSalle …"):
@@ -80,7 +80,7 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       sign: signs.get(r.id)?.status,
     };
   });
-  return { customers: groupByCustomer(list), pending: list.filter((i) => i.pending).length };
+  return { customers: groupByCustomer(list), pending: list.filter((i) => i.pending).length, scansDue: await poFolder.picturesDue().catch(() => 0) };
 }
 
 /** One custom field on an invoice in Zoho (Zoho's spec: PUT /invoice/{id}/customfields, body { custom_fields: [...] }). */
