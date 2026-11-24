@@ -121,11 +121,19 @@ function AddApp({ onAdded, onError }: { onAdded: (l: LinkApp[]) => void; onError
   );
 }
 
-/** The site's own icon (from Google's favicon service), or its first letter when there is none (Google's 16px globe = none). */
+/**
+ * The application's picture (owner, 24 Nov): the site's own icon filling the tile (/api/apps/icon), else Google's favicon
+ * (16px globe = none), else the site's small old-style icon, else its first letter.
+ */
 function AppPicture({ a }: { a: LinkApp }) {
-  const [failed, setFailed] = useState(false);
+  const [stage, setStage] = useState(0);
   const h = host(a.url);
-  if (failed || !h) return <span className="lx-ic" style={{ background: tint(a.name) }}><b>{a.name.charAt(0).toUpperCase()}</b></span>;
-  // eslint-disable-next-line @next/next/no-img-element -- a remote icon, any site
-  return <span className="lx-ic lx-site"><img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(h)}&sz=128`} alt="" width={40} height={40} onError={() => setFailed(true)} onLoad={(e) => { if (e.currentTarget.naturalWidth < 32) setFailed(true); }} /></span>;
+  const own = `/api/apps/icon?id=${encodeURIComponent(a.id)}`;
+  const next = () => setStage((s) => s + 1);
+  if (!h || stage > 2) return <span className="lx-ic" style={{ background: tint(a.name) }}><b>{a.name.charAt(0).toUpperCase()}</b></span>;
+  /* eslint-disable @next/next/no-img-element -- any site's icon */
+  if (stage === 0) return <span className="lx-ic lx-own"><img key="own" src={own} alt="" onError={next} /></span>;
+  const src = stage === 1 ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(h)}&sz=128` : `${own}&any=1`;
+  return <span className="lx-ic lx-site"><img key={stage} src={src} alt="" width={40} height={40} onError={next} onLoad={(e) => { if (stage === 1 && e.currentTarget.naturalWidth < 32) next(); }} /></span>;
+  /* eslint-enable @next/next/no-img-element */
 }
