@@ -5,7 +5,7 @@ import { GET, PUT } from "@/app/api/ui-prefs/route";
 import { themeOnSignIn } from "@/lib/accountTheme";
 import { resetFakeDb } from "./fakes/db";
 import { existsSync } from "node:fs";
-import { pinnedFirst, ZOHO_APPS } from "@/lib/zohoApps";
+import { arranged, pinnedFirst, ZOHO_APPS } from "@/lib/zohoApps";
 
 beforeEach(() => resetFakeDb());
 const as = (id: string, init: RequestInit = {}) => new Request("http://x/api/ui-prefs", { ...init, headers: { "content-type": "application/json", "x-test-member": JSON.stringify({ id, name: id }) } });
@@ -47,4 +47,11 @@ test("the apps page: pins are each person's own and come first in the order pinn
   assert.deepEqual(pinnedFirst([{ id: "a" }, { id: "b" }, { id: "c" }], ["c", "gone", "b"]).map((x) => x.id), ["c", "b", "a"]);
   assert.equal(new Set(ZOHO_APPS.map((z) => z.id)).size, ZOHO_APPS.length);
   for (const z of ZOHO_APPS) { assert.ok(existsSync(`public${z.icon}`), z.id); assert.match(new URL(z.url).hostname, /\.zoho\.in$/); }
+});
+
+test("our applications: the dashboard first, then pinned, then A to Z whatever the capitals", () => {
+  const a = (id: string, name: string) => ({ id, name });
+  const list = [a("1", "Think Health"), a("2", "GateSmartX"), a("3", "buyAED"), a("4", "AedSmartX")];
+  assert.deepEqual(arranged(list, []).map((x) => x.app?.name ?? "dashboard"), ["dashboard", "AedSmartX", "buyAED", "GateSmartX", "Think Health"]);
+  assert.deepEqual(arranged(list, ["1", "dashboard"]).map((x) => x.id), ["dashboard", "1", "4", "3", "2"]);
 });

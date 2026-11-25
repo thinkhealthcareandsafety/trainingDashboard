@@ -86,3 +86,8 @@ export function pinnedFirst<T extends { id: string }>(list: T[], pins: string[])
   const at = new Map(pins.map((p, i) => [p, i]));
   return [...list.filter((x) => at.has(x.id)).sort((a, b) => at.get(a.id)! - at.get(b.id)!), ...list.filter((x) => !at.has(x.id))];
 }
+/** Our applications (owner, 25 Nov): the dashboard first always, then the pinned ones, then A to Z. */
+export function arranged<T extends { id: string; name: string }>(apps: T[], pins: string[]): { id: string; app?: T }[] {
+  const az = [...apps].sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base", numeric: true }));
+  return [{ id: "dashboard" }, ...pinnedFirst(az, pins).map((app) => ({ id: app.id, app }))];
+}

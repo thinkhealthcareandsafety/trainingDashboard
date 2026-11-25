@@ -5,8 +5,7 @@ import Link from "next/link";
 import { useSession } from "@/lib/session";
 import { type LinkApp } from "@/lib/apps";
 import { homeOf } from "@/lib/roles";
-import { pinnedFirst, ZOHO_APPS } from "@/lib/zohoApps";
-import { APP_ICONS } from "./appIcons";
+import { arranged, pinnedFirst, ZOHO_APPS } from "@/lib/zohoApps";
 import "./launcher.css";
 
 /*
@@ -16,10 +15,6 @@ import "./launcher.css";
  * Right-click on any → Pin: first in its list, for that person (owner, 24 Nov).
  */
 
-const ICONS = APP_ICONS;
-const Glyph = ({ children, size = 34 }: { children: React.ReactNode; size?: number }) => (
-  <svg viewBox="0 0 20 20" width={size} height={size} fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{children}</svg>
-);
 const greet = (d: Date) => (d.getHours() < 12 ? "Good morning" : d.getHours() < 17 ? "Good afternoon" : "Good evening");
 const first = (name: string) => name.trim().split(/\s+/)[0] ?? "";
 const host = (url: string) => { try { return new URL(url).hostname; } catch { return ""; } };
@@ -77,7 +72,7 @@ export function LauncherView({ member, signOut }: { member: Who; signOut: () => 
     setMenu({ id, name, url, x: keyed ? r.left + r.width / 2 : e.clientX, y: keyed ? r.top + r.height / 2 : e.clientY });
   };
   const isPinned = (id: string) => Boolean(pins?.includes(id));
-  const ours: { id: string; app?: LinkApp }[] = pinnedFirst([{ id: "dashboard" }, ...(apps ?? []).map((app) => ({ id: app.id, app }))], pins ?? []);
+  const ours: { id: string; app?: LinkApp }[] = arranged(apps ?? [], pins ?? []);
   const remove = async (a: LinkApp) => {
     if (!window.confirm(`Take ${a.name} off the page for everyone?`)) return;
     const r = await fetch(`/api/apps?id=${encodeURIComponent(a.id)}`, { method: "DELETE" }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
@@ -94,7 +89,8 @@ export function LauncherView({ member, signOut }: { member: Who; signOut: () => 
           {ours.map(({ id, app: a }) => !a ? (
             <Link key={id} href={homeOf(member)} className="lx-tile lx-sw" onContextMenu={onMenu(id, "Think Health Dashboard", homeOf(member))}>
               {isPinned(id) && <PinMark />}
-              <span className="lx-ic" style={{ background: "#034f72" }}><Glyph>{ICONS.reports}</Glyph></span>
+              {/* eslint-disable-next-line @next/next/no-img-element -- a small fixed picture (the browser tab's star) */}
+              <span className="lx-ic lx-own"><img src="/star.svg" alt="" /></span>
               <span className="lx-name">Think Health Dashboard</span>
             </Link>
           ) : (
