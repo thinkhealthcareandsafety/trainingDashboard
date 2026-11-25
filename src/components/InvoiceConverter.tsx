@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
 import { EWAY_OVER, blocksOf } from "@/lib/invoiceConverterRules";
+import type { PoLog, PoRun } from "@/lib/poLog";
 import { PoScanLog, type ScanNow } from "./PoScanLog";
 import { Skeleton, toneOf } from "./ui";
 
@@ -58,24 +59,51 @@ export function InvoiceConverter() {
   const scanning = useRef(false);
   const onPage = useRef(true);
   useEffect(() => { onPage.current = true; return () => { onPage.current = false; }; }, []);
+  const [run, setRun] = useState<PoRun | null>(null);
   const findPos = async (byItself = false) => {
     setLog((l) => (byItself ? l || "small" : "open"));
     if (scanning.current) return;
-    setScan({ busy: true, text: "Reading the PO folder…" });
     scanning.current = true;
-    type Scan = { files?: number; left?: number; due?: string[]; names?: Record<string, string>; added?: number; seen?: number; unread?: number; error?: string };
+    // A new log for every scan (owner, 25 Nov); its lines come while it runs.
+    setRun({ startedAt: new Date().toISOString(), endedAt: null, lines: [], matched: 0, waiting: 0 });
+    setScan({ busy: true, text: "Opening the PO folder…" });
+    const seen = new Set<string>();
+    // One line at a time, so they can be followed (not in a hidden tab, where the browser slows timers).
+    const write = async (l: PoLog | null | undefined, fresh: boolean) => {
+      if (!l) return;
+      const more = l.entries.filter((e) => !seen.has(e.id));
+      for (const e of more) seen.add(e.id);
+      for (const e of more) {
+        setRun((r) => r && { ...r, matched: l.matched, waiting: l.waiting, lines: [{ ...e, fresh, n: r.lines.length + 1 }, ...r.lines] });
+        if (more.length > 1 && !document.hidden) await new Promise((ok) => setTimeout(ok, 45));
+      }
+    };
+    type Scan = { files?: number; left?: number; due?: string[]; names?: Record<string, string>; ids?: string[]; added?: number; seen?: number; unread?: number; log?: PoLog | null; error?: string };
     const ask = (body: object): Promise<Scan> => fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
-    let last: Scan = {};
-    for (let n = 0; n < 40; n++) {
+    let last: Scan = {}, fresh = 0;
+    for (let n = 0; n < 200 && onPage.current; n++) {
       last = await ask({ action: "scanPo" });
+      const due = new Set(last.due ?? []);
+      // One waiting for its picture gets its line when that is read.
+      if (last.log) await write({ ...last.log, entries: last.log.entries.filter((e) => !due.has(e.id) && e.look !== "due") }, true);
+      fresh += last.added ?? 0;
       if (last.error || !last.left || !last.added) break;
-      setScan({ busy: true, text: `Reading the PO folder… ${last.left} of ${last.files} PDFs left`, done: (last.files ?? 0) - last.left, of: last.files });
+      setScan({ busy: true, text: `Reading new PDFs… ${last.left} left`, done: seen.size, of: last.files });
+    }
+    const of = last.files ?? 0, due = last.error ? [] : last.due ?? [];
+    let problem = "";
+    // Those read before: each compared again with the PO numbers on the invoices now. (A scan that starts by itself skips this.)
+    if (!last.error && !byItself) {
+      const again = (last.ids ?? []).filter((id) => !seen.has(id) && !(last.names ?? {})[id]);
+      for (let k = 0; k < again.length && onPage.current; k += 15) {
+        setScan({ busy: true, text: `Checking every PDF in the folder… ${again.length - k} left`, done: seen.size, of });
+        const r = await ask({ action: "checkPo", files: again.slice(k, k + 15) });
+        if (r.error) { problem = r.error; break; }
+        await write(r.log, false);
+      }
     }
     // The scans: each first page is read here, in this browser (the page must stay open; it carries on next time).
-    const due = last.error ? [] : last.due ?? [];
-    let problem = "";
-    if (due.length) {
-      await load();
+    if (due.length && onPage.current) {
       const { readFirstPage, stopReading } = await import("@/lib/pageRead");
       let misses = 0;
       for (const [n, id] of due.entries()) {
@@ -92,6 +120,7 @@ export function InvoiceConverter() {
           if (text !== null) misses = 0;
           const saved = await ask({ action: "pageText", file: id, text });
           if (saved.error) throw new Error(saved.error);
+          await write(saved.log, true);
         } catch (e) { problem = e instanceof Error ? e.message : "Couldn't read a page"; if (++misses >= 5) break; }
         if (n % 10 === 9 && onPage.current) await load();
       }
@@ -100,10 +129,13 @@ export function InvoiceConverter() {
       const end = await ask({ action: "scanPo" });
       if (!end.error) last = end;
     }
+    if (!onPage.current) return;
     await load();
     scanning.current = false;
-    const bad = (last.left ?? 0) + (last.due?.length ?? 0) + (last.unread ?? 0);
-    setScan(last.error || (problem && last.due?.length) ? { busy: false, text: last.error ?? problem, bad: true } : { busy: false, text: `${last.files ?? 0} PDFs in the PO folder checked, ${last.seen ?? 0} of them read from the scanned page${bad ? ` · ${bad} couldn't be read` : ""}` });
+    setRun((r) => r && { ...r, endedAt: new Date().toISOString() });
+    const still = (last.left ?? 0) + (last.due?.length ?? 0), bad = last.unread ?? 0;
+    const trouble = last.error ?? problem;
+    setScan(trouble ? { busy: false, text: trouble, bad: true } : { busy: false, text: `${of} PDFs in the PO folder, ${fresh} new${still ? ` · ${still} not read yet` : ""}${bad ? ` · ${bad} couldn't be read` : ""}` });
   };
   const load = () => fetch("/api/invoice-converter", { cache: "no-store" }).then(async (r) => {
     const j = await r.json().catch(() => ({}));
@@ -150,7 +182,7 @@ export function InvoiceConverter() {
         {foundCount > 0 && <button type="button" aria-pressed={filtering} onClick={() => setOnlyFound(!filtering)} className={`press num h-11 shrink-0 rounded-full px-5 text-[13.5px] font-semibold ${filtering ? "bg-brand-soft text-brand ring-1 ring-brand/40" : "bg-surface text-ink shadow-card hover:bg-surface-2"}`}>{foundCount} PO{foundCount === 1 ? "" : "s"} found{filtering ? " ✕" : ""}</button>}
         {log === "" && <button type="button" onClick={() => setLog("open")} className="press h-11 shrink-0 rounded-full px-4 text-[13.5px] font-medium text-muted hover:bg-surface hover:text-ink">Scan log</button>}
         {log === "" && scan.text && <span className={`num text-[13px] ${scan.bad ? "text-high" : "text-muted"}`} role="status">{scan.text}</span>}
-        {log !== "" && <PoScanLog now={scan} small={log === "small"} onSmall={smallLog} onClose={() => setLog("")} />}
+        {log !== "" && <PoScanLog now={scan} run={run} small={log === "small"} onSmall={smallLog} onClose={() => setLog("")} />}
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}

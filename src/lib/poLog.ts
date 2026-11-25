@@ -8,8 +8,10 @@ export type PoLogEntry = {
   po: string;
   invoices: { number: string; has: boolean }[];
 };
-/** `upTo`: ask again with this for what changed since. `matched` / `waiting`: invoices whose PO is here / still to attach. */
-export type PoLog = { entries: PoLogEntry[]; upTo: string; matched: number; waiting: number };
+/** `matched` / `waiting`: invoices whose PO is here / still to attach. */
+export type PoLog = { entries: PoLogEntry[]; matched: number; waiting: number };
+/** One scan (owner, 25 Nov: "per scan I need new logs"): the PDFs in the order they were checked, newest first; `fresh` = read for the first time in this scan. */
+export type PoRun = { startedAt: string; endedAt: string | null; lines: (PoLogEntry & { fresh: boolean; n: number })[]; matched: number; waiting: number };
 
 export const poLogGroup = (e: PoLogEntry): "open" | "has" | "none" | "unread" | "waiting" =>
   e.invoices.some((i) => !i.has) ? "open" : e.invoices.length ? "has" : e.look === "due" ? "waiting" : e.look === "failed" || e.empty ? "unread" : "none";

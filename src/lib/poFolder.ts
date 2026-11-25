@@ -25,7 +25,7 @@ type State = { _id: string; keys: string[]; at: string | null; left: number };
 type SalesRow = { _id: string; kind: string; row: Record<string, unknown> };
 export type PoFile = { id: string; name: string };
 /** `left`: PDFs still to read as text; `due`: ids whose picture is still to be read; `seen`: read from their picture; `unread`: nothing like an order could be read. */
-export type ScanResult = { files: number; left: number; due: string[]; names: Record<string, string>; added: number; seen: number; unread: number };
+export type ScanResult = { files: number; left: number; due: string[]; names: Record<string, string>; /** Just read, and every PDF there (nearest the top first). */ read: string[]; ids: string[]; added: number; seen: number; unread: number };
 
 const scans = async () => (await db()).collection<Scan>("poScans");
 const kv = async () => (await db()).collection<State>("kv");
@@ -75,6 +75,7 @@ export async function scanPoFolder(budgetMs: number, now = () => Date.now()): Pr
   const compared = new Set((await (await kv()).findOne({ _id: "po_folder" }))?.keys ?? []);
   for (const k of keys) compared.add(k);
   const all = [...compared];
+  const read: string[] = [];
   let next = 0, added = 0, failed = 0;
   const work = async () => {
     while (next < todo.length && now() - t0 < budgetMs) {
@@ -86,6 +87,7 @@ export async function scanPoFolder(budgetMs: number, now = () => Date.now()): Pr
         const doc: Omit<Scan, "_id"> = { name: f.name, size: f.size, depth: f.depth, text: kept, hits: all.filter((k) => poInPdf(k, kept)), look: clearPo(kept) ? "no" : "due", po: poFromText(kept) ?? "", empty: !kept, v: VERSION, at: new Date().toISOString() };
         await col.replaceOne({ _id: f.id }, doc, { upsert: true });
         added++;
+        read.push(f.id);
       } catch (e) {
         failed++;
         console.error(`[po folder] ${f.id}: ${e instanceof Error ? e.message : e}`);
@@ -105,7 +107,7 @@ export async function scanPoFolder(budgetMs: number, now = () => Date.now()): Pr
   const waiting = after.filter((s) => s.look === "due").sort((a, b) => a.depth - b.depth);
   const due = waiting.filter((s, n) => waiting.findIndex((x) => twins(x, s)) === n).map((s) => s._id), left = todo.length - added;
   await (await kv()).updateOne({ _id: "po_folder" }, { $set: { left } });
-  return { files: files.length, left, due, names: Object.fromEntries(waiting.map((s) => [s._id, s.name])), added, seen: after.filter((s) => s.look === "done").length, unread: after.filter((s) => s.look !== "due" && !s.text).length };
+  return { files: files.length, left, due, names: Object.fromEntries(waiting.map((s) => [s._id, s.name])), read, ids: after.sort((a, b) => a.depth - b.depth || a.name.localeCompare(b.name)).map((s) => s._id), added, seen: after.filter((s) => s.look === "done").length, unread: after.filter((s) => s.look !== "due" && !s.text).length };
 }
 
 const twins = (a: Scan, b: Scan) => a.name === b.name && a.size === b.size;
@@ -115,19 +117,34 @@ export async function isDue(fileId: string): Promise<boolean> {
   return (await (await scans()).findOne({ _id: fileId }))?.look === "due";
 }
 /** The words the browser read on its first page (null = it couldn't), kept for it and its copies in other folders. */
-export async function savePageText(fileId: string, words: string | null): Promise<void> {
+export async function savePageText(fileId: string, words: string | null): Promise<string[]> {
   const col = await scans(), s = await col.findOne({ _id: fileId });
-  if (!s || s.look !== "due") return;
+  if (!s || s.look !== "due") return [];
+  const ids: string[] = [];
   const keys = [...new Set([...((await (await kv()).findOne({ _id: "po_folder" }))?.keys ?? []), ...(await currentKeys())])];
   for (const x of (await col.find({}).toArray()).filter((x) => x.look === "due" && twins(x, s))) {
+    ids.push(x._id);
     if (words === null) { await col.updateOne({ _id: x._id }, { $set: { look: "failed", at: new Date().toISOString() } }); continue; }
     const both = `${x.text}\n${words}`.slice(-MAX_TEXT), kept = orderText(both) ? both : "";
     await col.updateOne({ _id: x._id }, { $set: { text: kept, hits: keys.filter((k) => poInPdf(k, kept)), look: "done", po: poFromText(kept) ?? "", empty: !kept, at: new Date().toISOString() } });
   }
+  return ids;
 }
 
-/** The log: every PDF (or those changed after `since`), newest first, with the invoices its PO number belongs to. */
-export async function poLog(since = ""): Promise<PoLog> {
+/** PDFs already read, compared again with the PO numbers on the invoices now (each scan goes over every PDF). Their log lines. */
+export async function checkAgain(ids: string[]): Promise<PoLog> {
+  const col = await scans(), keys = await currentKeys();
+  await Promise.all(ids.map(async (id) => {
+    const s = await col.findOne({ _id: id });
+    if (!s || s.look === "due") return;
+    const hits = keys.filter((k) => poInPdf(k, s.text));
+    if (hits.length !== s.hits.length || hits.some((k) => !s.hits.includes(k))) await col.updateOne({ _id: id }, { $set: { hits } });
+  }));
+  return poLog(ids);
+}
+
+/** The log: every PDF, the last read first (or only `ids`, in that order), with the invoices its PO number belongs to. */
+export async function poLog(ids?: string[]): Promise<PoLog> {
   const col = await scans(), d = await db();
   // Read before 25 Nov: what the log shows is worked out once from the kept words.
   if ((await col.find({}, { projection: { text: 0 } }).toArray()).some((s) => s.empty === undefined)) {
@@ -142,11 +159,11 @@ export async function poLog(since = ""): Promise<PoLog> {
     if (k) byKey.set(k, [...(byKey.get(k) ?? []), { number: String(r.row.invoice_number ?? ""), has: (files.get(r.id) ?? []).some(isPoFile) }]);
   }
   const here = [...new Set(all.flatMap((s) => s.hits))].flatMap((k) => byKey.get(k) ?? []);
-  const entries = all.filter((s) => !since || s.at >= since).map((s) => {
+  const entries = (ids ? ids.flatMap((id) => all.find((s) => s._id === id) ?? []) : all).map((s) => {
     const hit = s.hits.filter((k) => byKey.has(k));
     return { id: s._id, name: s.name, at: s.at, look: s.look, empty: Boolean(s.empty), po: hit.join(", ") || s.po || "", invoices: hit.flatMap((k) => byKey.get(k)!) };
   });
-  return { entries, upTo: all[0]?.at ?? "", matched: here.length, waiting: here.filter((i) => !i.has).length };
+  return { entries, matched: here.length, waiting: here.filter((i) => !i.has).length };
 }
 
 /** How many scanned PDFs still wait to be read (the page then carries on by itself). */

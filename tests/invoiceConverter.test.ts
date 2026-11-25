@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 import { clearPo, orderText, poInPdf, poKey } from "@/lib/poMatch";
 import { poLogGroup } from "@/lib/poLog";
-import { matchNewKeys, poFileFor, poFiles, poLog } from "@/lib/poFolder";
+import { checkAgain, matchNewKeys, poFileFor, poFiles, poLog } from "@/lib/poFolder";
 import { GET as convGet, POST as convPost } from "@/app/api/invoice-converter/route";
 
 // The Invoice Converter (owner, 17 Nov): customers, their invoices, the PO and (over ₹50,000) the e-way bill.
@@ -244,8 +244,11 @@ test("the scan log: each PDF, how it was read, its PO number, and whether its in
   await d.collection<any>("invoiceExtras").insertOne({ _id: "1", files: ["PO - N1.pdf"] });
   const l = await poLog();
   assert.deepEqual(l.entries.map((e) => [e.id, poLogGroup(e), e.po]), [["c", "unread", ""], ["b", "none", "70001234"], ["a", "open", "52600831"], ["e", "waiting", ""]]);
-  assert.deepEqual([l.matched, l.waiting, l.upTo], [2, 1, "2026-11-25T03:00:00.000Z"]);
-  assert.deepEqual((await poLog("2026-11-25T02:30:00.000Z")).entries.map((e) => e.id), ["c"]);
+  assert.deepEqual([l.matched, l.waiting], [2, 1]);
+  // Each scan compares them again with the PO numbers on the invoices now.
+  await d.collection<any>("salesDocs").insertOne({ _id: "invoices:3", id: "3", kind: "invoices", row: { cf_purchase_order_number: "70001234", invoice_number: "N3" } });
+  assert.deepEqual((await checkAgain(["b", "a"])).entries.map((e) => [e.id, e.invoices.length]), [["b", 1], ["a", 2]]);
+  assert.deepEqual((await d.collection<any>("poScans").findOne({ _id: "b" })).hits, ["70001234"]);
   await d.collection<any>("invoiceExtras").insertOne({ _id: "2", files: ["PO - N2.pdf"] });
   assert.equal(poLogGroup((await poLog()).entries[2]), "has");
 });

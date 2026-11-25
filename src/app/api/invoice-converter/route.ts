@@ -2,7 +2,7 @@ import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
 import { attachFoundPo, attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
-import { isDue, poFileFor, poLog, savePageText, scanPoFolder } from "@/lib/poFolder";
+import { checkAgain, isDue, poFileFor, poLog, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,8 @@ export const maxDuration = 60;
  *  GET ?merged=<invoice id>    — the invoice + PO + e-way bill PDFs merged, unsigned
  *  GET ?po=<WorkDrive file>&id=<invoice> — a PO PDF found for that invoice, to look at (only one that carries its PO number)
  *  POST { action: "scanPo" }                       — read the new PDFs in the WorkDrive PO folder; { files, left, due, … } (ask again while left > 0)
- *  GET ?poLog=<since>                              — the log of the PO folder's PDFs (those changed since, or all)
+ *  GET ?poLog                                      — the log of the PO folder's PDFs
+ *  POST { action: "checkPo", files }               — PDFs already read, compared again (up to 40); their log lines
  *  GET ?scan=<WorkDrive file>                      — a PDF whose picture is to be read (one of `due`, nothing else)
  *  POST { action: "pageText", file, text }         — the words the browser read on it (text null = it couldn't)
  *  POST { action: "usePo", id, file }              — the found PO PDF attached to the invoice in Zoho
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
       // Passed on as it arrives: a whole answer over 4.5 MB would be refused by the host.
       return new Response(res.body, { headers: { "content-type": "application/pdf", "content-disposition": `inline; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"`, "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
     }
-    if (q.has("poLog")) return json(await poLog((q.get("poLog") ?? "").slice(0, 30)));
+    if (q.has("poLog")) return json(await poLog());
     const scan = q.get("scan");
     if (scan) {
       if (!goodWdId(scan) || !(await isDue(scan))) return json({ error: "Unknown file" }, 404);
@@ -85,18 +86,25 @@ export async function POST(request: Request) {
       const value = f.get("value");
       return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined, f.get("replace") === "1"));
     }
-    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; files?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
     const id = String(b?.id ?? "");
     if (b?.action === "signer") return json(await setSigner(me.id, { email: b.email, name: b.name }));
     if (b?.action === "connectSign") {
       if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sign" }, 403);
       return json(await connectSign({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
     }
-    if (b?.action === "scanPo") return json(await scanPoFolder(25_000));
+    if (b?.action === "scanPo") {
+      const r = await scanPoFolder(4_000); // short, so the log's lines come as they are read
+      return json({ ...r, log: r.read.length ? await poLog(r.read) : null });
+    }
+    if (b?.action === "checkPo") {
+      const files = Array.isArray(b.files) ? b.files.filter(goodWdId).slice(0, 40) : [];
+      return json({ log: await checkAgain(files) });
+    }
     if (b?.action === "pageText") {
       if (!goodWdId(b.file) || (b.text !== null && typeof b.text !== "string")) return json({ error: "Unknown file" }, 400);
-      await savePageText(b.file, b.text === null ? null : b.text.slice(0, 60_000));
-      return json({ ok: true });
+      const ids = await savePageText(b.file, b.text === null ? null : b.text.slice(0, 60_000));
+      return json({ ok: true, log: ids.length ? await poLog(ids) : null });
     }
     if (!ID.test(id)) return json({ error: "Unknown invoice" }, 400);
     if (b?.action === "usePo") return goodWdId(b.file) ? json(await attachFoundPo(id, b.file)) : json({ error: "Unknown file" }, 400);
