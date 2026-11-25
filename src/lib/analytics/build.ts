@@ -115,6 +115,46 @@ function kindOf(group: string | null, name: string | undefined) {
   return /pad|electrode/i.test(s) ? "Pads" : /batter/i.test(s) ? "Battery" : /trainer|accessor|bag|cabinet|bracket|sign|software/i.test(s) ? "Other" : /\baeds?\b|defibrillator|ddu-/i.test(s) ? "AED" : "Other";
 }
 
+/** What a unit of a product cost on a day: its average price on the bills of the 12 months before, else any earlier bill; null = never bought. */
+export function buyPrices(t: RawTables): (product: string, on: string) => number | null {
+  const billDay = new Map((t.bills ?? []).filter((b) => !/void|draft/i.test(b["Bill Status"] ?? "")).map((b) => [b["Bill ID"], day(b["Bill Date"])]));
+  const buys = new Map<string, { d: string; q: number; v: number }[]>();
+  for (const b of t.billItems ?? []) {
+    const d = billDay.get(b["Bill ID"]);
+    const q = money(b["Quantity"]) ?? 0;
+    if (d && b["Product ID"] && q > 0) (buys.get(b["Product ID"]) ?? buys.set(b["Product ID"], []).get(b["Product ID"])!).push({ d, q, v: money(b["Sub Total (BCY)"]) ?? 0 });
+  }
+  return (product, on) => {
+    const earlier = (buys.get(product) ?? []).filter((b) => b.d <= on);
+    const from = new Date(Date.parse(on) - 365 * 86_400_000).toISOString().slice(0, 10);
+    const use = earlier.some((b) => b.d >= from) ? earlier.filter((b) => b.d >= from) : earlier;
+    const q = use.reduce((s, b) => s + b.q, 0);
+    return q > 0 ? use.reduce((s, b) => s + b.v, 0) / q : null;
+  };
+}
+
+/**
+ * A kit sold as one priced line, with its parts listed at ₹0 to take them out of stock (e.g. "FRx AED with Child
+ * Key" + the FRx units and keys at ₹0 — ₹32 L of cost on one invoice, 28 Oct): the parts' cost belongs to the kit.
+ * Shared over the invoice's no-cost lines by value. ₹0 lines on an invoice with no such kit stay a cost (giveaways).
+ */
+export function shareKits(margin: Row[]): void {
+  const byInvoice = new Map<string, Row[]>();
+  for (const r of margin) byInvoice.set(String(r.invoice), [...(byInvoice.get(String(r.invoice)) ?? []), r]);
+  for (const rows of byInvoice.values()) {
+    const parts = rows.filter((r) => r.amount === 0 && typeof r.cost === "number" && r.cost > 0);
+    const kits = rows.filter((r) => r.costSource === "No cost in Zoho" && (r.amount as number) > 0);
+    if (!parts.length || !kits.length) continue;
+    const partsCost = parts.reduce((s, r) => s + (r.cost as number), 0);
+    const kitValue = kits.reduce((s, r) => s + (r.amount as number), 0);
+    for (const r of parts) Object.assign(r, { cost: 0, profit: 0, costedQty: 0, costSource: "Kit part (cost on the kit)" });
+    for (const r of kits) {
+      const c = partsCost * ((r.amount as number) / kitValue);
+      Object.assign(r, { cost: c, costedAmount: r.amount, costedQty: r.qty, profit: (r.amount as number) - c, costSource: "Kit (parts' FIFO cost)" });
+    }
+  }
+}
+
 /** A row's other Zoho columns (extras.ts) as `x.<table>.<column>` — numbers only from the row's own table (`own`). */
 type Xc = (table: TableKey, r: Raw | undefined, own?: boolean) => Row;
 
@@ -361,20 +401,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
   if (t.fifo && t.stockOut && t.billItems && t.bills) {
     const qtyOf = new Map<string, number>(); // the invoice's units of that item, over all its lines
     for (const li of t.invoiceItems ?? []) { const k = `${li["Invoice ID"]}|${li["Product ID"]}`; qtyOf.set(k, (qtyOf.get(k) ?? 0) + (money(li["Quantity"]) ?? 0)); }
-    const billDay = new Map(t.bills.filter((b) => !/void|draft/i.test(b["Bill Status"] ?? "")).map((b) => [b["Bill ID"], day(b["Bill Date"])]));
-    const buys = new Map<string, { d: string; q: number; v: number }[]>();
-    for (const b of t.billItems) {
-      const d = billDay.get(b["Bill ID"]);
-      const q = money(b["Quantity"]) ?? 0;
-      if (d && b["Product ID"] && q > 0) (buys.get(b["Product ID"]) ?? buys.set(b["Product ID"], []).get(b["Product ID"])!).push({ d, q, v: money(b["Sub Total (BCY)"]) ?? 0 });
-    }
-    const avgPrice = (product: string, on: string) => {
-      const earlier = (buys.get(product) ?? []).filter((b) => b.d <= on);
-      const from = new Date(Date.parse(on) - 365 * 86_400_000).toISOString().slice(0, 10);
-      const use = earlier.some((b) => b.d >= from) ? earlier.filter((b) => b.d >= from) : earlier;
-      const q = use.reduce((s, b) => s + b.q, 0);
-      return q > 0 ? use.reduce((s, b) => s + b.v, 0) / q : null;
-    };
+    const avgPrice = buyPrices(t);
     const outOf = new Map((t.stockOut ?? []).filter((r) => r["Invoice ID"]).map((r) => [r["Stock Out Flow ID"], { k: `${r["Invoice ID"]}|${r["Product ID"]}`, d: day(r["Transaction Date"]) }]));
     // Stock added by an adjustment at ~₹0 (a count correction — 11 Defibtech pads at ₹0.01 on 6 Jul 2026, found 29 Oct)
     // isn't a purchase: units FIFO takes from it are costed at the average bill price instead of ₹0.
@@ -409,23 +436,7 @@ export function buildRows(t: RawTables, trainings: BoardTraining[], today: strin
         amount, qty, cost, costedAmount: cost === null ? 0 : amount, costedQty: cost === null ? 0 : qty, profit: cost === null ? null : amount - cost,
       });
     }
-    // A kit sold as one priced line, with its parts listed at ₹0 to take them out of stock (e.g. "FRx AED with Child
-    // Key" + the FRx units and keys at ₹0 — ₹32 L of cost on one invoice, 28 Oct): the parts' cost belongs to the kit.
-    // Shared over the invoice's no-cost lines by value. ₹0 lines on an invoice with no such kit stay a cost (giveaways).
-    const byInvoice = new Map<string, Row[]>();
-    for (const r of margin) byInvoice.set(String(r.invoice), [...(byInvoice.get(String(r.invoice)) ?? []), r]);
-    for (const rows of byInvoice.values()) {
-      const parts = rows.filter((r) => r.amount === 0 && typeof r.cost === "number" && r.cost > 0);
-      const kits = rows.filter((r) => r.costSource === "No cost in Zoho" && (r.amount as number) > 0);
-      if (!parts.length || !kits.length) continue;
-      const partsCost = parts.reduce((s, r) => s + (r.cost as number), 0);
-      const kitValue = kits.reduce((s, r) => s + (r.amount as number), 0);
-      for (const r of parts) Object.assign(r, { cost: 0, profit: 0, costedQty: 0, costSource: "Kit part (cost on the kit)" });
-      for (const r of kits) {
-        const c = partsCost * ((r.amount as number) / kitValue);
-        Object.assign(r, { cost: c, costedAmount: r.amount, costedQty: r.qty, profit: (r.amount as number) - c, costSource: "Kit (parts' FIFO cost)" });
-      }
-    }
+    shareKits(margin);
   }
 
   return {

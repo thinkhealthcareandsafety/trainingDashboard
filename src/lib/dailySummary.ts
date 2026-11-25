@@ -1,3 +1,4 @@
+import type { MarginFacts } from "./margin";
 import { type AedReport, type Tally } from "./aedStock";
 import { type GstPeriod, gstRows } from "./gst";
 import { type DaySums, type SalesDayRow, inrShort, personKey, vsLastYear } from "./overviewMath";
@@ -39,6 +40,8 @@ export type SummaryFacts = {
   aedStock?: { report: AedReport; unread: number } | null;
   /** GST on sales (invoices) and purchases (bills) for today / this week / this FY (gst.ts); `unread` = documents not read from Zoho yet. */
   gst?: { periods: GstPeriod[]; unread: number } | null;
+  /** The margin (owner, 25 Nov): in the PDF to the owner only — never in the email's own text (summaryEmail doesn't read it). */
+  margin?: MarginFacts | null;
   /** Why a section is missing: section → reason. */
   errors: Partial<Record<string, string>>;
 };

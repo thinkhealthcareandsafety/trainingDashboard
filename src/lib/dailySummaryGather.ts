@@ -10,6 +10,8 @@ import {
 import { boardTrainings } from "./fulfilServer";
 import { type GstDoc, gstOf, gstPeriods, gstWindows } from "./gst";
 import { type SalesDayRow, daySums } from "./overviewMath";
+import { marginFacts } from "./margin";
+import { marginData } from "./marginServer";
 import { booksApi } from "./quotations";
 import { type ZItem, lmtOf, pool } from "./zoho";
 import { aedData, getSnapshot } from "./zohoSync";
@@ -165,7 +167,7 @@ const movesOf = (docs: ReadDoc[]): MoveLine[] => docs.flatMap((d) => ((d.doc.lin
 
 const toRow = (kind: "estimates" | "invoices", r: Row): SalesDayRow => ({ _id: `${kind}:${String(r[kind === "estimates" ? "estimate_id" : "invoice_id"])}`, kind, date: String(r.date ?? ""), row: r });
 
-export async function gatherSummary(kind: ReportKind, on: string): Promise<SummaryFacts> {
+export async function gatherSummary(kind: ReportKind, on: string, withMargin = false): Promise<SummaryFacts> {
   const errors: SummaryFacts["errors"] = {};
   const from = kind === "daily" ? on : monthStart(on);
   const range: Record<string, string> = kind === "daily" ? { date: on } : { date_start: from, date_end: on };
@@ -277,8 +279,19 @@ export async function gatherSummary(kind: ReportKind, on: string): Promise<Summa
   const [rFrom, rTo] = kind === "daily" ? [on, addDays(on, 30)] : nextMonth(on);
   const renewals = boards ? await attempt(errors, "renewals", async () => renewalsDue(aedData(boards.snap).invoices, parseAedLine, rFrom, rTo)) : null;
 
+  // After the invoices above were read and kept, so today's count. Its reason for failing isn't kept (no figures in the email's text).
+  let margin: SummaryFacts["margin"];
+  if (withMargin) {
+    margin = await (async () => {
+      await monthDocs;
+      const d = await marginData(on, true);
+      return marginFacts(d.lines, d.quotes, on, kind === "daily", d.unread);
+    })().catch((e) => { console.error(`[summary] margin: ${e instanceof Error ? e.name : "error"}`); return null; });
+  }
+
   return {
     kind, on, days,
+    ...(withMargin ? { margin } : {}),
     aedStock,
     gst,
     quotes: sales("estimates"),

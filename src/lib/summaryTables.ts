@@ -40,6 +40,28 @@ export function change(now: number, last: number): Cell {
   return { text: `${pct > 0 ? "+" : ""}${pct}%`, tone: pct > 0 ? "up" : "down" };
 }
 
+/** The margin (owner, 25 Nov): the company and each salesperson, then the years, then the invoices. */
+function margin(f: SummaryFacts): Section | null {
+  if (f.margin === undefined) return null;
+  const title = "Margin (confidential)";
+  if (!f.margin) return { title, blocks: [{ note: "The margin couldn't be worked out this time." }] };
+  const m = f.margin, pct = (p: number | null) => (p === null ? "" : `${p.toFixed(1)}%`);
+  const both = (v: number, p: number | null): Cell => (p === null ? "-" : { text: `${money(v)} · ${pct(p)}`, ...(v < 0 ? { tone: "down" as const } : {}) });
+  const blocks: Block[] = [
+    { table: { columns: [{ head: "Margin before GST", width: 1.1 }, { head: "Today", right: true }, { head: "This week", right: true }, { head: "This month", right: true }, { head: "This year", right: true }],
+      rows: m.table.map((r, i) => ({ cells: [r.who, ...r.cells.map((c) => both(c.profit, c.pct))], ...(i ? {} : { bold: true }) })) } },
+    { table: { columns: [{ head: "Year", width: 1.1 }, { head: "Goods sold", right: true }, { head: "Margin", right: true }, { head: "%", right: true, width: 0.6 }],
+      rows: [...m.years.map((y): TableRow => ({ cells: [y.label, money(y.sale), money(y.profit), pct(y.pct)] })), { cells: ["All years", money(m.all.sale), money(m.all.profit), pct(m.all.pct)], bold: true }] } },
+  ];
+  const daily = f.kind === "daily";
+  if (m.deals.length) blocks.push({ table: { columns: [{ head: daily ? "Today's invoices" : "Thin or at a loss this month", width: 1.3 }, { head: "Customer", width: 2.2 }, { head: "By", width: 0.8 }, { head: "Sale", right: true }, { head: "Margin", right: true }, { head: "%", right: true, width: 0.7 }],
+    rows: m.deals.slice(0, 25).map((d) => ({ cells: [d.invoice, d.customer, first(d.person) || "-", money(d.sale || d.skipped), d.pct === null ? { text: "cost to check", muted: true } : money(d.profit), d.pct === null ? "" : d.tone === "ok" ? pct(d.pct) : { text: pct(d.pct), tone: "down" }] })) } });
+  if (m.thinQuotes.length) blocks.push({ table: { columns: [{ head: "Open quotations under 10%", width: 1.5 }, { head: "Customer", width: 2.2 }, { head: "By", width: 0.8 }, { head: "Value", right: true }, { head: "%", right: true, width: 0.7 }],
+    rows: m.thinQuotes.map((q) => ({ cells: [q.quote, q.customer, first(q.person) || "-", money(q.total), { text: pct(q.pct), tone: "down" }] })) } });
+  blocks.push({ note: `Goods only: trainings have no cost in Zoho. This year ${m.skipped.lines} lines (${money(m.skipped.sale)} of sales) are left out because their cost looks wrong or is missing: see "Check these costs" on the Overview. Invoices of the last day or two use the average purchase price until Zoho's cost arrives.${m.unread ? ` ${m.unread} new invoices not read yet.` : ""}` });
+  return { title, blocks };
+}
+
 const note = (why: string | undefined): Block => ({ note: `Couldn't read this from Zoho${why ? ` (${why})` : ""}.` });
 
 function aed(f: SummaryFacts): Section {
@@ -205,7 +227,7 @@ function renewals(f: SummaryFacts): Section {
 /** The whole summary as sections of tables. */
 export function summaryTables(f: SummaryFacts): SummaryDoc {
   const daily = f.kind === "daily";
-  const sections = [f.aedStock !== undefined ? aed(f) : null, sales(f), pace(f), gst(f), payments(f), outstanding(f), stock(f), customers(f), trainings(f), renewals(f)].filter((s): s is Section => Boolean(s));
+  const sections = [margin(f), f.aedStock !== undefined ? aed(f) : null, sales(f), pace(f), gst(f), payments(f), outstanding(f), stock(f), customers(f), trainings(f), renewals(f)].filter((s): s is Section => Boolean(s));
   return {
     kicker: `${daily ? "Daily" : "Monthly"} summary · ${daily ? longDate(f.on) : monthName(f.on)}`,
     headline: `${headline(f)}.`,

@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { useSession } from "@/lib/session";
-import { boardsFor, canSee, homeOf } from "@/lib/roles";
+import { boardsFor, canSee, canSeeMargin, homeOf } from "@/lib/roles";
 import { useRouter } from "next/navigation";
 import { KpiStrip, type OverviewMode, RangePicker, TrendCard, UPCOMING_DAYS } from "@/components/Kpis";
 import { type OverviewRange, RANGE_KEY, parseRange } from "@/lib/overviewRange";
@@ -15,6 +16,9 @@ import { addDays, fmtDate, startOfDay, ymd } from "@/lib/dates";
 import { upcoming } from "@/lib/kpi";
 import type { BoardTraining } from "@/lib/types";
 import { OverviewSales } from "@/components/OverviewSales";
+
+// The margin (owner, 25 Nov): its code reaches only the browsers of those who may see it.
+const MarginReport = dynamic(() => import("@/components/MarginReport"), { ssr: false });
 
 function greeting(d: Date) {
   const h = d.getHours();
@@ -93,6 +97,7 @@ export default function OverviewPage() {
         sub={`${now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} · ${mode === "aed" ? "Here’s how AED trainings are going" : "Quotations and invoices, for the company and each of you"}`}
         actions={loaded && mode === "aed" ? <RangePicker value={range} onChange={pick} now={now} /> : undefined}
       />
+      {member && canSeeMargin(member) && <MarginReport />}
       {data?.error && (
         <p className="mb-6 flex items-center gap-2.5 rounded-2xl bg-medium-bg px-4 py-3 text-[13.5px] text-ink-2">
           <span className="size-2 shrink-0 rounded-full bg-medium" />

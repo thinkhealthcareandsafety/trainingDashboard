@@ -16,6 +16,7 @@ import { NOT_ATTACHED, sendMail } from "./zohoMail";
 
 const TO = process.env.REPORT_TO ?? "sshah@thinkhealth.in";
 const FROM = process.env.REPORT_FROM ?? "hello@thinkhealth.in";
+const CONFIDENTIAL_FROM = process.env.REPORT_CONFIDENTIAL_FROM ?? "learn@thinkhealth.in"; // Shikha's mailbox (may see the margin)
 const KEY = "overview_report";
 
 type State = { _id: string; daily?: string; monthly?: string };
@@ -50,14 +51,31 @@ async function claim(kind: ReportKind, mark: string): Promise<boolean> {
 }
 const release = async (kind: ReportKind, mark: string) => { await (await kv()).updateOne({ _id: KEY, [kind]: mark }, { $unset: { [kind]: "" } }).catch(() => undefined); };
 
-/** Builds and sends one summary for the India day `on`. */
+/**
+ * Builds and sends one summary for the India day `on`. To the owner's own address the PDF has the margin (25 Nov) and goes
+ * from CONFIDENTIAL_FROM: a sent email stays in its mailbox's Sent folder, and hello@ is read by others. If that mailbox
+ * can't send it, or the PDF won't attach, the summary goes from hello@ without the margin. A test to anyone else: no margin.
+ */
 export async function sendOverviewReport(kind: ReportKind, on: string, to = TO): Promise<void> {
-  const facts = await gatherSummary(kind, on);
+  const forOwner = to.trim().toLowerCase() === TO.trim().toLowerCase();
+  const facts = await gatherSummary(kind, on, forOwner);
   const mail = summaryEmail(facts);
-  const doc = summaryTables(facts);
   const name = `${kind === "daily" ? "Daily" : "Monthly"} summary ${kind === "daily" ? on : on.slice(0, 7)}.pdf`;
+  const pdfTo = async (from: string, f: typeof facts) => {
+    const doc = summaryTables(f);
+    await sendMail(from, { to, subject: mail.subject, html: pdfBody(doc.kicker, doc.headline), attachments: [{ name, bytes: await summaryPdf(doc) }], needAttachments: true });
+  };
+  if (facts.margin) {
+    try {
+      return await pdfTo(CONFIDENTIAL_FROM, facts);
+    } catch (e) {
+      console.error(`[overview report] the confidential mailbox didn't send (${e instanceof Error ? e.message : e}): sending without the margin`);
+    }
+  }
+  const { margin: _m, ...plain } = facts;
+  void _m;
   try {
-    await sendMail(FROM, { to, subject: mail.subject, html: pdfBody(doc.kicker, doc.headline), attachments: [{ name, bytes: await summaryPdf(doc) }], needAttachments: true });
+    await pdfTo(FROM, plain);
   } catch (e) {
     if (!(e instanceof Error && e.message.startsWith(NOT_ATTACHED))) throw e;
     console.error(`[overview report] ${e.message} — sending the summary in the email instead`);

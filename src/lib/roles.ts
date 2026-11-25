@@ -85,6 +85,9 @@ export const canConvertInvoices = (m: Who) => canSee(m, "converter");
 /** The Follow-ups page: the page, with at least one board. */
 export const hasFollowUps = (m: Who) => canSee(m, "followups") && boardsFor(m).length > 0;
 
+/** The margin report (owner, 25 Nov): Sumit, Ashish, Shikha, Nikita and the Admin login; nobody else, Jasmeet included. */
+export const canSeeMargin = (m: Who) => m.id === "admin" || ["sumit", "ashish", "shikha", "nikita"].includes(firstName(m));
+
 /** Marking an AED delivered (and undoing it): everyone who can, except the AedSmartx trainer. */
 export const canMarkDelivered = (m: Who) => hasFullAccess(m) || boardsFor(m).includes("logistics");
 
