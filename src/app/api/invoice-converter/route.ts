@@ -2,11 +2,11 @@ import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
 import { attachFoundPo, attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
-import { poFileFor, scanPoFolder } from "@/lib/poFolder";
+import { isDue, poFileFor, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // scanned POs are read from their pictures, up to 20 s each
+export const maxDuration = 60;
 
 /*
  * The Invoice Converter (owner, 17 Nov). Full access and logistics only.
@@ -14,7 +14,9 @@ export const maxDuration = 300; // scanned POs are read from their pictures, up 
  *  GET ?signed=<invoice id>    — the signed PDF (once Zoho Sign says completed)
  *  GET ?merged=<invoice id>    — the invoice + PO + e-way bill PDFs merged, unsigned
  *  GET ?po=<WorkDrive file>&id=<invoice> — a PO PDF found for that invoice, to look at (only one that carries its PO number)
- *  POST { action: "scanPo" }                       — read the new PDFs in the WorkDrive PO folder; { files, left, … } (ask again while left > 0)
+ *  POST { action: "scanPo" }                       — read the new PDFs in the WorkDrive PO folder; { files, left, due, … } (ask again while left > 0)
+ *  GET ?scan=<WorkDrive file>                      — a PDF whose picture is to be read (one of `due`, nothing else)
+ *  POST { action: "pageText", file, text }         — the words the browser read on it (text null = it couldn't)
  *  POST { action: "usePo", id, file }              — the found PO PDF attached to the invoice in Zoho
  *  POST { action: "po", id, value }                — the Purchase Order Number, on every invoice of the same PI
  *  POST multipart { id, which: "po" | "eway", file, value? } — a PDF attached in Zoho (a PO: to every invoice of the same PI; value = the PO number typed with it; replace=1 deletes the old one first)
@@ -40,6 +42,12 @@ export async function GET(request: Request) {
       const res = await workdriveOpen(po);
       // Passed on as it arrives: a whole answer over 4.5 MB would be refused by the host.
       return new Response(res.body, { headers: { "content-type": "application/pdf", "content-disposition": `inline; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"`, "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
+    }
+    const scan = q.get("scan");
+    if (scan) {
+      if (!goodWdId(scan) || !(await isDue(scan))) return json({ error: "Unknown file" }, 404);
+      const res = await workdriveOpen(scan);
+      return new Response(res.body, { headers: { "content-type": "application/pdf", "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
     }
     const merged = q.get("merged");
     if (merged) {
@@ -75,14 +83,19 @@ export async function POST(request: Request) {
       const value = f.get("value");
       return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined, f.get("replace") === "1"));
     }
-    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
     const id = String(b?.id ?? "");
     if (b?.action === "signer") return json(await setSigner(me.id, { email: b.email, name: b.name }));
     if (b?.action === "connectSign") {
       if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sign" }, 403);
       return json(await connectSign({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
     }
-    if (b?.action === "scanPo") return json(await scanPoFolder(30_000));
+    if (b?.action === "scanPo") return json(await scanPoFolder(25_000));
+    if (b?.action === "pageText") {
+      if (!goodWdId(b.file) || (b.text !== null && typeof b.text !== "string")) return json({ error: "Unknown file" }, 400);
+      await savePageText(b.file, b.text === null ? null : b.text.slice(0, 60_000));
+      return json({ ok: true });
+    }
     if (!ID.test(id)) return json({ error: "Unknown invoice" }, 400);
     if (b?.action === "usePo") return goodWdId(b.file) ? json(await attachFoundPo(id, b.file)) : json({ error: "Unknown file" }, 400);
     if (b?.action === "po") return json(await setPoForPi(id, b.value));

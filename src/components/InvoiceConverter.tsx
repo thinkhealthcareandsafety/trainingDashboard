@@ -52,20 +52,53 @@ export function InvoiceConverter() {
   // "Find POs" (owner, 24 Nov): read the WorkDrive PO folder, a batch at a time, until nothing is left.
   const [scan, setScan] = useState<{ busy: boolean; text: string; bad?: boolean }>({ busy: false, text: "" });
   const scanning = useRef(false);
+  const onPage = useRef(true);
+  useEffect(() => { onPage.current = true; return () => { onPage.current = false; }; }, []);
   const findPos = async () => {
     if (scanning.current) return;
     setScan({ busy: true, text: "Reading the PO folder…" });
     scanning.current = true;
-    let last: { files?: number; left?: number; pictures?: number; added?: number; seen?: number; unread?: number; error?: string } = {};
-    for (let n = 0; n < 200; n++) {
-      last = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "scanPo" }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    type Scan = { files?: number; left?: number; due?: string[]; added?: number; seen?: number; unread?: number; error?: string };
+    const ask = (body: object): Promise<Scan> => fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    let last: Scan = {};
+    for (let n = 0; n < 40; n++) {
+      last = await ask({ action: "scanPo" });
       if (last.error || !last.left || !last.added) break;
-      setScan({ busy: true, text: last.left === last.pictures ? `Reading scanned POs page by page… ${last.left} left` : `Reading the PO folder… ${last.left} of ${last.files} PDFs left` });
-      if (n % 3 === 2) await load();
+      setScan({ busy: true, text: `Reading the PO folder… ${last.left} of ${last.files} PDFs left` });
+    }
+    // The scans: each first page is read here, in this browser (the page must stay open; it carries on next time).
+    const due = last.error ? [] : last.due ?? [];
+    let problem = "";
+    if (due.length) {
+      await load();
+      const { readFirstPage, stopReading } = await import("@/lib/pageRead");
+      let misses = 0;
+      for (const [n, id] of due.entries()) {
+        if (!onPage.current) break;
+        setScan({ busy: true, text: `Reading scanned POs page by page… ${due.length - n} left. Keep this page open.` });
+        try {
+          const r = await fetch(`/api/invoice-converter?scan=${encodeURIComponent(id)}`, { cache: "no-store" });
+          if (r.status === 404) continue; // read meanwhile by someone else
+          if (!r.ok) throw new Error("WorkDrive didn't give the file");
+          const bytes = new Uint8Array(await r.arrayBuffer());
+          // A page that can't be drawn or read is noted, so it isn't tried for ever; a saving problem is not.
+          const text = await readFirstPage(bytes).catch((e) => { console.error("[find POs]", id, e); return null; });
+          if (text === null && ++misses >= 5) { problem = "This browser couldn't read the scanned pages. Try again in Chrome on a computer."; break; }
+          if (text !== null) misses = 0;
+          const saved = await ask({ action: "pageText", file: id, text });
+          if (saved.error) throw new Error(saved.error);
+        } catch (e) { problem = e instanceof Error ? e.message : "Couldn't read a page"; if (++misses >= 5) break; }
+        if (n % 10 === 9 && onPage.current) await load();
+      }
+      stopReading();
+      if (!onPage.current) return;
+      const end = await ask({ action: "scanPo" });
+      if (!end.error) last = end;
     }
     await load();
     scanning.current = false;
-    setScan(last.error ? { busy: false, text: last.error, bad: true } : { busy: false, text: `${last.files ?? 0} PDFs in the PO folder checked, ${last.seen ?? 0} of them read from the scanned page${(last.left ?? 0) + (last.unread ?? 0) ? ` · ${(last.left ?? 0) + (last.unread ?? 0)} couldn't be read` : ""}` });
+    const bad = (last.left ?? 0) + (last.due?.length ?? 0) + (last.unread ?? 0);
+    setScan(last.error || (problem && last.due?.length) ? { busy: false, text: last.error ?? problem, bad: true } : { busy: false, text: `${last.files ?? 0} PDFs in the PO folder checked, ${last.seen ?? 0} of them read from the scanned page${bad ? ` · ${bad} couldn't be read` : ""}` });
   };
   const load = () => fetch("/api/invoice-converter", { cache: "no-store" }).then(async (r) => {
     const j = await r.json().catch(() => ({}));

@@ -212,3 +212,21 @@ test("PO found: PDFs by PO number, the same copy once; a number typed later is c
   assert.equal((await convPost(req("shreya", { action: "scanPo" }))).status, 403);
   assert.equal((await convPost(req("admin", { action: "usePo", id: "1000001", file: "../x" }))).status, 400);
 });
+
+test("a scan: its bytes only while it waits; the words read on it are matched, for its copies too, once", async () => {
+  const d = await db();
+  const s = (id: string, look: string, name = "scan.pdf") => d.collection<any>("poScans").insertOne({ _id: id, name, size: 9, depth: 0, text: "", hits: [], look, v: 3, at: "" });
+  await s("scanfile00001", "due"); await s("scanfile00002", "due"); await s("scanfile00003", "no", "other.pdf");
+  await d.collection<any>("kv").insertOne({ _id: "po_folder", keys: ["6013"], at: "" });
+  const call = (id: string, body: object) => convPost(new Request("http://x/api/invoice-converter", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", "x-test-member": JSON.stringify({ id, name: id }) } }));
+  const bytes = (f: string) => convGet(new Request(`http://x/api/invoice-converter?scan=${f}`, { headers: { "x-test-member": JSON.stringify({ id: "admin", name: "Admin" }) } }));
+  assert.equal((await bytes("scanfile00003")).status, 404);
+  assert.equal((await call("shreya", { action: "pageText", file: "scanfile00001", text: "x" })).status, 403);
+  assert.equal((await call("admin", { action: "pageText", file: "scanfile00001", text: 5 })).status, 400);
+  assert.equal((await call("admin", { action: "pageText", file: "scanfile00001", text: "Purchase Order No 6013 THINK" })).status, 200);
+  assert.deepEqual((await poFiles()).get("6013"), [{ id: "scanfile00001", name: "scan.pdf" }]);
+  assert.equal((await d.collection<any>("poScans").findOne({ _id: "scanfile00002" })).look, "done");
+  await call("admin", { action: "pageText", file: "scanfile00001", text: null });
+  assert.equal((await d.collection<any>("poScans").findOne({ _id: "scanfile00001" })).look, "done");
+  assert.equal((await bytes("scanfile00001")).status, 404);
+});

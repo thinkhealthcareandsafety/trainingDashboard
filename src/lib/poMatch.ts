@@ -16,7 +16,7 @@ export function poKey(raw: unknown): string {
   return key;
 }
 
-const SEP = "[\\s\\-‐-―_/.]*";
+const SEP = "[:\\s\\-‐-―_/.]*";
 const LABEL = "(?:purchase[\\s_]*order|work[\\s_]*order|service[\\s_]*order|(?<![A-Z0-9])p\\.?\\s?o\\.?)[\\s_]*(?:no\\.?|number|num\\.?|id|#)?[\\s_:#.\\-‐-―]*";
 const LABEL_NO = "(?:purchase|work|service|urchase)\\s*order\\s*(?:no|num)";
 const DATE = "\\s+(?:date\\s*[:\\-]*\\s*)?\\d{1,2}[-/.](?:\\d{1,2}|[a-z]{3})[-/.]\\d{2,4}";

@@ -9,22 +9,21 @@ import { workdriveOpen, workdrivePdfsUnder, type WdFile } from "./workdrive";
  * "PO found", the user looks at the PDF and picks it. Run by the button, by every sync (at most every half hour), and by
  * the Invoice Converter's page while something is left.
  *  - A PDF whose text doesn't show its PO number clearly (a scan, or one whose words come out of order) is also read from
- *    its picture (pageRead.ts, owner: never by file name). That takes 5-20 s each, so only the Invoice Converter does it.
+ *    its picture (pageRead.ts, owner: never by file name), by the browser that has the Invoice Converter open.
  *  - `poScans`: one per PDF { name, size, depth, text, hits: PO keys on it, look }; kv `po_folder` { keys already compared,
  *    at, left }. `look`: "due" = its picture is still to be read, "done", "failed"; "no" = its text was enough.
  */
 export const PO_FOLDER = "metokf3e113be57704e23b82663cf7c1b9ab1";
 const MAX_TEXT = 120_000;
-const VERSION = 2; // a new way of reading: every PDF is read again
+const VERSION = 3; // a new way of reading: every PDF is read again
 const AGAIN_MS = 30 * 60_000;
 
-type Scan = { _id: string; name: string; size: number | null; depth: number; text: string; hits: string[]; look: "no" | "due" | "done" | "failed"; tries?: number; v: number; at: string };
+type Scan = { _id: string; name: string; size: number | null; depth: number; text: string; hits: string[]; look: "no" | "due" | "done" | "failed"; v: number; at: string };
 type State = { _id: string; keys: string[]; at: string | null; left: number };
-export type Look = "with pictures" | "text only";
 type SalesRow = { _id: string; kind: string; row: Record<string, unknown> };
 export type PoFile = { id: string; name: string };
-/** `left`: PDFs still to read (`pictures` of them from their picture); `seen`: read from their picture; `unread`: nothing like an order could be read. */
-export type ScanResult = { files: number; left: number; pictures: number; added: number; seen: number; unread: number };
+/** `left`: PDFs still to read as text; `due`: ids whose picture is still to be read; `seen`: read from their picture; `unread`: nothing like an order could be read. */
+export type ScanResult = { files: number; left: number; due: string[]; added: number; seen: number; unread: number };
 
 const scans = async () => (await db()).collection<Scan>("poScans");
 const kv = async () => (await db()).collection<State>("kv");
@@ -53,11 +52,11 @@ export async function matchNewKeys(keys: string[]): Promise<void> {
 export async function scanPoFolderQuietly(budgetMs: number): Promise<void> {
   const s = await (await kv()).findOne({ _id: "po_folder" });
   if (s?.at && !s.left && Date.now() - Date.parse(s.at) < AGAIN_MS) return;
-  await scanPoFolder(budgetMs, "text only");
+  await scanPoFolder(budgetMs);
 }
 
-/** Reads the PDFs not read yet (new, or changed), for about `budgetMs`: their text first, then the pictures. */
-export async function scanPoFolder(budgetMs: number, how: Look = "with pictures", now = () => Date.now()): Promise<ScanResult> {
+/** Reads the text of the PDFs not read yet (new, or changed), for about `budgetMs`. */
+export async function scanPoFolder(budgetMs: number, now = () => Date.now()): Promise<ScanResult> {
   const { pdfText } = await import("./invoiceConverter");
   const t0 = now();
   const files = await workdrivePdfsUnder(PO_FOLDER);
@@ -74,7 +73,7 @@ export async function scanPoFolder(budgetMs: number, how: Look = "with pictures"
   const compared = new Set((await (await kv()).findOne({ _id: "po_folder" }))?.keys ?? []);
   for (const k of keys) compared.add(k);
   const all = [...compared];
-  let next = 0, added = 0, failed = 0, pictures = 0, trouble = "";
+  let next = 0, added = 0, failed = 0;
   const work = async () => {
     while (next < todo.length && now() - t0 < budgetMs) {
       const f = todo[next++];
@@ -92,47 +91,37 @@ export async function scanPoFolder(budgetMs: number, how: Look = "with pictures"
     }
   };
   await Promise.all([work(), work(), work(), work()]);
-  // The pictures, once every text is read: those nearest the top first, one at a time.
-  if (how === "with pictures" && added === todo.length) {
-    const due = (await col.find({}, { projection: { text: 0 } }).toArray()).filter((s) => here.has(s._id) && s.look === "due").sort((a, b) => a.depth - b.depth);
-    for (const s of due) {
-      if (now() - t0 > budgetMs) break;
-      // The same file in another folder (same name and size), already read: its words are taken over.
-      const twin = (await col.find({}).toArray()).find((x) => x._id !== s._id && x.look === "done" && x.v === VERSION && x.name === s.name && x.size === s.size);
-      if (twin) {
-        await col.updateOne({ _id: s._id }, { $set: { text: twin.text, hits: all.filter((k) => poInPdf(k, twin.text)), look: "done" } });
-        pictures++;
-        continue;
-      }
-      // Counted before it starts: a PDF that brings the server down twice is left alone.
-      const tries = (s.tries ?? 0) + 1;
-      await col.updateOne({ _id: s._id }, { $set: tries > 2 ? { look: "failed" } : { tries } });
-      if (tries > 2) continue;
-      try {
-        const { readFirstPage } = await import("./pageRead");
-        const bytes = new Uint8Array(await (await workdriveOpen(s._id)).arrayBuffer());
-        const was = (await col.findOne({ _id: s._id }))?.text ?? "";
-        const both = `${was}\n${await readFirstPage(bytes)}`.slice(-MAX_TEXT), kept = orderText(both) ? both : "";
-        await col.updateOne({ _id: s._id }, { $set: { text: kept, hits: all.filter((k) => poInPdf(k, kept)), look: "done", at: new Date().toISOString() } });
-        pictures++;
-      } catch (e) {
-        console.error(`[po folder] picture of ${s._id}: ${e instanceof Error ? e.message : e}`);
-        trouble = "Reading the scanned pages failed. Click Find POs to try again.";
-      }
-    }
-  }
   // PO numbers typed while these PDFs were being read: put back, so the next look compares them with these too.
   const later = (await currentKeys()).filter((k) => !compared.has(k));
-  if ((added || pictures) && later.length) {
+  if (added && later.length) {
     const kept = (await (await kv()).findOne({ _id: "po_folder" }))?.keys ?? [];
     await (await kv()).updateOne({ _id: "po_folder" }, { $set: { keys: kept.filter((k) => !later.includes(k)) } });
   }
   if (failed && !added) throw new Error("Zoho WorkDrive didn't give the PDFs. Try again in a minute.");
   const after = (await col.find({}).toArray()).filter((s) => here.has(s._id));
-  const due = after.filter((s) => s.look === "due").length, left = todo.length - added;
+  // Those nearest the top first; the same file in another folder (same name and size) once.
+  const waiting = after.filter((s) => s.look === "due").sort((a, b) => a.depth - b.depth);
+  const due = waiting.filter((s, n) => waiting.findIndex((x) => twins(x, s)) === n).map((s) => s._id), left = todo.length - added;
   await (await kv()).updateOne({ _id: "po_folder" }, { $set: { left } });
-  if (trouble && !pictures && !added) throw new Error(trouble);
-  return { files: files.length, left: left + due, pictures: due, added: added + pictures, seen: after.filter((s) => s.look === "done").length, unread: after.filter((s) => s.look !== "due" && !s.text).length };
+  return { files: files.length, left, due, added, seen: after.filter((s) => s.look === "done").length, unread: after.filter((s) => s.look !== "due" && !s.text).length };
+}
+
+const twins = (a: Scan, b: Scan) => a.name === b.name && a.size === b.size;
+
+/** A PDF whose picture is to be read by the browser: its bytes may be fetched only while it is waiting. */
+export async function isDue(fileId: string): Promise<boolean> {
+  return (await (await scans()).findOne({ _id: fileId }))?.look === "due";
+}
+/** The words the browser read on its first page (null = it couldn't), kept for it and its copies in other folders. */
+export async function savePageText(fileId: string, words: string | null): Promise<void> {
+  const col = await scans(), s = await col.findOne({ _id: fileId });
+  if (!s || s.look !== "due") return;
+  const keys = [...new Set([...((await (await kv()).findOne({ _id: "po_folder" }))?.keys ?? []), ...(await currentKeys())])];
+  for (const x of (await col.find({}).toArray()).filter((x) => x.look === "due" && twins(x, s))) {
+    if (words === null) { await col.updateOne({ _id: x._id }, { $set: { look: "failed" } }); continue; }
+    const both = `${x.text}\n${words}`.slice(-MAX_TEXT), kept = orderText(both) ? both : "";
+    await col.updateOne({ _id: x._id }, { $set: { text: kept, hits: keys.filter((k) => poInPdf(k, kept)), look: "done", at: new Date().toISOString() } });
+  }
 }
 
 /** How many scanned PDFs still wait to be read (the page then carries on by itself). */
