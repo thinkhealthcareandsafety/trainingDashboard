@@ -2,7 +2,7 @@ import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
 import { attachFoundPo, attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
-import { checkAgain, isDue, poFileFor, poLog, savePageText, scanPoFolder } from "@/lib/poFolder";
+import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,7 @@ export const maxDuration = 60;
  *  GET ?po=<WorkDrive file>&id=<invoice> — a PO PDF found for that invoice, to look at (only one that carries its PO number)
  *  POST { action: "scanPo" }                       — read the new PDFs in the WorkDrive PO folder; { files, left, due, … } (ask again while left > 0)
  *  GET ?poLog                                      — the log of the PO folder's PDFs
+ *  GET ?poView=<WorkDrive file>                    — a PDF of the log to look at (only one that reads like an order)
  *  POST { action: "checkPo", files }               — PDFs already read, compared again (up to 40); their log lines
  *  GET ?scan=<WorkDrive file>                      — a PDF whose picture is to be read (one of `due`, nothing else)
  *  POST { action: "pageText", file, text }         — the words the browser read on it (text null = it couldn't)
@@ -37,10 +38,10 @@ export async function GET(request: Request) {
   if (!me) return unauthorized();
   if (!canConvertInvoices(me)) return json({ error: "Not for your account" }, 403);
   try {
-    const q = new URL(request.url).searchParams, po = q.get("po");
+    const q = new URL(request.url).searchParams, view = q.get("poView"), po = view ?? q.get("po");
     if (po) {
-      if (!goodWdId(po) || !ID.test(q.get("id") ?? "")) return json({ error: "Unknown file" }, 400);
-      const { name } = await poFileFor(q.get("id")!, po);
+      if (!goodWdId(po) || (!view && !ID.test(q.get("id") ?? ""))) return json({ error: "Unknown file" }, 400);
+      const name = view ? await poLogFile(po) : (await poFileFor(q.get("id")!, po)).name;
       const res = await workdriveOpen(po);
       // Passed on as it arrives: a whole answer over 4.5 MB would be refused by the host.
       return new Response(res.body, { headers: { "content-type": "application/pdf", "content-disposition": `inline; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"`, "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });

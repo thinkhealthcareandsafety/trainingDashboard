@@ -184,6 +184,13 @@ export async function poFiles(): Promise<Map<string, PoFile[]>> {
   return out;
 }
 
+/** Preview from the scan log (owner, 25 Nov): a PDF that reads like an order; other papers in the folder don't open from here. */
+export async function poLogFile(fileId: string): Promise<string> {
+  const s = await (await scans()).findOne({ _id: fileId });
+  if (!s || !s.text) throw new Error("That PDF can't be previewed here");
+  return s.name;
+}
+
 /** The PDF, only if it carries this invoice's PO number (so nothing else in the folder can be opened from here). */
 export async function poFileFor(invoiceId: string, fileId: string): Promise<{ name: string; key: string }> {
   const row = await (await db()).collection<SalesRow>("salesDocs").findOne({ _id: `invoices:${invoiceId}` });

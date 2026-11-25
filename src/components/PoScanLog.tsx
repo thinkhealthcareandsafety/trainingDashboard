@@ -25,6 +25,7 @@ function Ring() {
 export function PoScanLog({ now, run, small, onSmall, onClose }: { now: ScanNow; run: PoRun | null; small: boolean; onSmall: (v: boolean) => void; onClose: () => void }) {
   const [past, setPast] = useState<PoLog | null>(null);
   const [error, setError] = useState("");
+  const [view, setView] = useState<PoLogEntry | null>(null);
   const [show, setShow] = useState<(typeof FILTERS)[number]>("all");
   const busy = now.busy;
   const started = run?.startedAt;
@@ -61,6 +62,8 @@ export function PoScanLog({ now, run, small, onSmall, onClose }: { now: ScanNow;
     </div>, document.body);
 
   return createPortal(
+    <>
+    {view && <PdfView e={view} onClose={() => setView(null)} />}
     <section role="dialog" aria-label="Scan log" className="modal-in fixed inset-x-3 bottom-24 z-40 flex max-h-[min(620px,70vh)] flex-col overflow-hidden rounded-[24px] bg-surface shadow-pop sm:left-auto sm:w-[480px] lg:bottom-6 lg:right-6">
       <header className="flex items-center gap-2.5 px-5 pb-2 pt-4">
         {busy && <Ring />}
@@ -89,12 +92,13 @@ export function PoScanLog({ now, run, small, onSmall, onClose }: { now: ScanNow;
         {error && <li className="px-5 py-3 text-[13px] text-high">{error}</li>}
         {!log && !error && <li className="px-5 py-6 text-center text-[13px] text-muted">Reading the log…</li>}
         {log && !list.length && <li className="px-5 py-6 text-center text-[13px] text-muted">{busy ? "The PDFs appear here as they are checked." : "Nothing here."}</li>}
-        {list.map((e) => <Entry key={e.id} e={e} live={Boolean(run)} />)}
+        {list.map((e) => <Entry key={e.id} e={e} live={Boolean(run)} onView={() => setView(e)} />)}
       </ul>
-    </section>, document.body);
+    </section>
+    </>, document.body);
 }
 
-function Entry({ e, live }: { e: PoLogEntry & { fresh?: boolean; n?: number }; live: boolean }) {
+function Entry({ e, live, onView }: { e: PoLogEntry & { fresh?: boolean; n?: number }; live: boolean; onView: () => void }) {
   const g = poLogGroup(e);
   const today = e.at && new Date(e.at).toDateString() === new Date().toDateString();
   return (
@@ -108,6 +112,41 @@ function Entry({ e, live }: { e: PoLogEntry & { fresh?: boolean; n?: number }; l
         {[e.look === "due" ? "Waiting to read the page" : e.look === "no" ? "Read as text" : e.look === "done" ? "Read from the scanned page" : "Couldn't open the page", e.po ? `PO ${e.po}` : e.look === "due" || g === "unread" ? "" : "no PO number recognised", live ? (e.fresh ? "" : `read ${dayTime(e.at)}`) : today ? clock(e.at) : dayTime(e.at)].filter(Boolean).join(" · ")}
       </p>
       {e.invoices.length > 0 && <p className={`num mt-0.5 text-[12.5px] text-ink-2 ${live ? "pl-9" : ""}`}>{e.invoices.map((i) => `${i.number}${i.has ? " (attached)" : " (not attached yet)"}`).join(", ")}</p>}
+      {e.look !== "due" && (
+        <p className={`mt-1.5 text-[12.5px] ${live ? "pl-9" : ""}`}>
+          {g === "unread"
+            ? <a href={`https://workdrive.zoho.in/file/${e.id}`} target="_blank" rel="noreferrer" className="rounded-full bg-surface-2 px-3 py-1 font-semibold text-ink-2 hover:text-ink">Open in WorkDrive</a>
+            : <button type="button" onClick={onView} className="press rounded-full bg-brand-soft px-3 py-1 font-semibold text-brand hover:brightness-95">Preview</button>}
+        </p>
+      )}
     </li>
+  );
+}
+
+/** A PDF of the log, to look at. */
+function PdfView({ e, onClose }: { e: PoLogEntry; onClose: () => void }) {
+  useEffect(() => {
+    // Before the log's own Escape (which would minimise it).
+    const k = (ev: KeyboardEvent) => { if (ev.key === "Escape") { ev.stopImmediatePropagation(); onClose(); } };
+    window.addEventListener("keydown", k, true);
+    return () => window.removeEventListener("keydown", k, true);
+  }, [onClose]);
+  const src = `/api/invoice-converter?poView=${encodeURIComponent(e.id)}`;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-3 sm:p-6" onClick={onClose}>
+      <div className="modal-in flex h-full max-h-[920px] w-full max-w-[900px] flex-col overflow-hidden rounded-[24px] bg-surface shadow-pop" onClick={(ev) => ev.stopPropagation()} role="dialog" aria-modal="true" aria-label={`Preview of ${e.name}`}>
+        <header className="flex items-start gap-3 border-b border-line px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-[16px] font-semibold text-ink">{e.name}</h2>
+            <p className="num truncate text-[13px] text-muted">{[e.po ? `PO ${e.po}` : "No PO number recognised", ...e.invoices.map((i) => `${i.number}${i.has ? " (attached)" : " (not attached yet)"}`)].join(" · ")}</p>
+          </div>
+          <a href={src} target="_blank" rel="noreferrer" className="shrink-0 rounded-full px-3 py-1.5 text-[13px] font-semibold text-brand hover:bg-brand-soft">Open in a new tab</a>
+          <button type="button" autoFocus onClick={onClose} className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-surface-2 hover:text-ink" aria-label="Close preview">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 4l8 8M12 4l-8 8" /></svg>
+          </button>
+        </header>
+        <iframe src={src} title={e.name} className="min-h-0 w-full flex-1 bg-white" />
+      </div>
+    </div>
   );
 }
