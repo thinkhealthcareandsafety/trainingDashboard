@@ -89,8 +89,8 @@ export function LauncherView({ member, signOut }: { member: Who; signOut: () => 
           {ours.map(({ id, app: a }) => !a ? (
             <Link key={id} href={homeOf(member)} className="lx-tile lx-sw" onContextMenu={onMenu(id, "Think Health Dashboard", homeOf(member))}>
               {isPinned(id) && <PinMark />}
-              {/* eslint-disable-next-line @next/next/no-img-element -- a small fixed picture (the browser tab's star) */}
-              <span className="lx-ic lx-own"><img src="/star.svg" alt="" /></span>
+              {/* eslint-disable-next-line @next/next/no-img-element -- a small fixed picture (the browser tab's icon) */}
+              <span className="lx-ic lx-own"><img src="/dashboard-icon.svg" alt="" /></span>
               <span className="lx-name">Think Health Dashboard</span>
             </Link>
           ) : (

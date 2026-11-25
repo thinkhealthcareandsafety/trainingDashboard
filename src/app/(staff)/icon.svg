@@ -1,11 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-<defs>
-<linearGradient id="n" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbff00"/><stop offset=".55" stop-color="#ffe600"/><stop offset="1" stop-color="#ffb300"/></linearGradient>
-<filter id="g" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="7"/></filter>
-<clipPath id="r"><path d="M64 0h64v128H64z"/></clipPath><clipPath id="l"><path d="M0 0h64v128H0z"/></clipPath>
-</defs>
-<rect width="128" height="128" rx="30" fill="#fff"/>
-<g clip-path="url(#r)"><polygon points="64.00,13.00 79.87,45.16 115.36,50.31 89.68,75.34 95.74,110.69 64.00,94.00 32.26,110.69 38.32,75.34 12.64,50.31 48.13,45.16" fill="#f6ff00" filter="url(#g)"/><polygon points="64.00,16.00 78.69,46.77 112.50,51.24 87.78,74.73 93.98,108.26 64.00,92.00 34.02,108.26 40.22,74.73 15.50,51.24 49.31,46.77" fill="#ffd500" opacity=".65" filter="url(#g)"/></g>
-<g clip-path="url(#l)"><polygon points="64.00,17.00 76.93,49.20 111.55,51.55 84.92,73.80 93.39,107.45 64.00,89.00 34.61,107.45 43.08,73.80 16.45,51.55 51.07,49.20" fill="#fff3a6" stroke="#ffdd00" stroke-width="5" stroke-linejoin="round"/></g>
-<g clip-path="url(#r)"><polygon points="64.00,17.00 76.93,49.20 111.55,51.55 84.92,73.80 93.39,107.45 64.00,89.00 34.61,107.45 43.08,73.80 16.45,51.55 51.07,49.20" fill="url(#n)" stroke="#ffe600" stroke-width="5" stroke-linejoin="round"/><path d="M101 20l3.2 8.8 8.8 3.2-8.8 3.2-3.2 8.8-3.2-8.8-8.8-3.2 8.8-3.2z" fill="#f2ff00" stroke="#ffd000" stroke-width="1.6" stroke-linejoin="round"/></g>
+<defs><linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0aa5dd"/><stop offset="1" stop-color="#034f72"/></linearGradient></defs>
+<rect width="128" height="128" rx="30" fill="url(#b)"/>
+<path d="M16 68h22l10-30 18 56 16-64 10 38h20" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
