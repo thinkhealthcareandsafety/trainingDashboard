@@ -1,6 +1,8 @@
 import "server-only";
 import { db } from "./db";
 import { clearPo, orderText, poInPdf, poKey } from "./poMatch";
+import { isPoFile, poFromText } from "./invoiceConverterRules";
+import type { PoLog } from "./poLog";
 import { workdriveOpen, workdrivePdfsUnder, type WdFile } from "./workdrive";
 
 /*
@@ -18,12 +20,12 @@ const MAX_TEXT = 120_000;
 const VERSION = 3; // a new way of reading: every PDF is read again
 const AGAIN_MS = 30 * 60_000;
 
-type Scan = { _id: string; name: string; size: number | null; depth: number; text: string; hits: string[]; look: "no" | "due" | "done" | "failed"; v: number; at: string };
+type Scan = { _id: string; name: string; size: number | null; depth: number; text: string; hits: string[]; look: "no" | "due" | "done" | "failed"; v: number; at: string; /** The PO number it seems to carry, and whether anything was kept (for the log). */ po?: string; empty?: boolean };
 type State = { _id: string; keys: string[]; at: string | null; left: number };
 type SalesRow = { _id: string; kind: string; row: Record<string, unknown> };
 export type PoFile = { id: string; name: string };
 /** `left`: PDFs still to read as text; `due`: ids whose picture is still to be read; `seen`: read from their picture; `unread`: nothing like an order could be read. */
-export type ScanResult = { files: number; left: number; due: string[]; added: number; seen: number; unread: number };
+export type ScanResult = { files: number; left: number; due: string[]; names: Record<string, string>; added: number; seen: number; unread: number };
 
 const scans = async () => (await db()).collection<Scan>("poScans");
 const kv = async () => (await db()).collection<State>("kv");
@@ -81,7 +83,7 @@ export async function scanPoFolder(budgetMs: number, now = () => Date.now()): Pr
         const res = await workdriveOpen(f.id);
         const bytes = new Uint8Array(await res.arrayBuffer());
         const text = (await pdfText(bytes)).slice(0, MAX_TEXT), kept = orderText(text) ? text : "";
-        const doc: Omit<Scan, "_id"> = { name: f.name, size: f.size, depth: f.depth, text: kept, hits: all.filter((k) => poInPdf(k, kept)), look: clearPo(kept) ? "no" : "due", v: VERSION, at: new Date().toISOString() };
+        const doc: Omit<Scan, "_id"> = { name: f.name, size: f.size, depth: f.depth, text: kept, hits: all.filter((k) => poInPdf(k, kept)), look: clearPo(kept) ? "no" : "due", po: poFromText(kept) ?? "", empty: !kept, v: VERSION, at: new Date().toISOString() };
         await col.replaceOne({ _id: f.id }, doc, { upsert: true });
         added++;
       } catch (e) {
@@ -103,7 +105,7 @@ export async function scanPoFolder(budgetMs: number, now = () => Date.now()): Pr
   const waiting = after.filter((s) => s.look === "due").sort((a, b) => a.depth - b.depth);
   const due = waiting.filter((s, n) => waiting.findIndex((x) => twins(x, s)) === n).map((s) => s._id), left = todo.length - added;
   await (await kv()).updateOne({ _id: "po_folder" }, { $set: { left } });
-  return { files: files.length, left, due, added, seen: after.filter((s) => s.look === "done").length, unread: after.filter((s) => s.look !== "due" && !s.text).length };
+  return { files: files.length, left, due, names: Object.fromEntries(waiting.map((s) => [s._id, s.name])), added, seen: after.filter((s) => s.look === "done").length, unread: after.filter((s) => s.look !== "due" && !s.text).length };
 }
 
 const twins = (a: Scan, b: Scan) => a.name === b.name && a.size === b.size;
@@ -118,10 +120,33 @@ export async function savePageText(fileId: string, words: string | null): Promis
   if (!s || s.look !== "due") return;
   const keys = [...new Set([...((await (await kv()).findOne({ _id: "po_folder" }))?.keys ?? []), ...(await currentKeys())])];
   for (const x of (await col.find({}).toArray()).filter((x) => x.look === "due" && twins(x, s))) {
-    if (words === null) { await col.updateOne({ _id: x._id }, { $set: { look: "failed" } }); continue; }
+    if (words === null) { await col.updateOne({ _id: x._id }, { $set: { look: "failed", at: new Date().toISOString() } }); continue; }
     const both = `${x.text}\n${words}`.slice(-MAX_TEXT), kept = orderText(both) ? both : "";
-    await col.updateOne({ _id: x._id }, { $set: { text: kept, hits: keys.filter((k) => poInPdf(k, kept)), look: "done", at: new Date().toISOString() } });
+    await col.updateOne({ _id: x._id }, { $set: { text: kept, hits: keys.filter((k) => poInPdf(k, kept)), look: "done", po: poFromText(kept) ?? "", empty: !kept, at: new Date().toISOString() } });
   }
+}
+
+/** The log: every PDF (or those changed after `since`), newest first, with the invoices its PO number belongs to. */
+export async function poLog(since = ""): Promise<PoLog> {
+  const col = await scans(), d = await db();
+  // Read before 25 Nov: what the log shows is worked out once from the kept words.
+  if ((await col.find({}, { projection: { text: 0 } }).toArray()).some((s) => s.empty === undefined)) {
+    for (const s of await col.find({}).toArray()) if (s.empty === undefined) await col.updateOne({ _id: s._id }, { $set: { po: poFromText(s.text) ?? "", empty: !s.text } });
+  }
+  const all = (await col.find({}, { projection: { text: 0 } }).toArray()).sort((a, b) => b.at.localeCompare(a.at));
+  const rows = (await d.collection<SalesRow & { id: string }>("salesDocs").find({ kind: "invoices" }, { projection: { id: 1, kind: 1, "row.status": 1, "row.invoice_number": 1, "row.cf_purchase_order_number": 1 } }).toArray()).filter((r) => r.kind === "invoices" && String(r.row.status ?? "") !== "void");
+  const files = new Map((await d.collection<{ _id: string; files?: string[] }>("invoiceExtras").find({}, { projection: { files: 1 } }).toArray()).map((e) => [e._id, e.files ?? []]));
+  const byKey = new Map<string, { number: string; has: boolean }[]>();
+  for (const r of rows) {
+    const k = poKey(r.row.cf_purchase_order_number);
+    if (k) byKey.set(k, [...(byKey.get(k) ?? []), { number: String(r.row.invoice_number ?? ""), has: (files.get(r.id) ?? []).some(isPoFile) }]);
+  }
+  const here = [...new Set(all.flatMap((s) => s.hits))].flatMap((k) => byKey.get(k) ?? []);
+  const entries = all.filter((s) => !since || s.at >= since).map((s) => {
+    const hit = s.hits.filter((k) => byKey.has(k));
+    return { id: s._id, name: s.name, at: s.at, look: s.look, empty: Boolean(s.empty), po: hit.join(", ") || s.po || "", invoices: hit.flatMap((k) => byKey.get(k)!) };
+  });
+  return { entries, upTo: all[0]?.at ?? "", matched: here.length, waiting: here.filter((i) => !i.has).length };
 }
 
 /** How many scanned PDFs still wait to be read (the page then carries on by itself). */

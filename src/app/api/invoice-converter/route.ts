@@ -2,7 +2,7 @@ import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
 import { attachFoundPo, attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
-import { isDue, poFileFor, savePageText, scanPoFolder } from "@/lib/poFolder";
+import { isDue, poFileFor, poLog, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,7 @@ export const maxDuration = 60;
  *  GET ?merged=<invoice id>    — the invoice + PO + e-way bill PDFs merged, unsigned
  *  GET ?po=<WorkDrive file>&id=<invoice> — a PO PDF found for that invoice, to look at (only one that carries its PO number)
  *  POST { action: "scanPo" }                       — read the new PDFs in the WorkDrive PO folder; { files, left, due, … } (ask again while left > 0)
+ *  GET ?poLog=<since>                              — the log of the PO folder's PDFs (those changed since, or all)
  *  GET ?scan=<WorkDrive file>                      — a PDF whose picture is to be read (one of `due`, nothing else)
  *  POST { action: "pageText", file, text }         — the words the browser read on it (text null = it couldn't)
  *  POST { action: "usePo", id, file }              — the found PO PDF attached to the invoice in Zoho
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
       // Passed on as it arrives: a whole answer over 4.5 MB would be refused by the host.
       return new Response(res.body, { headers: { "content-type": "application/pdf", "content-disposition": `inline; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"`, "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
     }
+    if (q.has("poLog")) return json(await poLog((q.get("poLog") ?? "").slice(0, 30)));
     const scan = q.get("scan");
     if (scan) {
       if (!goodWdId(scan) || !(await isDue(scan))) return json({ error: "Unknown file" }, 404);

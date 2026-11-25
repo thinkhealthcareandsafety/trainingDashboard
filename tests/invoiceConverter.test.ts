@@ -4,7 +4,8 @@ import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileN
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 import { clearPo, orderText, poInPdf, poKey } from "@/lib/poMatch";
-import { matchNewKeys, poFileFor, poFiles } from "@/lib/poFolder";
+import { poLogGroup } from "@/lib/poLog";
+import { matchNewKeys, poFileFor, poFiles, poLog } from "@/lib/poFolder";
 import { GET as convGet, POST as convPost } from "@/app/api/invoice-converter/route";
 
 // The Invoice Converter (owner, 17 Nov): customers, their invoices, the PO and (over ₹50,000) the e-way bill.
@@ -229,4 +230,22 @@ test("a scan: its bytes only while it waits; the words read on it are matched, f
   await call("admin", { action: "pageText", file: "scanfile00001", text: null });
   assert.equal((await d.collection<any>("poScans").findOne({ _id: "scanfile00001" })).look, "done");
   assert.equal((await bytes("scanfile00001")).status, 404);
+});
+
+test("the scan log: each PDF, how it was read, its PO number, and whether its invoice has it; only what changed when asked", async () => {
+  const d = await db();
+  const s = (id: string, text: string, hits: string[], look: string, at: string) => d.collection<any>("poScans").insertOne({ _id: id, name: id + ".pdf", size: 1, depth: 0, text, hits, look, v: 3, at });
+  await s("a", "Purchase Order No 52600831 x", ["52600831"], "no", "2026-11-25T01:00:00.000Z");
+  await s("b", "Purchase Order No: 70001234 x", [], "done", "2026-11-25T02:00:00.000Z");
+  await s("c", "", [], "failed", "2026-11-25T03:00:00.000Z");
+  await s("e", "", [], "due", "2026-11-25T00:00:00.000Z");
+  const inv = (id: string) => d.collection<any>("salesDocs").insertOne({ _id: "invoices:" + id, id, kind: "invoices", row: { cf_purchase_order_number: "52600831", invoice_number: "N" + id } });
+  await inv("1"); await inv("2");
+  await d.collection<any>("invoiceExtras").insertOne({ _id: "1", files: ["PO - N1.pdf"] });
+  const l = await poLog();
+  assert.deepEqual(l.entries.map((e) => [e.id, poLogGroup(e), e.po]), [["c", "unread", ""], ["b", "none", "70001234"], ["a", "open", "52600831"], ["e", "waiting", ""]]);
+  assert.deepEqual([l.matched, l.waiting, l.upTo], [2, 1, "2026-11-25T03:00:00.000Z"]);
+  assert.deepEqual((await poLog("2026-11-25T02:30:00.000Z")).entries.map((e) => e.id), ["c"]);
+  await d.collection<any>("invoiceExtras").insertOne({ _id: "2", files: ["PO - N2.pdf"] });
+  assert.equal(poLogGroup((await poLog()).entries[2]), "has");
 });

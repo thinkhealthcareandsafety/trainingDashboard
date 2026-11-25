@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
 import { EWAY_OVER, blocksOf } from "@/lib/invoiceConverterRules";
+import { PoScanLog, type ScanNow } from "./PoScanLog";
 import { Skeleton, toneOf } from "./ui";
 
 /*
@@ -50,21 +51,25 @@ export function InvoiceConverter() {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [onlyFound, setOnlyFound] = useState(false);
   // "Find POs" (owner, 24 Nov): read the WorkDrive PO folder, a batch at a time, until nothing is left.
-  const [scan, setScan] = useState<{ busy: boolean; text: string; bad?: boolean }>({ busy: false, text: "" });
+  const [scan, setScan] = useState<ScanNow>({ busy: false, text: "" });
+  // The live log (owner, 25 Nov): opens with the button; a scan that starts by itself shows only the pill.
+  const [log, setLog] = useState<"" | "open" | "small">("");
+  const smallLog = useCallback((v: boolean) => setLog(v ? "small" : "open"), []);
   const scanning = useRef(false);
   const onPage = useRef(true);
   useEffect(() => { onPage.current = true; return () => { onPage.current = false; }; }, []);
-  const findPos = async () => {
+  const findPos = async (byItself = false) => {
+    setLog((l) => (byItself ? l || "small" : "open"));
     if (scanning.current) return;
     setScan({ busy: true, text: "Reading the PO folder…" });
     scanning.current = true;
-    type Scan = { files?: number; left?: number; due?: string[]; added?: number; seen?: number; unread?: number; error?: string };
+    type Scan = { files?: number; left?: number; due?: string[]; names?: Record<string, string>; added?: number; seen?: number; unread?: number; error?: string };
     const ask = (body: object): Promise<Scan> => fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
     let last: Scan = {};
     for (let n = 0; n < 40; n++) {
       last = await ask({ action: "scanPo" });
       if (last.error || !last.left || !last.added) break;
-      setScan({ busy: true, text: `Reading the PO folder… ${last.left} of ${last.files} PDFs left` });
+      setScan({ busy: true, text: `Reading the PO folder… ${last.left} of ${last.files} PDFs left`, done: (last.files ?? 0) - last.left, of: last.files });
     }
     // The scans: each first page is read here, in this browser (the page must stay open; it carries on next time).
     const due = last.error ? [] : last.due ?? [];
@@ -75,7 +80,7 @@ export function InvoiceConverter() {
       let misses = 0;
       for (const [n, id] of due.entries()) {
         if (!onPage.current) break;
-        setScan({ busy: true, text: `Reading scanned POs page by page… ${due.length - n} left. Keep this page open.` });
+        setScan({ busy: true, text: `Reading scanned POs page by page… ${due.length - n} left. Keep this page open.`, done: n, of: due.length, file: last.names?.[id] });
         try {
           const r = await fetch(`/api/invoice-converter?scan=${encodeURIComponent(id)}`, { cache: "no-store" });
           if (r.status === 404) continue; // read meanwhile by someone else
@@ -110,7 +115,7 @@ export function InvoiceConverter() {
   useEffect(() => {
     if (!data?.scansDue || carriedOn.current || scanning.current) return;
     carriedOn.current = true;
-    void findPos();
+    void findPos(true);
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   // E-way bills and attachments are read from Zoho a few at a time: keep asking while some are left.
   useEffect(() => {
@@ -141,9 +146,11 @@ export function InvoiceConverter() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <input className="h-11 w-full max-w-sm rounded-full border border-line bg-surface px-5 text-[14px] text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" placeholder="Search a customer, invoice or PO number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
-        <button type="button" onClick={findPos} disabled={scan.busy} className="press h-11 shrink-0 rounded-full bg-brand px-5 text-[13.5px] font-semibold text-brand-ink shadow-[0_6px_16px_-8px_color-mix(in_srgb,var(--brand)_70%,transparent)] hover:brightness-110 disabled:opacity-60" title="Look in the WorkDrive PO folder for PDFs carrying these invoices' PO numbers">{scan.busy ? <Busy text="Finding POs…" /> : "Find POs"}</button>
+        <button type="button" onClick={() => void findPos()} className="press h-11 shrink-0 rounded-full bg-brand px-5 text-[13.5px] font-semibold text-brand-ink shadow-[0_6px_16px_-8px_color-mix(in_srgb,var(--brand)_70%,transparent)] hover:brightness-110 disabled:opacity-60" title="Look in the WorkDrive PO folder for PDFs carrying these invoices' PO numbers">{scan.busy ? <Busy text="Finding POs…" /> : "Find POs"}</button>
         {foundCount > 0 && <button type="button" aria-pressed={filtering} onClick={() => setOnlyFound(!filtering)} className={`press num h-11 shrink-0 rounded-full px-5 text-[13.5px] font-semibold ${filtering ? "bg-brand-soft text-brand ring-1 ring-brand/40" : "bg-surface text-ink shadow-card hover:bg-surface-2"}`}>{foundCount} PO{foundCount === 1 ? "" : "s"} found{filtering ? " ✕" : ""}</button>}
-        {scan.text && <span className={`num text-[13px] ${scan.bad ? "text-high" : "text-muted"}`} role="status">{scan.text}</span>}
+        {log === "" && <button type="button" onClick={() => setLog("open")} className="press h-11 shrink-0 rounded-full px-4 text-[13.5px] font-medium text-muted hover:bg-surface hover:text-ink">Scan log</button>}
+        {log === "" && scan.text && <span className={`num text-[13px] ${scan.bad ? "text-high" : "text-muted"}`} role="status">{scan.text}</span>}
+        {log !== "" && <PoScanLog now={scan} small={log === "small"} onSmall={smallLog} onClose={() => setLog("")} />}
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
