@@ -1,3 +1,5 @@
+import { poKey } from "./poMatch";
+
 /*
  * The Invoice Converter (owner, 17 Nov): each customer with all their invoices, and for each invoice whether the
  * Purchase Order is there (its number on the invoice, a green tick; "Verbal" or nothing, a red cross), its PO PDF, and,
@@ -20,6 +22,14 @@ export function poState(raw: unknown): { ok: boolean; label: string } {
 export const poFileName = (invoice: string) => `PO - ${invoice}.pdf`;
 export const ewayFileName = (invoice: string) => `E-way bill - ${invoice}.pdf`;
 export const isPoFile = (name: string) => /^po\b|purchase.?order/i.test(name.trim());
+/**
+ * Which of an invoice's attachments are its PO (owner, 25 Nov: "6567134.pdf" put on in Zoho wasn't seen): named as one, or a
+ * PDF named with the invoice's PO number (or a long part of it), or one that was opened and carries that number (`read`).
+ */
+export function poFileTest(po: unknown, read: string[] = []): (name: string) => boolean {
+  const parts = poKey(po).split("-").filter((p) => p.length >= 5 && (p.match(/\d/g) ?? []).length >= 4);
+  return (name) => isPoFile(name) || read.includes(name) || (/\.pdf$/i.test(name) && !isEwayFile(name) && parts.some((p) => new RegExp(`(?<![A-Z0-9])${p}(?![A-Z0-9])`, "i").test(name)));
+}
 export const isEwayFile = (name: string) => /e-?way/i.test(name);
 
 /*

@@ -1,6 +1,6 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poState } from "@/lib/invoiceConverterRules";
+import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState } from "@/lib/invoiceConverterRules";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 import { clearPo, orderText, poInPdf, poKey } from "@/lib/poMatch";
@@ -255,4 +255,11 @@ test("the scan log: each PDF, how it was read, its PO number, and whether its in
   await assert.rejects(poLogFile("nope"));
   await d.collection<any>("invoiceExtras").insertOne({ _id: "2", files: ["PO - N2.pdf"] });
   assert.equal(poLogGroup((await poLog()).entries[2]), "has");
+});
+
+test("an attachment is the PO when its name says so, carries the PO number, or it was opened and does; payments aren't", () => {
+  const is = poFileTest("6567134-OP-4470300035", ["letter.pdf"]);
+  for (const n of ["6567134.pdf", "JLL 4470300035 (1).PDF", "PO - 2026-01-593.pdf", "letter.pdf"]) assert.ok(is(n), n);
+  for (const n of ["6567134.jpeg", "16567134.pdf", "unicorn payment.pdf", "E-way bill - 6567134.pdf", "OP.pdf"]) assert.ok(!is(n), n);
+  assert.ok(!poFileTest("Verbal")("unicorn payment.pdf") && !poFileTest("3793")("3793.pdf"));
 });

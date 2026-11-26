@@ -2,8 +2,8 @@ import "server-only";
 import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
-import { poKey } from "./poMatch";
-import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, isPoFile, needsEway, piOf, poFileName, poState } from "./invoiceConverterRules";
+import { poInPdf, poKey } from "./poMatch";
+import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState } from "./invoiceConverterRules";
 
 /*
  * The Invoice Converter's data and its writes to Zoho Books (owner, 17 Nov).
@@ -25,12 +25,29 @@ const READ_BATCH = 20; // full records read per page load; the page asks again w
 
 type SalesRow = { _id: string; kind: string; id: string; lmt?: string; date?: string; row: Record<string, unknown> };
 /** `ewayFound`: the e-way bill number read from an attached PDF (Zoho keeps its own e-way bills; this one shows here). */
-type Extras = { _id: string; lmt: string; eway: string | null; files: string[]; readAt: string; ewayFound?: string | null };
+type Extras = { _id: string; lmt: string; eway: string | null; files: string[]; readAt: string; ewayFound?: string | null; /** Attachments opened and found to carry the invoice's PO number (owner, 25 Nov). */ poRead?: string[] };
 
 const sales = async () => (await db()).collection<SalesRow>("salesDocs");
 const extrasCol = async () => (await db()).collection<Extras>("invoiceExtras");
 
 const wantsDetail = (r: SalesRow) => needsEway(Number(r.row.total) || 0) || Boolean(r.row.has_attachment);
+
+/** PDFs on the invoice whose name doesn't say they are its PO: opened, and kept as it when they carry its PO number. */
+async function poByReading(r: SalesRow, docs: { document_id?: string; file_name?: string }[]): Promise<string[]> {
+  const po = r.row.cf_purchase_order_number, key = poKey(po), isPo = poFileTest(po);
+  if (!key || docs.some((x) => isPo(String(x.file_name ?? "")))) return [];
+  const { booksFile } = await import("./quotations");
+  const out: string[] = [];
+  for (const x of docs.slice(0, 5)) {
+    const name = String(x.file_name ?? "");
+    if (!x.document_id || !/\.pdf$/i.test(name) || isEwayFile(name)) continue;
+    try {
+      const { bytes } = await booksFile(`/invoices/${r.id}/documents/${x.document_id}`);
+      if (poInPdf(key, await pdfText(bytes))) out.push(name);
+    } catch (e) { console.error(`[invoice-converter] attachment of ${r.row.invoice_number}: ${e instanceof Error ? e.message : e}`); }
+  }
+  return out;
+}
 
 /** Every customer with their invoices; reads up to READ_BATCH full records from Zoho that aren't known yet. */
 export async function converterData(): Promise<{ customers: ConvCustomer[]; pending: number; scansDue: number }> {
@@ -47,8 +64,10 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
   for (const r of todo.slice(0, READ_BATCH)) {
     try {
       const d = await fetchDetail("invoices", r.id);
-      const files = ((d.documents as { file_name?: string }[] | undefined) ?? []).map((x) => String(x.file_name ?? "")).filter(Boolean);
-      const e: Extras = { _id: r.id, ewayFound: extras.get(r.id)?.ewayFound ?? null, lmt: r.lmt ?? "", eway: String(d.ewaybill_number ?? (d.eway_bill_details as { eway_bill_number?: string } | undefined)?.eway_bill_number ?? "") || null, files, readAt: new Date().toISOString() };
+      const docs = (d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? [];
+      const files = docs.map((x) => String(x.file_name ?? "")).filter(Boolean);
+      const poRead = await poByReading(r, docs);
+      const e: Extras = { _id: r.id, poRead, ewayFound: extras.get(r.id)?.ewayFound ?? null, lmt: r.lmt ?? "", eway: String(d.ewaybill_number ?? (d.eway_bill_details as { eway_bill_number?: string } | undefined)?.eway_bill_number ?? "") || null, files, readAt: new Date().toISOString() };
       const { _id: _x, ...body } = e;
       void _x;
       await (await extrasCol()).replaceOne({ _id: r.id }, body, { upsert: true });
@@ -69,12 +88,13 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
     const po = poState(r.row.cf_purchase_order_number);
     const files = e?.files ?? [];
     const pending = wantsDetail(r) && !fresh(r);
-    const poFound = pending || files.some(isPoFile) ? undefined : found.get(poKey(r.row.cf_purchase_order_number));
+    const isPo = poFileTest(r.row.cf_purchase_order_number, e?.poRead);
+    const poFound = pending || files.some(isPo) ? undefined : found.get(poKey(r.row.cf_purchase_order_number));
     return {
       ...(poFound?.length ? { poFound } : {}),
       customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
       id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""), pi: piOf(r.row.reference_number),
-      po: po.label, poOk: po.ok, poPdf: files.some(isPoFile),
+      po: po.label, poOk: po.ok, poPdf: files.some(isPo),
       eway: e?.eway || String(r.row.cf_e_way_bill_number ?? "").trim() || e?.ewayFound || null, ewayZoho: Boolean(e?.eway), ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
       pending,
       sign: signs.get(r.id)?.status,
@@ -102,7 +122,7 @@ export async function setEway(invoiceId: string, raw: unknown): Promise<{ eway: 
   await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, eway ? { $set: { "row.cf_e_way_bill_number": eway } } : { $unset: { "row.cf_e_way_bill_number": "" } });
   const col = await extrasCol();
   const had = await col.findOne({ _id: invoiceId });
-  await col.replaceOne({ _id: invoiceId }, { lmt: had?.lmt ?? (wantsDetail(row) ? "" : row.lmt ?? ""), eway: had?.eway ?? null, ewayFound: eway, files: had?.files ?? [], readAt: had?.readAt ?? new Date().toISOString() }, { upsert: true });
+  await col.replaceOne({ _id: invoiceId }, { lmt: had?.lmt ?? (wantsDetail(row) ? "" : row.lmt ?? ""), eway: had?.eway ?? null, ewayFound: eway, files: had?.files ?? [], readAt: had?.readAt ?? new Date().toISOString(), ...(had?.poRead ? { poRead: had.poRead } : {}) }, { upsert: true });
   return { eway: had?.eway || eway };
 }
 
@@ -146,7 +166,7 @@ async function attachOne(invoiceId: string, lmt: string | undefined, name: strin
   await booksApi("POST", `/invoices/${invoiceId}/attachment`, {}, form);
   const col = await extrasCol();
   const had = await col.findOne({ _id: invoiceId });
-  await col.replaceOne({ _id: invoiceId }, { lmt: lmt ?? had?.lmt ?? "", eway: had?.eway ?? null, ewayFound: ewayFound ?? had?.ewayFound ?? null, files: [...(had?.files ?? []), name], readAt: had?.readAt ?? new Date().toISOString() }, { upsert: true });
+  await col.replaceOne({ _id: invoiceId }, { lmt: lmt ?? had?.lmt ?? "", eway: had?.eway ?? null, ewayFound: ewayFound ?? had?.ewayFound ?? null, files: [...(had?.files ?? []), name], readAt: had?.readAt ?? new Date().toISOString(), ...(had?.poRead ? { poRead: had.poRead } : {}) }, { upsert: true });
   await (await sales()).updateOne({ _id: `invoices:${invoiceId}` }, { $set: { "row.has_attachment": true } });
   return had;
 }
@@ -156,7 +176,8 @@ async function attachOne(invoiceId: string, lmt: string | undefined, name: strin
  * by name in its full record, deleted in Zoho (DELETE /invoices/{id}/documents/{document id}) and dropped from our copy.
  */
 async function removeOld(invoiceId: string, which: "po" | "eway") {
-  const isIt = which === "po" ? isPoFile : isEwayFile;
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  const isIt = which === "po" ? poFileTest(row?.row.cf_purchase_order_number, (await (await extrasCol()).findOne({ _id: invoiceId }))?.poRead) : isEwayFile;
   const d = await fetchDetail("invoices", invoiceId);
   const docs = ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).filter((x) => x.document_id && isIt(String(x.file_name ?? "")));
   for (const x of docs) await booksApi("DELETE", `/invoices/${invoiceId}/documents/${x.document_id}`);
@@ -220,7 +241,7 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
   const extras = new Map((await (await extrasCol()).find({ _id: { $in: group.map((r) => r.id) } }).toArray()).map((e) => [e._id, e]));
   // The one clicked always; the others of its PI only if they have no PO PDF yet (no second copy on an invoice).
   // Replacing: every invoice of the PI, each one's old PO PDF deleted first.
-  const targets = replace ? group : group.filter((r, n) => n === 0 || !(extras.get(r.id)?.files ?? []).some(isPoFile));
+  const targets = replace ? group : group.filter((r, n) => n === 0 || !(extras.get(r.id)?.files ?? []).some(poFileTest(r.row.cf_purchase_order_number, extras.get(r.id)?.poRead)));
   const ids: string[] = [];
   for (const r of targets) {
     if (replace) await removeOld(r.id, "po");
@@ -246,7 +267,8 @@ export async function attachFoundPo(invoiceId: string, fileId: string): Promise<
   const { workdriveOpen } = await import("./workdrive");
   const { name } = await poFileFor(invoiceId, fileId);
   const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
-  if (((await (await extrasCol()).findOne({ _id: invoiceId }))?.files ?? []).some(isPoFile)) throw new Error("This invoice already has a PO PDF. Refresh the page.");
+  const had = await (await extrasCol()).findOne({ _id: invoiceId });
+  if ((had?.files ?? []).some(poFileTest(row?.row.cf_purchase_order_number, had?.poRead))) throw new Error("This invoice already has a PO PDF. Refresh the page.");
   const bytes = new Uint8Array(await (await workdriveOpen(fileId)).arrayBuffer());
   if (Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-") throw new Error("That file isn't a PDF");
   return attachPdf(invoiceId, "po", new File([bytes], name, { type: "application/pdf" }), undefined, false, String(row?.row.cf_purchase_order_number ?? "").trim());
@@ -323,7 +345,9 @@ async function mergedFor(invoiceId: string) {
   const parts: { bytes: Uint8Array; type: string; name: string }[] = [];
   const inv = await booksFile(`/invoices/${invoiceId}`, { accept: "pdf" });
   parts.push({ ...inv, name: `Invoice ${number}.pdf` });
-  for (const pick of [docs.find((x) => isPoFile(String(x.file_name ?? ""))), docs.find((x) => isEwayFile(String(x.file_name ?? "")))]) {
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  const isPo = poFileTest(row?.row.cf_purchase_order_number, (await (await extrasCol()).findOne({ _id: invoiceId }))?.poRead);
+  for (const pick of [docs.find((x) => isPo(String(x.file_name ?? ""))), docs.find((x) => isEwayFile(String(x.file_name ?? "")))]) {
     if (!pick) continue;
     const f = await booksFile(`/invoices/${invoiceId}/documents/${pick.document_id}`);
     parts.push({ ...f, name: String(pick.file_name ?? "attachment") });

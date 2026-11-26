@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { clearPo, orderText, poInPdf, poKey } from "./poMatch";
-import { isPoFile, poFromText } from "./invoiceConverterRules";
+import { poFileTest, poFromText } from "./invoiceConverterRules";
 import type { PoLog } from "./poLog";
 import { workdriveOpen, workdrivePdfsUnder, type WdFile } from "./workdrive";
 
@@ -152,11 +152,11 @@ export async function poLog(ids?: string[]): Promise<PoLog> {
   }
   const all = (await col.find({}, { projection: { text: 0 } }).toArray()).sort((a, b) => b.at.localeCompare(a.at));
   const rows = (await d.collection<SalesRow & { id: string }>("salesDocs").find({ kind: "invoices" }, { projection: { id: 1, kind: 1, "row.status": 1, "row.invoice_number": 1, "row.cf_purchase_order_number": 1 } }).toArray()).filter((r) => r.kind === "invoices" && String(r.row.status ?? "") !== "void");
-  const files = new Map((await d.collection<{ _id: string; files?: string[] }>("invoiceExtras").find({}, { projection: { files: 1 } }).toArray()).map((e) => [e._id, e.files ?? []]));
+  const files = new Map((await d.collection<{ _id: string; files?: string[]; poRead?: string[] }>("invoiceExtras").find({}, { projection: { files: 1, poRead: 1 } }).toArray()).map((e) => [e._id, e]));
   const byKey = new Map<string, { number: string; has: boolean }[]>();
   for (const r of rows) {
     const k = poKey(r.row.cf_purchase_order_number);
-    if (k) byKey.set(k, [...(byKey.get(k) ?? []), { number: String(r.row.invoice_number ?? ""), has: (files.get(r.id) ?? []).some(isPoFile) }]);
+    if (k) byKey.set(k, [...(byKey.get(k) ?? []), { number: String(r.row.invoice_number ?? ""), has: (files.get(r.id)?.files ?? []).some(poFileTest(r.row.cf_purchase_order_number, files.get(r.id)?.poRead)) }]);
   }
   const here = [...new Set(all.flatMap((s) => s.hits))].flatMap((k) => byKey.get(k) ?? []);
   const entries = (ids ? ids.flatMap((id) => all.find((s) => s._id === id) ?? []) : all).map((s) => {
