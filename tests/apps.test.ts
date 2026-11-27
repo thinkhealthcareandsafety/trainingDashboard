@@ -12,8 +12,8 @@ const admin = { id: "admin", name: "Admin" };
 const arti = { id: "arti", name: "Arti Sirohi" };
 
 test("inside Training Dashboard and in the sidebar: every page, section by section, for those who may open it", () => {
-  assert.deepEqual(dashboardPages(admin).map((p) => p.id), ["overview", "followups", "calendar", "reports", "quotations", "sheet", "trainings", "items", "converter", "sprints", "templates"]);
-  assert.equal(new Set(dashboardPages(admin).map((p) => p.href)).size, 11);
+  assert.deepEqual(dashboardPages(admin).map((p) => p.id), ["overview", "followups", "calendar", "reports", "quotations", "sheet", "leads", "trainings", "items", "converter", "sprints", "templates"]);
+  assert.equal(new Set(dashboardPages(admin).map((p) => p.href)).size, 12);
   const hers = dashboardPages(arti).map((p) => p.id);
   assert.ok(hers.includes("converter") && hers.includes("items"));
   assert.ok(!hers.includes("overview") && !hers.includes("templates"));
@@ -58,7 +58,7 @@ test("applications on the main page: Admin adds and removes, everyone sees them,
 test("the sections (owner, 23 Nov) and which page a path is on", () => {
   assert.deepEqual(pageSections(admin).map((s) => [s.section, s.pages.map((p) => p.name)]), [
     ["Overview", ["Overview", "Follow-ups", "Calendar", "Reports"]],
-    ["Sales", ["Quotations", "Sheet → Quotation", "Trainings"]],
+    ["Sales", ["Quotations", "Sheet → Quotation", "External Leads", "Trainings"]],
     ["Inventory", ["Items", "Invoice Converter"]],
     ["Utilities", ["Sprints", "Templates"]],
   ]);

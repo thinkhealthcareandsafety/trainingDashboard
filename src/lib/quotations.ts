@@ -135,6 +135,10 @@ export type NewCustomer = {
   kind: "business" | "individual";
   company: string; displayName: string; salutation?: string; firstName: string; lastName: string; email: string; phone?: string; workPhone?: string;
   state: string; street?: string; city?: string; zip?: string; gstin?: string; type: string; sector: string;
+  /** External Leads (owner, 27 Nov): Zoho's GST treatment picked on the form, a second street line, internal remarks. */
+  treatment?: string; street2?: string; remarks?: string; website?: string; designation?: string;
+  /** A vendor instead of a customer (External Leads, a visiting card). */
+  contactType?: "customer" | "vendor";
 };
 
 /**
@@ -272,15 +276,15 @@ export async function upsertCoordinator(p: { contactId: string } & Coordinator):
 export async function createCustomer(n: NewCustomer & { stateName: string }): Promise<{ id: string; name: string }> {
   const c = await (await kv()).findOne({ _id: KEY });
   if (!c) throw new Error("Zoho Books isn't connected for quotations yet — Admin connects it once");
-  const address = { attention: `${n.firstName} ${n.lastName}`, address: n.street ?? "", city: n.city ?? "", zip: n.zip ?? "", state: n.stateName, country: "India" };
+  const address = { attention: `${n.firstName} ${n.lastName}`, address: n.street ?? "", ...(n.street2 ? { street2: n.street2 } : {}), city: n.city ?? "", zip: n.zip ?? "", state: n.stateName, country: "India" };
   const j = await books(c, "POST", "/contacts", {}, {
-    contact_name: n.displayName, company_name: n.company, contact_type: "customer", customer_sub_type: n.kind,
-    gst_treatment: gstTreatment(n), ...(n.gstin ? { gst_no: n.gstin, pan_no: fromGstin(n.gstin).pan } : {}), place_of_contact: n.state,
+    contact_name: n.displayName, company_name: n.company, contact_type: n.contactType ?? "customer", customer_sub_type: n.kind, ...(n.website ? { website: n.website } : {}),
+    gst_treatment: n.treatment || gstTreatment(n), ...(n.remarks ? { notes: n.remarks } : {}), ...(n.gstin ? { gst_no: n.gstin, pan_no: fromGstin(n.gstin).pan } : {}), place_of_contact: n.state,
     billing_address: address, shipping_address: address,
-    contact_persons: [{ salutation: n.salutation ?? "", first_name: n.firstName, last_name: n.lastName, email: n.email, mobile: n.phone ?? "", phone: n.workPhone ?? "", is_primary_contact: true }],
+    contact_persons: [{ salutation: n.salutation ?? "", first_name: n.firstName, last_name: n.lastName, email: n.email, mobile: n.phone ?? "", phone: n.workPhone ?? "", is_primary_contact: true, ...(n.designation ? { designation: n.designation } : {}) }],
     custom_fields: [{ customfield_id: CUSTOMER_FIELDS.type.id, value: n.type }, { customfield_id: CUSTOMER_FIELDS.sector.id, value: n.sector }],
   }).catch((e: Error) => {
-    throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error("Zoho Books needs one more permission for new customers — Admin: Reconnect on the Quotations page") : e;
+    throw /not authori[sz]ed|scope|permission/i.test(e.message) ? new Error(`Zoho Books needs one more permission for new ${n.contactType === "vendor" ? "vendors" : "customers"} — Admin: Reconnect on the Quotations page`) : e;
   });
   const ct = (j.contact ?? {}) as Record<string, unknown>;
   return { id: String(ct.contact_id ?? ""), name: String(ct.contact_name ?? n.company) };

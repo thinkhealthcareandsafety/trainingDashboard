@@ -20,3 +20,16 @@ export const fromGstin = (g: string) => ({ state: GST_STATE[g.slice(0, 2)] as st
 export const gstTreatment = (n: { kind: "business" | "individual"; gstin?: string }) => (n.gstin ? "business_gst" : n.kind === "individual" ? "consumer" : "business_none");
 /** The same in Zoho's words, for the form. */
 export const GST_LABEL: Record<string, string> = { business_gst: "Registered business – regular", business_none: "Unregistered business", consumer: "Consumer" };
+
+/** Zoho's GST treatments, in the order of its own "New Customer" form (owner, 27 Nov: External Leads). `gstin`: needs one. */
+export const GST_TREATMENTS: { value: string; label: string; hint: string; gstin: boolean }[] = [
+  { value: "business_gst", label: "Registered Business - Regular", hint: "Business that is registered under GST", gstin: true },
+  { value: "business_registered_composition", label: "Registered Business - Composition", hint: "Registered under the Composition Scheme in GST", gstin: true },
+  { value: "business_none", label: "Unregistered Business", hint: "Business that has not been registered under GST", gstin: false },
+  { value: "consumer", label: "Consumer", hint: "A customer who is a regular consumer", gstin: false },
+  { value: "overseas", label: "Overseas", hint: "Import or export of supplies outside India", gstin: false },
+  { value: "business_sez", label: "Special Economic Zone", hint: "A business unit in a Special Economic Zone (SEZ) of India", gstin: true },
+  { value: "deemed_export", label: "Deemed Export", hint: "Supply to an Export Oriented Unit or against Advanced Authorization", gstin: true },
+  { value: "tax_deductor", label: "Tax Deductor", hint: "State / Central government departments, governmental agencies, local authorities", gstin: true },
+  { value: "sez_developer", label: "SEZ Developer", hint: "Owns at least 26% of the equity in creating business units in an SEZ", gstin: true },
+];

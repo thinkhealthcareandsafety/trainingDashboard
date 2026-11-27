@@ -14,7 +14,7 @@ import { canConvertInvoices, canSee, hasFollowUps } from "./roles";
 
 type Who = { id: string; name: string };
 /** One icon per page (appIcons.tsx draws them, for the sidebar and the apps page alike). */
-export type AppIcon = "overview" | "quotations" | "trainings" | "items" | "templates" | "followups" | "calendar" | "sprints" | "reports" | "converter" | "sheet";
+export type AppIcon = "overview" | "quotations" | "trainings" | "items" | "templates" | "followups" | "calendar" | "sprints" | "reports" | "converter" | "sheet" | "leads";
 /** The sidebar's sections (owner, 23 Nov), in order; Trainings went to Sales and Reports to Overview (owner's picks). */
 export const SECTIONS = ["Overview", "Sales", "Inventory", "Utilities"] as const;
 export type Section = (typeof SECTIONS)[number];
@@ -28,6 +28,7 @@ const PAGES: (DashboardPage & { show: (m: Who) => boolean })[] = [
   { id: "reports", name: "Reports", href: "/reports", icon: "reports", color: "#023a55", section: "Overview", show: (m) => canSee(m, "reports") },
   { id: "quotations", name: "Quotations", href: "/quotations", icon: "quotations", color: "#0077b6", section: "Sales", show: (m) => canSee(m, "quotations") },
   { id: "sheet", name: "Sheet → Quotation", href: "/reports/sheet-to-quotation", icon: "sheet", color: "#9a5b00", section: "Sales", show: (m) => canConvertInvoices(m) },
+  { id: "leads", name: "External Leads", href: "/external-leads", icon: "leads", color: "#7a3fa0", section: "Sales", show: (m) => canSee(m, "quotations") },
   { id: "trainings", name: "Trainings", href: "/training-management", icon: "trainings", color: "#00843d", section: "Sales", show: (m) => canSee(m, "trainings") },
   { id: "items", name: "Items", href: "/items", icon: "items", color: "#5a6b2f", section: "Inventory", show: (m) => canSee(m, "items") },
   { id: "converter", name: "Invoice Converter", href: "/reports/invoice-converter", icon: "converter", color: "#005387", section: "Inventory", show: (m) => canConvertInvoices(m) },

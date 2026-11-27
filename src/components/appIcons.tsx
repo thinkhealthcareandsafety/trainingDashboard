@@ -13,4 +13,5 @@ export const APP_ICONS: Record<AppIcon, React.ReactNode> = {
   reports: <path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" />,
   converter: <path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M7.5 12l2 2 3.5-4" />,
   sheet: <path d="M3 4.5h8v11H3zM3 8h8M3 11.5h8M6.5 4.5v11M13 10h4M15 8l2 2-2 2" />,
+  leads: <><circle cx="8" cy="7" r="3" /><path d="M2.5 16.5c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5M15.5 5v5M13 7.5h5" /></>,
 };

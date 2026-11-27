@@ -84,3 +84,30 @@ export async function readFirstPage(bytes: Uint8Array): Promise<string> {
     img.close();
   }
 }
+
+/**
+ * The words on a photo (owner, 27 Nov: visiting cards for External Leads), read the same way in the browser: as it is,
+ * turned if it reads poorly, and once more with shadows taken out. A big phone photo is drawn smaller first.
+ */
+export async function readPicture(file: Blob): Promise<string> {
+  const raw = await createImageBitmap(file);
+  const scale = Math.min(1, WIDTH / Math.max(raw.width, raw.height));
+  const img = scale < 1 ? await createImageBitmap(raw, { resizeWidth: Math.round(raw.width * scale), resizeHeight: Math.round(raw.height * scale), resizeQuality: "high" }) : raw;
+  try {
+    const w = await reader();
+    const read = async (c: HTMLCanvasElement) => { const { data } = await w.recognize(c, { rotateAuto: true }); return { text: data.text, sure: data.confidence }; };
+    let plain = await read(prepare(img, 0, false)), deg = 0;
+    if (plain.sure < SURE) {
+      for (const d of [90, 270, 180]) {
+        const turned = await read(prepare(img, d, false));
+        if (turned.sure > plain.sure + 10) { plain = turned; deg = d; }
+        if (plain.sure >= SURE) break;
+      }
+    }
+    if (plain.sure >= 85) return plain.text;
+    return `${plain.text}\n${(await read(prepare(img, deg, true))).text}`;
+  } finally {
+    if (img !== raw) img.close();
+    raw.close();
+  }
+}
