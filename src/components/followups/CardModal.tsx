@@ -2151,8 +2151,7 @@ export function MergeModal({ group, initialId, cards, member, options, onClose, 
   // Several instalments: the invoice goes into the newest payment and the others come along.
   const prs = byKind.payment.filter((c) => c.payment?.invoiceId === invoice?.invoice?.invoiceId).length;
   const payLabel = prs > 1 ? `Payment Received (${prs} payments)` : "Payment Received";
-  if (linked(pi, invoice) && invPay) actions.push({ label: `Merge PI → Invoice → ${payLabel}`, steps: [[pi!, invoice!], [invoice!, payment!]], primary: true });
-  if (linked(quote, invoice) && invPay) actions.push({ label: `Merge Quote → Invoice → ${payLabel}`, steps: [[quote!, invoice!], [invoice!, payment!]], primary: true });
+  // No "PI → Invoice → Payment" in one go (owner, 27 Nov): the payment only joins once the training card is in the invoice.
   if (linked(pi, invoice)) actions.push({ label: "Merge PI → Invoice", steps: [[pi!, invoice!]], primary: !invPay });
   if (linked(quote, invoice)) actions.push({ label: "Merge Quote → Invoice", steps: [[quote!, invoice!]], primary: !invPay });
   if (invPay && invoiceReady) actions.push({ label: `Merge Invoice → ${payLabel}`, steps: [[invoice!, payment!]], primary: true });

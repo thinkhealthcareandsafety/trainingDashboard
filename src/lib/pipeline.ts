@@ -928,8 +928,7 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
 
   //  - Invoice ↔ Payment received: the invoice the payment is applied to in Zoho
   //    (or whose number the payment's Reference# cites) — only once that invoice is fully paid (all its payments are
-  //    flagged with it and merge together), and holds its completed training or is flagged with it (then the merge view
-  //    offers Training completed → Invoice → Payment received in one go).
+  //    flagged with it and merge together), and already holds its completed training (merged in, not just flagged).
   const openInvoiceById = new Map(open.filter((c) => c.kind === "invoice").map((c) => [c.invoice!.invoiceId, c]));
   const openInvoiceByNumber = new Map([...openInvoiceById.values()].map((c) => [c.docNumber, c]));
   for (const pay of open.filter((c) => c.kind === "payment")) {
@@ -943,7 +942,9 @@ export function buildBoard(leads: ZohoLead[], quotes: ZohoQuote[], pis: ZohoPI[]
       pay.waitingOn = `${partPaidText(target.invoice!, target.received ?? 0)}. This payment waits here; once the payments add up to the invoice total, the invoice merges with all of them together.`;
       continue;
     }
-    if (target && (hasTraining(target.mergedFrom) || hasTraining(target.flaggedWith))) {
+    // Only once the training card has come over into the invoice (owner, 27 Nov): while it still sits in Training
+    // completed, merging the payment now only means going back and forth.
+    if (target && hasTraining(target.mergedFrom)) {
       link(target, pay);
       continue;
     }
