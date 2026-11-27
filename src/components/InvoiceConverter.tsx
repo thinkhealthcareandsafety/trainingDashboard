@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PO_AUTO_SCAN } from "@/lib/poAuto";
 import { createPortal } from "react-dom";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
 import { EWAY_OVER, blocksOf } from "@/lib/invoiceConverterRules";
@@ -145,7 +146,7 @@ export function InvoiceConverter() {
   // New scans found by a sync: their pages are read now, once, without a click.
   const carriedOn = useRef(false);
   useEffect(() => {
-    if (!data?.scansDue || carriedOn.current || scanning.current) return;
+    if (!PO_AUTO_SCAN || !data?.scansDue || carriedOn.current || scanning.current) return; // paused (poAuto.ts)
     carriedOn.current = true;
     void findPos(true);
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps

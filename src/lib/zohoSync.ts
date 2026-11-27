@@ -495,8 +495,8 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
       log.folderError = e instanceof Error ? e.message : String(e);
       console.error(`[customer folders] failed: ${log.folderError}`);
     }
-    // New PO PDFs in WorkDrive (poFolder.ts): read, so the Invoice Converter shows "PO found".
-    try {
+    // New PO PDFs in WorkDrive (poFolder.ts): read, so the Invoice Converter shows "PO found". Paused (poAuto.ts).
+    if ((await import("./poAuto")).PO_AUTO_SCAN) try {
       await (await import("./poFolder")).scanPoFolderQuietly(10_000);
     } catch (e) {
       console.error(`[po folder] failed: ${e instanceof Error ? e.message : e}`);
