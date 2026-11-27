@@ -33,6 +33,8 @@ function Spinner({ size = 14 }: { size?: number }) {
   );
 }
 /** A button's label while busy: the spinner and what it's doing. */
+// The DSC signer on this PC (dsc-signer, owner 27 Nov): signs with the token; listens on this PC only.
+const DSC_SIGNER = "http://127.0.0.1:47123";
 const Busy = ({ text }: { text: string }) => <span className="inline-flex items-center gap-1.5"><Spinner />{text}</span>;
 
 /** There or missing: a soft round mark (owner, 24 Nov: instead of the neon ticks and crosses). */
@@ -329,7 +331,46 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState<"" | "po" | "poPdf" | "eway" | "ewayPdf" | "sign">("");
   const [merging, setMerging] = useState("");
-  const [choose, setChoose] = useState(false);
+  const [choose, setChoose] = useState<"" | "download" | "sign">("");
+  // Sign with DSC (owner, 27 Nov: "instead of Zoho Sign signature, we use this … signature"): the merged PDF goes to the
+  // DSC signer running on this PC (dsc-signer), the token's window asks for the PIN, and the signed PDF comes back here
+  // and is put on the invoice in Zoho. A copy is downloaded too.
+  const [signing, setSigning] = useState("");
+  const signDsc = async (pick: { po: boolean; others: boolean }, title: string) => {
+    setChoose(""); setError(""); setSigning("Making the PDF…");
+    try {
+      const w = [pick.po && "po", pick.others && "others"].filter(Boolean).join(",");
+      const r = await fetch(`/api/invoice-converter?merged=${i.id}&with=${w}`, { cache: "no-store" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); return setError(j.error ?? "Couldn't make the merged PDF"); }
+      const skipped = decodeURIComponent(r.headers.get("x-skipped") ?? "");
+      const [page, x, y, sw, sh] = (r.headers.get("x-sign-at") ?? "").split(",");
+      const q = new URLSearchParams({ reason: `Invoice ${decodeURIComponent(r.headers.get("x-invoice") ?? i.number)}`, ...(x ? { page, x, y, w: sw, h: sh } : {}) });
+      const pdf = await r.blob();
+      setSigning("Type the PIN in the token window…");
+      let s: Response;
+      try {
+        s = await fetch(`${DSC_SIGNER}/sign?${q}`, { method: "POST", body: pdf, headers: { "content-type": "application/pdf" } });
+      } catch {
+        return setError("The DSC signer isn't running on this PC. Double-click \"Start DSC signer\", plug in the token, then try again.");
+      }
+      if (!s.ok) { const j = await s.json().catch(() => ({})); return setError(j.error ?? "Signing didn't work"); }
+      const signed = await s.blob();
+      setSigning("Saving to Zoho…");
+      const name = `Invoice ${i.number} signed.pdf`;
+      const f = new FormData();
+      f.append("id", i.id); f.append("which", "signed"); f.append("file", new File([signed], name, { type: "application/pdf" }));
+      const u = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      // The copy is saved here either way, so a failed upload doesn't lose the signature.
+      const url = URL.createObjectURL(signed);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${title.replace("Invoice", `Invoice ${i.number}`)} signed.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (u.error) return setError(`Signed and downloaded, but not put on the invoice in Zoho: ${u.error}`);
+      onPatch({ signedPdf: u.name ?? name });
+      if (skipped) setError(`Signed. Left out (not a PDF or picture): ${skipped}`);
+    } catch { setError("Couldn't reach the server"); } finally { setSigning(""); }
+  };
   // Four ways (owner, 27 Nov): Invoice; Invoice - PO; Invoice - Attachment; Invoice - PO - Attachment (in that order in the PDF).
   const downloadMerged = async (pick: { po: boolean; others: boolean }, title: string) => {
     setMerging(title); setError("");
@@ -344,7 +385,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
       a.href = url; a.download = `${title.replace("Invoice", `Invoice ${i.number}`)}.pdf`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch { setError("Couldn't reach the server"); } finally { setMerging(""); setChoose(false); }
+    } catch { setError("Couldn't reach the server"); } finally { setMerging(""); setChoose(""); }
   };
   const [ewayEdit, setEwayEdit] = useState(false);
   const [ewayValue, setEwayValue] = useState("");
@@ -471,28 +512,32 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         <input ref={ewayFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("eway", e.target.files?.[0]); e.target.value = ""; }} />
       </div>
       <Others i={i} onPatch={onPatch} label={label} />
-      {/* Merge and draft (owner, 20 Nov): invoice + PO + e-way bill PDFs as a Zoho Sign draft, signature / date / name
-          boxes placed; signed and sent in Zoho Sign by hand (sending from here would need Zoho Sign API credits). */}
+      {/* Sign with DSC (owner, 27 Nov) took the place of Merge & draft (Zoho Sign, 20 Nov; startDraft is kept for when
+          Zoho Sign is wanted again): the merged PDF signed with the DSC token on this PC and put on the invoice in Zoho. */}
       <div className="col-span-2 lg:col-span-1">
         <p className={label}>Merged PDF</p>
-        <button type="button" className="press h-9 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-ink hover:bg-line disabled:opacity-50" disabled={busy === "sign" || !sign?.connected} onClick={startDraft}
-          title={!sign?.connected ? "Zoho Sign isn't connected yet" : "Merge the invoice, PO and e-way bill PDFs into a Zoho Sign draft with the signature, date and name boxes placed — you sign and send it in Zoho Sign"}>
-          {busy === "sign" ? <Busy text="Merging…" /> : "Merge & draft"}
+        <button type="button" className="press h-9 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-ink hover:bg-line disabled:opacity-50" disabled={Boolean(signing) || Boolean(merging)} onClick={() => setChoose((v) => v === "sign" ? "" : "sign")} aria-expanded={choose === "sign"}
+          title="Merge, then sign with the DSC token on this PC (the DSC signer must be running); the signed PDF is put on the invoice in Zoho">
+          {signing ? <Busy text={signing} /> : `${i.signedPdf ? "Sign again" : "Sign with DSC"} ${choose === "sign" ? "▴" : "▾"}`}
         </button>
+        {i.signedPdf && !signing && (
+          <a href={`/api/invoice-converter?signed=${i.id}`} className="mt-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-ink hover:underline" title={`${i.signedPdf}, on the invoice in Zoho`}><Mark ok small />Signed · Download</a>
+        )}
         {/* The merged PDF on its own (owner, 17 Nov: Zoho Sign's plan refuses API sends). */}
         {/* Fetched here (not a plain link) so the spinner shows while Zoho's files are gathered and merged. */}
-        <button type="button" className="mt-1 block text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={Boolean(merging)} onClick={() => setChoose((v) => !v)} aria-expanded={choose}>{merging ? <Busy text={`Making ${merging}…`} /> : `Download PDF ${choose ? "▴" : "▾"}`}</button>
-        {choose && !merging && (
+        <button type="button" className="mt-1 block text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={Boolean(merging) || Boolean(signing)} onClick={() => setChoose((v) => v === "download" ? "" : "download")} aria-expanded={choose === "download"}>{merging ? <Busy text={`Making ${merging}…`} /> : `Download PDF ${choose === "download" ? "▴" : "▾"}`}</button>
+        {choose && !merging && !signing && (
           <div className="mt-1 flex flex-col items-start gap-0.5 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
+            {choose === "sign" && <p className="px-2 pb-0.5 text-[12px] text-muted">Sign which PDF?</p>}
             {([
               ["Invoice", { po: false, others: false }, true],
               ["Invoice - PO", { po: true, others: false }, i.poPdf],
               ["Invoice - Attachment", { po: false, others: true }, Boolean(i.others?.length)],
               ["Invoice - PO - Attachment", { po: true, others: true }, i.poPdf && Boolean(i.others?.length)],
             ] as const).map(([title, pick, ok]) => (
-              <button key={title} type="button" disabled={!ok} onClick={() => downloadMerged(pick, title)}
+              <button key={title} type="button" disabled={!ok} onClick={() => choose === "sign" ? signDsc(pick, title) : downloadMerged(pick, title)}
                 className="w-full rounded px-2 py-1 text-left font-semibold text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:font-normal disabled:text-muted disabled:hover:bg-transparent"
-                title={ok ? `Download ${title}` : title.includes("PO") && !i.poPdf ? "No PO PDF on this invoice yet" : "No other attachments on this invoice yet"}>{title}</button>
+                title={ok ? `${choose === "sign" ? "Sign" : "Download"} ${title}` : title.includes("PO") && !i.poPdf ? "No PO PDF on this invoice yet" : "No other attachments on this invoice yet"}>{title}</button>
             ))}
           </div>
         )}

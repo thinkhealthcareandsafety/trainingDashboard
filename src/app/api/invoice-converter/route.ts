@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
-import { attachExtra, attachFoundPo, attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
+import { attachExtra, attachFoundPo, attachPdf, attachSigned, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
 import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
@@ -24,6 +24,8 @@ export const maxDuration = 60;
  *  POST { action: "po", id, value }                — the Purchase Order Number, on every invoice of the same PI
  *  POST multipart { id, which: "po" | "eway", file, value? } — a PDF attached in Zoho (a PO: to every invoice of the same PI; value = the PO number typed with it; replace=1 deletes the old one first)
  *  POST multipart { id, which: "extra", file }  — any other file attached to the invoice in Zoho under its own name
+ *  POST multipart { id, which: "signed", file } — the PDF signed with the DSC token on the owner's PC (dsc-signer), put on the invoice as "Invoice <n> signed.pdf"
+ *  GET ?signed=<invoice id> also gives that DSC-signed copy
  *  POST { action: "eway", id, value }              — an e-way bill number typed in (kept here; Zoho invoices have no field for it)
  *  POST { action: "signer", email, name }          — your email and full name for Zoho Sign (once)
  *  POST { action: "draft", id }                    — merge and make a Zoho Sign "Sign yourself" draft with the boxes placed (never signed / sent here); its Zoho Sign page
@@ -60,7 +62,9 @@ export async function GET(request: Request) {
       // with=po,others picks what goes in (owner, 27 Nov); none given = the invoice with its PO and e-way bill, as before.
       const w = q.get("with");
       const f = await mergedInvoicePdf(merged, w === null ? undefined : { po: /\bpo\b/.test(w), others: /\bothers\b/.test(w) });
-      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")) } });
+      // x-sign-at / x-invoice: where the DSC signer puts its stamp and the invoice number for its "Reason" (owner, 27 Nov).
+      const s = f.spot;
+      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")), "x-sign-at": `${s.page},${s.x},${s.y},${s.w},${s.h}`, "x-invoice": encodeURIComponent(f.number) } });
     }
     const signed = new URL(request.url).searchParams.get("signed");
     if (signed) {
@@ -88,6 +92,10 @@ export async function POST(request: Request) {
       if (f.get("which") === "extra") {
         if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a file for an invoice" }, 400);
         return json(await attachExtra(id, file));
+      }
+      if (f.get("which") === "signed") {
+        if (!ID.test(id) || !(file instanceof File)) return json({ error: "No signed PDF for an invoice" }, 400);
+        return json(await attachSigned(id, file));
       }
       const which = f.get("which") === "eway" ? "eway" : "po";
       if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a PDF for an invoice" }, 400);

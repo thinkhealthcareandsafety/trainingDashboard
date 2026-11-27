@@ -69,6 +69,15 @@ export function signBoxes(label: SignLabel | null): SignBox[] {
   ].map((b) => ({ ...b, x: Math.round(b.x), y: Math.round(b.y) })) as SignBox[];
 }
 
+/**
+ * Where the DSC signer's stamp goes (owner, 27 Nov: the DSC token instead of Zoho Sign): where the Zoho Sign boxes were,
+ * inside the bank-details box, left of the "Authorized Signature" box and under the bank address (checked on 2026-01-552). PDF points, bottom-left origin (what pdf-lib takes).
+ */
+export function dscSpot(label: SignLabel | null): { page: number; x: number; y: number; w: number; h: number } {
+  const l = label ?? STANDARD;
+  return { page: l.page, x: Math.round(l.x - 290), y: Math.round(l.y + 1), w: 200, h: 56 };
+}
+
 /** Finds "Authorized Signature" in the invoice's own pages (the first `pages` of the merged PDF; the T&C page has none). */
 export async function findSignLabel(bytes: Uint8Array, pages: number): Promise<SignLabel | null> {
   try {

@@ -31,16 +31,19 @@ export function poFileTest(po: unknown, read: string[] = []): (name: string) => 
   return (name) => isPoFile(name) || read.includes(name) || (/\.pdf$/i.test(name) && !isEwayFile(name) && parts.some((p) => new RegExp(`(?<![A-Z0-9])${p}(?![A-Z0-9])`, "i").test(name)));
 }
 export const isEwayFile = (name: string) => /e-?way/i.test(name);
+/** The DSC-signed copy put on the invoice (owner, 27 Nov: sign with the DSC token instead of Zoho Sign). */
+export const signedFileName = (invoice: string) => `Invoice ${invoice} signed.pdf`;
+export const isSignedFile = (name: string) => /^invoice\b.*\bsigned\.pdf$/i.test(name.trim());
 /**
  * Splits an invoice's attachments into its one PO, its one e-way bill, and the rest (owner, 27 Nov: "WCC_…_6570080_…
  * Report.pdf" carries the PO number but is a report, and was left out of "Invoice - PO - Attachment"). The PO is a file
  * named as one first, else the first that `isPo` takes; only that one, and other files named as a PO ("PO - …"), are
- * kept out of the attachments.
+ * kept out of the attachments. The DSC-signed copy is never an attachment (it would go into the next merge).
  */
 export function splitAttachments<T>(docs: T[], name: (d: T) => string, isPo: (n: string) => boolean): { po?: T; eway?: T; others: T[] } {
   const po = docs.find((d) => isPoFile(name(d))) ?? docs.find((d) => isPo(name(d)));
   const eway = docs.find((d) => isEwayFile(name(d)));
-  return { po, eway, others: docs.filter((d) => d !== po && d !== eway && !isPoFile(name(d)) && !isEwayFile(name(d))) };
+  return { po, eway, others: docs.filter((d) => d !== po && d !== eway && !isPoFile(name(d)) && !isEwayFile(name(d)) && !isSignedFile(name(d))) };
 }
 
 /*
@@ -89,6 +92,8 @@ export type ConvInvoice = {
   pending: boolean;
   /** Merge and sign (owner, 17 Nov): Zoho Sign's status for this invoice ("inprogress", "completed", …), if started. */
   sign?: string;
+  /** The DSC-signed copy on the invoice in Zoho, by name (owner, 27 Nov). */
+  signedPdf?: string;
   /** PO PDFs in the WorkDrive PO folder that carry this invoice's PO number, when it has no PO PDF yet (owner, 24 Nov). */
   poFound?: { id: string; name: string }[];
 };

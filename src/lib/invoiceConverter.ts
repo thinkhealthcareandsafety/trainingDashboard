@@ -3,7 +3,7 @@ import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
 import { poInPdf, poKey } from "./poMatch";
-import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState, splitAttachments } from "./invoiceConverterRules";
+import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState, splitAttachments, isSignedFile, signedFileName } from "./invoiceConverterRules";
 
 /*
  * The Invoice Converter's data and its writes to Zoho Books (owner, 17 Nov).
@@ -96,6 +96,7 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""), pi: piOf(r.row.reference_number),
       po: po.label, poOk: po.ok, poPdf: files.some(isPo),
       others: splitAttachments(files, (n) => n, isPo).others,
+      ...(files.some(isSignedFile) ? { signedPdf: files.find(isSignedFile) } : {}),
       eway: e?.eway || String(r.row.cf_e_way_bill_number ?? "").trim() || e?.ewayFound || null, ewayZoho: Boolean(e?.eway), ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
       pending,
       sign: signs.get(r.id)?.status,
@@ -377,10 +378,37 @@ async function mergedFor(invoiceId: string, pick: MergePick = { po: true, others
 }
 
 /** The merged PDF to download as it is (owner, 17 Nov: Zoho Sign's plan doesn't send by API, so merging works on its own too). */
-export async function mergedInvoicePdf(invoiceId: string, pick?: MergePick): Promise<{ bytes: Uint8Array; name: string; skipped: string[] }> {
+export async function mergedInvoicePdf(invoiceId: string, pick?: MergePick): Promise<{ bytes: Uint8Array; name: string; skipped: string[]; number: string; spot: { page: number; x: number; y: number; w: number; h: number } }> {
+  const { dscSpot, findSignLabel } = await import("./pdfMerge");
   const { merged, number } = await mergedFor(invoiceId, pick);
   const tail = pick ? [pick.po && "PO", pick.others && "Attachment"].filter(Boolean).join(" - ") : "merged";
-  return { bytes: merged.bytes, name: `Invoice ${number}${tail ? ` - ${tail}` : ""}.pdf`, skipped: merged.skipped ?? [] };
+  // Where the DSC signer puts its stamp (owner, 27 Nov), found on the invoice's own pages.
+  const spot = dscSpot(await findSignLabel(merged.bytes, merged.firstPages));
+  return { bytes: merged.bytes, name: `Invoice ${number}${tail ? ` - ${tail}` : ""}.pdf`, skipped: merged.skipped ?? [], number, spot };
+}
+
+/**
+ * The DSC-signed PDF (owner, 27 Nov: "instead of Zoho Sign signature, we use this … signature"): signed on the owner's PC
+ * by the DSC signer with the token, sent here, and put on the invoice in Zoho as "Invoice <number> signed.pdf" (an
+ * older signed copy is deleted first). Only a PDF that carries a signature is taken.
+ */
+export async function attachSigned(invoiceId: string, file: File): Promise<{ ok: true; name: string }> {
+  if (file.size > 20 * 1024 * 1024) throw new Error("The signed PDF is over 20 MB.");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const head = Buffer.from(bytes.subarray(0, 5)).toString("latin1");
+  if (head !== "%PDF-" || !/\/ByteRange\s*\[/.test(Buffer.from(bytes).toString("latin1"))) throw new Error("That PDF isn't signed.");
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  if (!row) throw new Error("That invoice isn't in our copy yet. Sync, then try again.");
+  const name = signedFileName(String(row.row.invoice_number ?? invoiceId));
+  const d = await fetchDetail("invoices", invoiceId);
+  for (const x of ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).filter((x) => x.document_id && isSignedFile(String(x.file_name ?? "")))) {
+    await booksApi("DELETE", `/invoices/${invoiceId}/documents/${x.document_id}`);
+  }
+  const col = await extrasCol();
+  const had = await col.findOne({ _id: invoiceId });
+  if (had) await col.updateOne({ _id: invoiceId }, { $set: { files: (had.files ?? []).filter((n) => !isSignedFile(n)) } });
+  await attachOne(invoiceId, row.lmt, name, bytes as Uint8Array<ArrayBuffer>);
+  return { ok: true, name };
 }
 
 /** Asks Zoho Sign how the invoice's signing stands (after the signing page closes). */
@@ -399,7 +427,15 @@ export async function checkInvoiceSign(invoiceId: string): Promise<string> {
 export async function signedInvoicePdf(invoiceId: string): Promise<{ bytes: Uint8Array; name: string } | null> {
   const { signedPdf } = await import("./zohoSign");
   const had = await (await signsCol()).findOne({ _id: invoiceId });
-  if (!had || (await checkInvoiceSign(invoiceId)) !== "completed") return null;
+  if (!had) {
+    // Signed with the DSC token (owner, 27 Nov): the signed copy on the invoice in Zoho.
+    const d = await fetchDetail("invoices", invoiceId);
+    const doc = ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).find((x) => x.document_id && isSignedFile(String(x.file_name ?? "")));
+    if (!doc) return null;
+    const { booksFile } = await import("./quotations");
+    return { bytes: (await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`)).bytes, name: String(doc.file_name) };
+  }
+  if ((await checkInvoiceSign(invoiceId)) !== "completed") return null;
   const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
   return { bytes: await signedPdf(had.requestId), name: `Invoice ${String(row?.row.invoice_number ?? invoiceId)} signed.pdf` };
 }

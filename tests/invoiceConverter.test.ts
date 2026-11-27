@@ -1,6 +1,7 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments } from "@/lib/invoiceConverterRules";
+import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments, isSignedFile, signedFileName } from "@/lib/invoiceConverterRules";
+import { dscSpot } from "@/lib/pdfMerge";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 import { clearPo, orderText, poInPdf, poKey } from "@/lib/poMatch";
@@ -273,4 +274,18 @@ test("a report carrying the PO number is an attachment, not a second PO (2026-01
   assert.deepEqual(s.others, [wcc]);
   // Only a PO number in the name and nothing named "PO": that file is the PO, the rest are attachments.
   assert.deepEqual(splitAttachments(["6570080.pdf", "photo.jpg"], (n) => n, is), { po: "6570080.pdf", eway: undefined, others: ["photo.jpg"] });
+});
+
+test("the DSC-signed copy is known by its name and never merged in as an attachment (27 Nov)", () => {
+  assert.equal(signedFileName("2026-01-552"), "Invoice 2026-01-552 signed.pdf");
+  assert.ok(isSignedFile("Invoice 2026-01-552 signed.pdf") && isSignedFile("invoice 2026-01-552 - PO signed.PDF"));
+  assert.ok(!isSignedFile("Signed WCC report.pdf") && !isSignedFile("Invoice 2026-01-552.pdf"));
+  const s = splitAttachments(["PO - 2026-01-552.pdf", "Invoice 2026-01-552 signed.pdf", "WCC report.pdf"], (n) => n, poFileTest("6570080-OP-4470300036"));
+  assert.deepEqual(s.others, ["WCC report.pdf"]);
+});
+
+test("the DSC stamp sits left of Authorized Signature, under the bank details, and moves with the label", () => {
+  assert.deepEqual(dscSpot({ page: 0, x: 412.9, y: 130.1, pageHeight: 841.69 }), { page: 0, x: 123, y: 131, w: 200, h: 56 });
+  assert.deepEqual(dscSpot({ page: 1, x: 412.9, y: 300, pageHeight: 841.69 }), { page: 1, x: 123, y: 301, w: 200, h: 56 });
+  assert.equal(dscSpot(null).page, 0);
 });
