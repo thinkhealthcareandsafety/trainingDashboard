@@ -51,13 +51,13 @@ function PhotoButtons({ onFiles, disabled, take = "Take a photo", choose = "Choo
     <div className="flex flex-wrap gap-2">
       <button type="button" className={btn.primary} disabled={disabled} onClick={() => setCamera(true)}>{take}</button>
       <label className={`${btn.ghost} cursor-pointer ${disabled ? "pointer-events-none opacity-40" : ""}`}>{choose}<input type="file" accept="image/*" multiple className="sr-only" disabled={disabled} onChange={pick} /></label>
-      {camera && createPortal(<Camera onClose={closeCamera} onShot={(file) => { setCamera(false); onFiles([file]); }} />, document.body)}
+      {camera && createPortal(<Camera onClose={closeCamera} onShot={(file) => { setCamera(false); onFiles([file]); }} onPick={(files) => { setCamera(false); onFiles(files); }} />, document.body)}
     </div>
   );
 }
 
 /** The camera, full screen: asks the browser for it (the back camera on a phone), a live picture and a shutter button. */
-function Camera({ onShot, onClose }: { onShot: (f: File) => void; onClose: () => void }) {
+function Camera({ onShot, onClose, onPick }: { onShot: (f: File) => void; onClose: () => void; onPick: (f: File[]) => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -68,7 +68,7 @@ function Camera({ onShot, onClose }: { onShot: (f: File) => void; onClose: () =>
       if (!navigator.mediaDevices?.getUserMedia) { setProblem("This browser can't open a camera here."); return; }
       try {
         const cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === "videoinput");
-        if (cams.length === 0 && (await navigator.mediaDevices.enumerateDevices().catch(() => null)) !== null) { setProblem("No camera found on this device. Use “Choose photos” instead."); return; }
+        if (cams.length === 0 && (await navigator.mediaDevices.enumerateDevices().catch(() => null)) !== null) { setProblem("No camera found on this device."); return; }
         const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
         if (stopped) { s.getTracks().forEach((t) => t.stop()); return; }
         stream.current = s;
@@ -76,9 +76,9 @@ function Camera({ onShot, onClose }: { onShot: (f: File) => void; onClose: () =>
       } catch (e) {
         const n = e instanceof DOMException ? e.name : "";
         setProblem(n === "NotAllowedError" || n === "SecurityError" ? "Camera access was refused. Allow the camera for this site (the camera icon by the address bar), then try again."
-          : n === "NotFoundError" || n === "OverconstrainedError" || n === "DevicesNotFoundError" ? "No camera found on this device. Use “Choose photos” instead."
+          : n === "NotFoundError" || n === "OverconstrainedError" || n === "DevicesNotFoundError" ? "No camera found on this device."
           : n === "NotReadableError" ? "The camera is busy in another app. Close it there and try again."
-          : "The camera couldn't be opened. Use “Choose photos” instead.");
+          : "The camera couldn't be opened.");
       }
     })();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -94,19 +94,34 @@ function Camera({ onShot, onClose }: { onShot: (f: File) => void; onClose: () =>
     c.toBlob((b) => { if (b) onShot(new File([b], `card-${Date.now()}.jpg`, { type: "image/jpeg" })); }, "image/jpeg", 0.92);
   };
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col bg-black" role="dialog" aria-label="Camera">
-      <div className="flex items-center justify-between p-3 text-white">
-        <span className="text-[14px] font-medium">{problem ? "Camera" : "Fit the card in the frame"}</span>
-        <button type="button" className="press rounded-full bg-white/15 px-4 py-2 text-[14px] font-medium" onClick={onClose}>Close</button>
-      </div>
-      <div className="relative min-h-0 flex-1">
-        <video ref={video} playsInline muted className="h-full w-full object-contain" />
-        {problem && <p className="absolute inset-x-6 top-1/3 rounded-2xl bg-white/10 p-5 text-center text-[15px] font-medium text-white">{problem}</p>}
-        {!problem && !ready && <p className="absolute inset-x-6 top-1/3 text-center text-[15px] text-white/80">Opening the camera…</p>}
-      </div>
-      {!problem && (
-        <div className="flex justify-center p-5">
-          <button type="button" aria-label="Take the photo" disabled={!ready} onClick={shoot} className="press h-16 w-16 rounded-full border-4 border-white bg-white/30 disabled:opacity-40" />
+    // Full screen on a phone; a centred window on a computer (owner, 27 Nov: the options were lost in the corners).
+    <div className="fade-in fixed inset-0 z-[90] grid place-items-center bg-black/70 backdrop-blur-sm sm:p-6" role="dialog" aria-label="Camera" onMouseDown={onClose}>
+      {problem ? (
+        // No camera, or not allowed: say so in the middle, with the way on right under it.
+        <div className="modal-in w-[calc(100%-2rem)] max-w-md rounded-[22px] bg-surface p-6 text-center shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+          <span className="mx-auto grid size-12 place-items-center rounded-full bg-high-bg text-high" aria-hidden>
+            <svg viewBox="0 0 20 20" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6.5h3l1.5-2h5L14 6.5h3v9H3zM3 3l14 14" /></svg>
+          </span>
+          <p className="mt-3 text-[16px] font-semibold text-ink">{problem.split(". ")[0].replace(/\.?$/, ".")}</p>
+          {problem.includes(". ") && <p className="mt-1 text-[14px] text-muted">{problem.split(". ").slice(1).join(". ")}</p>}
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <label className={`${btn.primary} cursor-pointer`}>Choose photos instead<input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { const files = [...(e.target.files ?? [])]; e.target.value = ""; if (files.length) onPick(files); }} /></label>
+            <button type="button" className={btn.ghost} onClick={onClose}>Close</button>
+          </div>
+        </div>
+      ) : (
+        <div className="modal-in flex h-full w-full flex-col overflow-hidden bg-black sm:h-auto sm:max-h-[88vh] sm:max-w-3xl sm:rounded-[22px]" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+            <span className="text-[15px] font-semibold">Fit the card in the frame</span>
+            <button type="button" className="press rounded-full bg-white/15 px-4 py-2 text-[14px] font-medium hover:bg-white/25" onClick={onClose}>Close</button>
+          </div>
+          <div className="relative min-h-0 flex-1 sm:aspect-video sm:flex-none">
+            <video ref={video} playsInline muted className="h-full w-full object-contain" />
+            {!ready && <p className="absolute inset-0 grid place-items-center text-[15px] text-white/80">Opening the camera…</p>}
+          </div>
+          <div className="flex items-center justify-center gap-4 p-5">
+            <button type="button" aria-label="Take the photo" disabled={!ready} onClick={shoot} className="press h-16 w-16 rounded-full border-4 border-white bg-white/30 hover:bg-white/50 disabled:opacity-40" />
+          </div>
         </div>
       )}
     </div>

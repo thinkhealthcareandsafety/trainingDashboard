@@ -12,6 +12,15 @@ Pushed `240f0bd` (Reports button). Local: workflows → zeta-ten, `LoadBar.tsx` 
 5 min (`LIVE_EVERY_MS`), customer/vendor folders hourly (`state.foldersAt`), margin memo 10 min. Push status check = the
 new project's Vercel status context.
 
+**Later on 27 Nov (all pushed, last `6d729d1`):** margin counts a cost of 0 / no cost as ₹0; payments join an invoice only
+once its training card is merged in; **External Leads** (Sales; `externalLeads*.ts`, `cardScan.ts`, `ExternalLeads.tsx`,
+`/api/external-leads`: by hand or visiting-card photos read in the browser, in-page camera, customer or vendor, Customer
+type + Sector, made in Zoho Books on the live site only); phone layout (one-row bottom bar + More sheet, Sync in the top
+bar). **Find POs automatic scanning is paused PERMANENTLY (owner: "pause it permanently") — `src/lib/poAuto.ts`
+`PO_AUTO_SCAN = false`; never turn it on unless the owner asks. The button still scans.** The PO folder files were renamed
+to their PO numbers from this PC (`Z:\Public Share\WORKSPACE\THCAS\PO\PO`, undo list `d:\Projects\Training
+Dashboard\po-rename-undo-2026-11-27.json`). Vercel usage on 27 Nov afternoon: 50 s of 4 h.
+
 **⚠ (was) THE SITE IS DOWN.** Vercel paused the old account (Hobby): **Fluid Active CPU 3 h 52 m / 4 h** used; "Unpauses in 29d".
 All three addresses answer **402 DEPLOYMENT_DISABLED**, deploys fail with "Account is blocked." (incl. training.thinkhealth.in,
 the client portal). Owner can't buy Pro now. **Plan agreed (26 Nov): a new Vercel account** (owner's new email, Hobby;
