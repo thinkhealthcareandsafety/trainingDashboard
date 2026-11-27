@@ -13,13 +13,13 @@ const l = (invoice: string, amount: number, cost: number | null, x: Partial<MLin
 
 test("left out, each for its reason; a giveaway and a small loss stay", () => {
   const j = judge([l("1", 100, 60), l("1", 0, 10, { item: "Gift" }), l("1", 100, null), l("1", 100, 0), l("1", 100, 4.9), l("1", 100, 200), l("1", 100, 110), l("1", 50, 90, { item: "Packing , Shipping and Forwarding" }), l("2", 0, 500), l("2", 0, 700), l("3", 100, 70), l("3", 0, 0)]);
-  assert.deepEqual(j.map((x) => x.why), [null, null, "noCost", "lowCost", "lowCost", "highCost", null, "freight", "zeroSale", "zeroSale", null]);
+  assert.deepEqual(j.map((x) => x.why), [null, null, "noCost", null, "lowCost", "highCost", null, "freight", "zeroSale", "zeroSale", null]);
   const t = total(j);
-  assert.deepEqual([t.sale, t.cost, t.profit, t.invoices, t.skipped, t.skippedLines], [300, 250, 50, 2, 400, 6]);
+  assert.deepEqual([t.sale, t.cost, t.profit, t.invoices, t.skipped, t.skippedLines], [400, 250, 150, 2, 300, 5]);
   assert.deepEqual(freight(j), { charged: 50, cost: 90 });
   const c = checks(j);
   assert.deepEqual([c[0].invoice, c[0].why, c[0].cost, c[0].item], ["2", "zeroSale", 1200, "2 items"]);
-  assert.equal(c.length, 5);
+  assert.equal(c.length, 4); // a cost of exactly 0 is believed now (owner, 27 Nov)
 });
 
 test("people add up to the company with the others; periods by India's day; last year beside", () => {

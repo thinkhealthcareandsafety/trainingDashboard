@@ -34,7 +34,8 @@ export function judge(lines: MLine[]): Judged[] {
     if (FREIGHT.test(l.item)) why = "freight";
     else if ((sale.get(l.invoice) ?? 0) < 1) why = "zeroSale";
     else if (l.cost === null) why = l.amount === 0 ? null : "noCost";
-    else if (l.amount > 0 && l.cost < l.amount * LOW_COST) why = "lowCost";
+    // A cost of exactly 0 is believed (owner, 27 Nov: "if they are 0, there must be a reason"); only a tiny non-zero one isn't.
+    else if (l.amount > 0 && l.cost > 0 && l.cost < l.amount * LOW_COST) why = "lowCost";
     else if (l.amount > 0 && l.cost >= l.amount * HIGH_COST) why = "highCost";
     return { ...l, why };
   });
