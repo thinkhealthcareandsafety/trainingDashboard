@@ -23,7 +23,7 @@ let memo: { key: string; at: number; data: MarginData } | null = null;
 export async function marginData(today: string, fresh = false): Promise<MarginData> {
   const { rows, state } = await datasetRows(today, false, true);
   const key = `${state.refreshedAt ?? ""}|${today}`;
-  if (!fresh && memo && memo.key === key && Date.now() - memo.at < 60_000) return memo.data;
+  if (!fresh && memo && memo.key === key && Date.now() - memo.at < 10 * 60_000) return memo.data;
   if (!rows.margin) throw new Error("The margin isn't ready yet: the Zoho data is still being copied. Try again in a few minutes.");
   const t = await copyTables(state, true);
   const price = buyPrices(t);

@@ -13,19 +13,19 @@ test("the pace: 400 calls at 9 am, rising evenly to 95% of the limit by 8 pm", (
   assert.equal(paceAllowance(ist("07:00"), 2500), 400);
 });
 
-test("due each minute in the day while under the pace; never on Sunday, before 9 or from 8 pm", () => {
+test("due every 5 minutes in the day while under the pace; never on Sunday, before 9 or from 8 pm", () => {
   const now = ist("11:00");
-  assert.equal(liveSyncDue(new Date(now - 61_000).toISOString(), 300, now, 2500), true);
-  assert.equal(liveSyncDue(new Date(now - 30_000).toISOString(), 300, now, 2500), false); // less than a minute
-  assert.equal(liveSyncDue(new Date(now - 61_000).toISOString(), 1200, now, 2500), false); // ahead of the pace: waits
+  assert.equal(liveSyncDue(new Date(now - 301_000).toISOString(), 300, now, 2500), true);
+  assert.equal(liveSyncDue(new Date(now - 240_000).toISOString(), 300, now, 2500), false); // less than 5 minutes
+  assert.equal(liveSyncDue(new Date(now - 301_000).toISOString(), 1200, now, 2500), false); // ahead of the pace: waits
   assert.equal(liveSyncDue(undefined, 0, ist("08:59"), 2500), false);
   assert.equal(liveSyncDue(undefined, 0, ist("20:00"), 2500), false);
   assert.equal(liveSyncDue(undefined, 0, ist("11:00", "2026-11-15"), 2500), false); // Sunday
 });
 
-test("next sync: a minute after the last one in the day; 9 am on the next sync day after hours", () => {
+test("next sync: 5 minutes after the last one in the day; 9 am on the next sync day after hours", () => {
   const now = ist("11:00");
-  assert.equal(nextLiveSync(new Date(now - 20_000).toISOString(), now), now + 40_000);
+  assert.equal(nextLiveSync(new Date(now - 20_000).toISOString(), now), now + 280_000);
   assert.equal(nextLiveSync(undefined, now), now);
   assert.equal(nextLiveSync(undefined, ist("21:00")), ist("09:00", "2026-11-13"));
 });

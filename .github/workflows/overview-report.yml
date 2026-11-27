@@ -31,5 +31,5 @@ jobs:
           fi
           curl --fail-with-body --silent --show-error --max-time 180 \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "https://training-dashboard-xfwl.vercel.app/api/cron/report?source=github"
+            "https://training-dashboard-zeta-ten.vercel.app/api/cron/report?source=github"
           echo

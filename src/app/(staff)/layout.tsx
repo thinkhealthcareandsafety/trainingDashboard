@@ -4,6 +4,7 @@ import "../globals.css";
 import { StoreProvider } from "@/lib/store";
 import { SessionProvider } from "@/lib/session";
 import { AppShell } from "@/components/AppShell";
+import { LoadBar } from "@/components/LoadBar";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-full">
+        <LoadBar />
         <SessionProvider>
           <StoreProvider>
             <AppShell>{children}</AppShell>

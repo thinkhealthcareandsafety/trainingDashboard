@@ -64,9 +64,10 @@ export function lastSlot(hours: number[], now = Date.now()): number {
 /** An automatic sync is due when a scheduled hour has passed since the last successful sync. */
 export const scheduledSyncDue = (syncedAt?: string, now = Date.now()) => lastSlot(SYNC_HOURS, now) > (syncedAt ? new Date(syncedAt).getTime() : 0);
 
-/* ---------------- Live sync: every minute, paced to the daily limit ---------------- */
+/* ---------------- Live sync: every 5 minutes, paced to the daily limit ---------------- */
 
-export const LIVE_EVERY_MS = 60_000;
+// Owner, 26 Nov (the host paused the site for server time): tabs still ask each minute, the server syncs at most every 5.
+export const LIVE_EVERY_MS = 5 * 60_000;
 const DAY_START = 9, DAY_END = 20; // 9 am–8 pm IST
 const WINDOW_MIN = (DAY_END - DAY_START) * 60;
 const MORNING = 400; // calls allowed straight away: the 9 am full check and the first syncs never wait
@@ -126,6 +127,7 @@ type SyncState = {
   itemsAt?: number;
   usersAt?: number;
   quietLogHour?: string; // live sync: the hour whose quiet sync is already in the log
+  foldersAt?: number; // customer / vendor folders in WorkDrive, hourly (owner, 26 Nov: less server time)
   mailAt?: number; // the reply checks and training reminders, hourly even with the live sync
   attemptAt?: number; // last sync attempt (successful or not)
   sweepTurn?: number; // live sync: whose deletions the next quick sync checks (estimates / salesorders / invoices in turn)
@@ -482,7 +484,8 @@ export async function runSync({ force = false, full = false, ...who }: { force?:
       }
     }
     // A WorkDrive folder for each new customer (owner, 23 Nov; Sprints I148) and vendor (24 Nov). Never fails the sync.
-    try {
+    if (fullDue || now - (state.foldersAt ?? 0) >= 60 * 60_000) try {
+      state.foldersAt = now;
       const f = await import("./customerFolders");
       const made = await f.makeCustomerFolders(new Date(), fetchContactEntry);
       if (made.length) log.folders = made;

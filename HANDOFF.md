@@ -5,7 +5,14 @@
 _Written Thu 26 Nov 2026, end of session 37 ("Master Session 1", 24–26 Nov). Owner: Sumit; Jasmeet Singh (he/him) may be
 typing. Rules: **push only on "push"; short replies in plain words.**_
 
-**⚠ THE SITE IS DOWN.** Vercel paused the old account (Hobby): **Fluid Active CPU 3 h 52 m / 4 h** used; "Unpauses in 29d".
+**Update 27 Nov (session 38):** back up on the NEW Vercel account (team workthinkhealth-1224, project training-dashboard,
+**`training-dashboard-zeta-ten.vercel.app`**); work. + training.thinkhealth.in moved (thinkhealth.in deleted from the old
+account); 12 env vars set (CRON_SECRET added by owner; also new GitHub repo secret CRON_SECRET, there was none before).
+Pushed `240f0bd` (Reports button). Local: workflows → zeta-ten, `LoadBar.tsx` (bar + seconds, both layouts), live sync every
+5 min (`LIVE_EVERY_MS`), customer/vendor folders hourly (`state.foldersAt`), margin memo 10 min. Push status check = the
+new project's Vercel status context.
+
+**⚠ (was) THE SITE IS DOWN.** Vercel paused the old account (Hobby): **Fluid Active CPU 3 h 52 m / 4 h** used; "Unpauses in 29d".
 All three addresses answer **402 DEPLOYMENT_DISABLED**, deploys fail with "Account is blocked." (incl. training.thinkhealth.in,
 the client portal). Owner can't buy Pro now. **Plan agreed (26 Nov): a new Vercel account** (owner's new email, Hobby;
 team "workthinkhealth-1224's…") importing the same repo `thinkhealthcareandsafety/trainingDashboard` (master), project name
