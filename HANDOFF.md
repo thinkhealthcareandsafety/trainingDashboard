@@ -1,6 +1,59 @@
 # Handoff — ThinkHealth Training Dashboard
 
-## Start of the next session (37) — read this block first
+## Start of the next session (38) — read this block first
+
+_Written Thu 26 Nov 2026, end of session 37 ("Master Session 1", 24–26 Nov). Owner: Sumit; Jasmeet Singh (he/him) may be
+typing. Rules: **push only on "push"; short replies in plain words.**_
+
+**⚠ THE SITE IS DOWN.** Vercel paused the old account (Hobby): **Fluid Active CPU 3 h 52 m / 4 h** used; "Unpauses in 29d".
+All three addresses answer **402 DEPLOYMENT_DISABLED**, deploys fail with "Account is blocked." (incl. training.thinkhealth.in,
+the client portal). Owner can't buy Pro now. **Plan agreed (26 Nov): a new Vercel account** (owner's new email, Hobby;
+team "workthinkhealth-1224's…") importing the same repo `thinkhealthcareandsafety/trainingDashboard` (master), project name
+"training-dashboard". Owner was on the "New Project" screen asking about environment variables when the session ended.
+- **Env vars to paste** (values from the old project: Settings → Environment Variables, still visible while paused; local
+  `.env.local` has only the first ten): ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, ZOHO_ORG_ID, ZOHO_API_BASE,
+  ZOHO_ACCOUNTS_URL, MONGODB_URI, MONGODB_DB, CLEAR_LOGS_PIN, ADMIN_PIN, **CRON_SECRET**, **SESSION_SECRET** (if missing,
+  everyone must sign in again), TS_GMAIL_APP_PASSWORD (Total Supply mail), ZIA_FLOW_URL + ZIA_FLOW_SECRET, PORTAL_BASE_URL,
+  ZOHO_DAILY_LIMIT, any REPORT_* / ZOHO_MAIL_* set there. Never print values.
+- **Domains:** remove work.thinkhealth.in + training.thinkhealth.in from the OLD project (Settings → Domains), add them to
+  the NEW one. Cloudflare already CNAMEs to Vercel; if Vercel asks for a TXT verification, whoever controls the Cloudflare
+  account (owner can't see it) must add it.
+- **After the new project exists:** update the GitHub workflows' URLs (`.github/workflows/overview-report.yml`, zoho-sync)
+  from `training-dashboard-xfwl.vercel.app` to the new address; GitHub secret CRON_SECRET must match; push recipe below now
+  checks the new project's Vercel status context instead of "-xfwl".
+- Told the owner honestly: a second free account to dodge limits is against Vercel's terms and may be blocked; the same app
+  will burn 4 h again fast unless server time is cut.
+
+**Local, not committed:** `src/app/(staff)/reports/page.tsx` — Reports load only after a button ("Display reports"; owner
+wants the label **"Click to see reports"**). Build and tests passed.
+
+**Owner's open requests (26 Nov), in order:**
+1. Get live on the new account (above), then push.
+2. Reports: nothing computed until "Click to see reports" (done locally, rename the button).
+3. **A loader on every screen: a bar that fills, with the seconds counting**, so nobody thinks it's stuck.
+4. **Cut server time** without changing what people see: live updates stay as they are (owner: "live update is fine");
+   server runs the Zoho sync at most every 5 min although tabs check each minute; heavy sync steps (customer / vendor
+   folders, PO folder) hourly; margin memo 10 min instead of 1. **Find POs: leave as it is, owner will discuss later.**
+5. Repo is **PUBLIC** on GitHub (holds business notes incl. HANDOFF); owner told to make it private (GitHub → Settings →
+   Change visibility). Check the push/status recipe still works after.
+
+**Built this session (all pushed, last = `8d5b0fb`, NOT deployed after `65ecfca` because of the block):** themes on the
+account + 6 new; Templates dashed boxes editable; customer folders (I148) + vendor folders in WorkDrive PURCHASE + backfill
+(681 customers / 358 vendors) + same-name customers split inside ("City - GSTIN"); app icons from sites; Sprints people
+filter; new task needs description, dates today → +7 days; all 71 Zoho apps on the home page + right-click Pin (per person,
+uiPrefs `appPins`); apps A to Z with the dashboard first + heartbeat icon (`src/app/(staff)/icon.svg`,
+`public/dashboard-icon.svg`; old Next favicon moved to `src/app/training/icon.ico`); "Think Health Dashboard" name; soft and
+airy look (globals.css tokens, floating sidebar, sign-in, home, converter); Invoice Converter moved to Inventory; **Find POs**
+(WorkDrive folder `metokf3e113be57704e23b82663cf7c1b9ab1`, strict number matching in `poMatch.ts`, scans read **in the
+browser** with Tesseract from `public/ocr`, live scan log per scan with preview; `poFolder.ts`); attachments named with the PO
+number count as the PO (`poFileTest`, invoice 2026-01-593); **margin report** (Overview top, Sumit / Ashish / Shikha /
+Nikita / Admin only, 404 for others; `margin.ts`, `marginServer.ts`, `/api/overview/margin`; in Sumit's 7 pm PDF, sent from
+learn@ because hello@ is Priyanka's mailbox). Excel "Sales driven marketing data" made for the owner in Downloads (not in repo).
+
+**Still open from before:** Sprints: new tasks for people without a Zoho login add Priyanka (hello@) in Zoho; Admin adds
+itself invisibly — owner hasn't said "stop it". "split vendors", "show the spellings", "build it", "remove it" (old worktree).
+
+## Session 37's start block (done)
 
 _Written Tue 24 Nov 2026, end of session 36 (23–24 Nov), for the next Claude Code session and the owner (Sumit; Jasmeet
 Singh, he/him, sometimes types in these sessions — don't assume who is typing)._
