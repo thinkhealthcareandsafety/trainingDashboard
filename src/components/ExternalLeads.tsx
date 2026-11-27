@@ -179,12 +179,12 @@ export function ExternalLeads() {
       </section>
       {/* One button, then the choice (owner, 27 Nov): "Add Manually" or "Auto-Fill Via Picture". On a phone, the picture
           choice offers the camera or the gallery; one or more photos of the same card. */}
-      <Modal open={choosing} onClose={() => { if (!reading) setChoosing(false); }} title="Add a lead">
+      <Modal open={choosing} onClose={() => { if (!reading) setChoosing(false); }} title="Add a lead" wide>
         {reading ? (
           <p className="py-8 text-center text-[15px] font-medium text-brand" role="status">{reading}</p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            <button type="button" className="press rounded-[18px] border border-line bg-surface-2 p-5 text-left hover:border-brand" onClick={() => { setChoosing(false); setAdding(true); }}>
+            <button type="button" className="press flex flex-col items-start justify-start rounded-[18px] border border-line bg-surface-2 p-5 text-left hover:border-brand" onClick={() => { setChoosing(false); setAdding(true); }}>
               <span className="block text-[16px] font-semibold text-ink">Add Manually</span>
               <span className="mt-1 block text-[13px] text-muted">Type the details yourself.</span>
             </button>
