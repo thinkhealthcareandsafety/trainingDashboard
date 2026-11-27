@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Field, Modal, btn, inputCls } from "@/components/ui";
 import { useLive } from "@/lib/live";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
@@ -39,14 +40,75 @@ function fillFrom(words: string): Partial<Form> {
     remarks: g.phones.length > 1 ? `Other numbers on the card: ${g.phones.filter((p) => p !== g.phone).join(", ")}` : undefined,
   }).filter(([, v]) => v)) as Partial<Form>;
 }
-/** "Take a photo" (the camera) and "Choose photos" (one or more from the gallery); the files are copied before the picker
- *  is cleared, since clearing it empties its list (27 Nov). */
+/** "Take a photo" opens the camera in the page (owner, 27 Nov: "use the camera, don't make me pick; ask for the camera and
+ *  go with that; if there's no camera, at least say so"). "Choose photos": one or more from the gallery or the files; the
+ *  files are copied before the picker is cleared, since clearing it empties its list. */
 function PhotoButtons({ onFiles, disabled, take = "Take a photo", choose = "Choose photos" }: { onFiles: (f: File[]) => void; disabled?: boolean; take?: string; choose?: string }) {
+  const [camera, setCamera] = useState(false);
+  const closeCamera = useCallback(() => setCamera(false), []);
   const pick = (e: React.ChangeEvent<HTMLInputElement>) => { const files = [...(e.target.files ?? [])]; e.target.value = ""; onFiles(files); };
   return (
     <div className="flex flex-wrap gap-2">
-      <label className={`${btn.primary} cursor-pointer ${disabled ? "pointer-events-none opacity-40" : ""}`}>{take}<input type="file" accept="image/*" capture="environment" className="sr-only" disabled={disabled} onChange={pick} /></label>
+      <button type="button" className={btn.primary} disabled={disabled} onClick={() => setCamera(true)}>{take}</button>
       <label className={`${btn.ghost} cursor-pointer ${disabled ? "pointer-events-none opacity-40" : ""}`}>{choose}<input type="file" accept="image/*" multiple className="sr-only" disabled={disabled} onChange={pick} /></label>
+      {camera && createPortal(<Camera onClose={closeCamera} onShot={(file) => { setCamera(false); onFiles([file]); }} />, document.body)}
+    </div>
+  );
+}
+
+/** The camera, full screen: asks the browser for it (the back camera on a phone), a live picture and a shutter button. */
+function Camera({ onShot, onClose }: { onShot: (f: File) => void; onClose: () => void }) {
+  const video = useRef<HTMLVideoElement>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let stopped = false;
+    (async () => {
+      if (!navigator.mediaDevices?.getUserMedia) { setProblem("This browser can't open a camera here."); return; }
+      try {
+        const cams = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === "videoinput");
+        if (cams.length === 0 && (await navigator.mediaDevices.enumerateDevices().catch(() => null)) !== null) { setProblem("No camera found on this device. Use “Choose photos” instead."); return; }
+        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+        if (stopped) { s.getTracks().forEach((t) => t.stop()); return; }
+        stream.current = s;
+        if (video.current) { video.current.srcObject = s; await video.current.play().catch(() => {}); setReady(true); }
+      } catch (e) {
+        const n = e instanceof DOMException ? e.name : "";
+        setProblem(n === "NotAllowedError" || n === "SecurityError" ? "Camera access was refused. Allow the camera for this site (the camera icon by the address bar), then try again."
+          : n === "NotFoundError" || n === "OverconstrainedError" || n === "DevicesNotFoundError" ? "No camera found on this device. Use “Choose photos” instead."
+          : n === "NotReadableError" ? "The camera is busy in another app. Close it there and try again."
+          : "The camera couldn't be opened. Use “Choose photos” instead.");
+      }
+    })();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => { stopped = true; window.removeEventListener("keydown", onKey); stream.current?.getTracks().forEach((t) => t.stop()); };
+  }, [onClose]);
+  const shoot = () => {
+    const v = video.current;
+    if (!v || !v.videoWidth) return;
+    const c = document.createElement("canvas");
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext("2d")!.drawImage(v, 0, 0);
+    c.toBlob((b) => { if (b) onShot(new File([b], `card-${Date.now()}.jpg`, { type: "image/jpeg" })); }, "image/jpeg", 0.92);
+  };
+  return (
+    <div className="fixed inset-0 z-[90] flex flex-col bg-black" role="dialog" aria-label="Camera">
+      <div className="flex items-center justify-between p-3 text-white">
+        <span className="text-[14px] font-medium">{problem ? "Camera" : "Fit the card in the frame"}</span>
+        <button type="button" className="press rounded-full bg-white/15 px-4 py-2 text-[14px] font-medium" onClick={onClose}>Close</button>
+      </div>
+      <div className="relative min-h-0 flex-1">
+        <video ref={video} playsInline muted className="h-full w-full object-contain" />
+        {problem && <p className="absolute inset-x-6 top-1/3 rounded-2xl bg-white/10 p-5 text-center text-[15px] font-medium text-white">{problem}</p>}
+        {!problem && !ready && <p className="absolute inset-x-6 top-1/3 text-center text-[15px] text-white/80">Opening the camera…</p>}
+      </div>
+      {!problem && (
+        <div className="flex justify-center p-5">
+          <button type="button" aria-label="Take the photo" disabled={!ready} onClick={shoot} className="press h-16 w-16 rounded-full border-4 border-white bg-white/30 disabled:opacity-40" />
+        </div>
+      )}
     </div>
   );
 }
