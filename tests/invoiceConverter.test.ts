@@ -1,6 +1,6 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState } from "@/lib/invoiceConverterRules";
+import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments } from "@/lib/invoiceConverterRules";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
 import { clearPo, orderText, poInPdf, poKey } from "@/lib/poMatch";
@@ -262,4 +262,15 @@ test("an attachment is the PO when its name says so, carries the PO number, or i
   for (const n of ["6567134.pdf", "JLL 4470300035 (1).PDF", "PO - 2026-01-593.pdf", "letter.pdf"]) assert.ok(is(n), n);
   for (const n of ["6567134.jpeg", "16567134.pdf", "unicorn payment.pdf", "E-way bill - 6567134.pdf", "OP.pdf"]) assert.ok(!is(n), n);
   assert.ok(!poFileTest("Verbal")("unicorn payment.pdf") && !poFileTest("3793")("3793.pdf"));
+});
+
+test("a report carrying the PO number is an attachment, not a second PO (2026-01-552, 27 Nov)", () => {
+  const is = poFileTest("6570080-OP-4470300036");
+  const wcc = "WCC_ThinkHealthcareSafety_6570080_Equipment Inspection Report_ETV_5_Bengaluru.pdf";
+  const s = splitAttachments([wcc, "PO - 2026-01-552.pdf", "E-way bill - 2026-01-552.pdf"], (n) => n, is);
+  assert.equal(s.po, "PO - 2026-01-552.pdf");
+  assert.equal(s.eway, "E-way bill - 2026-01-552.pdf");
+  assert.deepEqual(s.others, [wcc]);
+  // Only a PO number in the name and nothing named "PO": that file is the PO, the rest are attachments.
+  assert.deepEqual(splitAttachments(["6570080.pdf", "photo.jpg"], (n) => n, is), { po: "6570080.pdf", eway: undefined, others: ["photo.jpg"] });
 });

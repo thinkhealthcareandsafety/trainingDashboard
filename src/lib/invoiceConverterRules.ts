@@ -31,6 +31,17 @@ export function poFileTest(po: unknown, read: string[] = []): (name: string) => 
   return (name) => isPoFile(name) || read.includes(name) || (/\.pdf$/i.test(name) && !isEwayFile(name) && parts.some((p) => new RegExp(`(?<![A-Z0-9])${p}(?![A-Z0-9])`, "i").test(name)));
 }
 export const isEwayFile = (name: string) => /e-?way/i.test(name);
+/**
+ * Splits an invoice's attachments into its one PO, its one e-way bill, and the rest (owner, 27 Nov: "WCC_…_6570080_…
+ * Report.pdf" carries the PO number but is a report, and was left out of "Invoice - PO - Attachment"). The PO is a file
+ * named as one first, else the first that `isPo` takes; only that one, and other files named as a PO ("PO - …"), are
+ * kept out of the attachments.
+ */
+export function splitAttachments<T>(docs: T[], name: (d: T) => string, isPo: (n: string) => boolean): { po?: T; eway?: T; others: T[] } {
+  const po = docs.find((d) => isPoFile(name(d))) ?? docs.find((d) => isPo(name(d)));
+  const eway = docs.find((d) => isEwayFile(name(d)));
+  return { po, eway, others: docs.filter((d) => d !== po && d !== eway && !isPoFile(name(d)) && !isEwayFile(name(d))) };
+}
 
 /*
  * One PI (Zoho sales order, "Performa-25-1214") → many invoices (owner, 18 Nov). Zoho puts the PI's number in the

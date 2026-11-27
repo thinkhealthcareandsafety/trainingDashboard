@@ -3,7 +3,7 @@ import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
 import { poInPdf, poKey } from "./poMatch";
-import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState } from "./invoiceConverterRules";
+import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState, splitAttachments } from "./invoiceConverterRules";
 
 /*
  * The Invoice Converter's data and its writes to Zoho Books (owner, 17 Nov).
@@ -95,7 +95,7 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
       id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""), pi: piOf(r.row.reference_number),
       po: po.label, poOk: po.ok, poPdf: files.some(isPo),
-      others: files.filter((n) => !isPo(n) && !isEwayFile(n)),
+      others: splitAttachments(files, (n) => n, isPo).others,
       eway: e?.eway || String(r.row.cf_e_way_bill_number ?? "").trim() || e?.ewayFound || null, ewayZoho: Boolean(e?.eway), ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
       pending,
       sign: signs.get(r.id)?.status,
@@ -366,9 +366,7 @@ async function mergedFor(invoiceId: string, pick: MergePick = { po: true, others
   parts.push({ ...inv, name: `Invoice ${number}.pdf` });
   const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
   const isPo = poFileTest(row?.row.cf_purchase_order_number, (await (await extrasCol()).findOne({ _id: invoiceId }))?.poRead);
-  const po = docs.find((x) => isPo(String(x.file_name ?? "")));
-  const eway = docs.find((x) => isEwayFile(String(x.file_name ?? "")));
-  const others = docs.filter((x) => x !== po && x !== eway && !isPo(String(x.file_name ?? "")) && !isEwayFile(String(x.file_name ?? "")));
+  const { po, eway, others } = splitAttachments(docs, (x) => String(x.file_name ?? ""), isPo);
   for (const doc of [...(pick.po ? [po, eway] : []), ...(pick.others ? others : [])]) { // Invoice → PO → Attachment (owner, 27 Nov)
     if (!doc) continue;
     const f = await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`);
