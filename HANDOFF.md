@@ -43,6 +43,10 @@ long each step took: open it first to find the slow step (reader start, or each 
 - "Merged PDF" link → **"Download PDF ▾"** with 4 choices: Invoice / Invoice - PO / Invoice - Attachment / Invoice -
   PO - Attachment, in that order inside the PDF (`GET ?merged=<id>&with=po,others`; "po" brings the e-way bill too; no `with` = old merge, used by
   Merge & draft). Files that aren't PDF or picture are left out and named (`x-skipped` header).
+- **Fix 27 Nov (s39):** a file whose name carries the PO number but isn't the PO (`WCC_…_6570080_…Report.pdf` on 2026-01-552)
+  was dropped as a "second PO". Now `splitAttachments()` (invoiceConverterRules.ts): one PO (named "PO …" first), the rest are attachments.
+- Owner signs merged PDFs with his DSC token (mToken CryptoID, PantaSign Class 3, valid to 19 Sep 2028) in Adobe Reader:
+  unblock the downloaded file first (Protected View greys out "Digitally sign"); cert is in the Windows store, no PKCS#11 setup.
 
 ---
 
