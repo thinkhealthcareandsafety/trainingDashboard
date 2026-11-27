@@ -18,17 +18,48 @@ const EMPTY: Form = { kind: "customer", company: "", salutation: "", firstName: 
 type Scan = { start: Partial<Form>; pictures: string[]; words: string };
 
 /** Photos of one card, read in this browser (pageRead.readPicture). Pictures only; some phones give no type. */
+/**
+ * The card scanner (owner, 27 Nov: "a new application that runs separately … its sole purpose to scan"): its own Vercel
+ * project (../card-scanner), the best character reader with the photo cleaned and turned. Set its address here once it
+ * is live; until then, and whenever it can't be reached, the photo is read in this browser instead.
+ */
+const CARD_SCANNER = process.env.NEXT_PUBLIC_CARD_SCANNER_URL || "https://card-scanner-sigma-two.vercel.app";
+/** A phone photo made smaller before it is sent (the scanner works at 2400 px at most anyway). */
+async function smaller(file: File): Promise<Blob> {
+  try {
+    const img = await createImageBitmap(file);
+    const k = Math.min(1, 2400 / Math.max(img.width, img.height));
+    if (k === 1 && file.size < 3_000_000) { img.close(); return file; }
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+    img.close();
+    return await new Promise<Blob>((ok) => c.toBlob((b) => ok(b ?? file), "image/jpeg", 0.9));
+  } catch { return file; }
+}
+async function scanOnServer(file: File): Promise<string | null> {
+  if (!CARD_SCANNER) return null;
+  try {
+    const r = await fetch(`${CARD_SCANNER.replace(/\/+$/, "")}/api/scan`, { method: "POST", headers: { "content-type": "image/jpeg" }, body: await smaller(file) });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { text?: string };
+    return typeof j.text === "string" ? j.text : null;
+  } catch { return null; }
+}
 async function readPhotos(files: File[], say: (s: string | null) => void): Promise<{ words: string; pictures: string[] } | string> {
   const list = files.filter((x) => !x.type || x.type.startsWith("image/")).slice(0, 6);
   if (!list.length) return files.length ? "That isn't a picture. Pick a photo of the card." : "No photo was picked.";
-  const { readPicture, stopReading } = await import("@/lib/pageRead");
   const texts: string[] = [];
+  let local: typeof import("@/lib/pageRead") | null = null;
   try {
     for (let i = 0; i < list.length; i++) {
       say(list.length > 1 ? `Reading photo ${i + 1} of ${list.length}…` : "Reading the card…");
-      texts.push(await readPicture(list[i]).catch(() => ""));
+      const fromServer = await scanOnServer(list[i]);
+      if (fromServer !== null) { texts.push(fromServer); continue; }
+      local ??= await import("@/lib/pageRead");
+      texts.push(await local.readPicture(list[i]).catch(() => ""));
     }
-  } finally { stopReading(); say(null); }
+  } finally { local?.stopReading(); say(null); }
   return { words: texts.join("\n").trim(), pictures: list.map((x) => URL.createObjectURL(x)) };
 }
 /** The card's words as the form's labels (only those found). */

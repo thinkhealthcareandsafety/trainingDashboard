@@ -30,3 +30,24 @@ test("no company line: the company comes from the email's domain, never from a f
 test("phones: mobiles with or without +91 / 0, not PIN codes or dates", () => {
   assert.deepEqual(phonesIn("098765 43210 / +91-91234-56789 · 411017 · 20261127"), ["+91 9876543210", "+91 9123456789"]);
 });
+
+test("Armor Fire (a real card, read sideways, 27 Nov): icons read as letters, company only in the logo, state by name", () => {
+  const g = parseCard(`SHIV KOLI
+BUSINESS DEVELOPMENT MANAGER ( PAN INDIA )
+BN +9199135 67672
+pnsalesi@armorfire.co.in
+ARMOR
+FIRE
+SHIELD OF QUALITY
+El www.armorfire.in Ces
+Plot no. 43-45, Lothada, Rajkot,
+Gujarat - 360022`);
+  assert.deepEqual([g.company, g.firstName, g.lastName, g.designation], ["Armor Fire", "Shiv", "Koli", "Business Development Manager (PAN India)"]);
+  assert.equal(g.email, "pnsales1@armorfire.co.in");
+  assert.deepEqual([g.phone, g.website, g.city, g.state, g.zip, g.street], ["+91 9913567672", "www.armorfire.in", "Rajkot", "GJ", "360022", "Plot no. 43-45, Lothada"]);
+});
+
+test("logo words apart and an email read with ® for @ still make the company and the email", () => {
+  const g = parseCard("SHIV KOLI\na FIRE\nEl www.armorfire.in Ces\nEJ pnsales1®armorfire.co.in i ARMOR");
+  assert.deepEqual([g.company, g.email], ["Armor Fire", "pnsales1@armorfire.co.in"]);
+});

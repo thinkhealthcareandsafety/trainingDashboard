@@ -1,6 +1,38 @@
 # Handoff — ThinkHealth Training Dashboard
 
-## Start of the next session (38) — read this block first
+## Start of the next session (39) — read this block first
+
+_Written Fri 27 Nov 2026, end of session 38. Owner: Sumit; Jasmeet Singh (he/him) may be typing. Rules: **push only on
+"push"; short replies in plain words.** Never print secret / PIN values; never write test data to cardEvents._
+
+**Where things stand:**
+- Live on the NEW Vercel account: **`training-dashboard-zeta-ten.vercel.app`** (+ work. / training.thinkhealth.in).
+  Ignore failed statuses from the old blocked `-xfwl` project.
+- **Find POs automatic scanning is OFF PERMANENTLY** (`src/lib/poAuto.ts` `PO_AUTO_SCAN = false`). The button still scans.
+- **New separate app: card scanner** (owner: "a new application … sole purpose would be to scan"). No paid service.
+  - Code: `d:\Projects\Training Dashboard\card-scanner` → GitHub `thinkhealthcareandsafety/card-scanner` (private) →
+    Vercel project on the new account: **`https://card-scanner-sigma-two.vercel.app`**.
+  - `POST /api/scan` with the image bytes → `{ text, lines, confidence, turned, ms }`. `GET /api/scan` = health check.
+  - `read.js`: sharp cleans the photo, Tesseract (standard English model in `lang/`, 23 MB) reads it plain + cleaned,
+    upright or turned 90°/270°, keeps the best way up. About 2 s per card. CORS only for work.thinkhealth.in,
+    `training-dashboard-*.vercel.app`, localhost, 192.168.*.
+  - The dashboard (`src/components/ExternalLeads.tsx`, `CARD_SCANNER`) sends photos there first (shrunk to 2400 px JPEG)
+    and falls back to reading in the browser (`src/lib/pageRead.ts`) if the scanner can't be reached.
+  - Labels are worked out in the dashboard by `src/lib/cardScan.ts` `parseCard()` (tests in `tests/cardScan.test.ts`,
+    incl. the real Armor Fire card). Sample photos: `D:\download\Shared Office Download Folder\Jasmeet\cards` (only one
+    so far, reads fully correctly).
+
+**Next:**
+1. Check the scanner deployed (open `/api/scan` on it; the first push was at the end of session 38). If Vercel shows a
+   build error, read it and fix in the card-scanner repo.
+2. Owner tries "+ Add a lead → Auto-Fill Via Picture" on real cards. Each wrong reading: put the photo in the cards folder,
+   run it through the scanner, fix `cardScan.ts` rules (add a test per card).
+3. Repo still PUBLIC on GitHub — remind the owner to make it private.
+
+---
+
+
+## Session 38 notes (older)
 
 _Written Thu 26 Nov 2026, end of session 37 ("Master Session 1", 24–26 Nov). Owner: Sumit; Jasmeet Singh (he/him) may be
 typing. Rules: **push only on "push"; short replies in plain words.**_

@@ -105,7 +105,9 @@ export async function readPicture(file: Blob): Promise<string> {
       }
     }
     if (plain.sure >= 85) return plain.text;
-    return `${plain.text}\n${(await read(prepare(img, deg, true))).text}`;
+    // The surer of the two readings, never both joined (joining mixed garbage into the labels, 27 Nov).
+    const flat = await read(prepare(img, deg, true));
+    return flat.sure > plain.sure + 5 ? flat.text : plain.text;
   } finally {
     if (img !== raw) img.close();
     raw.close();
