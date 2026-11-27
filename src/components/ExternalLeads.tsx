@@ -40,7 +40,7 @@ async function smaller(file: File): Promise<Blob> {
 async function scanOnServer(file: File): Promise<string | null> {
   if (!CARD_SCANNER) return null;
   try {
-    const r = await fetch(`${CARD_SCANNER.replace(/\/+$/, "")}/api/scan`, { method: "POST", headers: { "content-type": "image/jpeg" }, body: await smaller(file) });
+    const r = await fetch(`${CARD_SCANNER.replace(/\/+$/, "")}/api/scan`, { method: "POST", headers: { "content-type": "image/jpeg" }, body: await smaller(file), signal: AbortSignal.timeout(30_000) });
     if (!r.ok) return null;
     const j = (await r.json()) as { text?: string };
     return typeof j.text === "string" ? j.text : null;

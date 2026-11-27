@@ -208,7 +208,7 @@ export function InvoiceConverter() {
                 {isOpen && (
                   <div className="border-t border-line">
                     <div className={`hidden ${COLS} gap-x-10 bg-surface-2/50 py-3 pl-11 pr-6 text-[12.5px] font-medium text-muted lg:grid`}>
-                      <span>Invoice</span><span>Value</span><span>Purchase order</span><span title={`Needed over ${inr(EWAY_OVER)}`}>E-way bill</span><span>Merged PDF</span>
+                      <span>Invoice</span><span>Value</span><span>Purchase order</span><span title={`Needed over ${inr(EWAY_OVER)}`}>E-way bill</span><span>Other attachments</span><span>Merged PDF</span>
                     </div>
                     <ul className="divide-y divide-line/70">
                       {blocksOf(c.invoices).map((b) => b.pi ? (
@@ -228,10 +228,10 @@ export function InvoiceConverter() {
 
 // Columns with a clear gap between them (owner, 18 Nov: the headings shouldn't stick to each other). The left padding
 // (pl-11) leaves room for the line that links invoices of the same PI.
-// Five columns of the same width (owner, 18 Nov).
-const COLS = "grid-cols-[repeat(5,minmax(0,1fr))]";
+// Columns of the same width (owner, 18 Nov); a sixth for other attachments (27 Nov).
+const COLS = "grid-cols-[repeat(6,minmax(0,1fr))]";
 // Written out in full so Tailwind finds it (a class built from a variable isn't generated).
-const COLS_LG = "lg:grid-cols-[repeat(5,minmax(0,1fr))]";
+const COLS_LG = "lg:grid-cols-[repeat(6,minmax(0,1fr))]";
 
 type Patch = (ids: string[], p: Partial<ConvInvoice>) => void;
 
@@ -328,18 +328,23 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState<"" | "po" | "poPdf" | "eway" | "ewayPdf" | "sign">("");
-  const [merging, setMerging] = useState(false);
-  const downloadMerged = async () => {
-    setMerging(true); setError("");
+  const [merging, setMerging] = useState("");
+  const [choose, setChoose] = useState(false);
+  // Four ways (owner, 27 Nov): Invoice; Invoice - PO; Invoice - Attachment; Invoice - Attachment - PO.
+  const downloadMerged = async (pick: { po: boolean; others: boolean }, title: string) => {
+    setMerging(title); setError("");
     try {
-      const r = await fetch(`/api/invoice-converter?merged=${i.id}`, { cache: "no-store" });
+      const w = [pick.po && "po", pick.others && "others"].filter(Boolean).join(",");
+      const r = await fetch(`/api/invoice-converter?merged=${i.id}&with=${w}`, { cache: "no-store" });
       if (!r.ok) { const j = await r.json().catch(() => ({})); setError(j.error ?? "Couldn't make the merged PDF"); return; }
+      const skipped = decodeURIComponent(r.headers.get("x-skipped") ?? "");
+      if (skipped) setError(`Left out (not a PDF or picture): ${skipped}`);
       const url = URL.createObjectURL(await r.blob());
       const a = document.createElement("a");
-      a.href = url; a.download = `Invoice ${i.number} merged.pdf`;
+      a.href = url; a.download = `${title.replace("Invoice", `Invoice ${i.number}`)}.pdf`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch { setError("Couldn't reach the server"); } finally { setMerging(false); }
+    } catch { setError("Couldn't reach the server"); } finally { setMerging(""); setChoose(false); }
   };
   const [ewayEdit, setEwayEdit] = useState(false);
   const [ewayValue, setEwayValue] = useState("");
@@ -465,6 +470,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         )}
         <input ref={ewayFile} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { attach("eway", e.target.files?.[0]); e.target.value = ""; }} />
       </div>
+      <Others i={i} onPatch={onPatch} label={label} />
       {/* Merge and draft (owner, 20 Nov): invoice + PO + e-way bill PDFs as a Zoho Sign draft, signature / date / name
           boxes placed; signed and sent in Zoho Sign by hand (sending from here would need Zoho Sign API credits). */}
       <div className="col-span-2 lg:col-span-1">
@@ -475,10 +481,69 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
         </button>
         {/* The merged PDF on its own (owner, 17 Nov: Zoho Sign's plan refuses API sends). */}
         {/* Fetched here (not a plain link) so the spinner shows while Zoho's files are gathered and merged. */}
-        <button type="button" className="mt-1 block text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={merging} onClick={downloadMerged}>{merging ? <Busy text="Merging the PDFs…" /> : "Merged PDF"}</button>
+        <button type="button" className="mt-1 block text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={Boolean(merging)} onClick={() => setChoose((v) => !v)} aria-expanded={choose}>{merging ? <Busy text={`Making ${merging}…`} /> : `Download PDF ${choose ? "▴" : "▾"}`}</button>
+        {choose && !merging && (
+          <div className="mt-1 flex flex-col items-start gap-0.5 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
+            {([
+              ["Invoice", { po: false, others: false }, true],
+              ["Invoice - PO", { po: true, others: false }, i.poPdf],
+              ["Invoice - Attachment", { po: false, others: true }, Boolean(i.others?.length)],
+              ["Invoice - Attachment - PO", { po: true, others: true }, i.poPdf && Boolean(i.others?.length)],
+            ] as const).map(([title, pick, ok]) => (
+              <button key={title} type="button" disabled={!ok} onClick={() => downloadMerged(pick, title)}
+                className="w-full rounded px-2 py-1 text-left font-semibold text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:font-normal disabled:text-muted disabled:hover:bg-transparent"
+                title={ok ? `Download ${title}` : title.includes("PO") && !i.poPdf ? "No PO PDF on this invoice yet" : "No other attachments on this invoice yet"}>{title}</button>
+            ))}
+          </div>
+        )}
       </div>
       {error && <p className="col-span-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
     </li>
+  );
+}
+
+/**
+ * Other attachments (owner, 27 Nov: "add another column to add additional attachment, we can add as many, it only shows
+ * the attachment name"): any files, attached to this invoice in Zoho one by one under their own names.
+ */
+function Others({ i, onPatch, label }: { i: ConvInvoice; onPatch: (p: Partial<ConvInvoice>) => void; label: string }) {
+  const pick = useRef<HTMLInputElement>(null);
+  const [left, setLeft] = useState(0);
+  const [error, setError] = useState("");
+  const names = i.others ?? [];
+  const add = async (files: File[]) => {
+    if (!files.length) return;
+    setError("");
+    let have = names;
+    for (let k = 0; k < files.length; k++) {
+      setLeft(files.length - k);
+      const f = new FormData();
+      f.append("id", i.id); f.append("which", "extra"); f.append("file", files[k]);
+      const r = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      if (r.error) { setError(`${files[k].name}: ${r.error}`); break; }
+      have = [...have, r.name ?? files[k].name];
+      onPatch({ others: have });
+    }
+    setLeft(0);
+  };
+  return (
+    <div className="min-w-0">
+      <p className={label}>Other attachments</p>
+      {i.pending ? <span className="text-[12.5px] text-muted">Reading from Zoho…</span> : (
+        <>
+          {names.length > 0 && (
+            <ul className="mb-1 space-y-0.5">
+              {names.map((n, k) => <li key={`${n}-${k}`} className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-2" title={n}><Mark ok small /><span className="truncate">{n}</span></li>)}
+            </ul>
+          )}
+          <button type="button" className="rounded px-1 text-[12.5px] font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={left > 0} onClick={() => pick.current?.click()}>
+            {left > 0 ? <Busy text={left > 1 ? `Attaching · ${left} left…` : "Attaching…"} /> : names.length ? "+ Add more" : "+ Add"}
+          </button>
+          {error && <p className="mt-1 text-[12px] text-high">{error}</p>}
+        </>
+      )}
+      <input ref={pick} type="file" multiple className="hidden" onChange={(e) => { const list = Array.from(e.target.files ?? []); e.target.value = ""; add(list); }} />
+    </div>
   );
 }
 

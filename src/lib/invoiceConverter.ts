@@ -95,6 +95,7 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
       id: r.id, number: String(r.row.invoice_number ?? ""), date: String(r.row.date ?? r.date ?? ""), total, status: String(r.row.status ?? ""), pi: piOf(r.row.reference_number),
       po: po.label, poOk: po.ok, poPdf: files.some(isPo),
+      others: files.filter((n) => !isPo(n) && !isEwayFile(n)),
       eway: e?.eway || String(r.row.cf_e_way_bill_number ?? "").trim() || e?.ewayFound || null, ewayZoho: Boolean(e?.eway), ewayPdf: files.some(isEwayFile), needsEway: needsEway(total),
       pending,
       sign: signs.get(r.id)?.status,
@@ -160,9 +161,9 @@ export async function setPoForPi(invoiceId: string, raw: unknown): Promise<{ po:
 }
 
 /** One PDF attached to one invoice in Zoho under `name`, and noted in our copy at once (the next full read confirms it). */
-async function attachOne(invoiceId: string, lmt: string | undefined, name: string, bytes: Uint8Array<ArrayBuffer>, ewayFound?: string | null) {
+async function attachOne(invoiceId: string, lmt: string | undefined, name: string, bytes: Uint8Array<ArrayBuffer>, ewayFound?: string | null, type = "application/pdf") {
   const form = new FormData();
-  form.append("attachment", new File([bytes], name, { type: "application/pdf" }));
+  form.append("attachment", new File([bytes], name, { type }));
   await booksApi("POST", `/invoices/${invoiceId}/attachment`, {}, form);
   const col = await extrasCol();
   const had = await col.findOne({ _id: invoiceId });
@@ -261,6 +262,19 @@ export async function attachPdf(invoiceId: string, which: "po" | "eway", file: F
   return poIds.length ? { ok: true, found, ids, poIds, po: s.po, poOk: s.ok } : { ok: true, found, ids, poIds };
 }
 
+/**
+ * Other attachments (owner, 27 Nov: "add another column to add additional attachment, we can add as many, it only shows
+ * the attachment name"): any file, kept under its own name, on this invoice only. Nothing is read from it.
+ */
+export async function attachExtra(invoiceId: string, file: File): Promise<{ ok: true; name: string }> {
+  if (file.size > 10 * 1024 * 1024) throw new Error("The file is over 10 MB.");
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  if (!row) throw new Error("That invoice isn't in our copy yet. Sync, then try again.");
+  const name = (file.name || "attachment").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 120) || "attachment";
+  await attachOne(invoiceId, row.lmt, name, new Uint8Array(await file.arrayBuffer()), undefined, file.type || "application/octet-stream");
+  return { ok: true, name };
+}
+
 /** The PDF picked after "PO found" (owner, 24 Nov): from WorkDrive onto the invoice, only if it carries its PO number. */
 export async function attachFoundPo(invoiceId: string, fileId: string): Promise<AttachResult> {
   const { poFileFor } = await import("./poFolder");
@@ -335,8 +349,13 @@ export async function draftInvoiceSign(invoiceId: string): Promise<{ url: string
   return { url: d.url, parts: names, skipped: merged.skipped };
 }
 
-/** The invoice PDF from Zoho Books, then its PO and e-way bill attachments, as one PDF. */
-async function mergedFor(invoiceId: string) {
+/**
+ * What goes into a merged PDF (owner, 27 Nov: download Invoice, Invoice - PO, Invoice - Attachment, or Invoice -
+ * Attachment - PO). "po" brings the e-way bill along with it, as the merge always did; "others" = the other attachments.
+ */
+export type MergePick = { po: boolean; others: boolean };
+/** The invoice PDF from Zoho Books, then (as picked) its other attachments, its PO and e-way bill, as one PDF. */
+async function mergedFor(invoiceId: string, pick: MergePick = { po: true, others: false }) {
   const { booksFile } = await import("./quotations");
   const { mergeParts } = await import("./pdfMerge");
   const d = await fetchDetail("invoices", invoiceId);
@@ -347,19 +366,23 @@ async function mergedFor(invoiceId: string) {
   parts.push({ ...inv, name: `Invoice ${number}.pdf` });
   const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
   const isPo = poFileTest(row?.row.cf_purchase_order_number, (await (await extrasCol()).findOne({ _id: invoiceId }))?.poRead);
-  for (const pick of [docs.find((x) => isPo(String(x.file_name ?? ""))), docs.find((x) => isEwayFile(String(x.file_name ?? "")))]) {
-    if (!pick) continue;
-    const f = await booksFile(`/invoices/${invoiceId}/documents/${pick.document_id}`);
-    parts.push({ ...f, name: String(pick.file_name ?? "attachment") });
+  const po = docs.find((x) => isPo(String(x.file_name ?? "")));
+  const eway = docs.find((x) => isEwayFile(String(x.file_name ?? "")));
+  const others = docs.filter((x) => x !== po && x !== eway && !isPo(String(x.file_name ?? "")) && !isEwayFile(String(x.file_name ?? "")));
+  for (const doc of [...(pick.others ? others : []), ...(pick.po ? [po, eway] : [])]) {
+    if (!doc) continue;
+    const f = await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`);
+    parts.push({ ...f, name: String(doc.file_name ?? "attachment") });
   }
   const merged = await mergeParts(parts, `Invoice ${number}`);
   return { merged, names: parts.map((p) => p.name), number, customer: String(d.customer_name ?? "") };
 }
 
 /** The merged PDF to download as it is (owner, 17 Nov: Zoho Sign's plan doesn't send by API, so merging works on its own too). */
-export async function mergedInvoicePdf(invoiceId: string): Promise<{ bytes: Uint8Array; name: string }> {
-  const { merged, number } = await mergedFor(invoiceId);
-  return { bytes: merged.bytes, name: `Invoice ${number} merged.pdf` };
+export async function mergedInvoicePdf(invoiceId: string, pick?: MergePick): Promise<{ bytes: Uint8Array; name: string; skipped: string[] }> {
+  const { merged, number } = await mergedFor(invoiceId, pick);
+  const tail = pick ? [pick.others && "Attachment", pick.po && "PO"].filter(Boolean).join(" - ") : "merged";
+  return { bytes: merged.bytes, name: `Invoice ${number}${tail ? ` - ${tail}` : ""}.pdf`, skipped: merged.skipped ?? [] };
 }
 
 /** Asks Zoho Sign how the invoice's signing stands (after the signing page closes). */

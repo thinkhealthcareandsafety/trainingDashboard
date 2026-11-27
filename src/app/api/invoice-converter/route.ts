@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, isAdmin } from "@/lib/roles";
-import { attachFoundPo, attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
+import { attachExtra, attachFoundPo, attachPdf, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
 import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
@@ -12,7 +12,7 @@ export const maxDuration = 60;
  * The Invoice Converter (owner, 17 Nov). Full access and logistics only.
  *  GET                         — every customer with their invoices (PO, e-way bill, signing), Zoho Sign's connection, your signer details
  *  GET ?signed=<invoice id>    — the signed PDF (once Zoho Sign says completed)
- *  GET ?merged=<invoice id>    — the invoice + PO + e-way bill PDFs merged, unsigned
+ *  GET ?merged=<invoice id>&with=po,others — the invoice PDF merged with what's picked (po = PO + e-way bill; others = other attachments), unsigned
  *  GET ?po=<WorkDrive file>&id=<invoice> — a PO PDF found for that invoice, to look at (only one that carries its PO number)
  *  POST { action: "scanPo" }                       — read the new PDFs in the WorkDrive PO folder; { files, left, due, … } (ask again while left > 0)
  *  GET ?poLog                                      — the log of the PO folder's PDFs
@@ -23,6 +23,7 @@ export const maxDuration = 60;
  *  POST { action: "usePo", id, file }              — the found PO PDF attached to the invoice in Zoho
  *  POST { action: "po", id, value }                — the Purchase Order Number, on every invoice of the same PI
  *  POST multipart { id, which: "po" | "eway", file, value? } — a PDF attached in Zoho (a PO: to every invoice of the same PI; value = the PO number typed with it; replace=1 deletes the old one first)
+ *  POST multipart { id, which: "extra", file }  — any other file attached to the invoice in Zoho under its own name
  *  POST { action: "eway", id, value }              — an e-way bill number typed in (kept here; Zoho invoices have no field for it)
  *  POST { action: "signer", email, name }          — your email and full name for Zoho Sign (once)
  *  POST { action: "draft", id }                    — merge and make a Zoho Sign "Sign yourself" draft with the boxes placed (never signed / sent here); its Zoho Sign page
@@ -56,8 +57,10 @@ export async function GET(request: Request) {
     const merged = q.get("merged");
     if (merged) {
       if (!ID.test(merged)) return json({ error: "Unknown invoice" }, 400);
-      const f = await mergedInvoicePdf(merged);
-      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store" } });
+      // with=po,others picks what goes in (owner, 27 Nov); none given = the invoice with its PO and e-way bill, as before.
+      const w = q.get("with");
+      const f = await mergedInvoicePdf(merged, w === null ? undefined : { po: /\bpo\b/.test(w), others: /\bothers\b/.test(w) });
+      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")) } });
     }
     const signed = new URL(request.url).searchParams.get("signed");
     if (signed) {
@@ -81,8 +84,12 @@ export async function POST(request: Request) {
     if ((request.headers.get("content-type") ?? "").includes("multipart/form-data")) {
       const f = await request.formData();
       const id = String(f.get("id") ?? "");
-      const which = f.get("which") === "eway" ? "eway" : "po";
       const file = f.get("file");
+      if (f.get("which") === "extra") {
+        if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a file for an invoice" }, 400);
+        return json(await attachExtra(id, file));
+      }
+      const which = f.get("which") === "eway" ? "eway" : "po";
       if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a PDF for an invoice" }, 400);
       const value = f.get("value");
       return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined, f.get("replace") === "1"));

@@ -69,6 +69,8 @@ export type ConvInvoice = {
   /** The PI it was made from (piOf the Reference), if any. */
   pi: string | null;
   po: string; poOk: boolean; poPdf: boolean;
+  /** Other attachments on the invoice (not its PO or e-way bill), by name (owner, 27 Nov). */
+  others?: string[];
   eway: string | null; ewayPdf: boolean; needsEway: boolean;
   /** The e-way bill number is Zoho's own (made in Zoho); otherwise it was typed or read here and can be changed here. */
   ewayZoho: boolean;
