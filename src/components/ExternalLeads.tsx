@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Field, Modal, btn, inputCls } from "@/components/ui";
 import { useLive } from "@/lib/live";
 import { GSTIN_RE, fromGstin } from "@/lib/gstin";
@@ -16,6 +16,41 @@ const EMPTY: Form = { kind: "customer", company: "", salutation: "", firstName: 
 /** What a scan brought: the form filled in, the photos, and the words read (to check against). */
 type Scan = { start: Partial<Form>; pictures: string[]; words: string };
 
+/** Photos of one card, read in this browser (pageRead.readPicture). Pictures only; some phones give no type. */
+async function readPhotos(files: File[], say: (s: string | null) => void): Promise<{ words: string; pictures: string[] } | string> {
+  const list = files.filter((x) => !x.type || x.type.startsWith("image/")).slice(0, 6);
+  if (!list.length) return files.length ? "That isn't a picture. Pick a photo of the card." : "No photo was picked.";
+  const { readPicture, stopReading } = await import("@/lib/pageRead");
+  const texts: string[] = [];
+  try {
+    for (let i = 0; i < list.length; i++) {
+      say(list.length > 1 ? `Reading photo ${i + 1} of ${list.length}…` : "Reading the card…");
+      texts.push(await readPicture(list[i]).catch(() => ""));
+    }
+  } finally { stopReading(); say(null); }
+  return { words: texts.join("\n").trim(), pictures: list.map((x) => URL.createObjectURL(x)) };
+}
+/** The card's words as the form's labels (only those found). */
+function fillFrom(words: string): Partial<Form> {
+  const g = parseCard(words);
+  return Object.fromEntries(Object.entries({
+    company: g.company, salutation: g.salutation, firstName: g.firstName, lastName: g.lastName, designation: g.designation, phone: g.phone,
+    email: g.email, website: g.website, gstin: g.gstin, street: g.street, street2: g.street2, city: g.city, state: g.state, zip: g.zip,
+    remarks: g.phones.length > 1 ? `Other numbers on the card: ${g.phones.filter((p) => p !== g.phone).join(", ")}` : undefined,
+  }).filter(([, v]) => v)) as Partial<Form>;
+}
+/** "Take a photo" (the camera) and "Choose photos" (one or more from the gallery); the files are copied before the picker
+ *  is cleared, since clearing it empties its list (27 Nov). */
+function PhotoButtons({ onFiles, disabled, take = "Take a photo", choose = "Choose photos" }: { onFiles: (f: File[]) => void; disabled?: boolean; take?: string; choose?: string }) {
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => { const files = [...(e.target.files ?? [])]; e.target.value = ""; onFiles(files); };
+  return (
+    <div className="flex flex-wrap gap-2">
+      <label className={`${btn.primary} cursor-pointer ${disabled ? "pointer-events-none opacity-40" : ""}`}>{take}<input type="file" accept="image/*" capture="environment" className="sr-only" disabled={disabled} onChange={pick} /></label>
+      <label className={`${btn.ghost} cursor-pointer ${disabled ? "pointer-events-none opacity-40" : ""}`}>{choose}<input type="file" accept="image/*" multiple className="sr-only" disabled={disabled} onChange={pick} /></label>
+    </div>
+  );
+}
+
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit", timeZone: "Asia/Kolkata" });
 
 export function ExternalLeads() {
@@ -26,25 +61,14 @@ export function ExternalLeads() {
   const [scan, setScan] = useState<Scan | null>(null);
   const [reading, setReading] = useState<string | null>(null);
   // A visiting card (owner, 27 Nov): one or more photos of the same card, read in this browser, then the form filled in.
-  const readCard = async (files: FileList | null) => {
-    const list = [...(files ?? [])].filter((x) => x.type.startsWith("image/")).slice(0, 6);
-    if (!list.length) return;
-    const { readPicture, stopReading } = await import("@/lib/pageRead");
-    const texts: string[] = [];
-    try {
-      for (let i = 0; i < list.length; i++) {
-        setReading(list.length > 1 ? `Reading photo ${i + 1} of ${list.length}…` : "Reading the card…");
-        texts.push(await readPicture(list[i]).catch(() => ""));
-      }
-    } finally { stopReading(); setReading(null); }
-    const words = texts.join("\n").trim();
-    const g = parseCard(words);
-    const start: Partial<Form> = Object.fromEntries(Object.entries({
-      company: g.company, salutation: g.salutation, firstName: g.firstName, lastName: g.lastName, designation: g.designation, phone: g.phone,
-      email: g.email, website: g.website, gstin: g.gstin, street: g.street, street2: g.street2, city: g.city, state: g.state, zip: g.zip,
-      remarks: g.phones.length > 1 ? `Other numbers on the card: ${g.phones.filter((p) => p !== g.phone).join(", ")}` : undefined,
-    }).filter(([, v]) => v)) as Partial<Form>;
-    setScan({ start, pictures: list.map((x) => URL.createObjectURL(x)), words });
+  // (The files are copied before the picker is cleared: clearing it empties its list, 27 Nov.) Some phones give no type.
+  const [pickError, setPickError] = useState<string | null>(null);
+  const readCard = async (files: File[]): Promise<boolean> => {
+    setPickError(null);
+    const got = await readPhotos(files, setReading);
+    if (typeof got === "string") { setPickError(got); return false; }
+    setScan({ start: fillFrom(got.words), ...got });
+    return true;
   };
   const load = useCallback(async () => {
     const r = await fetch("/api/external-leads", { cache: "no-store" });
@@ -87,11 +111,12 @@ export function ExternalLeads() {
               <span className="block text-[16px] font-semibold text-ink">Add Manually</span>
               <span className="mt-1 block text-[13px] text-muted">Type the details yourself.</span>
             </button>
-            <label className="press cursor-pointer rounded-[18px] border border-line bg-surface-2 p-5 text-left hover:border-brand">
+            <div className="rounded-[18px] border border-line bg-surface-2 p-5 text-left">
               <span className="block text-[16px] font-semibold text-ink">Auto-Fill Via Picture</span>
-              <span className="mt-1 block text-[13px] text-muted">Take or pick photos of a visiting card (front and back are fine); the details are filled in for you to check.</span>
-              <input type="file" accept="image/*" multiple className="sr-only" onChange={async (e) => { const files = e.target.files; e.target.value = ""; await readCard(files); setChoosing(false); }} />
-            </label>
+              <span className="mt-1 block text-[13px] text-muted">A photo of the visiting card (front and back are fine); the details are filled in for you to check.</span>
+              {pickError && <span className="mt-1 block text-[13px] font-medium text-high">{pickError}</span>}
+              <div className="mt-3"><PhotoButtons onFiles={async (files) => { if (await readCard(files)) setChoosing(false); }} /></div>
+            </div>
           </div>
         )}
       </Modal>
@@ -144,6 +169,23 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function AddLead({ res, onClose, scan }: { res: Res; onClose: (ok: boolean) => void; scan?: Scan }) {
   const [f, setF] = useState<Form>({ ...EMPTY, ...scan?.start });
   const [showWords, setShowWords] = useState(false);
+  // More photos of the same card (owner, 27 Nov: "add another picture if they want"): read, and only empty labels filled.
+  const [shots, setShots] = useState<{ pictures: string[]; words: string }>({ pictures: scan?.pictures ?? [], words: scan?.words ?? "" });
+  const [reading, setReading] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  // The photos added here are let go when the form closes (the first ones belong to the page, which lets them go).
+  const added = useRef<string[]>([]);
+  useEffect(() => () => added.current.forEach((u) => URL.revokeObjectURL(u)), []);
+  const morePhotos = async (files: File[]) => {
+    setPhotoError(null);
+    const got = await readPhotos(files, setReading);
+    if (typeof got === "string") { setPhotoError(got); return; }
+    const words = [shots.words, got.words].filter(Boolean).join("\n");
+    added.current.push(...got.pictures);
+    setShots({ pictures: [...shots.pictures, ...got.pictures], words });
+    const found = fillFrom(words);
+    setF((x) => ({ ...x, ...Object.fromEntries(Object.entries(found).filter(([k]) => !String(x[k as keyof Form] ?? "").trim() || (k === "state" && !x.gstin))) }));
+  };
   const [state, setState] = useState<{ busy?: boolean; error?: string }>({});
   const [match, setMatch] = useState<{ id: string; name: string } | null>(null);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -177,7 +219,7 @@ function AddLead({ res, onClose, scan }: { res: Res; onClose: (ok: boolean) => v
   const ready = f.company.trim().length >= 2 && f.lastName.trim() && f.sector && (!gstin || (gstOk && fromG?.state));
   const save = async () => {
     setState({ busy: true });
-    const r = await fetch("/api/external-leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ lead: { ...f, gstin, source: scan ? "card" : "manual" } }) });
+    const r = await fetch("/api/external-leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ lead: { ...f, gstin, source: shots.pictures.length ? "card" : "manual" } }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setState({ error: j.error ?? "Couldn't add the lead" }); return; }
     onClose(true);
@@ -187,15 +229,19 @@ function AddLead({ res, onClose, scan }: { res: Res; onClose: (ok: boolean) => v
   );
 
   return (
-    <Modal open onClose={() => onClose(false)} title={scan ? "Check what the card says" : "Add an external lead"} wide>
+    <Modal open onClose={() => onClose(false)} title={shots.pictures.length ? "Check what the card says" : "Add an external lead"} wide>
       <div className="space-y-5">
-        {scan && (
-          <div className="rounded-[14px] bg-surface-2 p-3">
-            <div className="flex gap-2 overflow-x-auto">{scan.pictures.map((u) => <img key={u} src={u} alt="The card" className="h-24 rounded-lg object-contain" />)}</div>
-            <p className="mt-2 text-[13px] text-muted">{scan.words ? "The labels below are filled from the card. Check each one before adding." : "Nothing could be read from these photos. Type the details, or try a sharper photo in good light."}{scan.words && <> <button className="font-medium text-brand hover:underline" onClick={() => setShowWords((x) => !x)}>{showWords ? "Hide" : "Show"} the words read</button></>}</p>
-            {showWords && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[12px] text-ink-2">{scan.words}</pre>}
-          </div>
-        )}
+        <div className="rounded-[14px] bg-surface-2 p-3">
+          {shots.pictures.length > 0 && <div className="mb-2 flex gap-2 overflow-x-auto">{shots.pictures.map((u) => <img key={u} src={u} alt="The card" className="h-24 rounded-lg object-contain" />)}</div>}
+          {shots.pictures.length > 0 && (
+            <p className="mb-2 text-[13px] text-muted">{shots.words ? "The labels below are filled from the card. Check each one before adding." : "Nothing could be read from these photos. Type the details, or try a sharper photo in good light."}{shots.words && <> <button className="font-medium text-brand hover:underline" onClick={() => setShowWords((x) => !x)}>{showWords ? "Hide" : "Show"} the words read</button></>}</p>
+          )}
+          {showWords && <pre className="mb-2 max-h-40 overflow-auto whitespace-pre-wrap text-[12px] text-ink-2">{shots.words}</pre>}
+          {reading ? <p className="text-[13px] font-medium text-brand" role="status">{reading}</p> : (
+            <PhotoButtons onFiles={morePhotos} take={shots.pictures.length ? "+ Take another photo" : "Fill from a photo"} choose={shots.pictures.length ? "+ Add another photo" : "Choose photos"} />
+          )}
+          {photoError && <p className="mt-1 text-[13px] font-medium text-high">{photoError}</p>}
+        </div>
         <div className="flex gap-1" role="radiogroup" aria-label="Customer or vendor">
           {(["customer", "vendor"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={f.kind === k} className={`rounded-full px-3.5 py-1.5 text-[13.5px] font-medium ${f.kind === k ? "bg-ink text-surface" : "bg-surface-2 text-ink-2"}`} onClick={() => setF((x) => ({ ...x, kind: k, type: x.type === (k === "vendor" ? "New Customer" : "New Vendor") ? (k === "vendor" ? "New Vendor" : "New Customer") : x.type }))}>{k === "customer" ? "Customer" : "Vendor"}</button>)}
         </div>
