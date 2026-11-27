@@ -29,11 +29,12 @@ export type Judged = MLine & { why: Why | null };
 export function judge(lines: MLine[]): Judged[] {
   const sale = new Map<string, number>();
   for (const l of lines) sale.set(l.invoice, (sale.get(l.invoice) ?? 0) + Math.abs(l.amount));
-  return lines.filter((l) => l.amount !== 0 || (l.cost ?? 0) !== 0).map((l) => {
+  // No cost added in Zoho = cost 0 (owner, 27 Nov: "if none was added the cost is then 0").
+  return lines.filter((l) => l.amount !== 0 || (l.cost ?? 0) !== 0).map((l0) => {
+    const l = { ...l0, cost: l0.cost ?? 0 };
     let why: Why | null = null;
     if (FREIGHT.test(l.item)) why = "freight";
     else if ((sale.get(l.invoice) ?? 0) < 1) why = "zeroSale";
-    else if (l.cost === null) why = l.amount === 0 ? null : "noCost";
     // A cost of exactly 0 is believed (owner, 27 Nov: "if they are 0, there must be a reason"); only a tiny non-zero one isn't.
     else if (l.amount > 0 && l.cost > 0 && l.cost < l.amount * LOW_COST) why = "lowCost";
     else if (l.amount > 0 && l.cost >= l.amount * HIGH_COST) why = "highCost";

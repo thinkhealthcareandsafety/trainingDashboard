@@ -13,13 +13,13 @@ const l = (invoice: string, amount: number, cost: number | null, x: Partial<MLin
 
 test("left out, each for its reason; a giveaway and a small loss stay", () => {
   const j = judge([l("1", 100, 60), l("1", 0, 10, { item: "Gift" }), l("1", 100, null), l("1", 100, 0), l("1", 100, 4.9), l("1", 100, 200), l("1", 100, 110), l("1", 50, 90, { item: "Packing , Shipping and Forwarding" }), l("2", 0, 500), l("2", 0, 700), l("3", 100, 70), l("3", 0, 0)]);
-  assert.deepEqual(j.map((x) => x.why), [null, null, "noCost", null, "lowCost", "highCost", null, "freight", "zeroSale", "zeroSale", null]);
+  assert.deepEqual(j.map((x) => x.why), [null, null, null, null, "lowCost", "highCost", null, "freight", "zeroSale", "zeroSale", null]);
   const t = total(j);
-  assert.deepEqual([t.sale, t.cost, t.profit, t.invoices, t.skipped, t.skippedLines], [400, 250, 150, 2, 300, 5]);
+  assert.deepEqual([t.sale, t.cost, t.profit, t.invoices, t.skipped, t.skippedLines], [500, 250, 250, 2, 200, 4]);
   assert.deepEqual(freight(j), { charged: 50, cost: 90 });
   const c = checks(j);
   assert.deepEqual([c[0].invoice, c[0].why, c[0].cost, c[0].item], ["2", "zeroSale", 1200, "2 items"]);
-  assert.equal(c.length, 4); // a cost of exactly 0 is believed now (owner, 27 Nov)
+  assert.equal(c.length, 3); // a cost of 0, or none added, counts as 0 (owner, 27 Nov)
 });
 
 test("people add up to the company with the others; periods by India's day; last year beside", () => {
@@ -36,8 +36,8 @@ test("people add up to the company with the others; periods by India's day; last
 
 test("invoices: loss, thin, fine, or no trusted cost; products; open quotations; price rises", () => {
   const j = judge([l("1", 100, 120), l("2", 100, 95), l("3", 100, 50), l("4", 100, null)]);
-  assert.deepEqual(deals(j).map((d) => [d.invoice, d.tone]), [["4", "none"], ["3", "ok"], ["2", "thin"], ["1", "loss"]]);
-  assert.deepEqual([groups(j, "customer")[0].sale, groups(j, "customer")[0].qty], [300, 3]);
+  assert.deepEqual(deals(j).map((d) => [d.invoice, d.tone]), [["4", "ok"], ["3", "ok"], ["2", "thin"], ["1", "loss"]]);
+  assert.deepEqual([groups(j, "customer")[0].sale, groups(j, "customer")[0].qty], [400, 4]);
   const q = (quote: string, amount: number, cost: number | null) => ({ quote, date: "2026-11-20", customer: "A", person: "Ashish Dalal", amount, cost });
   assert.deepEqual(openQuotes([q("Q1", 100, 95), q("Q1", 50, null), q("Q2", 500, 200), q("Q3", 10, null)]).map((x) => [x.quote, x.total, x.sale, x.thin, x.pct === null]), [["Q2", 500, 500, false, false], ["Q1", 150, 100, true, false], ["Q3", 10, 0, false, true]]);
   const b = (date: string, amount: number, item = "Pads") => ({ item, date, qty: 1, amount });
@@ -57,7 +57,7 @@ test("who: Sumit, Ashish, Shikha, Nikita and Admin; to anyone else the address d
 });
 
 test("the email: margin first in the PDF's tables, never in the email's own text; nothing when it isn't asked for", () => {
-  const j = judge([l("2026-01-900", 100000, 95000), l("2026-01-901", 70000, null)]);
+  const j = judge([l("2026-01-900", 100000, 95000), l("2026-01-901", 70000, 200000)]);
   const facts = { kind: "daily", on: "2026-11-25", days: {}, quotes: [], invoices: [], payments: [], receivable: null, payable: null, stock: null, newCustomers: [], trainings: null, renewals: [], errors: {} } as unknown as SummaryFacts;
   const doc = summaryTables({ ...facts, margin: marginFacts(j, [], "2026-11-25", true, 0) });
   assert.equal(doc.sections[0].title, "Margin (confidential)");
