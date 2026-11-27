@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ZOHO_SYNCED, useStore } from "@/lib/store";
@@ -350,6 +351,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const closeTheme = useCallback(() => setThemeOpen(false), []);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const closeAnalytics = useCallback(() => setAnalyticsOpen(false), []);
+  // Phones (owner, 27 Nov: "properly visible, not obstructed"): the bottom bar keeps four pages and More, which holds the rest.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const closeMore = useCallback(() => setMoreOpen(false), []);
+  useEffect(() => { setMoreOpen(false); }, [path]);
 
   // One sign-in for the whole site, before anything else shows; after it, the Dashboard is the landing page.
   if (!session.ready) return null;
@@ -370,7 +375,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const current = pageAt(path, nav);
   const isOnPage = (p: DashboardPage) => p.href === current;
   // Phones: the bottom tabs keep to the main pages (the two Reports tools are in the sidebar and the apps page).
-  const tabs = nav.filter((p) => p.id !== "sheet" && p.id !== "converter");
+  const tabs = nav.filter((p) => p.id !== "sheet" && p.id !== "converter").slice(0, 4);
+  const inMore = !tabs.some((p) => isOnPage(p));
   // The apps home page (owner, 23 Nov) is its own full page: no sidebar, no ticker.
   if (path === "/" || path === "/dashboard") return <>{children}</>;
   const tools: ShellTools = { zoho, openLog: () => setLogOpen(true), openTheme: () => setThemeOpen(true), ...(isAdmin(me) ? { openAnalytics: () => setAnalyticsOpen(true) } : {}) };
@@ -444,23 +450,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="grid size-7 place-items-center rounded-[9px] bg-brand text-[12px] font-bold text-brand-ink">TH</span>
               <span className="text-[14px] font-semibold">ThinkHealth</span>
             </Link>
+            <div className="ml-auto flex items-center gap-1.5">
+              {zoho.info?.enabled !== false && (
+                <button onClick={zoho.syncNow} disabled={zoho.syncing} aria-label="Sync now" title="Fetch the latest from Zoho Books now"
+                  className={`press inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold disabled:opacity-70 ${zoho.info?.error ? "bg-high-bg text-high" : "bg-brand-soft text-brand"}`}>
+                  <SyncIcon spin={zoho.syncing} />{zoho.syncing ? "Syncing…" : "Sync"}
+                </button>
+              )}
+              <button onClick={() => setMoreOpen(true)} aria-label="Menu" className="press grid size-9 place-items-center rounded-full"><Avatar name={me.name} /></button>
+            </div>
           </header>
           {/* Every page uses the whole window (owner, 28 Oct: "if i zoom out, the website should get wide with it") —
               was capped at 1680 px except the boards, so zooming out only added empty margins. */}
-          <main key={path} className="rise px-4 pb-28 pt-6 sm:px-8 lg:pb-14 lg:pt-10">{children}</main>
+          <main key={path} className="rise px-3.5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-14 lg:pt-10">{children}</main>
         </div>
       </div>
 
-      {/* Bottom tabs (mobile / tablet) */}
-      <nav className={`glass fixed inset-x-0 bottom-0 z-30 grid ${tabs.length === 5 ? "grid-cols-5" : tabs.length === 4 || tabs.length >= 7 ? "grid-cols-4" : "grid-cols-3"} border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden`}>
+      {/* Bottom tabs (mobile / tablet): one row, four pages and More (owner, 27 Nov). */}
+      <nav className="glass fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line/70 pb-[env(safe-area-inset-bottom)] lg:hidden">
         {tabs.map((n) => (
-          <Link key={n.href} href={n.href} className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${isOnPage(n) ? "text-ink" : "text-muted"}`}>
+          <Link key={n.href} href={n.href} aria-current={isOnPage(n) ? "page" : undefined} className={`relative flex min-w-0 flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium ${isOnPage(n) ? "text-ink" : "text-muted"}`}>
             <Icon>{APP_ICONS[n.icon]}</Icon>
-            {n.name}
+            <span className="w-full truncate text-center">{n.name}</span>
             {n.id === "reports" && progress.needs > 0 && <span className="absolute right-[calc(50%-16px)] top-1.5 size-2.5 rounded-full bg-high ring-2 ring-surface" aria-hidden />}
           </Link>
         ))}
+        <button onClick={() => setMoreOpen(true)} aria-expanded={moreOpen} className={`flex min-w-0 flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium ${inMore ? "text-ink" : "text-muted"}`}>
+          <Icon><path d="M4 6h12M4 10h12M4 14h12" /></Icon>
+          More
+        </button>
       </nav>
+      {moreOpen && <MoreSheet sections={sections} isOnPage={isOnPage} me={me} tools={tools} onClose={closeMore} />}
 
       {logOpen && <SyncLogWindow open onClose={() => setLogOpen(false)} />}
       {themeOpen && <ThemePicker me={me.id} onClose={closeTheme} />}
@@ -492,6 +512,48 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Phones: every page by section, the tools and Sign out, in a sheet from the bottom (the page behind is dimmed and still). */
+function MoreSheet({ sections, isOnPage, me, tools, onClose }: { sections: { section: string; pages: DashboardPage[] }[]; isOnPage: (p: DashboardPage) => boolean; me: { id: string; name: string }; tools: ShellTools; onClose: () => void }) {
+  const { signOut } = useSession();
+  useEffect(() => {
+    const root = document.documentElement, prev = root.style.overflow;
+    root.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => { root.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+  const row = "press flex h-12 w-full items-center gap-3 rounded-[14px] px-3 text-left text-[15px] font-medium text-ink hover:bg-ink/[0.05]";
+  const act = (fn?: () => void) => () => { onClose(); fn?.(); };
+  return createPortal(
+    <div className="fade-in fixed inset-0 z-[55] flex items-end bg-black/30 backdrop-blur-sm lg:hidden" onMouseDown={onClose}>
+      <div role="dialog" aria-label="Menu" className="modal-in max-h-[85vh] w-full overflow-y-auto overscroll-contain rounded-t-[24px] bg-surface px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-line" aria-hidden />
+        <Link href="/" className={row} onClick={onClose}><span className="grid size-8 place-items-center rounded-lg bg-ink/[0.06]"><Icon><path d="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" /></Icon></span>All apps</Link>
+        {sections.map((sec) => (
+          <div key={sec.section} className="pt-2">
+            <p className="px-3 pb-1 text-[12.5px] font-medium text-muted">{sec.section}</p>
+            {sec.pages.map((n) => (
+              <Link key={n.href} href={n.href} onClick={onClose} aria-current={isOnPage(n) ? "page" : undefined} className={`${row} ${isOnPage(n) ? "bg-brand-soft font-semibold" : ""}`}>
+                <span className="grid size-8 place-items-center rounded-lg text-white" style={{ background: n.color }}><Icon>{APP_ICONS[n.icon]}</Icon></span>{n.name}
+              </Link>
+            ))}
+          </div>
+        ))}
+        <div className="mt-2 border-t border-line pt-2">
+          <button className={row} onClick={act(tools.openLog)}><span className="grid size-8 place-items-center rounded-lg bg-ink/[0.06]"><LogIcon /></span>Sync log</button>
+          <button className={row} onClick={act(tools.openTheme)}><span className="grid size-8 place-items-center rounded-lg bg-ink/[0.06]"><Icon>{PALETTE}</Icon></span>Change theme</button>
+          {tools.openAnalytics && <button className={row} onClick={act(tools.openAnalytics)}><span className="grid size-8 place-items-center rounded-lg bg-ink/[0.06]"><Icon><path d="M4 16V9M8.5 16V5M13 16v-4.5M16.5 16V7.5" /></Icon></span>Zoho Analytics</button>}
+          <div className="flex items-center gap-3 px-3 py-2">
+            <Avatar name={me.name} /><span className="flex-1 text-[15px] font-medium text-ink">{me.name}</span>
+            <button className={btn.ghost} onClick={act(signOut)}>Sign out</button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** Who is signed in, with Sign out (also how you switch person) — top right of every page. */
 export function MemberPill() {
   const { member, signOut } = useSession();
@@ -507,15 +569,15 @@ export function MemberPill() {
 
 export function PageHeader({ title, sub, actions, titleAside }: { title: string; sub?: string; actions?: React.ReactNode; titleAside?: React.ReactNode }) {
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="flex items-center gap-2.5 text-[30px] font-semibold leading-tight tracking-[-0.03em]">{title}{titleAside}</h1>
-        {sub && <p className="mt-1.5 max-w-2xl text-[14px] text-muted">{sub}</p>}
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3 sm:mb-8 sm:gap-4">
+      <div className="min-w-0">
+        <h1 className="flex items-center gap-2.5 text-[24px] font-semibold leading-tight tracking-[-0.03em] sm:text-[30px]">{title}{titleAside}</h1>
+        {sub && <p className="mt-1 max-w-2xl text-[13.5px] text-muted sm:mt-1.5 sm:text-[14px]">{sub}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {actions}
-        <HeaderTools />
-        <MemberPill />
+        {/* On phones these are in the top bar (Sync) and More (the rest). */}
+        <span className="hidden items-center gap-2 lg:inline-flex"><HeaderTools /><MemberPill /></span>
       </div>
     </div>
   );

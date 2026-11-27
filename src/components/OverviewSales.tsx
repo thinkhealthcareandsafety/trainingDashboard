@@ -68,16 +68,16 @@ function SideBox({ title, lead, sub, s, tint, hint }: { title: string; lead?: st
   const cell = (label: string, value: string) => (
     <div className="min-w-0">
       <p className="text-[13.5px] font-medium text-muted">{label}</p>
-      <p className="num mt-0.5 truncate text-[24px] font-semibold leading-tight tracking-tight text-ink sm:text-[28px] 2xl:text-[30px]">{value}</p>
+      <p className="num mt-0.5 truncate text-[20px] font-semibold leading-tight tracking-tight text-ink min-[400px]:text-[22px] sm:text-[28px] 2xl:text-[30px]">{value}</p>
     </div>
   );
   return (
-    <div className={`min-w-0 rounded-2xl px-5 py-4 ${tint ? "bg-surface-2/70" : "border border-line"}`} title={hint}>
+    <div className={`min-w-0 rounded-2xl px-4 py-4 sm:px-5 ${tint ? "bg-surface-2/70" : "border border-line"}`} title={hint}>
       <div className="flex items-baseline justify-between gap-3">
         <p className="truncate text-[15.5px] text-ink-2">{lead && <span className="text-[19px] font-semibold text-ink">{lead} · </span>}<span className="font-semibold">{title}</span></p>
         {sub && <p className="num shrink-0 text-[13px] text-muted">{sub}</p>}
       </div>
-      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-4">
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 sm:gap-4">
         {cell("Quotations", inrShort(s.quoted))}
         {cell("Invoiced", inrShort(s.invoiced))}
         {cell("Conversion", s.conversion === null ? "—" : `${s.conversion}%`)}

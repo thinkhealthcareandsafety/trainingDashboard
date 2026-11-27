@@ -928,11 +928,13 @@ function Board({ member, onSignOut, initialQuery, initialOpen }: { member: Membe
         <div className="flex flex-wrap items-center justify-end gap-2">
           {isAdmin(member) && <ClearLogs member={member} boardName={BOARD_LABEL[boardKind]} cards={(aedMode ? aedBoard?.cards : fulfilMode ? fulBoard?.cards : logiMode ? logiBoard?.cards : salesMode ? salesBoard?.cards : undefined) ?? board.cards} />}
           {/* The same top-right tools as every page (owner, 23 Nov: Sync now, the palette, Sign out). */}
+          <span className="hidden items-center gap-2 lg:inline-flex">
           <HeaderTools />
           <span className="inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-1.5 text-[13px] shadow-card">
             <Avatar name={member.name} />
             <span className="font-medium text-ink">{member.name}</span>
             <button className={btn.quiet} onClick={onSignOut}>Sign out</button>
+          </span>
           </span>
         </div>
       </div>
