@@ -22,6 +22,7 @@ export function ExternalLeads() {
   const [res, setRes] = useState<Res | null>(null);
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [scan, setScan] = useState<Scan | null>(null);
   const [reading, setReading] = useState<string | null>(null);
   // A visiting card (owner, 27 Nov): one or more photos of the same card, read in this browser, then the form filled in.
@@ -65,14 +66,7 @@ export function ExternalLeads() {
         <div className="flex flex-wrap items-center gap-3">
           <input className={`${inputCls} max-w-sm`} placeholder="Search a company, person, email, phone or GSTIN…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search external leads" />
           <span className="text-[13px] text-muted">{res.leads.length} {res.leads.length === 1 ? "lead" : "leads"}</span>
-          {res.canAdd && (
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              {reading && <span className="text-[13px] font-medium text-brand" role="status">{reading}</span>}
-              <label className={`${btn.ghost} cursor-pointer`}>Take a photo<input type="file" accept="image/*" capture="environment" className="sr-only" disabled={Boolean(reading)} onChange={(e) => { readCard(e.target.files); e.target.value = ""; }} /></label>
-              <label className={`${btn.ghost} cursor-pointer`}>Scan card photos<input type="file" accept="image/*" multiple className="sr-only" disabled={Boolean(reading)} onChange={(e) => { readCard(e.target.files); e.target.value = ""; }} /></label>
-              <button className={btn.primary} onClick={() => setAdding(true)}>+ Add a lead</button>
-            </div>
-          )}
+          {res.canAdd && <button className={`${btn.primary} ml-auto`} onClick={() => setChoosing(true)}>+ Add a lead</button>}
         </div>
         {!shown.length ? (
           <p className="py-12 text-center text-[14px] text-muted">{res.leads.length ? "No lead matches that." : "No external leads yet. Add the first one with “+ Add a lead”."}</p>
@@ -82,6 +76,25 @@ export function ExternalLeads() {
           </ul>
         )}
       </section>
+      {/* One button, then the choice (owner, 27 Nov): "Add Manually" or "Auto-Fill Via Picture". On a phone, the picture
+          choice offers the camera or the gallery; one or more photos of the same card. */}
+      <Modal open={choosing} onClose={() => { if (!reading) setChoosing(false); }} title="Add a lead">
+        {reading ? (
+          <p className="py-8 text-center text-[15px] font-medium text-brand" role="status">{reading}</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button type="button" className="press rounded-[18px] border border-line bg-surface-2 p-5 text-left hover:border-brand" onClick={() => { setChoosing(false); setAdding(true); }}>
+              <span className="block text-[16px] font-semibold text-ink">Add Manually</span>
+              <span className="mt-1 block text-[13px] text-muted">Type the details yourself.</span>
+            </button>
+            <label className="press cursor-pointer rounded-[18px] border border-line bg-surface-2 p-5 text-left hover:border-brand">
+              <span className="block text-[16px] font-semibold text-ink">Auto-Fill Via Picture</span>
+              <span className="mt-1 block text-[13px] text-muted">Take or pick photos of a visiting card (front and back are fine); the details are filled in for you to check.</span>
+              <input type="file" accept="image/*" multiple className="sr-only" onChange={async (e) => { const files = e.target.files; e.target.value = ""; await readCard(files); setChoosing(false); }} />
+            </label>
+          </div>
+        )}
+      </Modal>
       {adding && <AddLead res={res} onClose={(ok) => { setAdding(false); if (ok) load(); }} />}
       {scan && <AddLead res={res} scan={scan} onClose={(ok) => { scan.pictures.forEach((u) => URL.revokeObjectURL(u)); setScan(null); if (ok) load(); }} />}
     </>
