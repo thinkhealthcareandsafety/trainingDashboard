@@ -369,7 +369,7 @@ async function mergedFor(invoiceId: string, pick: MergePick = { po: true, others
   const po = docs.find((x) => isPo(String(x.file_name ?? "")));
   const eway = docs.find((x) => isEwayFile(String(x.file_name ?? "")));
   const others = docs.filter((x) => x !== po && x !== eway && !isPo(String(x.file_name ?? "")) && !isEwayFile(String(x.file_name ?? "")));
-  for (const doc of [...(pick.others ? others : []), ...(pick.po ? [po, eway] : [])]) {
+  for (const doc of [...(pick.po ? [po, eway] : []), ...(pick.others ? others : [])]) { // Invoice → PO → Attachment (owner, 27 Nov)
     if (!doc) continue;
     const f = await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`);
     parts.push({ ...f, name: String(doc.file_name ?? "attachment") });
@@ -381,7 +381,7 @@ async function mergedFor(invoiceId: string, pick: MergePick = { po: true, others
 /** The merged PDF to download as it is (owner, 17 Nov: Zoho Sign's plan doesn't send by API, so merging works on its own too). */
 export async function mergedInvoicePdf(invoiceId: string, pick?: MergePick): Promise<{ bytes: Uint8Array; name: string; skipped: string[] }> {
   const { merged, number } = await mergedFor(invoiceId, pick);
-  const tail = pick ? [pick.others && "Attachment", pick.po && "PO"].filter(Boolean).join(" - ") : "merged";
+  const tail = pick ? [pick.po && "PO", pick.others && "Attachment"].filter(Boolean).join(" - ") : "merged";
   return { bytes: merged.bytes, name: `Invoice ${number}${tail ? ` - ${tail}` : ""}.pdf`, skipped: merged.skipped ?? [] };
 }
 

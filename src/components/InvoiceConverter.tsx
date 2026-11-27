@@ -330,7 +330,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const [busy, setBusy] = useState<"" | "po" | "poPdf" | "eway" | "ewayPdf" | "sign">("");
   const [merging, setMerging] = useState("");
   const [choose, setChoose] = useState(false);
-  // Four ways (owner, 27 Nov): Invoice; Invoice - PO; Invoice - Attachment; Invoice - Attachment - PO.
+  // Four ways (owner, 27 Nov): Invoice; Invoice - PO; Invoice - Attachment; Invoice - PO - Attachment (in that order in the PDF).
   const downloadMerged = async (pick: { po: boolean; others: boolean }, title: string) => {
     setMerging(title); setError("");
     try {
@@ -488,7 +488,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
               ["Invoice", { po: false, others: false }, true],
               ["Invoice - PO", { po: true, others: false }, i.poPdf],
               ["Invoice - Attachment", { po: false, others: true }, Boolean(i.others?.length)],
-              ["Invoice - Attachment - PO", { po: true, others: true }, i.poPdf && Boolean(i.others?.length)],
+              ["Invoice - PO - Attachment", { po: true, others: true }, i.poPdf && Boolean(i.others?.length)],
             ] as const).map(([title, pick, ok]) => (
               <button key={title} type="button" disabled={!ok} onClick={() => downloadMerged(pick, title)}
                 className="w-full rounded px-2 py-1 text-left font-semibold text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:font-normal disabled:text-muted disabled:hover:bg-transparent"

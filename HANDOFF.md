@@ -29,7 +29,7 @@ _Written Fri 27 Nov 2026, end of session 38. Owner: Sumit; Jasmeet Singh (he/him
    run it through the scanner, fix `cardScan.ts` rules (add a test per card).
 3. Repo still PUBLIC on GitHub — remind the owner to make it private.
 
-**⚠ Scanner times out on Vercel** (504 FUNCTION_INVOCATION_TIMEOUT at 60 s; locally 2 s). Already tried: shipping
+**Scanner FIXED 27 Nov** (builds had failed: includeFiles over 256 chars; live now, ~4 s per card). Old note: (504 FUNCTION_INVOCATION_TIMEOUT at 60 s; locally 2 s). Already tried: shipping
 tesseract.js / -core files via `includeFiles` (vercel.json) and a 25 s start-up limit — still timing out. Last push adds a
 40 s answer limit (best reading so far) and **`GET /api/scan?check=1`**, which reads a small test picture and lists how
 long each step took: open it first to find the slow step (reader start, or each reading). Ideas: smaller picture
@@ -41,7 +41,7 @@ long each step took: open it first to find the slow step (reader start, or each 
   under its own name (`attachExtra`, multipart `which: "extra"`); the column shows only the names (`ConvInvoice.others`
   = files that are neither PO nor e-way bill).
 - "Merged PDF" link → **"Download PDF ▾"** with 4 choices: Invoice / Invoice - PO / Invoice - Attachment / Invoice -
-  Attachment - PO (`GET ?merged=<id>&with=po,others`; "po" brings the e-way bill too; no `with` = old merge, used by
+  PO - Attachment, in that order inside the PDF (`GET ?merged=<id>&with=po,others`; "po" brings the e-way bill too; no `with` = old merge, used by
   Merge & draft). Files that aren't PDF or picture are left out and named (`x-skipped` header).
 
 ---
