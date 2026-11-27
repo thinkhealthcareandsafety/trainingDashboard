@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   const match = new URL(request.url).searchParams.get("match");
   if (match !== null) return json({ match: match.trim().length >= 2 ? (await zohoMatch(match)) ?? null : null });
   return json({
-    leads: await listLeads(), canAdd: canQuote(me), states: INDIA_STATES, sectors: CUSTOMER_FIELDS.sector.options,
+    leads: await listLeads(), canAdd: canQuote(me), states: INDIA_STATES, sectors: CUSTOMER_FIELDS.sector.options, types: CUSTOMER_FIELDS.type.options,
     treatments: GST_TREATMENTS, salutations: SALUTATIONS,
   });
 }

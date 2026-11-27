@@ -17,6 +17,8 @@ export type LeadInput = {
   company: string; salutation?: string; firstName?: string; lastName: string; phone?: string; email?: string;
   gstin?: string; treatment?: string; street?: string; street2?: string; city?: string; state?: string; zip?: string;
   remarks?: string; sector?: string; designation?: string; website?: string;
+  /** Zoho's Type (owner, 27 Nov: "customer type too"): New Customer, Old Customer, New Reseller … New Vendor for a vendor by default. */
+  type?: string;
   /** A customer (default) or a vendor (owner, 27 Nov: "select whether this is a customer or a vendor"). */
   kind?: "customer" | "vendor";
   /** Typed in, or read from a visiting card's photos. */
@@ -51,9 +53,10 @@ export function checkLead(raw: Partial<Record<keyof LeadInput, unknown>>): { lea
   const sector = (CUSTOMER_FIELDS.sector.options as readonly string[]).find((x) => x === s(raw.sector, 60));
   if (!sector) return { error: "Pick the sector" };
   const kind = raw.kind === "vendor" ? "vendor" : "customer";
+  const type = (CUSTOMER_FIELDS.type.options as readonly string[]).find((x) => x === s(raw.type, 40)) ?? (kind === "vendor" ? "New Vendor" : "New Customer");
   return {
     lead: {
-      kind, source: raw.source === "card" ? "card" : "manual", designation: s(raw.designation, 100) || undefined,
+      kind, type, source: raw.source === "card" ? "card" : "manual", designation: s(raw.designation, 100) || undefined,
       website: s(raw.website, 200) || undefined, company, salutation, firstName: firstName || undefined, lastName, phone: phone || undefined, email: email || undefined,
       gstin: gstin || undefined, treatment, street: s(raw.street, 200) || undefined, street2: s(raw.street2, 200) || undefined,
       city: s(raw.city, 100) || undefined, state: state?.[0] ?? "", stateName: state?.[1] ?? "", zip: zip || undefined,

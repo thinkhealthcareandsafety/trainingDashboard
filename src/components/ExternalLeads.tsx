@@ -10,9 +10,9 @@ import { parseCard } from "@/lib/cardScan";
 /* External Leads (owner, 27 Nov): the important leads, added by hand and made customers in Zoho Books. lib/externalLeads.ts. */
 
 type Treatment = { value: string; label: string; hint: string; gstin: boolean };
-type Res = { leads: ExternalLead[]; canAdd: boolean; states: [string, string][]; sectors: string[]; treatments: Treatment[]; salutations: string[]; error?: string };
-type Form = Record<"company" | "salutation" | "firstName" | "lastName" | "designation" | "phone" | "email" | "website" | "gstin" | "treatment" | "street" | "street2" | "city" | "state" | "zip" | "remarks" | "sector", string> & { kind: "customer" | "vendor" };
-const EMPTY: Form = { kind: "customer", company: "", salutation: "", firstName: "", lastName: "", designation: "", phone: "", email: "", website: "", gstin: "", treatment: "business_gst", street: "", street2: "", city: "", state: "MH", zip: "", remarks: "", sector: "" };
+type Res = { leads: ExternalLead[]; canAdd: boolean; states: [string, string][]; sectors: string[]; types: string[]; treatments: Treatment[]; salutations: string[]; error?: string };
+type Form = Record<"company" | "salutation" | "firstName" | "lastName" | "designation" | "phone" | "email" | "website" | "gstin" | "treatment" | "street" | "street2" | "city" | "state" | "zip" | "remarks" | "sector" | "type", string> & { kind: "customer" | "vendor" };
+const EMPTY: Form = { kind: "customer", company: "", salutation: "", firstName: "", lastName: "", designation: "", phone: "", email: "", website: "", gstin: "", treatment: "business_gst", street: "", street2: "", city: "", state: "MH", zip: "", remarks: "", sector: "", type: "New Customer" };
 /** What a scan brought: the form filled in, the photos, and the words read (to check against). */
 type Scan = { start: Partial<Form>; pictures: string[]; words: string };
 
@@ -105,7 +105,7 @@ function LeadRow({ l, onChanged, canAdd }: { l: ExternalLead; onChanged: () => v
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2 font-semibold text-ink">{l.company}{l.kind === "vendor" && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11.5px] font-medium text-ink-2">Vendor</span>}{l.source === "card" && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11.5px] font-medium text-muted">From a card</span>}</div>
         <div className="mt-0.5 text-[13px] text-muted">{[person, l.designation, l.phone, l.email].filter(Boolean).join(" · ")}</div>
-        <div className="mt-0.5 text-[13px] text-muted">{[l.gstin && `GSTIN ${l.gstin}`, l.city, l.sector, `added ${day(l.at)} by ${l.by.split(" ")[0]}`].filter(Boolean).join(" · ")}</div>
+        <div className="mt-0.5 text-[13px] text-muted">{[l.gstin && `GSTIN ${l.gstin}`, l.city, l.type, l.sector, `added ${day(l.at)} by ${l.by.split(" ")[0]}`].filter(Boolean).join(" · ")}</div>
         {l.remarks && <p className="mt-1 max-w-[70ch] whitespace-pre-wrap text-[13px] text-ink-2">{l.remarks}</p>}
         {(err ?? l.error) && <p className="mt-1 text-[13px] font-medium text-high">{err ?? l.error}</p>}
       </div>
@@ -184,13 +184,16 @@ function AddLead({ res, onClose, scan }: { res: Res; onClose: (ok: boolean) => v
           </div>
         )}
         <div className="flex gap-1" role="radiogroup" aria-label="Customer or vendor">
-          {(["customer", "vendor"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={f.kind === k} className={`rounded-full px-3.5 py-1.5 text-[13.5px] font-medium ${f.kind === k ? "bg-ink text-surface" : "bg-surface-2 text-ink-2"}`} onClick={() => setF((x) => ({ ...x, kind: k }))}>{k === "customer" ? "Customer" : "Vendor"}</button>)}
+          {(["customer", "vendor"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={f.kind === k} className={`rounded-full px-3.5 py-1.5 text-[13.5px] font-medium ${f.kind === k ? "bg-ink text-surface" : "bg-surface-2 text-ink-2"}`} onClick={() => setF((x) => ({ ...x, kind: k, type: x.type === (k === "vendor" ? "New Customer" : "New Vendor") ? (k === "vendor" ? "New Vendor" : "New Customer") : x.type }))}>{k === "customer" ? "Customer" : "Vendor"}</button>)}
         </div>
         <Section title="Company">
           <div className="sm:col-span-2">
             {input("company", "Company name *", { maxLength: 200, autoFocus: true }, "Goes into Zoho as both the Company Name and the Display Name.")}
             {match && <p className="mt-1 text-[13px] font-medium text-medium">Already in Zoho Books as “{match.name}”: the lead will be linked to it, no second customer is made.</p>}
           </div>
+          <Field label={f.kind === "vendor" ? "Type *" : "Customer type *"}>
+            <select className={inputCls} value={f.type} onChange={set("type")}>{res.types.map((t) => <option key={t}>{t}</option>)}</select>
+          </Field>
           <Field label="Sector *">
             <select className={inputCls} value={f.sector} onChange={set("sector")}><option value="">Pick the sector…</option>{res.sectors.map((s) => <option key={s}>{s}</option>)}</select>
           </Field>

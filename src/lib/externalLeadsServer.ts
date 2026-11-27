@@ -56,7 +56,7 @@ async function toZoho(row: ExternalLead, stateName: string): Promise<void> {
       kind: "business", company: row.company, displayName: row.company, salutation: row.salutation, firstName: row.firstName ?? "",
       lastName: row.lastName, email: row.email ?? "", workPhone: row.phone, state: row.state ?? "", stateName,
       street: row.street, street2: row.street2, city: row.city, zip: row.zip, gstin: row.gstin, treatment: row.treatment,
-      remarks: row.remarks, type: vendor ? "New Vendor" : "New Customer", sector: row.sector ?? "", contactType: vendor ? "vendor" : "customer",
+      remarks: row.remarks, type: row.type ?? (vendor ? "New Vendor" : "New Customer"), sector: row.sector ?? "", contactType: vendor ? "vendor" : "customer",
       website: row.website, designation: row.designation,
     });
     row.existed = false;
