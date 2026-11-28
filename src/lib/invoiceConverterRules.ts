@@ -42,13 +42,16 @@ export const MERGE_PARTS = ["invoice", "po", "eway", "others", "pi", "pifiles"] 
  * of the attachment in zoho books"): "doc:<Zoho document id>", from the invoice or its PI.
  */
 export type DocPart = `doc:${string}`;
-export type MergePart = (typeof MERGE_PARTS)[number] | DocPart;
+export type MergePart = (typeof MERGE_PARTS)[number] | DocPart | InvPart;
 export const isDocPart = (p: string): p is DocPart => /^doc:\d{6,25}$/.test(p);
+/** One invoice of a PI, in the PI's picker: "inv:<Zoho invoice id>". */
+export type InvPart = `inv:${string}`;
+export const isInvPart = (p: string): p is InvPart => /^inv:\d{6,25}$/.test(p);
 export const PART_LABEL: Record<(typeof MERGE_PARTS)[number], string> = { invoice: "Invoice", po: "PO", eway: "E-way bill", others: "Attachment", pi: "PI", pifiles: "PI attachment" };
 /** The parts asked for (`parts=pi,invoice,doc:123`, in that order, each once); the older `with=po,others` still works; none = undefined. */
 export function partsFrom(parts?: string | null, withQ?: string | null): MergePart[] | undefined {
   if (parts) {
-    const out = [...new Set(parts.split(",").map((s) => s.trim().toLowerCase()))].filter((p): p is MergePart => (MERGE_PARTS as readonly string[]).includes(p) || isDocPart(p));
+    const out = [...new Set(parts.split(",").map((s) => s.trim().toLowerCase()))].filter((p): p is MergePart => (MERGE_PARTS as readonly string[]).includes(p) || isDocPart(p) || isInvPart(p));
     return out.length ? out : undefined;
   }
   if (withQ === null || withQ === undefined) return undefined;
@@ -56,7 +59,7 @@ export function partsFrom(parts?: string | null, withQ?: string | null): MergePa
 }
 /** The merged PDF's name, its parts in order: "Invoice 2026-01-552 - PO - Attachment - Performa-25-1179.pdf" (attachments in a row named once). */
 export function mergedName(number: string, pi: string | null, parts: MergePart[]): string {
-  const words = parts.map((p) => (p === "invoice" ? `Invoice ${number}` : p === "pi" ? pi || "PI" : p.startsWith("doc:") ? "Attachment" : PART_LABEL[p as keyof typeof PART_LABEL] ?? "Attachment"));
+  const words = parts.map((p) => (p === "invoice" ? `Invoice ${number}` : p === "pi" ? pi || "PI" : p.startsWith("doc:") ? "Attachment" : p.startsWith("inv:") ? "Invoice" : PART_LABEL[p as keyof typeof PART_LABEL] ?? "Attachment"));
   return `${words.filter((w, k) => !(w === "Attachment" && words[k - 1] === "Attachment")).join(" - ") || `Invoice ${number}`}.pdf`;
 }
 /**
@@ -94,8 +97,24 @@ export function piOf(reference: unknown): string | null {
   return m ? `Performa-${m[1]}-${m[2]}` : null;
 }
 
-/** A customer's invoices as blocks: a PI with two or more invoices is one linked block (`pi` set); the rest stand alone. */
-export type ConvBlock = { pi: string | null; invoices: ConvInvoice[] };
+/**
+ * A customer's invoices as blocks: a PI with two or more invoices is one linked block (`pi` set); the rest stand alone.
+ * With the customer's PIs (owner, 28 Nov: "pull all the PIs into our invoice converter too, the invoices will just come
+ * inside them"), every PI is a block (`piDoc`), its invoices inside, even none; newest first by the PI's or its
+ * newest invoice's date; invoices with no PI here stand alone.
+ */
+export type ConvBlock = { pi: string | null; invoices: ConvInvoice[]; piDoc?: ConvPi };
+export function blocksWithPis(invoices: ConvInvoice[], pis: ConvPi[]): ConvBlock[] {
+  if (!pis.length) return blocksOf(invoices);
+  const byNumber = new Map(pis.map((p) => [p.number, { pi: p.number, invoices: [] as ConvInvoice[], piDoc: p } as ConvBlock]));
+  const out: ConvBlock[] = [...byNumber.values()];
+  for (const i of invoices) {
+    const b = i.pi ? byNumber.get(i.pi) : undefined;
+    if (b) b.invoices.push(i); else out.push({ pi: null, invoices: [i] });
+  }
+  const newest = (b: ConvBlock) => [b.piDoc?.date ?? "", ...b.invoices.map((i) => i.date)].sort().at(-1) ?? "";
+  return out.sort((a, b) => newest(b).localeCompare(newest(a)) || (b.piDoc?.number ?? b.invoices[0]?.number ?? "").localeCompare(a.piDoc?.number ?? a.invoices[0]?.number ?? ""));
+}
 export function blocksOf(invoices: ConvInvoice[]): ConvBlock[] {
   const count = new Map<string, number>();
   for (const i of invoices) if (i.pi) count.set(i.pi, (count.get(i.pi) ?? 0) + 1);
@@ -134,11 +153,21 @@ export type ConvInvoice = {
   /** PO PDFs in the WorkDrive PO folder that carry this invoice's PO number, when it has no PO PDF yet (owner, 24 Nov). */
   poFound?: { id: string; name: string }[];
 };
-export type ConvCustomer = { id: string; name: string; invoices: ConvInvoice[]; latest: string; missing: number };
+/** A PI (Zoho sales order) in the Invoice Converter (owner, 28 Nov): its PO number and whether anything is attached. */
+export type ConvPi = { id: string; number: string; date: string; total: number; status: string; po: string; poOk: boolean; hasFiles: boolean };
+export type ConvCustomer = { id: string; name: string; invoices: ConvInvoice[]; latest: string; missing: number; pis?: ConvPi[] };
 
-/** Customers, newest invoice first; within each, newest first. `missing` = invoices with something still to add. */
-export function groupByCustomer(list: (ConvInvoice & { customerId: string; customerName: string })[]): ConvCustomer[] {
+/** Customers, newest invoice (or PI) first; within each, newest first. `missing` = invoices with something still to add. */
+export function groupByCustomer(list: (ConvInvoice & { customerId: string; customerName: string })[], pis: (ConvPi & { customerId: string; customerName: string })[] = []): ConvCustomer[] {
   const map = new Map<string, ConvCustomer>();
+  for (const p of pis) {
+    const c = map.get(p.customerId) ?? { id: p.customerId, name: p.customerName, invoices: [], latest: "", missing: 0 };
+    const { customerId: _c, customerName: _n, ...pi } = p;
+    void _c; void _n;
+    (c.pis ??= []).push(pi);
+    if (pi.date > c.latest) c.latest = pi.date;
+    map.set(p.customerId, c);
+  }
   for (const i of list) {
     const c = map.get(i.customerId) ?? { id: i.customerId, name: i.customerName, invoices: [], latest: "", missing: 0 };
     const { customerId: _c, customerName: _n, ...inv } = i;
@@ -148,7 +177,10 @@ export function groupByCustomer(list: (ConvInvoice & { customerId: string; custo
     if (!inv.poOk || !inv.poPdf || (inv.needsEway && (!inv.eway || !inv.ewayPdf))) c.missing++;
     map.set(i.customerId, c);
   }
-  for (const c of map.values()) c.invoices.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
+  for (const c of map.values()) {
+    c.invoices.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
+    c.pis?.sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
+  }
   return [...map.values()].sort((a, b) => b.latest.localeCompare(a.latest) || a.name.localeCompare(b.name));
 }
 

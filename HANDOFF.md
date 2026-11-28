@@ -67,6 +67,10 @@ long each step took: open it first to find the slow step (reader start, or each 
   PI / PI attachments; numbers 1,2,3 = order in the PDF. `?merged=&parts=pi,invoice,po` and `dscSign {parts}` (`partsFrom`, `mergedName`;
   old `with=` kept). DSC stamp goes on the invoice's first page wherever it falls (`mergeParts` returns `starts`). PI menu = attach + list only.
   Attachments are one tick each by their Zoho name (`doc:<document id>`, invoice's then PI's, same names once: `?mergeFiles=`, `attachmentChoices`).
+- **All PIs in the converter (28 Nov):** `converterData` adds every non-void PI from salesDocs (`ConvPi`, `groupByCustomer(list, pis)`);
+  `blocksWithPis` = each PI a block (`PiBlock`: PO number → PI + its invoices via `setPiPo` = PUT /salesorder/{id}/customfields (UNTESTED live),
+  Attach PO PDF → PI + its invoices without one (`attachPiPo`), + Add files to PI, Download PDF picker `PiPicker` = PI / its invoices / its
+  files via `?piMerged=&parts=pi,inv:,doc:`). Invoices inside a PI hide their own PI ▾ menu. Latest-invoices view has no PI rows.
 - Owner signs merged PDFs with his DSC token (mToken CryptoID, PantaSign Class 3, valid to 19 Sep 2028) in Adobe Reader:
   unblock the downloaded file first (Protected View greys out "Digitally sign"); cert is in the Windows store, no PKCS#11 setup.
 

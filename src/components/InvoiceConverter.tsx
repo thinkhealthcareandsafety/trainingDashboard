@@ -3,8 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { PO_AUTO_SCAN } from "@/lib/poAuto";
 import { createPortal } from "react-dom";
-import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
-import { EWAY_OVER, PART_LABEL, blocksOf, type MergePart } from "@/lib/invoiceConverterRules";
+import type { ConvCustomer, ConvInvoice, ConvPi } from "@/lib/invoiceConverterRules";
+import { EWAY_OVER, PART_LABEL, blocksOf, blocksWithPis, type MergePart } from "@/lib/invoiceConverterRules";
 import type { PoLog, PoRun } from "@/lib/poLog";
 import { PoScanLog, type ScanNow } from "./PoScanLog";
 import { Skeleton, toneOf } from "./ui";
@@ -167,13 +167,23 @@ export function InvoiceConverter() {
     ...d, customers: d.customers.map((c) => ({ ...c, invoices: c.invoices.map((i) => (ids.includes(i.id) ? { ...i, ...p } : i)) })),
   });
 
+  const patchPi = (id: string, p: Partial<ConvPi>) => setData((d) => d && {
+    ...d, customers: d.customers.map((c) => (c.pis?.some((x) => x.id === id) ? { ...c, pis: c.pis.map((x) => (x.id === id ? { ...x, ...p } : x)) } : c)),
+  });
+
   const shown = useMemo(() => {
     if (!data) return [];
     const s = q.trim().toLowerCase();
     const anyFound = data.customers.some((c) => c.invoices.some((i) => i.poFound?.length && !i.poPdf));
     return data.customers
-      .map((c) => ({ ...c, invoices: c.invoices.filter((i) => (!onlyFound || !anyFound || (i.poFound?.length && !i.poPdf)) && (!s || c.name.toLowerCase().includes(s) || i.number.toLowerCase().includes(s) || i.po.toLowerCase().includes(s))) }))
-      .filter((c) => c.invoices.length);
+      .map((c) => {
+        const invoices = c.invoices.filter((i) => (!onlyFound || !anyFound || (i.poFound?.length && !i.poPdf)) && (!s || c.name.toLowerCase().includes(s) || i.number.toLowerCase().includes(s) || i.po.toLowerCase().includes(s)));
+        // A PI shows when it matches, or one of its invoices does; not while only "POs found" are shown.
+        const pis = onlyFound && anyFound ? (c.pis ?? []).filter((p) => invoices.some((i) => i.pi === p.number))
+          : (c.pis ?? []).filter((p) => !s || c.name.toLowerCase().includes(s) || p.number.toLowerCase().includes(s) || p.po.toLowerCase().includes(s) || invoices.some((i) => i.pi === p.number));
+        return { ...c, invoices, pis };
+      })
+      .filter((c) => c.invoices.length || c.pis.length);
   }, [data, q, onlyFound]);
   const foundCount = data?.customers.reduce((n, c) => n + c.invoices.filter((i) => i.poFound?.length && !i.poPdf).length, 0) ?? 0;
   const filtering = onlyFound && foundCount > 0;
@@ -240,7 +250,7 @@ export function InvoiceConverter() {
                   <span style={toneOf(c.name)} className="soft-tone hidden size-11 shrink-0 place-items-center rounded-[14px] text-[14px] font-semibold sm:grid" aria-hidden>{c.name.replace(/[^\p{L}\p{N} ]/gu, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[16px] font-semibold text-ink">{c.name}</span>
-                    <span className="num block text-[13px] text-muted">{c.invoices.length} invoice{c.invoices.length === 1 ? "" : "s"} · last {day(c.latest)}</span>
+                    <span className="num block text-[13px] text-muted">{c.invoices.length} invoice{c.invoices.length === 1 ? "" : "s"}{c.pis?.length ? ` · ${c.pis.length} PI${c.pis.length === 1 ? "" : "s"}` : ""} · last {day(c.latest)}</span>
                   </span>
                   {c.missing > 0 ? <span className="num inline-flex shrink-0 items-center gap-2 rounded-full bg-medium-bg px-3 py-1.5 text-[12.5px] font-semibold text-ink-2"><span className="size-1.5 rounded-full bg-medium" aria-hidden />{c.missing} to complete</span>
                     : <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-low-bg px-3 py-1.5 text-[12.5px] font-semibold text-low"><span className="size-1.5 rounded-full bg-low" aria-hidden />All complete</span>}
@@ -252,7 +262,9 @@ export function InvoiceConverter() {
                       <span>Invoice</span><span>Value</span><span>Purchase order</span><span title={`Needed over ${inr(EWAY_OVER)}`}>E-way bill</span><span>Other attachments</span><span>Merged PDF</span>
                     </div>
                     <ul className="divide-y divide-line/70">
-                      {blocksOf(c.invoices).map((b) => b.pi ? (
+                      {blocksWithPis(c.invoices, c.pis ?? []).map((b) => b.piDoc ? (
+                        <PiBlock key={b.piDoc.id} pi={b.piDoc} invoices={b.invoices} sign={data.sign} onPatch={patch} onPiPatch={patchPi} />
+                      ) : b.pi ? (
                         <Linked key={b.pi} pi={b.pi} invoices={b.invoices} sign={data.sign} onPatch={patch} />
                       ) : <Row key={b.invoices[0].id} i={b.invoices[0]} sign={data.sign} onPatch={patch} />)}
                     </ul>
@@ -354,6 +366,191 @@ async function sendPo(id: string, value: string, file?: File | null): Promise<{ 
  * Invoices of the same PI, linked (owner, 18 Nov): a line runs from the block's top down through each invoice and ends
  * in an arrow at the last one. One button on top adds a single PO number and PO PDF to all of them.
  */
+/**
+ * A PI with its invoices inside (owner, 28 Nov: "pull all the PIs into our invoice converter too, the invoices will just
+ * come inside them like normal, when it's only PI, I want the merge options to be there still, PO can still be added to
+ * the PI … and so can the attachments"). The PI's row: its PO number (saved on the PI and every invoice of it), its PO
+ * PDF (on the PI, and on its invoices that have none), files on the PI, and a picker to merge the PI, its files and its
+ * invoices in any order. Its invoices follow, joined by the line.
+ */
+function PiBlock({ pi, invoices, sign, onPatch, onPiPatch, customer }: { pi: ConvPi; invoices: ConvInvoice[]; sign?: SignInfo; onPatch: Patch; onPiPatch: (id: string, p: Partial<ConvPi>) => void; customer?: string }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState<"" | "po" | "pdf" | "file">("");
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [files, setFiles] = useState<{ id: string; name: string }[] | null>(null);
+  const [showFiles, setShowFiles] = useState(false);
+  const [choose, setChoose] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const poPick = useRef<HTMLInputElement>(null);
+  const filePick = useRef<HTMLInputElement>(null);
+  const n = invoices.length;
+  const label = "text-[12px] font-medium text-muted lg:hidden";
+  const readFiles = async () => {
+    const r = await fetch(`/api/invoice-converter?piMergeFiles=${pi.id}`, { cache: "no-store" }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    if (r.error) { setError(r.error); setFiles([]); } else setFiles(r.attachments ?? []);
+  };
+  const savePo = async () => {
+    setBusy("po"); setError(""); setNote("");
+    const r = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "piPo", so: pi.id, value }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    setBusy("");
+    if (r.error) return setError(r.error);
+    onPiPatch(pi.id, { po: r.po, poOk: Boolean(r.ok) });
+    if (r.ids?.length) onPatch(r.ids, { po: r.po, poOk: Boolean(r.ok) });
+    setEditing(false);
+  };
+  const attachPo = async (file?: File | null) => {
+    if (!file) return;
+    setBusy("pdf"); setError(""); setNote("");
+    const f = new FormData();
+    f.append("so", pi.id); f.append("which", "piPo"); f.append("file", file);
+    const r = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    setBusy("");
+    if (r.error) return setError(r.error);
+    onPiPatch(pi.id, { hasFiles: true, ...(r.po ? { po: r.po, poOk: Boolean(r.poOk) } : {}) });
+    if (r.ids?.length) onPatch(r.ids, { poPdf: true, ...(r.po ? { po: r.po, poOk: Boolean(r.poOk) } : {}) });
+    setFiles(null);
+    setNote(`PO PDF put on ${pi.number}${r.ids?.length ? ` and ${r.ids.length} invoice${r.ids.length === 1 ? "" : "s"}` : ""}.${r.found ? "" : " No PO number found in it (a scanned copy has no text): type it in."}`);
+  };
+  const attachFiles = async (list: File[]) => {
+    if (!list.length) return;
+    setError("");
+    for (const [k, file] of list.entries()) {
+      setBusy("file"); setNote(list.length > 1 ? `Attaching ${k + 1} of ${list.length}…` : "");
+      const f = new FormData();
+      f.append("so", pi.id); f.append("which", "piFile"); f.append("file", file);
+      const r = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      if (r.error) { setError(`${file.name}: ${r.error}`); break; }
+    }
+    setBusy(""); setNote("");
+    onPiPatch(pi.id, { hasFiles: true });
+    await readFiles(); setShowFiles(true);
+  };
+  const download = async (order: string[]) => {
+    setMerging(true); setChoose(false); setError("");
+    try {
+      const r = await fetch(`/api/invoice-converter?piMerged=${pi.id}&parts=${order.join(",")}`, { cache: "no-store" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); return setError(j.error ?? "Couldn't make the PDF"); }
+      const skipped = decodeURIComponent(r.headers.get("x-skipped") ?? "");
+      if (skipped) setError(`Left out (not a PDF or picture): ${skipped}`);
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = url; a.download = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? `${pi.number}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { setError("Couldn't reach the server"); } finally { setMerging(false); }
+  };
+  return (
+    <li>
+      <div className={`relative grid grid-cols-2 gap-x-10 gap-y-3 bg-brand-soft/50 py-4 pl-11 pr-6 ${COLS_LG} lg:items-center`}>
+        {n > 0 && <span aria-hidden className="absolute bottom-0 left-[19px] top-[30px] w-0.5 bg-brand" />}
+        <span aria-hidden className="absolute left-[14px] top-[24px] h-3 w-3 rounded-full bg-brand lg:top-[30px]" />
+        <div className="col-span-2 min-w-0 lg:col-span-1">
+          <p className="num truncate text-[14px] font-semibold text-ink">{pi.number}</p>
+          <p className="num text-[12.5px] text-muted">{day(pi.date)} · PI{pi.status === "draft" ? " · draft" : ""} · {n ? `${n} invoice${n === 1 ? "" : "s"}` : "no invoice yet"}</p>
+          {customer && <p className="truncate text-[12.5px] text-ink-2" title={customer}>{customer}</p>}
+        </div>
+        <p className="num col-span-2 text-[14px] font-semibold text-ink lg:col-span-1">{inr(pi.total)}</p>
+        {/* PO: number and PDF, on the PI and its invoices */}
+        <div className="col-span-2 min-w-0 lg:col-span-1">
+          <p className={label}>Purchase order</p>
+          {editing ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <input className="h-8 w-40 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-ink" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") savePo(); if (e.key === "Escape") setEditing(false); }} placeholder="PO number" autoFocus aria-label={`PO number for ${pi.number}`} />
+              <button type="button" className="h-8 rounded-lg bg-brand px-3 text-[13px] font-semibold text-brand-ink disabled:opacity-50" onClick={savePo} disabled={busy === "po"}>{busy === "po" ? <Busy text="Saving…" /> : "Save"}</button>
+              <button type="button" className="h-8 rounded-lg px-2 text-[13px] text-muted hover:text-ink" onClick={() => setEditing(false)}>Cancel</button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => { setValue(pi.poOk ? pi.po : ""); setEditing(true); }} className="flex min-w-0 items-center gap-2 rounded-lg py-0.5 text-left hover:bg-surface-2" title={n ? `Change the PO number on ${pi.number} and its ${n} invoice${n === 1 ? "" : "s"}` : `Change the PO number on ${pi.number}`}>
+              <Mark ok={pi.poOk} />
+              <span className={`num truncate text-[13.5px] ${pi.poOk ? "font-semibold text-ink" : "text-ink-2"}`}>{pi.po}</span>
+              {!pi.poOk && <span className="shrink-0 text-[12.5px] font-semibold text-brand">Add</span>}
+            </button>
+          )}
+          <button type="button" className="mt-1 rounded px-1 text-[12.5px] font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy === "pdf"} onClick={() => poPick.current?.click()}
+            title={n ? `Put the PO PDF on ${pi.number} and on its invoices that have none` : `Put the PO PDF on ${pi.number}`}>
+            {busy === "pdf" ? <Busy text="Attaching…" /> : "Attach PO PDF"}
+          </button>
+          <input ref={poPick} type="file" accept="application/pdf,.pdf" className="hidden" onChange={(e) => { void attachPo(e.target.files?.[0]); e.target.value = ""; }} />
+        </div>
+        <div className="col-span-2 min-w-0 lg:col-span-1"><p className={label}>E-way bill</p><span className="text-[12.5px] text-faint">—</span></div>
+        {/* Files on the PI */}
+        <div className="col-span-2 min-w-0 lg:col-span-1">
+          <p className={label}>Attachments on the PI</p>
+          {pi.hasFiles && (
+            <button type="button" className="block rounded px-1 text-[12.5px] font-semibold text-ink-2 hover:bg-surface-2" onClick={() => { const v = !showFiles; setShowFiles(v); if (v && files === null) void readFiles(); }} aria-expanded={showFiles}>
+              Files on PI {showFiles ? "▴" : "▾"}
+            </button>
+          )}
+          {showFiles && (
+            <ul className="mb-1 space-y-0.5">
+              {files === null ? <li className="text-[12.5px] text-muted"><Busy text="Reading…" /></li>
+                : files.length ? files.map((f) => <li key={f.id} className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-2" title={f.name}><Mark ok small /><span className="truncate">{f.name}</span></li>)
+                : <li className="text-[12.5px] text-muted">No files on this PI yet.</li>}
+            </ul>
+          )}
+          <button type="button" className="rounded px-1 text-[12.5px] font-semibold text-brand hover:bg-brand-soft disabled:opacity-50" disabled={busy === "file"} onClick={() => filePick.current?.click()}>
+            {busy === "file" ? <Busy text="Attaching…" /> : "+ Add"}
+          </button>
+          <input ref={filePick} type="file" multiple className="hidden" onChange={(e) => { const l = Array.from(e.target.files ?? []); e.target.value = ""; void attachFiles(l); }} />
+        </div>
+        {/* Merge: the PI, its files and its invoices, in the order ticked */}
+        <div className="col-span-2 lg:col-span-1">
+          <p className={label}>Merged PDF</p>
+          <button type="button" className="text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={merging} onClick={() => setChoose((v) => !v)} aria-expanded={choose}>
+            {merging ? <Busy text="Making the PDF…" /> : `Download PDF ${choose ? "▴" : "▾"}`}
+          </button>
+          {choose && !merging && <PiPicker pi={pi} invoices={invoices} onGo={download} />}
+        </div>
+        {(error || note) && <p className={`col-span-full rounded-lg px-3 py-2 text-[13px] ${error ? "bg-high-bg text-high" : "bg-surface text-ink-2"}`}>{error || note}</p>}
+      </div>
+      {n > 0 && (
+        <ul className="divide-y divide-line">
+          {invoices.map((i, k) => <Row key={i.id} i={i} sign={sign} onPatch={onPatch} link={k === n - 1 ? "last" : "mid"} pi={pi.number} customer={customer} inPi />)}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** The PI's picker (owner, 28 Nov): the PI, each of its invoices and each file on it, numbered in the order ticked. */
+function PiPicker({ pi, invoices, onGo }: { pi: ConvPi; invoices: ConvInvoice[]; onGo: (order: string[]) => void }) {
+  const [order, setOrder] = useState<string[]>(["pi"]);
+  const [files, setFiles] = useState<{ id: string; name: string }[] | null>(pi.hasFiles ? null : []);
+  useEffect(() => {
+    if (!pi.hasFiles) return;
+    let live = true;
+    fetch(`/api/invoice-converter?piMergeFiles=${pi.id}`, { cache: "no-store" }).then((x) => x.json()).then((r) => { if (live) setFiles(r.attachments ?? []); }).catch(() => { if (live) setFiles([]); });
+    return () => { live = false; };
+  }, [pi.id, pi.hasFiles]);
+  const parts = [
+    { part: "pi", label: pi.number },
+    ...invoices.map((i) => ({ part: `inv:${i.id}`, label: `Invoice ${i.number}` })),
+    ...(files ?? []).map((f) => ({ part: `doc:${f.id}`, label: f.name })),
+  ];
+  const flip = (p: string) => setOrder((o) => (o.includes(p) ? o.filter((x) => x !== p) : [...o, p]));
+  return (
+    <div className="mt-1 w-64 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
+      <p className="px-2 pb-1 text-[12px] text-muted">Tick in the order you want them in the PDF</p>
+      {parts.map(({ part, label }) => {
+        const k = order.indexOf(part) + 1;
+        return (
+          <label key={part} className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-2" title={label}>
+            <input type="checkbox" className="sr-only" checked={k > 0} onChange={() => flip(part)} />
+            <span aria-hidden className={`num grid size-5 shrink-0 place-items-center rounded-md border text-[11px] font-bold ${k ? "border-brand bg-brand text-brand-ink" : "border-line-strong bg-surface"}`}>{k || ""}</span>
+            <span className="truncate font-semibold text-ink">{label}</span>
+          </label>
+        );
+      })}
+      <p className="px-2 py-1 text-[12px] text-muted">{files === null ? <Busy text="Reading the PI's files…" /> : files.length ? "" : "No files on this PI yet."}</p>
+      <button type="button" disabled={!order.length} onClick={() => onGo(order)} className="press mt-0.5 h-9 w-full rounded-full bg-brand text-[13px] font-semibold text-brand-ink disabled:opacity-50">
+        Download{order.length > 1 ? ` · ${order.length} in one PDF` : ""}
+      </button>
+    </div>
+  );
+}
+
 function Linked({ pi, invoices, sign, onPatch, customer }: { pi: string; invoices: ConvInvoice[]; sign?: SignInfo; onPatch: Patch; customer?: string }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -426,7 +623,7 @@ function Pdf({ has, pending, busy, onPick, onReplace, replaceTitle }: { has: boo
 }
 
 /** One invoice. In a linked block (`link`) it carries the PI's line on; a PO saved here goes to every invoice of the PI. */
-function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoice; sign?: SignInfo; onPatch: Patch; link?: "mid" | "last"; pi?: string; customer?: string }) {
+function Row({ i, sign, onPatch: patchIds, link, pi, customer, inPi = false }: { i: ConvInvoice; sign?: SignInfo; onPatch: Patch; link?: "mid" | "last"; pi?: string; customer?: string; inPi?: boolean }) {
   const onPatch = (p: Partial<ConvInvoice>) => patchIds([i.id], p);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -543,7 +740,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
         {customer && <p className="truncate text-[12.5px] text-ink-2" title={customer}>{customer}</p>}
-        {i.pi && <PiMenu i={i} />}
+        {i.pi && !inPi && <PiMenu i={i} />}
       </div>
       <p className="num col-span-2 text-[14px] font-semibold text-ink lg:col-span-1">{inr(i.total)}</p>
 

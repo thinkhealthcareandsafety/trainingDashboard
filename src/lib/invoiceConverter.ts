@@ -102,7 +102,18 @@ export async function converterData(): Promise<{ customers: ConvCustomer[]; pend
       sign: signs.get(r.id)?.status,
     };
   });
-  return { customers: groupByCustomer(list), pending: list.filter((i) => i.pending).length, scansDue: await poFolder.picturesDue().catch(() => 0) };
+  // Every PI too (owner, 28 Nov), from our copy of Zoho's sales orders: its invoices go inside it on the page.
+  const pis = (await (await sales()).find({ kind: "salesorders" }).toArray())
+    .filter((r) => r.kind === "salesorders" && String(r.row.status ?? "") !== "void" && r.row.salesorder_number)
+    .map((r) => {
+      const po = poState(r.row.cf_purchase_order_number);
+      return {
+        customerId: String(r.row.customer_id ?? r.row.customer_name ?? ""), customerName: names.get(String(r.row.customer_id ?? "")) || String(r.row.customer_name ?? ""),
+        id: r.id, number: String(r.row.salesorder_number), date: String(r.row.date ?? ""), total: Number(r.row.total) || 0, status: String(r.row.status ?? ""),
+        po: po.label, poOk: po.ok, hasFiles: Boolean(r.row.has_attachment),
+      };
+    });
+  return { customers: groupByCustomer(list, pis), pending: list.filter((i) => i.pending).length, scansDue: await poFolder.picturesDue().catch(() => 0) };
 }
 
 /** One custom field on an invoice in Zoho (Zoho's spec: PUT /invoice/{id}/customfields, body { custom_fields: [...] }). */
@@ -205,6 +216,13 @@ export async function pdfText(bytes: Uint8Array): Promise<string> {
  * automatically add the id from the PDF"): a PO's number goes into the invoice's Purchase Order Number when that has
  * none (or "Verbal"); an e-way bill's number shows here when Zoho has none on the invoice. `found` says what was read.
  */
+/** Does this invoice already have its PO PDF (as far as our copy knows)? */
+export async function hasPoPdf(invoiceId: string): Promise<boolean> {
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  const e = await (await extrasCol()).findOne({ _id: invoiceId });
+  return (e?.files ?? []).some(poFileTest(row?.row.cf_purchase_order_number, e?.poRead));
+}
+
 export type AttachResult = {
   ok: true; found: string | null; po?: string; poOk?: boolean; eway?: string;
   /** The invoices that got the PDF, and those whose PO number was set (a PO goes to every invoice of the same PI). */

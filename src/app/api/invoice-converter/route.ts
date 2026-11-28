@@ -4,7 +4,7 @@ import { attachExtra, attachFoundPo, attachPdf, attachSigned, mergeAttachments, 
 import { connectSign, signInfo } from "@/lib/zohoSign";
 import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
-import { attachToPi, piFiles, piPdf } from "@/lib/piFiles";
+import { attachPiPo, attachToPi, attachToPiById, piFiles, piFilesById, piMerged, piPdf, setPiPo } from "@/lib/piFiles";
 import { partsFrom } from "@/lib/invoiceConverterRules";
 import { failJob, finishJob, jobStatus, nextJob, pairSigner, queueJob, signerByKey, signerState } from "@/lib/dscJobs";
 
@@ -40,6 +40,12 @@ export const maxDuration = 60;
  *  GET ?piFiles=<invoice id>                       — its PI's number and the files on the PI
  *  GET ?piPdf=<invoice id>&with=others             — the PI's PDF (with: followed by its attachments)
  *  POST multipart { id, which: "pi", file }        — any file put on the PI in Zoho
+ * PIs on their own (owner, 28 Nov: every PI is listed, its invoices inside it):
+ *  GET ?piMergeFiles=<PI id>                       — the files on the PI
+ *  GET ?piMerged=<PI id>&parts=pi,doc:<id>,inv:<id> — the PI, its files and its invoices, in that order, as one PDF
+ *  POST { action: "piPo", so, value }              — the PO number on the PI and every invoice made from it
+ *  POST multipart { so, which: "piPo", file, value? } — the PO PDF on the PI (and on its invoices without one)
+ *  POST multipart { so, which: "piFile", file }    — any file on the PI
  * Signing with the DSC token from anyone's login (owner, 28 Nov; src/lib/dscJobs.ts):
  *  POST { action: "dscSign", id, parts }           — queue the merged PDF (parts in order, as ?merged) for the signer PC; { job, signer }
  *  GET ?dscJob=<job>                               — how it stands: waiting / signing / done / failed
@@ -110,6 +116,15 @@ export async function GET(request: Request) {
       const s = f.spot;
       return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")), "x-sign-at": `${s.page},${s.x},${s.y},${s.w},${s.h}`, "x-invoice": encodeURIComponent(f.number) } });
     }
+    const pmf = q.get("piMergeFiles");
+    if (pmf) return ID.test(pmf) ? json(await piFilesById(pmf)) : json({ error: "Unknown PI" }, 400);
+    const pm = q.get("piMerged");
+    if (pm) {
+      if (!ID.test(pm)) return json({ error: "Unknown PI" }, 400);
+      const order = [...new Set((q.get("parts") ?? "pi").split(",").map((x) => x.trim().toLowerCase()))].filter((x) => x === "pi" || /^(doc|inv):\d{6,25}$/.test(x));
+      const f = await piMerged(pm, order.length ? order : ["pi"]);
+      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")) } });
+    }
     const mf = q.get("mergeFiles");
     if (mf) return ID.test(mf) ? json(await mergeAttachments(mf)) : json({ error: "Unknown invoice" }, 400);
     const piInv = q.get("piFiles");
@@ -155,6 +170,13 @@ export async function POST(request: Request) {
         if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a file for an invoice" }, 400);
         return json(await attachExtra(id, file));
       }
+      const so = String(f.get("so") ?? "");
+      if (f.get("which") === "piPo" || f.get("which") === "piFile") {
+        if (!ID.test(so) || !(file instanceof File)) return json({ error: "Pick a file for a PI" }, 400);
+        if (f.get("which") === "piFile") return json(await attachToPiById(so, file));
+        const value = f.get("value");
+        return json(await attachPiPo(so, file, typeof value === "string" ? value.slice(0, 100) : undefined));
+      }
       if (f.get("which") === "pi") {
         if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a file for an invoice's PI" }, 400);
         return json(await attachToPi(id, file));
@@ -168,9 +190,13 @@ export async function POST(request: Request) {
       const value = f.get("value");
       return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined, f.get("replace") === "1"));
     }
-    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; files?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown; with?: unknown; parts?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; files?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown; with?: unknown; parts?: unknown; so?: unknown } | null;
     const id = String(b?.id ?? "");
     if (b?.action === "signer") return json(await setSigner(me.id, { email: b.email, name: b.name }));
+    if (b?.action === "piPo") {
+      const so = String(b.so ?? "");
+      return ID.test(so) ? json(await setPiPo(so, b.value)) : json({ error: "Unknown PI" }, 400);
+    }
     if (b?.action === "dscPair") {
       if (!canPairDscSigner(me)) return json({ error: "Only Sumit or Admin connects the signer PC" }, 403);
       return json(await pairSigner(me.name));

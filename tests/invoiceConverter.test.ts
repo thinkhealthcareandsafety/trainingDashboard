@@ -1,6 +1,6 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments, isSignedFile, signedFileName, partsFrom, mergedName, attachmentChoices } from "@/lib/invoiceConverterRules";
+import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments, isSignedFile, signedFileName, partsFrom, mergedName, attachmentChoices, blocksWithPis, type ConvInvoice, type ConvPi } from "@/lib/invoiceConverterRules";
 import { dscSpot } from "@/lib/pdfMerge";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -308,4 +308,18 @@ test("attachments one by one: doc:<id> parts, the invoice's then the PI's (same 
   assert.deepEqual(attachmentChoices([{ id: "1", name: "WCC report.pdf" }], [{ id: "2", name: "wcc report.pdf" }, { id: "3", name: "Photo.jpg" }]),
     [{ id: "1", name: "WCC report.pdf" }, { id: "3", name: "Photo.jpg" }]);
   assert.equal(mergedName("2026-01-609", "Performa-25-1250", ["invoice", "doc:1", "doc:3", "pi", "doc:2"]), "Invoice 2026-01-609 - Attachment - Performa-25-1250 - Attachment.pdf");
+});
+
+test("every PI is a block with its invoices inside (even none), newest first; customers with only PIs show (28 Nov)", () => {
+  const inv = (id: string, date: string, pi: string | null) => ({ id, number: `2026-01-${id}`, date, total: 1, status: "sent", pi, po: "No PO", poOk: false, poPdf: false, eway: null, ewayPdf: false, needsEway: false, ewayZoho: false, pending: false }) as ConvInvoice;
+  const pi = (id: string, number: string, date: string) => ({ id, number, date, total: 1, status: "open", po: "No PO", poOk: false, hasFiles: false }) as ConvPi;
+  const blocks = blocksWithPis([inv("609", "2026-11-28", "Performa-25-1250"), inv("100", "2026-04-01", null), inv("011", "2026-04-06", "Performa-25-638")],
+    [pi("1", "Performa-25-1250", "2026-11-27"), pi("2", "Performa-25-1251", "2026-11-20"), pi("3", "Performa-25-638", "2026-03-30")]);
+  assert.deepEqual(blocks.map((b) => [b.piDoc?.number ?? null, b.invoices.map((i) => i.id)]), [
+    ["Performa-25-1250", ["609"]], ["Performa-25-1251", []], ["Performa-25-638", ["011"]], [null, ["100"]],
+  ]);
+  const custs = groupByCustomer([], [{ ...pi("9", "Performa-25-1300", "2026-11-28"), customerId: "c1", customerName: "Only PI Ltd" }]);
+  assert.equal(custs[0].name, "Only PI Ltd");
+  assert.equal(custs[0].pis?.length, 1);
+  assert.equal(custs[0].latest, "2026-11-28");
 });
