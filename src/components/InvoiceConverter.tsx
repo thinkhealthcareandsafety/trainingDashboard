@@ -179,6 +179,18 @@ export function InvoiceConverter() {
   const filtering = onlyFound && foundCount > 0;
   const searching = q.trim().length > 0 || filtering;
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // One list, newest first, by default (owner, 28 Nov: "by default the latest invoices should come to the top"); the
+  // customer groups stay a click away. Remembered on this computer.
+  const [view, setView] = useState<"latest" | "customers">("latest");
+  useEffect(() => { if (localStorage.getItem("invoiceConverterView") === "customers") setView("customers"); }, []);
+  const pickView = (v: "latest" | "customers") => { setView(v); localStorage.setItem("invoiceConverterView", v); };
+  const [more, setMore] = useState(1);
+  const PAGE = 40;
+  const latest = useMemo(() => shown
+    .flatMap((c) => c.invoices.map((i) => ({ i, customer: c.name })))
+    .sort((a, b) => b.i.date.localeCompare(a.i.date) || b.i.number.localeCompare(a.i.number)), [shown]);
+  const names = useMemo(() => new Map(latest.map((x) => [x.i.id, x.customer])), [latest]);
+  const latestPage = latest.slice(0, PAGE * more);
 
   return (
     <DscCtx.Provider value={data?.dsc}>
@@ -191,12 +203,34 @@ export function InvoiceConverter() {
         {log === "" && scan.text && <span className={`num text-[13px] ${scan.bad ? "text-high" : "text-muted"}`} role="status">{scan.text}</span>}
         {log !== "" && <PoScanLog now={scan} run={run} small={log === "small"} onSmall={smallLog} onClose={() => setLog("")} />}
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
+        <div className="ml-auto inline-flex shrink-0 rounded-full bg-surface p-1 shadow-card" role="group" aria-label="Show">
+          {([["latest", "Newest first"], ["customers", "By customer"]] as const).map(([v, t]) => (
+            <button key={v} type="button" aria-pressed={view === v} onClick={() => pickView(v)} className={`h-9 rounded-full px-4 text-[13px] font-semibold ${view === v ? "bg-brand-soft text-brand" : "text-muted hover:text-ink"}`}>{t}</button>
+          ))}
+        </div>
       </div>
       {data?.dsc && <DscBar dsc={data.dsc} onDone={load} />}
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
       {/* Zoho Sign's one-time setup (name and email per signer) is hidden for everyone (owner, 18 Nov): signing waits on
           Zoho Sign API credits. Put <SignSetup sign={data.sign} onDone={load} /> back here when signing is turned on. */}
-      {!data ? <Skeleton className="h-[420px]" /> : shown.length === 0 ? <p className="card p-6 text-[14px] text-muted">{searching ? "Nothing matches." : "No invoices."}</p> : (
+      {!data ? <Skeleton className="h-[420px]" /> : shown.length === 0 ? <p className="card p-6 text-[14px] text-muted">{searching ? "Nothing matches." : "No invoices."}</p> : view === "latest" ? (
+        <section className="card overflow-hidden">
+          <div className={`hidden ${COLS} gap-x-10 bg-surface-2/50 py-3 pl-11 pr-6 text-[12.5px] font-medium text-muted lg:grid`}>
+            <span>Invoice</span><span>Value</span><span>Purchase order</span><span title={`Needed over ${inr(EWAY_OVER)}`}>E-way bill</span><span>Other attachments</span><span>Merged PDF</span>
+          </div>
+          <ul className="divide-y divide-line/70">
+            {/* Invoices of one PI stay linked, where the newest of them falls. */}
+            {blocksOf(latestPage.map((x) => x.i)).map((b) => b.pi ? (
+              <Linked key={b.pi} pi={b.pi} invoices={b.invoices} sign={data.sign} onPatch={patch} customer={names.get(b.invoices[0].id)} />
+            ) : <Row key={b.invoices[0].id} i={b.invoices[0]} sign={data.sign} onPatch={patch} customer={names.get(b.invoices[0].id)} />)}
+          </ul>
+          {latest.length > latestPage.length && (
+            <button type="button" onClick={() => setMore((m) => m + 1)} className="block w-full border-t border-line py-3.5 text-center text-[13.5px] font-semibold text-brand hover:bg-surface-2/50">
+              Show {Math.min(PAGE, latest.length - latestPage.length)} more · {latest.length - latestPage.length} older
+            </button>
+          )}
+        </section>
+      ) : (
         <div className="space-y-4">
           {shown.map((c) => {
             const isOpen = searching || open.has(c.id);
@@ -320,7 +354,7 @@ async function sendPo(id: string, value: string, file?: File | null): Promise<{ 
  * Invoices of the same PI, linked (owner, 18 Nov): a line runs from the block's top down through each invoice and ends
  * in an arrow at the last one. One button on top adds a single PO number and PO PDF to all of them.
  */
-function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInvoice[]; sign?: SignInfo; onPatch: Patch }) {
+function Linked({ pi, invoices, sign, onPatch, customer }: { pi: string; invoices: ConvInvoice[]; sign?: SignInfo; onPatch: Patch; customer?: string }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -375,7 +409,7 @@ function Linked({ pi, invoices, sign, onPatch }: { pi: string; invoices: ConvInv
         {note && <p className="text-[12.5px] text-muted lg:col-span-3 lg:col-start-3">{note}</p>}
       </div>
       <ul className="divide-y divide-line">
-        {invoices.map((i, k) => <Row key={i.id} i={i} sign={sign} onPatch={onPatch} link={k === n - 1 ? "last" : "mid"} pi={pi} />)}
+        {invoices.map((i, k) => <Row key={i.id} i={i} sign={sign} onPatch={onPatch} link={k === n - 1 ? "last" : "mid"} pi={pi} customer={customer} />)}
       </ul>
     </li>
   );
@@ -392,7 +426,7 @@ function Pdf({ has, pending, busy, onPick, onReplace, replaceTitle }: { has: boo
 }
 
 /** One invoice. In a linked block (`link`) it carries the PI's line on; a PO saved here goes to every invoice of the PI. */
-function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: SignInfo; onPatch: Patch; link?: "mid" | "last"; pi?: string }) {
+function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoice; sign?: SignInfo; onPatch: Patch; link?: "mid" | "last"; pi?: string; customer?: string }) {
   const onPatch = (p: Partial<ConvInvoice>) => patchIds([i.id], p);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -510,6 +544,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
       <div className="col-span-2 min-w-0 lg:col-span-1">
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
+        {customer && <p className="truncate text-[12.5px] text-ink-2" title={customer}>{customer}</p>}
       </div>
       <p className="num col-span-2 text-[14px] font-semibold text-ink lg:col-span-1">{inr(i.total)}</p>
 
