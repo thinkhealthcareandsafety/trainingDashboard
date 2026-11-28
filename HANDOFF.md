@@ -58,6 +58,8 @@ long each step took: open it first to find the slow step (reader start, or each 
   `?dscNext` with `x-dsc-key` every 10 s day / 60 s night, signs with the PIN saved by `save-pin.cmd` (DPAPI, `%APPDATA%ThinkHealthDSC`),
   posts it back; the page polls `?dscJob`. Jobs fail after 30 min waiting / 5 min signing. Every converter user may sign (owner).
   Signer 1.1.0 running on this PC, NOT yet paired, PIN NOT yet saved (owner does both). Unattended PIN path untested until save-pin.
+  Download: `public/dsc-signer.zip` (~200 KB, made by `node build.mjs <zip>` in dsc-signer; rebuild after signer changes).
+  Page: "Set up the signer PC" (Sumit/Admin) = 4 steps (Node.js, download + install-autostart, Connect this PC, save-pin).
 - Owner signs merged PDFs with his DSC token (mToken CryptoID, PantaSign Class 3, valid to 19 Sep 2028) in Adobe Reader:
   unblock the downloaded file first (Protected View greys out "Digitally sign"); cert is in the Windows store, no PKCS#11 setup.
 

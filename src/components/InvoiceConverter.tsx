@@ -248,32 +248,49 @@ const ago = (iso: string | null) => {
 function DscBar({ dsc, onDone }: { dsc: DscState; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  // The setup steps (owner, 28 Nov: "the software should be asked to be installed"): only for Sumit / Admin, and only
+  // needed on the one PC with the token; every other computer just signs.
+  const [setup, setSetup] = useState(false);
   const pair = async () => {
     setBusy(true); setMsg("");
     try {
       const st = await fetch(`${DSC_SIGNER}/status`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
-      if (!st?.ok) return setMsg("The DSC signer isn't running on this PC. Run install-autostart.cmd in the dsc-signer folder, plug in the token, then try again.");
-      if (!st.certificates?.length) return setMsg("The DSC signer can't see the token's certificate. Plug in the token, then try again.");
+      if (!st?.ok) return setMsg("The DSC signer isn't running on this PC yet: do steps 1 and 2 first (or this isn't the PC with the token).");
+      if (!st.certificates?.length) return setMsg("The DSC signer is running but can't see the token's certificate. Plug in the token, then try again.");
       const k = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "dscPair" }) }).then((r) => r.json()).catch(() => ({ error: "Couldn't reach the server" }));
       if (!k.key) return setMsg(k.error ?? "Couldn't connect");
       const r = await fetch(`${DSC_SIGNER}/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: k.key, server: window.location.origin }) }).then((x) => x.json()).catch(() => ({ error: "The DSC signer stopped answering" }));
       if (r.error) return setMsg(r.error);
-      setMsg(r.pin ? "This PC is now the DSC signer." : "This PC is now the DSC signer. Run save-pin.cmd in the dsc-signer folder once, so others can sign without the PIN being typed here.");
+      setMsg(r.pin ? "Done: this PC is now the DSC signer." : "Connected. Now step 4, so others can sign without the PIN being typed here.");
       setTimeout(onDone, 4000);
     } finally { setBusy(false); }
   };
+  const step = "grid grid-cols-[22px_1fr] items-baseline gap-1";
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px]">
-      <span className="inline-flex items-center gap-2 text-ink-2">
-        <span aria-hidden className={`size-2 rounded-full ${dsc.online ? "bg-low" : "bg-faint"}`} />
-        {!dsc.paired ? "DSC signing: no signer PC connected yet" : dsc.online ? `DSC signer PC is on${dsc.certificate ? ` · ${dsc.certificate}` : ""}` : `DSC signer PC is off · last seen ${ago(dsc.seenAt)}`}
-      </span>
-      {dsc.canPair && (
-        <button type="button" onClick={pair} disabled={busy} className="font-semibold text-brand hover:underline disabled:opacity-60" title="This PC has the DSC token and the DSC signer running: it signs for everyone from now on">
-          {busy ? <Busy text="Connecting…" /> : dsc.paired ? "Make this PC the signer instead" : "Make this PC the DSC signer"}
-        </button>
+    <div className="space-y-2 text-[13px]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span className="inline-flex items-center gap-2 text-ink-2">
+          <span aria-hidden className={`size-2 rounded-full ${dsc.online ? "bg-low" : "bg-faint"}`} />
+          {!dsc.paired ? "DSC signing isn't set up yet: it needs the PC with Sumit's DSC token, once." : dsc.online ? `DSC signer PC is on${dsc.certificate ? ` · ${dsc.certificate}` : ""}` : `DSC signer PC is off · last seen ${ago(dsc.seenAt)}`}
+        </span>
+        {dsc.canPair && (
+          <button type="button" onClick={() => setSetup((v) => !v)} aria-expanded={setup} className="font-semibold text-brand hover:underline">
+            {dsc.paired ? "Change the signer PC" : "Set up the signer PC"} {setup ? "▴" : "▾"}
+          </button>
+        )}
+      </div>
+      {setup && dsc.canPair && (
+        <div className="max-w-2xl space-y-1.5 rounded-xl border border-line bg-surface p-4 text-ink-2">
+          <p className="text-muted">Only on the PC the DSC token is plugged into. Other computers need nothing installed: they just click Sign with DSC.</p>
+          <p className={step}><span className="num font-semibold text-ink">1</span><span>Node.js on that PC (once): <a className="font-semibold text-brand hover:underline" href="https://nodejs.org/en/download" target="_blank" rel="noreferrer">get the LTS installer</a>.</span></p>
+          <p className={step}><span className="num font-semibold text-ink">2</span><span><a className="font-semibold text-brand hover:underline" href="/dsc-signer.zip" download>Download the DSC signer</a> (200 KB), unzip it somewhere it can stay, double-click <b>install-autostart.cmd</b>. It runs hidden and starts with Windows.</span></p>
+          <p className={step}><span className="num font-semibold text-ink">3</span><span>Plug in the token, then{" "}
+            <button type="button" onClick={pair} disabled={busy} className="press inline-flex h-8 items-center rounded-full bg-brand px-3.5 text-[12.5px] font-semibold text-brand-ink disabled:opacity-60">{busy ? <Busy text="Connecting…" /> : "Connect this PC"}</button>
+            {" "}(Chrome may ask to let the site reach this PC: Allow).</span></p>
+          <p className={step}><span className="num font-semibold text-ink">4</span><span>Double-click <b>save-pin.cmd</b> in the same folder and type the token PIN once. It stays on that PC, locked to its Windows login.</span></p>
+          {msg && <p className="pt-1 font-medium text-ink" role="status">{msg}</p>}
+        </div>
       )}
-      {msg && <span className="text-muted" role="status">{msg}</span>}
     </div>
   );
 }

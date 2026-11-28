@@ -16,7 +16,7 @@ const queue = (invoiceId = "1000001", by = "Shikha") => queueJob({ invoiceId, nu
 
 test("the signer PC: one key at a time, checked exactly; seen = on", async () => {
   assert.equal((await signerState()).paired, false);
-  await assert.rejects(queue(), /No DSC signer PC/);
+  await assert.rejects(queue(), /isn.t set up yet/);
   const { key } = await pairSigner("Sumit Shah");
   assert.ok(key.length >= 40);
   assert.equal(await signerByKey("x".repeat(43)), false);

@@ -72,7 +72,7 @@ async function expire(now = Date.now()) {
 export async function queueJob(job: { invoiceId: string; number: string; title: string; spot: Spot; bytes: Uint8Array; by: string }): Promise<{ job: string; signer: SignerState }> {
   if (job.bytes.length > MAX_PDF) throw new Error("The merged PDF is over 12 MB; it can't be sent to the signer.");
   const signer = await signerState();
-  if (!signer.paired) throw new Error("No DSC signer PC is connected yet. On the PC with the token, open the Invoice Converter and click \"Make this PC the DSC signer\".");
+  if (!signer.paired) throw new Error("DSC signing isn't set up yet. Sumit or Admin sets it up once on the PC with the token: \"Set up the signer PC\" at the top of this page.");
   await expire();
   const col = await jobs();
   const open = (await col.find({ invoiceId: job.invoiceId, status: { $in: ["waiting", "signing"] } }, { projection: { pdf: 0 } }).toArray())
