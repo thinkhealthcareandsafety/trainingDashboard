@@ -1,9 +1,10 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
-import { canConvertInvoices, isAdmin } from "@/lib/roles";
+import { canConvertInvoices, canPairDscSigner, isAdmin } from "@/lib/roles";
 import { attachExtra, attachFoundPo, attachPdf, attachSigned, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
 import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
+import { failJob, finishJob, jobStatus, nextJob, pairSigner, queueJob, signerByKey, signerState } from "@/lib/dscJobs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -32,11 +33,48 @@ export const maxDuration = 60;
  *  POST { action: "sign", id }                   — merge the invoice + PO + e-way bill PDFs and open Zoho Sign's signing page
  *  POST { action: "check", id }                    — how the signing stands
  *  POST { action: "connectSign", code, clientId?, clientSecret? } — Admin: connect Zoho Sign once
+ * Signing with the DSC token from anyone's login (owner, 28 Nov; src/lib/dscJobs.ts):
+ *  POST { action: "dscSign", id, with }            — queue the merged PDF for the signer PC; { job, signer }
+ *  GET ?dscJob=<job>                               — how it stands: waiting / signing / done / failed
+ *  POST { action: "dscPair" }                      — Sumit or Admin: a new key for the signer PC (the page hands it to the PC's signer)
+ *  The signer PC (header x-dsc-key, no login):
+ *  GET ?dscNext                                    — the next PDF to sign (headers x-job, x-sign-at, x-reason), 204 = none
+ *  POST multipart { job, file }                    — the signed PDF; put on the invoice in Zoho
+ *  POST { action: "dscFail", job, error }          — it couldn't sign
  */
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 const ID = /^\d{6,25}$/;
 
+/** The signer PC's own calls (its key, no login), or null when it isn't one. */
+async function signerCall(request: Request): Promise<Response | null> {
+  const key = request.headers.get("x-dsc-key");
+  if (key === null) return null;
+  if (!(await signerByKey(key, decodeURIComponent(request.headers.get("x-dsc-cert") ?? "")))) return json({ error: "This signer isn't connected (or was replaced). Connect it again from the Invoice Converter." }, 401);
+  try {
+    if (request.method === "GET") {
+      if (!new URL(request.url).searchParams.has("dscNext")) return json({ error: "Unknown" }, 400);
+      const j = await nextJob();
+      if (!j) return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+      const s = j.spot;
+      return new Response(Buffer.from(j.bytes), { headers: { "content-type": "application/pdf", "cache-control": "no-store", "x-job": j.id, "x-sign-at": `${s.page},${s.x},${s.y},${s.w},${s.h}`, "x-reason": encodeURIComponent(j.reason) } });
+    }
+    if ((request.headers.get("content-type") ?? "").includes("multipart/form-data")) {
+      const f = await request.formData();
+      const job = String(f.get("job") ?? ""), file = f.get("file");
+      if (!/^[a-f0-9]{24}$/.test(job) || !(file instanceof File)) return json({ error: "No signed PDF for a job" }, 400);
+      return json(await finishJob(job, file));
+    }
+    const b = (await request.json().catch(() => null)) as { action?: string; job?: unknown; error?: unknown } | null;
+    if (b?.action === "dscFail" && typeof b.job === "string" && /^[a-f0-9]{24}$/.test(b.job)) { await failJob(b.job, String(b.error ?? "")); return json({ ok: true }); }
+    return json({ error: "Unknown action" }, 400);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "Couldn't do that" }, 502);
+  }
+}
+
 export async function GET(request: Request) {
+  const fromSigner = await signerCall(request);
+  if (fromSigner) return fromSigner;
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!canConvertInvoices(me)) return json({ error: "Not for your account" }, 403);
@@ -66,6 +104,12 @@ export async function GET(request: Request) {
       const s = f.spot;
       return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")), "x-sign-at": `${s.page},${s.x},${s.y},${s.w},${s.h}`, "x-invoice": encodeURIComponent(f.number) } });
     }
+    const job = q.get("dscJob");
+    if (job) {
+      if (!/^[a-f0-9]{24}$/.test(job)) return json({ error: "Unknown job" }, 400);
+      const st = await jobStatus(job);
+      return st ? json(st) : json({ error: "Unknown job" }, 404);
+    }
     const signed = new URL(request.url).searchParams.get("signed");
     if (signed) {
       if (!ID.test(signed)) return json({ error: "Unknown invoice" }, 400);
@@ -73,14 +117,16 @@ export async function GET(request: Request) {
       if (!f) return json({ error: "Not signed yet." }, 409);
       return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store" } });
     }
-    const [data, sign, signer] = await Promise.all([converterData(), signInfo(), signerOf(me.id)]);
-    return json({ ...data, sign: { connected: Boolean(sign), canConnect: isAdmin(me), signer: signer ? { email: signer.email, name: signer.name } : null } });
+    const [data, sign, signer, dsc] = await Promise.all([converterData(), signInfo(), signerOf(me.id), signerState()]);
+    return json({ ...data, sign: { connected: Boolean(sign), canConnect: isAdmin(me), signer: signer ? { email: signer.email, name: signer.name } : null }, dsc: { ...dsc, canPair: canPairDscSigner(me) } });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Couldn't read the invoices" }, 502);
   }
 }
 
 export async function POST(request: Request) {
+  const fromSigner = await signerCall(request);
+  if (fromSigner) return fromSigner;
   const me = await signedInMember(request);
   if (!me) return unauthorized();
   if (!canConvertInvoices(me)) return json({ error: "Not for your account" }, 403);
@@ -102,9 +148,13 @@ export async function POST(request: Request) {
       const value = f.get("value");
       return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined, f.get("replace") === "1"));
     }
-    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; files?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; files?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown; with?: unknown } | null;
     const id = String(b?.id ?? "");
     if (b?.action === "signer") return json(await setSigner(me.id, { email: b.email, name: b.name }));
+    if (b?.action === "dscPair") {
+      if (!canPairDscSigner(me)) return json({ error: "Only Sumit or Admin connects the signer PC" }, 403);
+      return json(await pairSigner(me.name));
+    }
     if (b?.action === "connectSign") {
       if (!isAdmin(me)) return json({ error: "Only Admin connects Zoho Sign" }, 403);
       return json(await connectSign({ code: String(b.code ?? ""), clientId: b.clientId ? String(b.clientId) : undefined, clientSecret: b.clientSecret ? String(b.clientSecret) : undefined }, me.name));
@@ -127,6 +177,11 @@ export async function POST(request: Request) {
     if (b?.action === "po") return json(await setPoForPi(id, b.value));
     if (b?.action === "eway") return json(await setEway(id, b.value));
     if (b?.action === "check") return json({ status: await checkInvoiceSign(id) });
+    if (b?.action === "dscSign") {
+      const w = typeof b.with === "string" ? b.with : "";
+      const f = await mergedInvoicePdf(id, { po: /\bpo\b/.test(w), others: /\bothers\b/.test(w) });
+      return json({ ...(await queueJob({ invoiceId: id, number: f.number, title: f.name, spot: f.spot, bytes: f.bytes, by: me.name })), skipped: f.skipped });
+    }
     if (b?.action === "draft") return json(await draftInvoiceSign(id));
     if (b?.action === "sign") {
       const signer = await signerOf(me.id);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { PO_AUTO_SCAN } from "@/lib/poAuto";
 import { createPortal } from "react-dom";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
@@ -19,6 +19,9 @@ const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const day = (s: string) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "");
 
 type SignInfo = { connected: boolean; canConnect: boolean; signer: { email: string; name: string } | null };
+/** The PC that holds the DSC token and signs for everyone (owner, 28 Nov). */
+type DscState = { paired: boolean; online: boolean; seenAt: string | null; certificate: string | null; canPair: boolean };
+const DscCtx = createContext<DscState | undefined>(undefined);
 
 /** Blue N/A (owner, 17 Nov): no e-way bill is needed on an invoice of ₹50,000 or less. */
 const NA = () => <span className="rounded-full bg-info-bg px-2.5 py-1 text-[12px] font-semibold text-info">N/A</span>;
@@ -33,7 +36,7 @@ function Spinner({ size = 14 }: { size?: number }) {
   );
 }
 /** A button's label while busy: the spinner and what it's doing. */
-// The DSC signer on this PC (dsc-signer, owner 27 Nov): signs with the token; listens on this PC only.
+// The DSC signer on the PC with the token (dsc-signer, owner 27 Nov); the page talks to it only to connect that PC.
 const DSC_SIGNER = "http://127.0.0.1:47123";
 const Busy = ({ text }: { text: string }) => <span className="inline-flex items-center gap-1.5"><Spinner />{text}</span>;
 
@@ -49,7 +52,7 @@ function Mark({ ok, small = false }: { ok: boolean; small?: boolean }) {
 }
 
 export function InvoiceConverter() {
-  const [data, setData] = useState<{ customers: ConvCustomer[]; pending: number; scansDue?: number; sign?: SignInfo } | null>(null);
+  const [data, setData] = useState<{ customers: ConvCustomer[]; pending: number; scansDue?: number; sign?: SignInfo; dsc?: DscState } | null>(null);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -178,6 +181,7 @@ export function InvoiceConverter() {
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
+    <DscCtx.Provider value={data?.dsc}>
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <input className="h-11 w-full max-w-sm rounded-full border border-line bg-surface px-5 text-[14px] text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/15" placeholder="Search a customer, invoice or PO number" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
@@ -188,6 +192,7 @@ export function InvoiceConverter() {
         {log !== "" && <PoScanLog now={scan} run={run} small={log === "small"} onSmall={smallLog} onClose={() => setLog("")} />}
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
       </div>
+      {data?.dsc && <DscBar dsc={data.dsc} onDone={load} />}
       {error && <p className="rounded-xl bg-high-bg px-4 py-3 text-[13px] text-high">{error}</p>}
       {/* Zoho Sign's one-time setup (name and email per signer) is hidden for everyone (owner, 18 Nov): signing waits on
           Zoho Sign API credits. Put <SignSetup sign={data.sign} onDone={load} /> back here when signing is turned on. */}
@@ -224,6 +229,51 @@ export function InvoiceConverter() {
           })}
         </div>
       )}
+    </div>
+    </DscCtx.Provider>
+  );
+}
+
+const ago = (iso: string | null) => {
+  if (!iso) return "never";
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+
+/**
+ * The DSC signer PC (owner, 28 Nov): on or off, and for Sumit / Admin a button to make the PC they're on the signer
+ * (it must have the DSC signer running and the token in). The page asks the server for a key and hands it straight to
+ * the signer on this PC, which from then on asks the server for PDFs to sign.
+ */
+function DscBar({ dsc, onDone }: { dsc: DscState; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const pair = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const st = await fetch(`${DSC_SIGNER}/status`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+      if (!st?.ok) return setMsg("The DSC signer isn't running on this PC. Run install-autostart.cmd in the dsc-signer folder, plug in the token, then try again.");
+      if (!st.certificates?.length) return setMsg("The DSC signer can't see the token's certificate. Plug in the token, then try again.");
+      const k = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "dscPair" }) }).then((r) => r.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      if (!k.key) return setMsg(k.error ?? "Couldn't connect");
+      const r = await fetch(`${DSC_SIGNER}/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: k.key, server: window.location.origin }) }).then((x) => x.json()).catch(() => ({ error: "The DSC signer stopped answering" }));
+      if (r.error) return setMsg(r.error);
+      setMsg(r.pin ? "This PC is now the DSC signer." : "This PC is now the DSC signer. Run save-pin.cmd in the dsc-signer folder once, so others can sign without the PIN being typed here.");
+      setTimeout(onDone, 4000);
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px]">
+      <span className="inline-flex items-center gap-2 text-ink-2">
+        <span aria-hidden className={`size-2 rounded-full ${dsc.online ? "bg-low" : "bg-faint"}`} />
+        {!dsc.paired ? "DSC signing: no signer PC connected yet" : dsc.online ? `DSC signer PC is on${dsc.certificate ? ` · ${dsc.certificate}` : ""}` : `DSC signer PC is off · last seen ${ago(dsc.seenAt)}`}
+      </span>
+      {dsc.canPair && (
+        <button type="button" onClick={pair} disabled={busy} className="font-semibold text-brand hover:underline disabled:opacity-60" title="This PC has the DSC token and the DSC signer running: it signs for everyone from now on">
+          {busy ? <Busy text="Connecting…" /> : dsc.paired ? "Make this PC the signer instead" : "Make this PC the DSC signer"}
+        </button>
+      )}
+      {msg && <span className="text-muted" role="status">{msg}</span>}
     </div>
   );
 }
@@ -332,43 +382,35 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
   const [busy, setBusy] = useState<"" | "po" | "poPdf" | "eway" | "ewayPdf" | "sign">("");
   const [merging, setMerging] = useState("");
   const [choose, setChoose] = useState<"" | "download" | "sign">("");
-  // Sign with DSC (owner, 27 Nov: "instead of Zoho Sign signature, we use this … signature"): the merged PDF goes to the
-  // DSC signer running on this PC (dsc-signer), the token's window asks for the PIN, and the signed PDF comes back here
-  // and is put on the invoice in Zoho. A copy is downloaded too.
+  // Sign with DSC (owner, 27 Nov: "instead of Zoho Sign signature, we use this … signature"; 28 Nov: from anyone's login
+  // while the token is in Sumit's PC): the merged PDF is queued on the server, the DSC signer on the signer PC picks it up,
+  // signs it with the token (PIN saved there) and sends it back; it's put on the invoice in Zoho and downloaded here.
+  const dsc = useContext(DscCtx);
   const [signing, setSigning] = useState("");
   const signDsc = async (pick: { po: boolean; others: boolean }, title: string) => {
     setChoose(""); setError(""); setSigning("Making the PDF…");
     try {
       const w = [pick.po && "po", pick.others && "others"].filter(Boolean).join(",");
-      const r = await fetch(`/api/invoice-converter?merged=${i.id}&with=${w}`, { cache: "no-store" });
-      if (!r.ok) { const j = await r.json().catch(() => ({})); return setError(j.error ?? "Couldn't make the merged PDF"); }
-      const skipped = decodeURIComponent(r.headers.get("x-skipped") ?? "");
-      const [page, x, y, sw, sh] = (r.headers.get("x-sign-at") ?? "").split(",");
-      const q = new URLSearchParams({ reason: `Invoice ${decodeURIComponent(r.headers.get("x-invoice") ?? i.number)}`, ...(x ? { page, x, y, w: sw, h: sh } : {}) });
-      const pdf = await r.blob();
-      setSigning("Type the PIN in the token window…");
-      let s: Response;
-      try {
-        s = await fetch(`${DSC_SIGNER}/sign?${q}`, { method: "POST", body: pdf, headers: { "content-type": "application/pdf" } });
-      } catch {
-        return setError("The DSC signer isn't running on this PC. Double-click \"Start DSC signer\", plug in the token, then try again.");
+      const q = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "dscSign", id: i.id, with: w }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      if (q.error || !q.job) return setError(q.error ?? "Couldn't send it for signing");
+      const skipped: string[] = q.skipped ?? [];
+      // Asked every 2.5 s for up to 3 minutes; after that it's still signed when the PC picks it up (within 30 min).
+      for (let n = 0; n < 72; n++) {
+        await new Promise((ok) => setTimeout(ok, 2500));
+        const st = await fetch(`/api/invoice-converter?dscJob=${q.job}`, { cache: "no-store" }).then((x) => x.json()).catch(() => null);
+        if (!st || st.error) continue;
+        if (st.status === "done") {
+          onPatch({ signedPdf: st.signedName ?? `Invoice ${i.number} signed.pdf` });
+          const a = document.createElement("a");
+          a.href = `/api/invoice-converter?signed=${i.id}`; a.download = `${title.replace("Invoice", `Invoice ${i.number}`)} signed.pdf`;
+          document.body.appendChild(a); a.click(); a.remove();
+          if (skipped.length) setError(`Signed. Left out (not a PDF or picture): ${skipped.join(", ")}`);
+          return;
+        }
+        if (st.status === "failed") return setError(st.error ?? "Signing didn't work");
+        setSigning(st.status === "signing" ? "Signing on the signer PC…" : st.signer?.online ? "Waiting for the signer PC…" : "Signer PC is off; waiting…");
       }
-      if (!s.ok) { const j = await s.json().catch(() => ({})); return setError(j.error ?? "Signing didn't work"); }
-      const signed = await s.blob();
-      setSigning("Saving to Zoho…");
-      const name = `Invoice ${i.number} signed.pdf`;
-      const f = new FormData();
-      f.append("id", i.id); f.append("which", "signed"); f.append("file", new File([signed], name, { type: "application/pdf" }));
-      const u = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
-      // The copy is saved here either way, so a failed upload doesn't lose the signature.
-      const url = URL.createObjectURL(signed);
-      const a = document.createElement("a");
-      a.href = url; a.download = `${title.replace("Invoice", `Invoice ${i.number}`)} signed.pdf`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      if (u.error) return setError(`Signed and downloaded, but not put on the invoice in Zoho: ${u.error}`);
-      onPatch({ signedPdf: u.name ?? name });
-      if (skipped) setError(`Signed. Left out (not a PDF or picture): ${skipped}`);
+      setError("Not signed yet: the signer PC hasn't answered. It will be signed and put on the invoice when that PC is on with the token in (within 30 minutes); refresh later.");
     } catch { setError("Couldn't reach the server"); } finally { setSigning(""); }
   };
   // Four ways (owner, 27 Nov): Invoice; Invoice - PO; Invoice - Attachment; Invoice - PO - Attachment (in that order in the PDF).
@@ -517,7 +559,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi }: { i: ConvInvoice; sign?: 
       <div className="col-span-2 lg:col-span-1">
         <p className={label}>Merged PDF</p>
         <button type="button" className="press h-9 rounded-full bg-surface-2 px-4 text-[13px] font-semibold text-ink hover:bg-line disabled:opacity-50" disabled={Boolean(signing) || Boolean(merging)} onClick={() => setChoose((v) => v === "sign" ? "" : "sign")} aria-expanded={choose === "sign"}
-          title="Merge, then sign with the DSC token on this PC (the DSC signer must be running); the signed PDF is put on the invoice in Zoho">
+          title={dsc?.paired ? `Merge, then sign with Sumit's DSC on the signer PC (${dsc.online ? "on now" : "off now: it waits"}); the signed PDF is put on the invoice in Zoho` : "No DSC signer PC is connected yet"}>
           {signing ? <Busy text={signing} /> : `${i.signedPdf ? "Sign again" : "Sign with DSC"} ${choose === "sign" ? "▴" : "▾"}`}
         </button>
         {i.signedPdf && !signing && (

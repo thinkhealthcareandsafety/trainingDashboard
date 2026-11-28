@@ -284,8 +284,11 @@ test("the DSC-signed copy is known by its name and never merged in as an attachm
   assert.deepEqual(s.others, ["WCC report.pdf"]);
 });
 
-test("the DSC stamp sits left of Authorized Signature, under the bank details, and moves with the label", () => {
-  assert.deepEqual(dscSpot({ page: 0, x: 412.9, y: 130.1, pageHeight: 841.69 }), { page: 0, x: 123, y: 131, w: 200, h: 56 });
-  assert.deepEqual(dscSpot({ page: 1, x: 412.9, y: 300, pageHeight: 841.69 }), { page: 1, x: 123, y: 301, w: 200, h: 56 });
+test("the DSC stamp sits under the T&C's Bank Address line on page 1; without it, left of Authorized Signature (28 Nov)", () => {
+  // 2026-01-552 and 2026-01-602: Bank Address at y 197.3 and 152.7 on page 1.
+  assert.deepEqual(dscSpot({ page: 0, x: 45.6, y: 197.3, pageHeight: 841.69 }), { page: 0, x: 46, y: 133, w: 200, h: 56 });
+  assert.deepEqual(dscSpot({ page: 0, x: 45.6, y: 152.7, pageHeight: 841.69 }), { page: 0, x: 46, y: 89, w: 200, h: 56 });
+  assert.equal(dscSpot({ page: 0, x: 45.6, y: 40, pageHeight: 841.69 }).y, 20);
+  assert.deepEqual(dscSpot(null, { page: 1, x: 412.9, y: 300, pageHeight: 841.69 }), { page: 1, x: 123, y: 301, w: 200, h: 56 });
   assert.equal(dscSpot(null).page, 0);
 });

@@ -46,12 +46,18 @@ long each step took: open it first to find the slow step (reader start, or each 
 - **Fix 27 Nov (s39):** a file whose name carries the PO number but isn't the PO (`WCC_…_6570080_…Report.pdf` on 2026-01-552)
   was dropped as a "second PO". Now `splitAttachments()` (invoiceConverterRules.ts): one PO (named "PO …" first), the rest are attachments.
 - **Sign with DSC (27 Nov, s39)** replaced "Merge & draft" (Zoho Sign; `startDraft` kept). Same 4 choices → merged PDF
-  (`x-sign-at` = stamp spot from `dscSpot()`, left of Authorized Signature) → **local DSC signer** on the owner's PC
+  (`x-sign-at` = stamp spot from `dscSpot()`) → **local DSC signer** on the owner's PC
   (`d:\Projects\Training Dashboard\dsc-signer`, local git only, `http://127.0.0.1:47123`, Node + `sign.ps1` .NET SignedCms
   with the token's cert from the Windows store; token window asks the PIN) → signed PDF uploaded (multipart `which: "signed"`,
   `attachSigned`) as "Invoice <n> signed.pdf" (older one deleted); `?signed=` downloads it; "Signed · Download" in the cell.
   Signed copy never counts as an attachment. Start: `Start DSC signer.cmd` or `install-autostart.cmd`. Chrome asks once to
-  allow the site to reach this PC (local network access) — allow. Tested with a throwaway cert (deleted), not yet with the token.
+  allow the site to reach this PC (local network access) — allow. Worked with the real token on 28 Nov (2026-01-602). Stamp
+  spot (28 Nov): under the T&C "Bank Address" line on page 1 (`findBankLine`), else left of Authorized Signature.
+- **DSC from anyone (28 Nov, s39):** `src/lib/dscJobs.ts` queue (`dscJobs`, `dscSigner` collections). Sign with DSC → `dscSign` queues
+  the merged PDF; the signer PC (paired once: "Make this PC the DSC signer", Sumit/Admin, key → 127.0.0.1:47123/pair) polls
+  `?dscNext` with `x-dsc-key` every 10 s day / 60 s night, signs with the PIN saved by `save-pin.cmd` (DPAPI, `%APPDATA%ThinkHealthDSC`),
+  posts it back; the page polls `?dscJob`. Jobs fail after 30 min waiting / 5 min signing. Every converter user may sign (owner).
+  Signer 1.1.0 running on this PC, NOT yet paired, PIN NOT yet saved (owner does both). Unattended PIN path untested until save-pin.
 - Owner signs merged PDFs with his DSC token (mToken CryptoID, PantaSign Class 3, valid to 19 Sep 2028) in Adobe Reader:
   unblock the downloaded file first (Protected View greys out "Digitally sign"); cert is in the Windows store, no PKCS#11 setup.
 

@@ -81,6 +81,8 @@ export function boardsFor(m: Who): BoardKind[] {
 
 /** The Invoice Converter (owner, 17 Nov; the sheet's "I.C" column). */
 export const canConvertInvoices = (m: Who) => canSee(m, "converter");
+/** Connecting the PC that holds Sumit's DSC token as the signer (owner, 28 Nov): Sumit and Admin. Signing itself: every converter user. */
+export const canPairDscSigner = (m: Who) => isAdmin(m) || firstName(m) === "sumit";
 
 /** The Follow-ups page: the page, with at least one board. */
 export const hasFollowUps = (m: Who) => canSee(m, "followups") && boardsFor(m).length > 0;

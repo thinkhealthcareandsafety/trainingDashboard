@@ -379,11 +379,12 @@ async function mergedFor(invoiceId: string, pick: MergePick = { po: true, others
 
 /** The merged PDF to download as it is (owner, 17 Nov: Zoho Sign's plan doesn't send by API, so merging works on its own too). */
 export async function mergedInvoicePdf(invoiceId: string, pick?: MergePick): Promise<{ bytes: Uint8Array; name: string; skipped: string[]; number: string; spot: { page: number; x: number; y: number; w: number; h: number } }> {
-  const { dscSpot, findSignLabel } = await import("./pdfMerge");
+  const { dscSpot, findBankLine, findSignLabel } = await import("./pdfMerge");
   const { merged, number } = await mergedFor(invoiceId, pick);
   const tail = pick ? [pick.po && "PO", pick.others && "Attachment"].filter(Boolean).join(" - ") : "merged";
-  // Where the DSC signer puts its stamp (owner, 27 Nov), found on the invoice's own pages.
-  const spot = dscSpot(await findSignLabel(merged.bytes, merged.firstPages));
+  // Where the DSC signer puts its stamp: under the T&C on page 1 (owner, 28 Nov).
+  const bank = await findBankLine(merged.bytes);
+  const spot = dscSpot(bank, bank ? null : await findSignLabel(merged.bytes, merged.firstPages));
   return { bytes: merged.bytes, name: `Invoice ${number}${tail ? ` - ${tail}` : ""}.pdf`, skipped: merged.skipped ?? [], number, spot };
 }
 

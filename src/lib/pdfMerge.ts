@@ -70,23 +70,26 @@ export function signBoxes(label: SignLabel | null): SignBox[] {
 }
 
 /**
- * Where the DSC signer's stamp goes (owner, 27 Nov: the DSC token instead of Zoho Sign): where the Zoho Sign boxes were,
- * inside the bank-details box, left of the "Authorized Signature" box and under the bank address (checked on 2026-01-552). PDF points, bottom-left origin (what pdf-lib takes).
+ * Where the DSC signer's stamp goes (owner, 28 Nov: "below the T&C on the first page"): just under the "Bank Address" line
+ * (the last line of Terms & Conditions) on page 1, lined up with it. Without that line, left of the "Authorized
+ * Signature" box (27 Nov). PDF points, bottom-left origin (what pdf-lib takes).
  */
-export function dscSpot(label: SignLabel | null): { page: number; x: number; y: number; w: number; h: number } {
+export function dscSpot(bank: SignLabel | null, label: SignLabel | null = null): { page: number; x: number; y: number; w: number; h: number } {
+  const w = 200, h = 56;
+  if (bank) return { page: bank.page, x: Math.round(bank.x), y: Math.max(20, Math.round(bank.y - 8 - h)), w, h };
   const l = label ?? STANDARD;
-  return { page: l.page, x: Math.round(l.x - 290), y: Math.round(l.y + 1), w: 200, h: 56 };
+  return { page: l.page, x: Math.round(l.x - 290), y: Math.round(l.y + 1), w, h };
 }
 
-/** Finds "Authorized Signature" in the invoice's own pages (the first `pages` of the merged PDF; the T&C page has none). */
-export async function findSignLabel(bytes: Uint8Array, pages: number): Promise<SignLabel | null> {
+/** The first text matching `re` in the first `pages` pages: its page (0-based), left x and baseline y. */
+async function findText(bytes: Uint8Array, pages: number, re: RegExp): Promise<SignLabel | null> {
   try {
     const { getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(bytes));
     for (let p = 1; p <= Math.min(pages, pdf.numPages); p++) {
       const page = await pdf.getPage(p);
       const items = (await page.getTextContent()).items as { str?: string; transform?: number[] }[];
-      const hit = items.find((it) => /authori[sz]ed\s+signat/i.test(it.str ?? ""));
+      const hit = items.find((it) => re.test(it.str ?? ""));
       if (hit?.transform) return { page: p - 1, x: hit.transform[4], y: hit.transform[5], pageHeight: page.getViewport({ scale: 1 }).height };
     }
   } catch (e) {
@@ -94,3 +97,8 @@ export async function findSignLabel(bytes: Uint8Array, pages: number): Promise<S
   }
   return null;
 }
+
+/** Finds "Authorized Signature" in the invoice's own pages (the first `pages` of the merged PDF; the T&C page has none). */
+export const findSignLabel = (bytes: Uint8Array, pages: number) => findText(bytes, pages, /authori[sz]ed\s+signat/i);
+/** The "Bank Address" line of the invoice's Terms & Conditions, on its first page only. */
+export const findBankLine = (bytes: Uint8Array) => findText(bytes, 1, /^\s*bank\s+address/i);
