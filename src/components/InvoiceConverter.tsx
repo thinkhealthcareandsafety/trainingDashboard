@@ -179,10 +179,10 @@ export function InvoiceConverter() {
   const filtering = onlyFound && foundCount > 0;
   const searching = q.trim().length > 0 || filtering;
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  // One list, newest first, by default (owner, 28 Nov: "by default the latest invoices should come to the top"); the
-  // customer groups stay a click away. Remembered on this computer.
-  const [view, setView] = useState<"latest" | "customers">("latest");
-  useEffect(() => { if (localStorage.getItem("invoiceConverterView") === "customers") setView("customers"); }, []);
+  // Grouped by customer by default (owner, 28 Nov: "the customer name grouping was nice, keep that"); "Latest invoices" = one
+  // list, newest first, with the customer on each row. Remembered on this computer.
+  const [view, setView] = useState<"latest" | "customers">("customers");
+  useEffect(() => { if (localStorage.getItem("invoiceConverterView") === "latest") setView("latest"); }, []);
   const pickView = (v: "latest" | "customers") => { setView(v); localStorage.setItem("invoiceConverterView", v); };
   const [more, setMore] = useState(1);
   const PAGE = 40;
@@ -204,7 +204,7 @@ export function InvoiceConverter() {
         {log !== "" && <PoScanLog now={scan} run={run} small={log === "small"} onSmall={smallLog} onClose={() => setLog("")} />}
         {data && data.pending > 0 && <span className="inline-flex items-center gap-1.5 text-[13px] text-muted"><Spinner />Reading e-way bills and attachments from Zoho · {data.pending} left</span>}
         <div className="ml-auto inline-flex shrink-0 rounded-full bg-surface p-1 shadow-card" role="group" aria-label="Show">
-          {([["latest", "Newest first"], ["customers", "By customer"]] as const).map(([v, t]) => (
+          {([["customers", "By customer"], ["latest", "Latest invoices"]] as const).map(([v, t]) => (
             <button key={v} type="button" aria-pressed={view === v} onClick={() => pickView(v)} className={`h-9 rounded-full px-4 text-[13px] font-semibold ${view === v ? "bg-brand-soft text-brand" : "text-muted hover:text-ink"}`}>{t}</button>
           ))}
         </div>
