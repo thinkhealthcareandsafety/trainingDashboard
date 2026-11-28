@@ -633,42 +633,40 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
 /**
  * One picker for Download PDF and Sign with DSC (owner, 28 Nov: "merge it into one … make it check box … in the sequence
  * they click the checkboxes that sequence the merged pdf will be. give numbers 1 2 3"): tick the parts; each tick gets
- * the next number and the PDF follows that order; unticking renumbers the rest. The PI's files are read when it opens.
+ * the next number and the PDF follows that order; unticking renumbers the rest. Attachments are read when it opens.
  */
 function PartPicker({ i, mode, onGo }: { i: ConvInvoice; mode: "download" | "sign"; onGo: (order: MergePart[]) => void }) {
   const [order, setOrder] = useState<MergePart[]>(["invoice"]);
-  const [piCount, setPiCount] = useState<number | null>(i.pi ? null : 0);
+  // Each attachment on its own, by its name in Zoho Books (owner, 28 Nov): the invoice's, then its PI's (same names once).
+  const [files, setFiles] = useState<{ id: string; name: string }[] | null>(null);
   useEffect(() => {
-    if (!i.pi) return;
     let live = true;
-    fetch(`/api/invoice-converter?piFiles=${i.id}`, { cache: "no-store" }).then((x) => x.json()).then((r) => { if (live) setPiCount(r.files?.length ?? 0); }).catch(() => { if (live) setPiCount(0); });
+    fetch(`/api/invoice-converter?mergeFiles=${i.id}`, { cache: "no-store" }).then((x) => x.json()).then((r) => { if (live) setFiles(r.attachments ?? []); }).catch(() => { if (live) setFiles([]); });
     return () => { live = false; };
-  }, [i.id, i.pi]);
+  }, [i.id]);
   const parts: { part: MergePart; label: string; ok: boolean; why: string }[] = [
     { part: "invoice", label: `Invoice ${i.number}`, ok: true, why: "" },
     { part: "po", label: PART_LABEL.po, ok: i.poPdf, why: "No PO PDF on this invoice yet" },
     { part: "eway", label: PART_LABEL.eway, ok: i.ewayPdf, why: "No e-way bill PDF on this invoice" },
-    { part: "others", label: `Attachments${i.others?.length ? ` (${i.others.length})` : ""}`, ok: Boolean(i.others?.length), why: "No other attachments on this invoice yet" },
-    ...(i.pi ? [
-      { part: "pi" as const, label: `PI ${i.pi}`, ok: true, why: "" },
-      { part: "pifiles" as const, label: `PI attachments${piCount ? ` (${piCount})` : ""}`, ok: Boolean(piCount), why: piCount === null ? "Reading the PI…" : "No files on this PI yet" },
-    ] : []),
+    ...(i.pi ? [{ part: "pi" as const, label: `PI ${i.pi}`, ok: true, why: "" }] : []),
+    ...(files ?? []).map((f) => ({ part: `doc:${f.id}` as MergePart, label: f.name, ok: true, why: "" })),
   ];
   const flip = (p: MergePart) => setOrder((o) => (o.includes(p) ? o.filter((x) => x !== p) : [...o, p]));
   return (
-    <div className="mt-1 w-60 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
+    <div className="mt-1 w-64 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
       <p className="px-2 pb-1 text-[12px] text-muted">Tick in the order you want them in the PDF</p>
       {parts.map(({ part, label, ok, why }) => {
         const n = order.indexOf(part) + 1;
         return (
-          <label key={part} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 ${ok ? "cursor-pointer hover:bg-surface-2" : "cursor-not-allowed text-muted"}`} title={ok ? "" : why}>
+          <label key={part} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 ${ok ? "cursor-pointer hover:bg-surface-2" : "cursor-not-allowed text-muted"}`} title={ok ? label : why}>
             <input type="checkbox" className="sr-only" checked={n > 0} disabled={!ok} onChange={() => flip(part)} />
             <span aria-hidden className={`num grid size-5 shrink-0 place-items-center rounded-md border text-[11px] font-bold ${n ? "border-brand bg-brand text-brand-ink" : "border-line-strong bg-surface"}`}>{n || ""}</span>
             <span className={`truncate ${ok ? "font-semibold text-ink" : ""}`}>{label}</span>
           </label>
         );
       })}
-      <button type="button" disabled={!order.length} onClick={() => onGo(order)} className="press mt-1.5 h-9 w-full rounded-full bg-brand text-[13px] font-semibold text-brand-ink disabled:opacity-50">
+      <p className="px-2 py-1 text-[12px] text-muted">{files === null ? <Busy text="Reading attachments…" /> : files.length ? "" : "No other attachments on the invoice or its PI."}</p>
+      <button type="button" disabled={!order.length} onClick={() => onGo(order)} className="press mt-0.5 h-9 w-full rounded-full bg-brand text-[13px] font-semibold text-brand-ink disabled:opacity-50">
         {mode === "sign" ? "Sign with DSC" : "Download"}{order.length > 1 ? ` · ${order.length} in one PDF` : ""}
       </button>
     </div>

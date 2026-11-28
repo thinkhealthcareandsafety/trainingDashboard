@@ -1,6 +1,6 @@
 import { signedInMember, unauthorized } from "@/lib/auth";
 import { canConvertInvoices, canPairDscSigner, isAdmin } from "@/lib/roles";
-import { attachExtra, attachFoundPo, attachPdf, attachSigned, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
+import { attachExtra, attachFoundPo, attachPdf, attachSigned, mergeAttachments, checkInvoiceSign, converterData, draftInvoiceSign, mergedInvoicePdf, setEway, setPoForPi, setSigner, signedInvoicePdf, signerOf, startInvoiceSign } from "@/lib/invoiceConverter";
 import { connectSign, signInfo } from "@/lib/zohoSign";
 import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
@@ -36,6 +36,7 @@ export const maxDuration = 60;
  *  POST { action: "check", id }                    — how the signing stands
  *  POST { action: "connectSign", code, clientId?, clientSecret? } — Admin: connect Zoho Sign once
  * The invoice's PI (owner, 28 Nov; src/lib/piFiles.ts):
+ *  GET ?mergeFiles=<invoice id>                    — the attachments to tick one by one (the invoice's, then its PI's; same names once)
  *  GET ?piFiles=<invoice id>                       — its PI's number and the files on the PI
  *  GET ?piPdf=<invoice id>&with=others             — the PI's PDF (with: followed by its attachments)
  *  POST multipart { id, which: "pi", file }        — any file put on the PI in Zoho
@@ -109,6 +110,8 @@ export async function GET(request: Request) {
       const s = f.spot;
       return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")), "x-sign-at": `${s.page},${s.x},${s.y},${s.w},${s.h}`, "x-invoice": encodeURIComponent(f.number) } });
     }
+    const mf = q.get("mergeFiles");
+    if (mf) return ID.test(mf) ? json(await mergeAttachments(mf)) : json({ error: "Unknown invoice" }, 400);
     const piInv = q.get("piFiles");
     if (piInv) return ID.test(piInv) ? json(await piFiles(piInv)) : json({ error: "Unknown invoice" }, 400);
     const piPdfInv = q.get("piPdf");

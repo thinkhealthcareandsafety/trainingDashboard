@@ -37,20 +37,35 @@ export const isEwayFile = (name: string) => /e-?way/i.test(name);
  * and the files on the PI.
  */
 export const MERGE_PARTS = ["invoice", "po", "eway", "others", "pi", "pifiles"] as const;
-export type MergePart = (typeof MERGE_PARTS)[number];
-export const PART_LABEL: Record<MergePart, string> = { invoice: "Invoice", po: "PO", eway: "E-way bill", others: "Attachment", pi: "PI", pifiles: "PI attachment" };
-/** The parts asked for (`parts=pi,invoice,po`, in that order, each once); the older `with=po,others` still works; none = undefined. */
+/**
+ * One attachment on its own (owner, 28 Nov: "make it so that its actually attachment 1, 2, 3 … should just show the name
+ * of the attachment in zoho books"): "doc:<Zoho document id>", from the invoice or its PI.
+ */
+export type DocPart = `doc:${string}`;
+export type MergePart = (typeof MERGE_PARTS)[number] | DocPart;
+export const isDocPart = (p: string): p is DocPart => /^doc:\d{6,25}$/.test(p);
+export const PART_LABEL: Record<(typeof MERGE_PARTS)[number], string> = { invoice: "Invoice", po: "PO", eway: "E-way bill", others: "Attachment", pi: "PI", pifiles: "PI attachment" };
+/** The parts asked for (`parts=pi,invoice,doc:123`, in that order, each once); the older `with=po,others` still works; none = undefined. */
 export function partsFrom(parts?: string | null, withQ?: string | null): MergePart[] | undefined {
   if (parts) {
-    const out = [...new Set(parts.split(",").map((s) => s.trim().toLowerCase()))].filter((p): p is MergePart => (MERGE_PARTS as readonly string[]).includes(p));
+    const out = [...new Set(parts.split(",").map((s) => s.trim().toLowerCase()))].filter((p): p is MergePart => (MERGE_PARTS as readonly string[]).includes(p) || isDocPart(p));
     return out.length ? out : undefined;
   }
   if (withQ === null || withQ === undefined) return undefined;
   return ["invoice", ...(/\bpo\b/.test(withQ) ? (["po", "eway"] as const) : []), ...(/\bothers\b/.test(withQ) ? (["others"] as const) : [])];
 }
-/** The merged PDF's name, its parts in order: "Invoice 2026-01-552 - PO - Performa-25-1179.pdf". */
+/** The merged PDF's name, its parts in order: "Invoice 2026-01-552 - PO - Attachment - Performa-25-1179.pdf" (attachments in a row named once). */
 export function mergedName(number: string, pi: string | null, parts: MergePart[]): string {
-  return `${parts.map((p) => (p === "invoice" ? `Invoice ${number}` : p === "pi" ? pi || "PI" : PART_LABEL[p])).join(" - ") || `Invoice ${number}`}.pdf`;
+  const words = parts.map((p) => (p === "invoice" ? `Invoice ${number}` : p === "pi" ? pi || "PI" : p.startsWith("doc:") ? "Attachment" : PART_LABEL[p as keyof typeof PART_LABEL] ?? "Attachment"));
+  return `${words.filter((w, k) => !(w === "Attachment" && words[k - 1] === "Attachment")).join(" - ") || `Invoice ${number}`}.pdf`;
+}
+/**
+ * The attachments that can be ticked one by one: the invoice's own (not its PO, e-way bill or signed copy), then the PI's
+ * not already there under the same name (the owner saw the same files twice, 28 Nov).
+ */
+export function attachmentChoices(invoiceDocs: { id: string; name: string }[], piDocs: { id: string; name: string }[]): { id: string; name: string }[] {
+  const seen = new Set(invoiceDocs.map((d) => d.name.trim().toLowerCase()));
+  return [...invoiceDocs, ...piDocs.filter((d) => !seen.has(d.name.trim().toLowerCase()))];
 }
 
 /** The DSC-signed copy put on the invoice (owner, 27 Nov: sign with the DSC token instead of Zoho Sign). */

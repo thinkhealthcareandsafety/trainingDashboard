@@ -1,6 +1,6 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments, isSignedFile, signedFileName, partsFrom, mergedName } from "@/lib/invoiceConverterRules";
+import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments, isSignedFile, signedFileName, partsFrom, mergedName, attachmentChoices } from "@/lib/invoiceConverterRules";
 import { dscSpot } from "@/lib/pdfMerge";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -301,4 +301,11 @@ test("merged PDF parts: in the order ticked, each once; the older with= still wo
   assert.deepEqual(partsFrom(null, ""), ["invoice"]);
   assert.equal(mergedName("2026-01-552", "Performa-25-1179", ["pi", "invoice", "po", "pifiles"]), "Performa-25-1179 - Invoice 2026-01-552 - PO - PI attachment.pdf");
   assert.equal(mergedName("2026-01-552", null, ["invoice"]), "Invoice 2026-01-552.pdf");
+});
+
+test("attachments one by one: doc:<id> parts, the invoice's then the PI's (same names once), named once in a row (28 Nov)", () => {
+  assert.deepEqual(partsFrom("invoice,doc:982417000025012123,doc:x,pi"), ["invoice", "doc:982417000025012123", "pi"]);
+  assert.deepEqual(attachmentChoices([{ id: "1", name: "WCC report.pdf" }], [{ id: "2", name: "wcc report.pdf" }, { id: "3", name: "Photo.jpg" }]),
+    [{ id: "1", name: "WCC report.pdf" }, { id: "3", name: "Photo.jpg" }]);
+  assert.equal(mergedName("2026-01-609", "Performa-25-1250", ["invoice", "doc:1", "doc:3", "pi", "doc:2"]), "Invoice 2026-01-609 - Attachment - Performa-25-1250 - Attachment.pdf");
 });

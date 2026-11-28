@@ -3,7 +3,7 @@ import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
 import { poInPdf, poKey } from "./poMatch";
-import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState, splitAttachments, isSignedFile, signedFileName, mergedName, type MergePart } from "./invoiceConverterRules";
+import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState, splitAttachments, isSignedFile, signedFileName, mergedName, type MergePart, isDocPart, attachmentChoices } from "./invoiceConverterRules";
 
 /*
  * The Invoice Converter's data and its writes to Zoho Books (owner, 17 Nov).
@@ -365,10 +365,23 @@ async function mergedFor(invoiceId: string, order: MergePart[] = ["invoice", "po
   const isPo = poFileTest(row?.row.cf_purchase_order_number, (await (await extrasCol()).findOne({ _id: invoiceId }))?.poRead);
   const { po, eway, others } = splitAttachments(docs, (x) => String(x.file_name ?? ""), isPo);
   const file = async (doc: { document_id?: string; file_name?: string }) => ({ ...(await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`)), name: String(doc.file_name ?? "attachment") });
-  const pi = order.includes("pi") || order.includes("pifiles") ? await import("./piFiles").then((m) => m.piOfInvoice(invoiceId)) : null;
+  // A single attachment ("doc:<id>") not on the invoice is on its PI.
+  const wantsPi = order.some((p) => p === "pi" || p === "pifiles" || (isDocPart(p) && !docs.some((x) => x.document_id === p.slice(4))));
+  const pi = wantsPi ? await import("./piFiles").then((m) => m.piOfInvoice(invoiceId)) : null;
+  const piCache: { list?: { document_id?: string; file_name?: string }[] } = {};
+  const piDocsOnce = async () => (piCache.list ??= pi ? await import("./piFiles").then((m) => m.piDocs(pi.id)) : []);
   const parts: { bytes: Uint8Array; type: string; name: string }[] = [];
   let invoiceAt = -1;
   for (const part of order) {
+    if (isDocPart(part)) {
+      const id = part.slice(4);
+      const own = docs.find((x) => x.document_id === id);
+      if (own) parts.push(await file(own));
+      else if (pi) {
+        const x = (await piDocsOnce()).find((d) => d.document_id === id);
+        if (x) parts.push({ ...(await booksFile(`/salesorders/${pi.id}/documents/${id}`)), name: String(x.file_name ?? "attachment") });
+      }
+    }
     if (part === "invoice") { invoiceAt = parts.length; parts.push({ ...(await booksFile(`/invoices/${invoiceId}`, { accept: "pdf" })), name: `Invoice ${number}.pdf` }); }
     if (part === "po" && po) parts.push(await file(po));
     if (part === "eway" && eway) parts.push(await file(eway));
@@ -385,6 +398,23 @@ async function mergedFor(invoiceId: string, order: MergePart[] = ["invoice", "po
   const invStart = invoiceAt >= 0 ? merged.starts[invoiceAt] : 0;
   const invPages = invoiceAt >= 0 ? (merged.starts[invoiceAt + 1] ?? Number.MAX_SAFE_INTEGER) - invStart : 1;
   return { merged, names: parts.map((p) => p.name), number, pi: pi?.number ?? null, customer: String(d.customer_name ?? ""), invStart, invPages };
+}
+
+/** The attachments to tick one by one in the picker: the invoice's own, then its PI's (same names once). */
+export async function mergeAttachments(invoiceId: string): Promise<{ attachments: { id: string; name: string }[] }> {
+  const d = await fetchDetail("invoices", invoiceId);
+  const docs = ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).filter((x) => x.document_id);
+  const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
+  const isPo = poFileTest(row?.row.cf_purchase_order_number, (await (await extrasCol()).findOne({ _id: invoiceId }))?.poRead);
+  const own = splitAttachments(docs, (x) => String(x.file_name ?? ""), isPo).others.map((x) => ({ id: String(x.document_id), name: String(x.file_name ?? "attachment") }));
+  let fromPi: { id: string; name: string }[] = [];
+  if (piOf(row?.row.reference_number) || d.salesorder_id) {
+    try {
+      const { piOfInvoice, piDocs } = await import("./piFiles");
+      fromPi = (await piDocs((await piOfInvoice(invoiceId)).id)).map((x) => ({ id: String(x.document_id), name: String(x.file_name ?? "attachment") }));
+    } catch { /* no PI in Zoho: the invoice's own only */ }
+  }
+  return { attachments: attachmentChoices(own, fromPi) };
 }
 
 /** The merged PDF to download or sign, its parts in `order` (none = invoice → PO → e-way bill). */

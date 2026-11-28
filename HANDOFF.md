@@ -66,6 +66,7 @@ long each step took: open it first to find the slow step (reader start, or each 
 - **One picker (28 Nov):** Download PDF and Sign with DSC open the same `PartPicker`: tick Invoice / PO / E-way bill / Attachments /
   PI / PI attachments; numbers 1,2,3 = order in the PDF. `?merged=&parts=pi,invoice,po` and `dscSign {parts}` (`partsFrom`, `mergedName`;
   old `with=` kept). DSC stamp goes on the invoice's first page wherever it falls (`mergeParts` returns `starts`). PI menu = attach + list only.
+  Attachments are one tick each by their Zoho name (`doc:<document id>`, invoice's then PI's, same names once: `?mergeFiles=`, `attachmentChoices`).
 - Owner signs merged PDFs with his DSC token (mToken CryptoID, PantaSign Class 3, valid to 19 Sep 2028) in Adobe Reader:
   unblock the downloaded file first (Protected View greys out "Digitally sign"); cert is in the Windows store, no PKCS#11 setup.
 
