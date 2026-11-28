@@ -545,6 +545,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
         <p className="num truncate text-[14px] font-semibold text-ink">{i.number}</p>
         <p className="num text-[12.5px] text-muted">{day(i.date)}{i.status === "draft" ? " · draft" : ""}</p>
         {customer && <p className="truncate text-[12.5px] text-ink-2" title={customer}>{customer}</p>}
+        {i.pi && <PiMenu i={i} />}
       </div>
       <p className="num col-span-2 text-[14px] font-semibold text-ink lg:col-span-1">{inr(i.total)}</p>
 
@@ -645,6 +646,73 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
  * Other attachments (owner, 27 Nov: "add another column to add additional attachment, we can add as many, it only shows
  * the attachment name"): any files, attached to this invoice in Zoho one by one under their own names.
  */
+/**
+ * The invoice's PI (owner, 28 Nov: "see the PIs of those invoices too … attach an attachment with PI, download PI with
+ * attachment or download only PI"): its number, and a menu that reads the files on the PI in Zoho when opened.
+ */
+function PiMenu({ i }: { i: ConvInvoice }) {
+  const [open, setOpen] = useState(false);
+  const [files, setFiles] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState("");
+  const pick = useRef<HTMLInputElement>(null);
+  const read = async () => {
+    setNote("");
+    const r = await fetch(`/api/invoice-converter?piFiles=${i.id}`, { cache: "no-store" }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+    if (r.error) { setNote(r.error); setFiles([]); } else setFiles(r.files ?? []);
+  };
+  const toggle = () => { const v = !open; setOpen(v); if (v && files === null) void read(); };
+  const download = async (withFiles: boolean) => {
+    const title = `${i.pi}${withFiles ? " - Attachment" : ""}`;
+    setBusy(title); setNote("");
+    try {
+      const r = await fetch(`/api/invoice-converter?piPdf=${i.id}${withFiles ? "&with=others" : ""}`, { cache: "no-store" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); return setNote(j.error ?? "Couldn't get the PI"); }
+      const skipped = decodeURIComponent(r.headers.get("x-skipped") ?? "");
+      if (skipped) setNote(`Left out (not a PDF or picture): ${skipped}`);
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = url; a.download = `${title}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { setNote("Couldn't reach the server"); } finally { setBusy(""); }
+  };
+  const attach = async (list: FileList | null) => {
+    const picked = [...(list ?? [])];
+    if (!picked.length) return;
+    setNote("");
+    for (const [n, file] of picked.entries()) {
+      setBusy(`Attaching ${n + 1} of ${picked.length}`);
+      const f = new FormData();
+      f.append("id", i.id); f.append("which", "pi"); f.append("file", file);
+      const r = await fetch("/api/invoice-converter", { method: "POST", body: f }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      if (r.error) { setNote(`${file.name}: ${r.error}`); break; }
+      setFiles((fs) => [...(fs ?? []), r.name ?? file.name]);
+    }
+    setBusy("");
+  };
+  const item = "w-full rounded px-2 py-1 text-left font-semibold text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:font-normal disabled:text-muted disabled:hover:bg-transparent";
+  return (
+    <div className="mt-0.5">
+      <button type="button" onClick={toggle} aria-expanded={open} className="num text-[12.5px] font-semibold text-brand hover:underline" title={`The PI this invoice was made from: download it, or attach files to it in Zoho`}>
+        {busy ? <Busy text={busy} /> : <>PI {i.pi} {open ? "▴" : "▾"}</>}
+      </button>
+      {open && (
+        <div className="mt-1 flex w-56 flex-col items-start gap-0.5 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
+          <button type="button" className={item} disabled={Boolean(busy)} onClick={() => download(false)}>Download PI</button>
+          <button type="button" className={item} disabled={Boolean(busy) || !files?.length} onClick={() => download(true)} title={files?.length ? "The PI, then the files on it, in one PDF" : "No files on this PI yet"}>Download PI - Attachment</button>
+          <button type="button" className={`${item} text-brand`} disabled={Boolean(busy)} onClick={() => pick.current?.click()}>+ Attach to PI</button>
+          <div className="w-full border-t border-line/70 px-2 pt-1 text-[12px] text-muted">
+            {files === null ? <Busy text="Reading the PI…" /> : files.length ? files.map((n) => <p key={n} className="truncate" title={n}>{n}</p>) : "No files on this PI yet."}
+          </div>
+          {note && <p className="px-2 text-[12px] text-high">{note}</p>}
+          <input ref={pick} type="file" multiple className="hidden" onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Others({ i, onPatch, label }: { i: ConvInvoice; onPatch: (p: Partial<ConvInvoice>) => void; label: string }) {
   const pick = useRef<HTMLInputElement>(null);
   const [left, setLeft] = useState(0);

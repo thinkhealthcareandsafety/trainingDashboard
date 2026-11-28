@@ -4,6 +4,7 @@ import { attachExtra, attachFoundPo, attachPdf, attachSigned, checkInvoiceSign, 
 import { connectSign, signInfo } from "@/lib/zohoSign";
 import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
+import { attachToPi, piFiles, piPdf } from "@/lib/piFiles";
 import { failJob, finishJob, jobStatus, nextJob, pairSigner, queueJob, signerByKey, signerState } from "@/lib/dscJobs";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,10 @@ export const maxDuration = 60;
  *  POST { action: "sign", id }                   — merge the invoice + PO + e-way bill PDFs and open Zoho Sign's signing page
  *  POST { action: "check", id }                    — how the signing stands
  *  POST { action: "connectSign", code, clientId?, clientSecret? } — Admin: connect Zoho Sign once
+ * The invoice's PI (owner, 28 Nov; src/lib/piFiles.ts):
+ *  GET ?piFiles=<invoice id>                       — its PI's number and the files on the PI
+ *  GET ?piPdf=<invoice id>&with=others             — the PI's PDF (with: followed by its attachments)
+ *  POST multipart { id, which: "pi", file }        — any file put on the PI in Zoho
  * Signing with the DSC token from anyone's login (owner, 28 Nov; src/lib/dscJobs.ts):
  *  POST { action: "dscSign", id, with }            — queue the merged PDF for the signer PC; { job, signer }
  *  GET ?dscJob=<job>                               — how it stands: waiting / signing / done / failed
@@ -104,6 +109,14 @@ export async function GET(request: Request) {
       const s = f.spot;
       return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")), "x-sign-at": `${s.page},${s.x},${s.y},${s.w},${s.h}`, "x-invoice": encodeURIComponent(f.number) } });
     }
+    const piInv = q.get("piFiles");
+    if (piInv) return ID.test(piInv) ? json(await piFiles(piInv)) : json({ error: "Unknown invoice" }, 400);
+    const piPdfInv = q.get("piPdf");
+    if (piPdfInv) {
+      if (!ID.test(piPdfInv)) return json({ error: "Unknown invoice" }, 400);
+      const f = await piPdf(piPdfInv, /\bothers\b/.test(q.get("with") ?? ""));
+      return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")) } });
+    }
     const job = q.get("dscJob");
     if (job) {
       if (!/^[a-f0-9]{24}$/.test(job)) return json({ error: "Unknown job" }, 400);
@@ -138,6 +151,10 @@ export async function POST(request: Request) {
       if (f.get("which") === "extra") {
         if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a file for an invoice" }, 400);
         return json(await attachExtra(id, file));
+      }
+      if (f.get("which") === "pi") {
+        if (!ID.test(id) || !(file instanceof File)) return json({ error: "Pick a file for an invoice's PI" }, 400);
+        return json(await attachToPi(id, file));
       }
       if (f.get("which") === "signed") {
         if (!ID.test(id) || !(file instanceof File)) return json({ error: "No signed PDF for an invoice" }, 400);

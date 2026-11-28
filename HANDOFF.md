@@ -60,6 +60,9 @@ long each step took: open it first to find the slow step (reader start, or each 
   Signer 1.1.0 running on this PC, NOT yet paired, PIN NOT yet saved (owner does both). Unattended PIN path untested until save-pin.
   Download: `public/dsc-signer.zip` (~200 KB, made by `node build.mjs <zip>` in dsc-signer; rebuild after signer changes).
   Page: "Set up the signer PC" (Sumit/Admin) = 4 steps (Node.js, download + install-autostart, Connect this PC, save-pin).
+- **PI menu (28 Nov, s39):** under each invoice number "PI Performa-… ▾" (`PiMenu`): Download PI / Download PI - Attachment /
+  + Attach to PI (any files, to the sales order in Zoho). `src/lib/piFiles.ts` (sales order from salesDocs by PI number, else invoice detail);
+  route `?piFiles=`, `?piPdf=&with=others`, multipart `which: "pi"`. Not yet tried live.
 - Owner signs merged PDFs with his DSC token (mToken CryptoID, PantaSign Class 3, valid to 19 Sep 2028) in Adobe Reader:
   unblock the downloaded file first (Protected View greys out "Digitally sign"); cert is in the Windows store, no PKCS#11 setup.
 
