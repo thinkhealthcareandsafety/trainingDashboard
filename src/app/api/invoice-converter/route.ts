@@ -5,6 +5,7 @@ import { connectSign, signInfo } from "@/lib/zohoSign";
 import { checkAgain, isDue, poFileFor, poLog, poLogFile, savePageText, scanPoFolder } from "@/lib/poFolder";
 import { goodWdId, workdriveOpen } from "@/lib/workdrive";
 import { attachToPi, piFiles, piPdf } from "@/lib/piFiles";
+import { partsFrom } from "@/lib/invoiceConverterRules";
 import { failJob, finishJob, jobStatus, nextJob, pairSigner, queueJob, signerByKey, signerState } from "@/lib/dscJobs";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export const maxDuration = 60;
  * The Invoice Converter (owner, 17 Nov). Full access and logistics only.
  *  GET                         — every customer with their invoices (PO, e-way bill, signing), Zoho Sign's connection, your signer details
  *  GET ?signed=<invoice id>    — the signed PDF (once Zoho Sign says completed)
- *  GET ?merged=<invoice id>&with=po,others — the invoice PDF merged with what's picked (po = PO + e-way bill; others = other attachments), unsigned
+ *  GET ?merged=<invoice id>&parts=invoice,po,eway,others,pi,pifiles — those, in that order, as one PDF, unsigned (with=po,others = older form)
  *  GET ?po=<WorkDrive file>&id=<invoice> — a PO PDF found for that invoice, to look at (only one that carries its PO number)
  *  POST { action: "scanPo" }                       — read the new PDFs in the WorkDrive PO folder; { files, left, due, … } (ask again while left > 0)
  *  GET ?poLog                                      — the log of the PO folder's PDFs
@@ -39,7 +40,7 @@ export const maxDuration = 60;
  *  GET ?piPdf=<invoice id>&with=others             — the PI's PDF (with: followed by its attachments)
  *  POST multipart { id, which: "pi", file }        — any file put on the PI in Zoho
  * Signing with the DSC token from anyone's login (owner, 28 Nov; src/lib/dscJobs.ts):
- *  POST { action: "dscSign", id, with }            — queue the merged PDF for the signer PC; { job, signer }
+ *  POST { action: "dscSign", id, parts }           — queue the merged PDF (parts in order, as ?merged) for the signer PC; { job, signer }
  *  GET ?dscJob=<job>                               — how it stands: waiting / signing / done / failed
  *  POST { action: "dscPair" }                      — Sumit or Admin: a new key for the signer PC (the page hands it to the PC's signer)
  *  The signer PC (header x-dsc-key, no login):
@@ -102,9 +103,8 @@ export async function GET(request: Request) {
     const merged = q.get("merged");
     if (merged) {
       if (!ID.test(merged)) return json({ error: "Unknown invoice" }, 400);
-      // with=po,others picks what goes in (owner, 27 Nov); none given = the invoice with its PO and e-way bill, as before.
-      const w = q.get("with");
-      const f = await mergedInvoicePdf(merged, w === null ? undefined : { po: /\bpo\b/.test(w), others: /\bothers\b/.test(w) });
+      // parts=pi,invoice,po: what goes in, in that order (owner, 28 Nov); the older with=po,others still works.
+      const f = await mergedInvoicePdf(merged, partsFrom(q.get("parts"), q.get("with")));
       // x-sign-at / x-invoice: where the DSC signer puts its stamp and the invoice number for its "Reason" (owner, 27 Nov).
       const s = f.spot;
       return new Response(Buffer.from(f.bytes), { headers: { "content-type": "application/pdf", "content-disposition": `attachment; filename="${f.name.replace(/"/g, "")}"`, "cache-control": "private, no-store", "x-skipped": encodeURIComponent(f.skipped.join(", ")), "x-sign-at": `${s.page},${s.x},${s.y},${s.w},${s.h}`, "x-invoice": encodeURIComponent(f.number) } });
@@ -165,7 +165,7 @@ export async function POST(request: Request) {
       const value = f.get("value");
       return json(await attachPdf(id, which, file, typeof value === "string" ? value.slice(0, 100) : undefined, f.get("replace") === "1"));
     }
-    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; files?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown; with?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { action?: string; id?: unknown; value?: unknown; file?: unknown; files?: unknown; text?: unknown; email?: unknown; name?: unknown; code?: unknown; clientId?: unknown; clientSecret?: unknown; with?: unknown; parts?: unknown } | null;
     const id = String(b?.id ?? "");
     if (b?.action === "signer") return json(await setSigner(me.id, { email: b.email, name: b.name }));
     if (b?.action === "dscPair") {
@@ -195,8 +195,7 @@ export async function POST(request: Request) {
     if (b?.action === "eway") return json(await setEway(id, b.value));
     if (b?.action === "check") return json({ status: await checkInvoiceSign(id) });
     if (b?.action === "dscSign") {
-      const w = typeof b.with === "string" ? b.with : "";
-      const f = await mergedInvoicePdf(id, { po: /\bpo\b/.test(w), others: /\bothers\b/.test(w) });
+      const f = await mergedInvoicePdf(id, partsFrom(typeof b.parts === "string" ? b.parts : null, typeof b.with === "string" ? b.with : "") ?? ["invoice"]);
       return json({ ...(await queueJob({ invoiceId: id, number: f.number, title: f.name, spot: f.spot, bytes: f.bytes, by: me.name })), skipped: f.skipped });
     }
     if (b?.action === "draft") return json(await draftInvoiceSign(id));

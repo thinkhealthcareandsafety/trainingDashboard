@@ -3,7 +3,7 @@ import { db } from "./db";
 import { booksApi } from "./quotations";
 import { fetchDetail } from "./zoho";
 import { poInPdf, poKey } from "./poMatch";
-import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState, splitAttachments, isSignedFile, signedFileName } from "./invoiceConverterRules";
+import { type ConvCustomer, ewayFromText, poFromText, ewayFileName, cleanEway, groupByCustomer, isEwayFile, needsEway, poFileTest, piOf, poFileName, poState, splitAttachments, isSignedFile, signedFileName, mergedName, type MergePart } from "./invoiceConverterRules";
 
 /*
  * The Invoice Converter's data and its writes to Zoho Books (owner, 17 Nov).
@@ -351,41 +351,51 @@ export async function draftInvoiceSign(invoiceId: string): Promise<{ url: string
 }
 
 /**
- * What goes into a merged PDF (owner, 27 Nov: download Invoice, Invoice - PO, Invoice - Attachment, or Invoice -
- * Attachment - PO). "po" brings the e-way bill along with it, as the merge always did; "others" = the other attachments.
+ * What goes into a merged PDF, in order (owner, 28 Nov: ticked in a sequence — invoice, PO, e-way bill, other
+ * attachments, PI, files on the PI). Zoho Sign's merge and the older "with=" downloads use invoice → PO → e-way bill.
  */
-export type MergePick = { po: boolean; others: boolean };
-/** The invoice PDF from Zoho Books, then (as picked) its other attachments, its PO and e-way bill, as one PDF. */
-async function mergedFor(invoiceId: string, pick: MergePick = { po: true, others: false }) {
+/** The parts picked, from Zoho Books, as one PDF in the order picked; where the invoice's own pages begin and end. */
+async function mergedFor(invoiceId: string, order: MergePart[] = ["invoice", "po", "eway"]) {
   const { booksFile } = await import("./quotations");
   const { mergeParts } = await import("./pdfMerge");
   const d = await fetchDetail("invoices", invoiceId);
   const number = String(d.invoice_number ?? invoiceId);
   const docs = ((d.documents as { document_id?: string; file_name?: string }[] | undefined) ?? []).filter((x) => x.document_id);
-  const parts: { bytes: Uint8Array; type: string; name: string }[] = [];
-  const inv = await booksFile(`/invoices/${invoiceId}`, { accept: "pdf" });
-  parts.push({ ...inv, name: `Invoice ${number}.pdf` });
   const row = await (await sales()).findOne({ _id: `invoices:${invoiceId}` });
   const isPo = poFileTest(row?.row.cf_purchase_order_number, (await (await extrasCol()).findOne({ _id: invoiceId }))?.poRead);
   const { po, eway, others } = splitAttachments(docs, (x) => String(x.file_name ?? ""), isPo);
-  for (const doc of [...(pick.po ? [po, eway] : []), ...(pick.others ? others : [])]) { // Invoice → PO → Attachment (owner, 27 Nov)
-    if (!doc) continue;
-    const f = await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`);
-    parts.push({ ...f, name: String(doc.file_name ?? "attachment") });
+  const file = async (doc: { document_id?: string; file_name?: string }) => ({ ...(await booksFile(`/invoices/${invoiceId}/documents/${doc.document_id}`)), name: String(doc.file_name ?? "attachment") });
+  const pi = order.includes("pi") || order.includes("pifiles") ? await import("./piFiles").then((m) => m.piOfInvoice(invoiceId)) : null;
+  const parts: { bytes: Uint8Array; type: string; name: string }[] = [];
+  let invoiceAt = -1;
+  for (const part of order) {
+    if (part === "invoice") { invoiceAt = parts.length; parts.push({ ...(await booksFile(`/invoices/${invoiceId}`, { accept: "pdf" })), name: `Invoice ${number}.pdf` }); }
+    if (part === "po" && po) parts.push(await file(po));
+    if (part === "eway" && eway) parts.push(await file(eway));
+    if (part === "others") for (const x of others) parts.push(await file(x));
+    if (part === "pi" && pi) parts.push({ ...(await booksFile(`/salesorders/${pi.id}`, { accept: "pdf" })), name: `${pi.number}.pdf` });
+    if (part === "pifiles" && pi) {
+      const { piDocs } = await import("./piFiles");
+      for (const x of await piDocs(pi.id)) parts.push({ ...(await booksFile(`/salesorders/${pi.id}/documents/${x.document_id}`)), name: String(x.file_name ?? "attachment") });
+    }
   }
+  if (!parts.length) throw new Error("Nothing to merge: none of the picked files is on this invoice.");
   const merged = await mergeParts(parts, `Invoice ${number}`);
-  return { merged, names: parts.map((p) => p.name), number, customer: String(d.customer_name ?? "") };
+  // The invoice's own pages (for the DSC stamp): from where it starts to where the next part starts.
+  const invStart = invoiceAt >= 0 ? merged.starts[invoiceAt] : 0;
+  const invPages = invoiceAt >= 0 ? (merged.starts[invoiceAt + 1] ?? Number.MAX_SAFE_INTEGER) - invStart : 1;
+  return { merged, names: parts.map((p) => p.name), number, pi: pi?.number ?? null, customer: String(d.customer_name ?? ""), invStart, invPages };
 }
 
-/** The merged PDF to download as it is (owner, 17 Nov: Zoho Sign's plan doesn't send by API, so merging works on its own too). */
-export async function mergedInvoicePdf(invoiceId: string, pick?: MergePick): Promise<{ bytes: Uint8Array; name: string; skipped: string[]; number: string; spot: { page: number; x: number; y: number; w: number; h: number } }> {
+/** The merged PDF to download or sign, its parts in `order` (none = invoice → PO → e-way bill). */
+export async function mergedInvoicePdf(invoiceId: string, order?: MergePart[]): Promise<{ bytes: Uint8Array; name: string; skipped: string[]; number: string; spot: { page: number; x: number; y: number; w: number; h: number } }> {
   const { dscSpot, findBankLine, findSignLabel } = await import("./pdfMerge");
-  const { merged, number } = await mergedFor(invoiceId, pick);
-  const tail = pick ? [pick.po && "PO", pick.others && "Attachment"].filter(Boolean).join(" - ") : "merged";
-  // Where the DSC signer puts its stamp: under the T&C on page 1 (owner, 28 Nov).
-  const bank = await findBankLine(merged.bytes);
-  const spot = dscSpot(bank, bank ? null : await findSignLabel(merged.bytes, merged.firstPages));
-  return { bytes: merged.bytes, name: `Invoice ${number}${tail ? ` - ${tail}` : ""}.pdf`, skipped: merged.skipped ?? [], number, spot };
+  const { merged, number, pi, invStart, invPages } = await mergedFor(invoiceId, order);
+  // Where the DSC signer puts its stamp: under the T&C on the invoice's first page (owner, 28 Nov), wherever the
+  // invoice falls in the order; without an invoice, the first page.
+  const bank = await findBankLine(merged.bytes, invStart);
+  const spot = dscSpot(bank, bank ? null : await findSignLabel(merged.bytes, invPages, invStart));
+  return { bytes: merged.bytes, name: order ? mergedName(number, pi, order) : `Invoice ${number} - merged.pdf`, skipped: merged.skipped ?? [], number, spot };
 }
 
 /**

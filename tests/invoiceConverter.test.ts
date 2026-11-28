@@ -1,6 +1,6 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments, isSignedFile, signedFileName } from "@/lib/invoiceConverterRules";
+import { ewayFileName, groupByCustomer, isEwayFile, isPoFile, needsEway, poFileName, poFileTest, poState, splitAttachments, isSignedFile, signedFileName, partsFrom, mergedName } from "@/lib/invoiceConverterRules";
 import { dscSpot } from "@/lib/pdfMerge";
 import { db } from "@/lib/db";
 import { resetFakeDb } from "./fakes/db";
@@ -291,4 +291,14 @@ test("the DSC stamp sits under the T&C's Bank Address line on page 1; without it
   assert.equal(dscSpot({ page: 0, x: 45.6, y: 40, pageHeight: 841.69 }).y, 20);
   assert.deepEqual(dscSpot(null, { page: 1, x: 412.9, y: 300, pageHeight: 841.69 }), { page: 1, x: 123, y: 301, w: 200, h: 56 });
   assert.equal(dscSpot(null).page, 0);
+});
+
+test("merged PDF parts: in the order ticked, each once; the older with= still works; the name follows the order (28 Nov)", () => {
+  assert.deepEqual(partsFrom("pi,invoice,po,pi,bogus"), ["pi", "invoice", "po"]);
+  assert.equal(partsFrom("bogus"), undefined);
+  assert.equal(partsFrom(null, null), undefined);
+  assert.deepEqual(partsFrom(null, "po,others"), ["invoice", "po", "eway", "others"]);
+  assert.deepEqual(partsFrom(null, ""), ["invoice"]);
+  assert.equal(mergedName("2026-01-552", "Performa-25-1179", ["pi", "invoice", "po", "pifiles"]), "Performa-25-1179 - Invoice 2026-01-552 - PO - PI attachment.pdf");
+  assert.equal(mergedName("2026-01-552", null, ["invoice"]), "Invoice 2026-01-552.pdf");
 });

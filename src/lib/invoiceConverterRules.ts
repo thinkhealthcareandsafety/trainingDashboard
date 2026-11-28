@@ -31,6 +31,28 @@ export function poFileTest(po: unknown, read: string[] = []): (name: string) => 
   return (name) => isPoFile(name) || read.includes(name) || (/\.pdf$/i.test(name) && !isEwayFile(name) && parts.some((p) => new RegExp(`(?<![A-Z0-9])${p}(?![A-Z0-9])`, "i").test(name)));
 }
 export const isEwayFile = (name: string) => /e-?way/i.test(name);
+/**
+ * What can go into a merged PDF, in the order ticked (owner, 28 Nov: "make it check box … in the sequence they click the
+ * checkboxes that sequence the merged pdf will be"): the invoice, its PO, its e-way bill, its other attachments, its PI,
+ * and the files on the PI.
+ */
+export const MERGE_PARTS = ["invoice", "po", "eway", "others", "pi", "pifiles"] as const;
+export type MergePart = (typeof MERGE_PARTS)[number];
+export const PART_LABEL: Record<MergePart, string> = { invoice: "Invoice", po: "PO", eway: "E-way bill", others: "Attachment", pi: "PI", pifiles: "PI attachment" };
+/** The parts asked for (`parts=pi,invoice,po`, in that order, each once); the older `with=po,others` still works; none = undefined. */
+export function partsFrom(parts?: string | null, withQ?: string | null): MergePart[] | undefined {
+  if (parts) {
+    const out = [...new Set(parts.split(",").map((s) => s.trim().toLowerCase()))].filter((p): p is MergePart => (MERGE_PARTS as readonly string[]).includes(p));
+    return out.length ? out : undefined;
+  }
+  if (withQ === null || withQ === undefined) return undefined;
+  return ["invoice", ...(/\bpo\b/.test(withQ) ? (["po", "eway"] as const) : []), ...(/\bothers\b/.test(withQ) ? (["others"] as const) : [])];
+}
+/** The merged PDF's name, its parts in order: "Invoice 2026-01-552 - PO - Performa-25-1179.pdf". */
+export function mergedName(number: string, pi: string | null, parts: MergePart[]): string {
+  return `${parts.map((p) => (p === "invoice" ? `Invoice ${number}` : p === "pi" ? pi || "PI" : PART_LABEL[p])).join(" - ") || `Invoice ${number}`}.pdf`;
+}
+
 /** The DSC-signed copy put on the invoice (owner, 27 Nov: sign with the DSC token instead of Zoho Sign). */
 export const signedFileName = (invoice: string) => `Invoice ${invoice} signed.pdf`;
 export const isSignedFile = (name: string) => /^invoice\b.*\bsigned\.pdf$/i.test(name.trim());

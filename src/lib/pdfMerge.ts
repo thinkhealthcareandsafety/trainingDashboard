@@ -7,7 +7,8 @@ import { PDFDocument } from "pdf-lib";
  */
 
 export type Part = { bytes: Uint8Array; type: string; name?: string };
-export type Merged = { bytes: Uint8Array; firstPages: number; signPage: { index: number; width: number; height: number }; skipped: string[] };
+/** `starts`: the page (0-based) where each part begins (a skipped part begins where the next one does). */
+export type Merged = { bytes: Uint8Array; firstPages: number; signPage: { index: number; width: number; height: number }; skipped: string[]; starts: number[] };
 
 const isPdf = (p: Part) => /pdf/i.test(p.type) || /\.pdf$/i.test(p.name ?? "") || (p.bytes[0] === 0x25 && p.bytes[1] === 0x50); // "%P"
 const isPng = (p: Part) => /png/i.test(p.type) || /\.png$/i.test(p.name ?? "");
@@ -19,8 +20,10 @@ export async function mergeParts(parts: Part[], title = "Invoice"): Promise<Merg
   out.setProducer("Think Health dashboard");
   const skipped: string[] = [];
   let firstPages = 0;
+  const starts: number[] = [];
   for (const [i, p] of parts.entries()) {
     const before = out.getPageCount();
+    starts.push(before);
     try {
       if (isPdf(p)) {
         const src = await PDFDocument.load(p.bytes, { ignoreEncryption: true });
@@ -42,7 +45,7 @@ export async function mergeParts(parts: Part[], title = "Invoice"): Promise<Merg
   if (!out.getPageCount()) throw new Error("Nothing to merge: the invoice PDF couldn't be read.");
   const index = Math.max(0, firstPages - 1);
   const { width, height } = out.getPage(index).getSize();
-  return { bytes: await out.save(), firstPages, signPage: { index, width, height }, skipped };
+  return { bytes: await out.save(), firstPages, signPage: { index, width, height }, skipped, starts };
 }
 
 /** The signature boxes' top-left on the invoice's last page: bottom right, clear of the page edge (points, top-left origin). */
@@ -81,12 +84,12 @@ export function dscSpot(bank: SignLabel | null, label: SignLabel | null = null):
   return { page: l.page, x: Math.round(l.x - 290), y: Math.round(l.y + 1), w, h };
 }
 
-/** The first text matching `re` in the first `pages` pages: its page (0-based), left x and baseline y. */
-async function findText(bytes: Uint8Array, pages: number, re: RegExp): Promise<SignLabel | null> {
+/** The first text matching `re` in `pages` pages from page `from` (0-based): its page (0-based), left x and baseline y. */
+async function findText(bytes: Uint8Array, pages: number, re: RegExp, from = 0): Promise<SignLabel | null> {
   try {
     const { getDocumentProxy } = await import("unpdf");
     const pdf = await getDocumentProxy(new Uint8Array(bytes));
-    for (let p = 1; p <= Math.min(pages, pdf.numPages); p++) {
+    for (let p = from + 1; p <= Math.min(from + pages, pdf.numPages); p++) {
       const page = await pdf.getPage(p);
       const items = (await page.getTextContent()).items as { str?: string; transform?: number[] }[];
       const hit = items.find((it) => re.test(it.str ?? ""));
@@ -99,6 +102,6 @@ async function findText(bytes: Uint8Array, pages: number, re: RegExp): Promise<S
 }
 
 /** Finds "Authorized Signature" in the invoice's own pages (the first `pages` of the merged PDF; the T&C page has none). */
-export const findSignLabel = (bytes: Uint8Array, pages: number) => findText(bytes, pages, /authori[sz]ed\s+signat/i);
-/** The "Bank Address" line of the invoice's Terms & Conditions, on its first page only. */
-export const findBankLine = (bytes: Uint8Array) => findText(bytes, 1, /^\s*bank\s+address/i);
+export const findSignLabel = (bytes: Uint8Array, pages: number, from = 0) => findText(bytes, pages, /authori[sz]ed\s+signat/i, from);
+/** The "Bank Address" line of the invoice's Terms & Conditions, on the invoice's first page only (`page`, 0-based). */
+export const findBankLine = (bytes: Uint8Array, page = 0) => findText(bytes, 1, /^\s*bank\s+address/i, page);

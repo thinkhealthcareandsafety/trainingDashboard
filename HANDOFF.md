@@ -63,6 +63,9 @@ long each step took: open it first to find the slow step (reader start, or each 
 - **PI menu (28 Nov, s39):** under each invoice number "PI Performa-… ▾" (`PiMenu`): Download PI / Download PI - Attachment /
   + Attach to PI (any files, to the sales order in Zoho). `src/lib/piFiles.ts` (sales order from salesDocs by PI number, else invoice detail);
   route `?piFiles=`, `?piPdf=&with=others`, multipart `which: "pi"`. Not yet tried live.
+- **One picker (28 Nov):** Download PDF and Sign with DSC open the same `PartPicker`: tick Invoice / PO / E-way bill / Attachments /
+  PI / PI attachments; numbers 1,2,3 = order in the PDF. `?merged=&parts=pi,invoice,po` and `dscSign {parts}` (`partsFrom`, `mergedName`;
+  old `with=` kept). DSC stamp goes on the invoice's first page wherever it falls (`mergeParts` returns `starts`). PI menu = attach + list only.
 - Owner signs merged PDFs with his DSC token (mToken CryptoID, PantaSign Class 3, valid to 19 Sep 2028) in Adobe Reader:
   unblock the downloaded file first (Protected View greys out "Digitally sign"); cert is in the Windows store, no PKCS#11 setup.
 

@@ -33,12 +33,12 @@ export async function piOfInvoice(invoiceId: string): Promise<{ id: string; numb
   return { id, number: String(d.salesorder_number ?? d.reference_number ?? "PI") };
 }
 
-const docsOf = async (soId: string) => ((((await fetchDetail("salesorders", soId)).documents as Doc[] | undefined) ?? []).filter((x) => x.document_id));
+export const piDocs = async (soId: string) => ((((await fetchDetail("salesorders", soId)).documents as Doc[] | undefined) ?? []).filter((x) => x.document_id));
 
 /** The PI's number and the names of the files on it. */
 export async function piFiles(invoiceId: string): Promise<{ pi: string; files: string[] }> {
   const so = await piOfInvoice(invoiceId);
-  return { pi: so.number, files: (await docsOf(so.id)).map((x) => String(x.file_name ?? "attachment")) };
+  return { pi: so.number, files: (await piDocs(so.id)).map((x) => String(x.file_name ?? "attachment")) };
 }
 
 /** The PI's PDF from Zoho, alone or followed by its attachments (PDFs and pictures; others left out and named). */
@@ -50,7 +50,7 @@ export async function piPdf(invoiceId: string, withFiles: boolean): Promise<{ by
   if (!withFiles) return { bytes: pdf.bytes, name, skipped: [] };
   const { mergeParts } = await import("./pdfMerge");
   const parts = [{ ...pdf, name: `${so.number}.pdf` }];
-  for (const x of await docsOf(so.id)) parts.push({ ...(await booksFile(`/salesorders/${so.id}/documents/${x.document_id}`)), name: String(x.file_name ?? "attachment") });
+  for (const x of await piDocs(so.id)) parts.push({ ...(await booksFile(`/salesorders/${so.id}/documents/${x.document_id}`)), name: String(x.file_name ?? "attachment") });
   const merged = await mergeParts(parts, so.number);
   return { bytes: merged.bytes, name, skipped: merged.skipped };
 }

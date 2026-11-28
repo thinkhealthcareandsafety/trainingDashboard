@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { PO_AUTO_SCAN } from "@/lib/poAuto";
 import { createPortal } from "react-dom";
 import type { ConvCustomer, ConvInvoice } from "@/lib/invoiceConverterRules";
-import { EWAY_OVER, blocksOf } from "@/lib/invoiceConverterRules";
+import { EWAY_OVER, PART_LABEL, blocksOf, type MergePart } from "@/lib/invoiceConverterRules";
 import type { PoLog, PoRun } from "@/lib/poLog";
 import { PoScanLog, type ScanNow } from "./PoScanLog";
 import { Skeleton, toneOf } from "./ui";
@@ -438,11 +438,10 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
   // signs it with the token (PIN saved there) and sends it back; it's put on the invoice in Zoho and downloaded here.
   const dsc = useContext(DscCtx);
   const [signing, setSigning] = useState("");
-  const signDsc = async (pick: { po: boolean; others: boolean }, title: string) => {
+  const signDsc = async (order: MergePart[]) => {
     setChoose(""); setError(""); setSigning("Making the PDF…");
     try {
-      const w = [pick.po && "po", pick.others && "others"].filter(Boolean).join(",");
-      const q = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "dscSign", id: i.id, with: w }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
+      const q = await fetch("/api/invoice-converter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "dscSign", id: i.id, parts: order.join(",") }) }).then((x) => x.json()).catch(() => ({ error: "Couldn't reach the server" }));
       if (q.error || !q.job) return setError(q.error ?? "Couldn't send it for signing");
       const skipped: string[] = q.skipped ?? [];
       // Asked every 2.5 s for up to 3 minutes; after that it's still signed when the PC picks it up (within 30 min).
@@ -453,7 +452,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
         if (st.status === "done") {
           onPatch({ signedPdf: st.signedName ?? `Invoice ${i.number} signed.pdf` });
           const a = document.createElement("a");
-          a.href = `/api/invoice-converter?signed=${i.id}`; a.download = `${title.replace("Invoice", `Invoice ${i.number}`)} signed.pdf`;
+          a.href = `/api/invoice-converter?signed=${i.id}`; a.download = st.signedName ?? `Invoice ${i.number} signed.pdf`;
           document.body.appendChild(a); a.click(); a.remove();
           if (skipped.length) setError(`Signed. Left out (not a PDF or picture): ${skipped.join(", ")}`);
           return;
@@ -464,18 +463,17 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
       setError("Not signed yet: the signer PC hasn't answered. It will be signed and put on the invoice when that PC is on with the token in (within 30 minutes); refresh later.");
     } catch { setError("Couldn't reach the server"); } finally { setSigning(""); }
   };
-  // Four ways (owner, 27 Nov): Invoice; Invoice - PO; Invoice - Attachment; Invoice - PO - Attachment (in that order in the PDF).
-  const downloadMerged = async (pick: { po: boolean; others: boolean }, title: string) => {
-    setMerging(title); setError("");
+  // The parts ticked, in the order ticked (owner, 28 Nov), as one PDF; the name comes from the server.
+  const downloadMerged = async (order: MergePart[]) => {
+    setMerging("the PDF"); setError("");
     try {
-      const w = [pick.po && "po", pick.others && "others"].filter(Boolean).join(",");
-      const r = await fetch(`/api/invoice-converter?merged=${i.id}&with=${w}`, { cache: "no-store" });
+      const r = await fetch(`/api/invoice-converter?merged=${i.id}&parts=${order.join(",")}`, { cache: "no-store" });
       if (!r.ok) { const j = await r.json().catch(() => ({})); setError(j.error ?? "Couldn't make the merged PDF"); return; }
       const skipped = decodeURIComponent(r.headers.get("x-skipped") ?? "");
       if (skipped) setError(`Left out (not a PDF or picture): ${skipped}`);
       const url = URL.createObjectURL(await r.blob());
       const a = document.createElement("a");
-      a.href = url; a.download = `${title.replace("Invoice", `Invoice ${i.number}`)}.pdf`;
+      a.href = url; a.download = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? `Invoice ${i.number}.pdf`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch { setError("Couldn't reach the server"); } finally { setMerging(""); setChoose(""); }
@@ -621,21 +619,7 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
         {/* The merged PDF on its own (owner, 17 Nov: Zoho Sign's plan refuses API sends). */}
         {/* Fetched here (not a plain link) so the spinner shows while Zoho's files are gathered and merged. */}
         <button type="button" className="mt-1 block text-left text-[12.5px] font-semibold text-brand hover:underline disabled:no-underline" disabled={Boolean(merging) || Boolean(signing)} onClick={() => setChoose((v) => v === "download" ? "" : "download")} aria-expanded={choose === "download"}>{merging ? <Busy text={`Making ${merging}…`} /> : `Download PDF ${choose === "download" ? "▴" : "▾"}`}</button>
-        {choose && !merging && !signing && (
-          <div className="mt-1 flex flex-col items-start gap-0.5 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
-            {choose === "sign" && <p className="px-2 pb-0.5 text-[12px] text-muted">Sign which PDF?</p>}
-            {([
-              ["Invoice", { po: false, others: false }, true],
-              ["Invoice - PO", { po: true, others: false }, i.poPdf],
-              ["Invoice - Attachment", { po: false, others: true }, Boolean(i.others?.length)],
-              ["Invoice - PO - Attachment", { po: true, others: true }, i.poPdf && Boolean(i.others?.length)],
-            ] as const).map(([title, pick, ok]) => (
-              <button key={title} type="button" disabled={!ok} onClick={() => choose === "sign" ? signDsc(pick, title) : downloadMerged(pick, title)}
-                className="w-full rounded px-2 py-1 text-left font-semibold text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:font-normal disabled:text-muted disabled:hover:bg-transparent"
-                title={ok ? `${choose === "sign" ? "Sign" : "Download"} ${title}` : title.includes("PO") && !i.poPdf ? "No PO PDF on this invoice yet" : "No other attachments on this invoice yet"}>{title}</button>
-            ))}
-          </div>
-        )}
+        {choose && !merging && !signing && <PartPicker i={i} mode={choose} onGo={(order) => (choose === "sign" ? signDsc(order) : downloadMerged(order))} />}
       </div>
       {error && <p className="col-span-full rounded-lg bg-high-bg px-3 py-2 text-[13px] text-high">{error}</p>}
     </li>
@@ -647,8 +631,53 @@ function Row({ i, sign, onPatch: patchIds, link, pi, customer }: { i: ConvInvoic
  * the attachment name"): any files, attached to this invoice in Zoho one by one under their own names.
  */
 /**
- * The invoice's PI (owner, 28 Nov: "see the PIs of those invoices too … attach an attachment with PI, download PI with
- * attachment or download only PI"): its number, and a menu that reads the files on the PI in Zoho when opened.
+ * One picker for Download PDF and Sign with DSC (owner, 28 Nov: "merge it into one … make it check box … in the sequence
+ * they click the checkboxes that sequence the merged pdf will be. give numbers 1 2 3"): tick the parts; each tick gets
+ * the next number and the PDF follows that order; unticking renumbers the rest. The PI's files are read when it opens.
+ */
+function PartPicker({ i, mode, onGo }: { i: ConvInvoice; mode: "download" | "sign"; onGo: (order: MergePart[]) => void }) {
+  const [order, setOrder] = useState<MergePart[]>(["invoice"]);
+  const [piCount, setPiCount] = useState<number | null>(i.pi ? null : 0);
+  useEffect(() => {
+    if (!i.pi) return;
+    let live = true;
+    fetch(`/api/invoice-converter?piFiles=${i.id}`, { cache: "no-store" }).then((x) => x.json()).then((r) => { if (live) setPiCount(r.files?.length ?? 0); }).catch(() => { if (live) setPiCount(0); });
+    return () => { live = false; };
+  }, [i.id, i.pi]);
+  const parts: { part: MergePart; label: string; ok: boolean; why: string }[] = [
+    { part: "invoice", label: `Invoice ${i.number}`, ok: true, why: "" },
+    { part: "po", label: PART_LABEL.po, ok: i.poPdf, why: "No PO PDF on this invoice yet" },
+    { part: "eway", label: PART_LABEL.eway, ok: i.ewayPdf, why: "No e-way bill PDF on this invoice" },
+    { part: "others", label: `Attachments${i.others?.length ? ` (${i.others.length})` : ""}`, ok: Boolean(i.others?.length), why: "No other attachments on this invoice yet" },
+    ...(i.pi ? [
+      { part: "pi" as const, label: `PI ${i.pi}`, ok: true, why: "" },
+      { part: "pifiles" as const, label: `PI attachments${piCount ? ` (${piCount})` : ""}`, ok: Boolean(piCount), why: piCount === null ? "Reading the PI…" : "No files on this PI yet" },
+    ] : []),
+  ];
+  const flip = (p: MergePart) => setOrder((o) => (o.includes(p) ? o.filter((x) => x !== p) : [...o, p]));
+  return (
+    <div className="mt-1 w-60 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
+      <p className="px-2 pb-1 text-[12px] text-muted">Tick in the order you want them in the PDF</p>
+      {parts.map(({ part, label, ok, why }) => {
+        const n = order.indexOf(part) + 1;
+        return (
+          <label key={part} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 ${ok ? "cursor-pointer hover:bg-surface-2" : "cursor-not-allowed text-muted"}`} title={ok ? "" : why}>
+            <input type="checkbox" className="sr-only" checked={n > 0} disabled={!ok} onChange={() => flip(part)} />
+            <span aria-hidden className={`num grid size-5 shrink-0 place-items-center rounded-md border text-[11px] font-bold ${n ? "border-brand bg-brand text-brand-ink" : "border-line-strong bg-surface"}`}>{n || ""}</span>
+            <span className={`truncate ${ok ? "font-semibold text-ink" : ""}`}>{label}</span>
+          </label>
+        );
+      })}
+      <button type="button" disabled={!order.length} onClick={() => onGo(order)} className="press mt-1.5 h-9 w-full rounded-full bg-brand text-[13px] font-semibold text-brand-ink disabled:opacity-50">
+        {mode === "sign" ? "Sign with DSC" : "Download"}{order.length > 1 ? ` · ${order.length} in one PDF` : ""}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The invoice's PI (owner, 28 Nov: "see the PIs of those invoices too … attach an attachment with PI"): its number, and a
+ * menu to put files on the PI in Zoho and see which are there. (Downloading it is in the Download PDF / Sign picker.)
  */
 function PiMenu({ i }: { i: ConvInvoice }) {
   const [open, setOpen] = useState(false);
@@ -662,21 +691,6 @@ function PiMenu({ i }: { i: ConvInvoice }) {
     if (r.error) { setNote(r.error); setFiles([]); } else setFiles(r.files ?? []);
   };
   const toggle = () => { const v = !open; setOpen(v); if (v && files === null) void read(); };
-  const download = async (withFiles: boolean) => {
-    const title = `${i.pi}${withFiles ? " - Attachment" : ""}`;
-    setBusy(title); setNote("");
-    try {
-      const r = await fetch(`/api/invoice-converter?piPdf=${i.id}${withFiles ? "&with=others" : ""}`, { cache: "no-store" });
-      if (!r.ok) { const j = await r.json().catch(() => ({})); return setNote(j.error ?? "Couldn't get the PI"); }
-      const skipped = decodeURIComponent(r.headers.get("x-skipped") ?? "");
-      if (skipped) setNote(`Left out (not a PDF or picture): ${skipped}`);
-      const url = URL.createObjectURL(await r.blob());
-      const a = document.createElement("a");
-      a.href = url; a.download = `${title}.pdf`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch { setNote("Couldn't reach the server"); } finally { setBusy(""); }
-  };
   const attach = async (list: FileList | null) => {
     const picked = [...(list ?? [])];
     if (!picked.length) return;
@@ -694,13 +708,11 @@ function PiMenu({ i }: { i: ConvInvoice }) {
   const item = "w-full rounded px-2 py-1 text-left font-semibold text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:font-normal disabled:text-muted disabled:hover:bg-transparent";
   return (
     <div className="mt-0.5">
-      <button type="button" onClick={toggle} aria-expanded={open} className="num text-[12.5px] font-semibold text-brand hover:underline" title={`The PI this invoice was made from: download it, or attach files to it in Zoho`}>
+      <button type="button" onClick={toggle} aria-expanded={open} className="num text-[12.5px] font-semibold text-brand hover:underline" title="The PI this invoice was made from: attach files to it in Zoho (download it from Download PDF)">
         {busy ? <Busy text={busy} /> : <>PI {i.pi} {open ? "▴" : "▾"}</>}
       </button>
       {open && (
         <div className="mt-1 flex w-56 flex-col items-start gap-0.5 rounded-lg border border-line bg-surface p-1.5 text-[12.5px]">
-          <button type="button" className={item} disabled={Boolean(busy)} onClick={() => download(false)}>Download PI</button>
-          <button type="button" className={item} disabled={Boolean(busy) || !files?.length} onClick={() => download(true)} title={files?.length ? "The PI, then the files on it, in one PDF" : "No files on this PI yet"}>Download PI - Attachment</button>
           <button type="button" className={`${item} text-brand`} disabled={Boolean(busy)} onClick={() => pick.current?.click()}>+ Attach to PI</button>
           <div className="w-full border-t border-line/70 px-2 pt-1 text-[12px] text-muted">
             {files === null ? <Busy text="Reading the PI…" /> : files.length ? files.map((n) => <p key={n} className="truncate" title={n}>{n}</p>) : "No files on this PI yet."}
